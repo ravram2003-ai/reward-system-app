@@ -1,0 +1,13 @@
+{
+  "name": "reward-system-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static prototype for customizable goal reward systems and accountability communities.",
+  "scripts": {
+    "start": "node work/serve-app.cjs",
+    "test": "node --check outputs/app.js && node --check outputs/scoring.js && node work/scoring-tests.cjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

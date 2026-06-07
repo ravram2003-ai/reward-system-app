@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+
+# Build output from common JS app frameworks
+dist/
+build/
+.next/
+out/
+.nuxt/
+.svelte-kit/
+
+# Tool caches
+.cache/
+.parcel-cache/
+.vite/
+.turbo/
+.eslintcache
+
+# Environment and secret files
+.env
+.env.*
+!.env.example
+*.local
+
+# Logs and temporary files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tmp
+*.temp
+tmp/
+temp/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Codex/local workspace metadata
+.codex/
+.agents/
+
+# Generated local test artifacts
+work/*.png
+work/*.log
+work/*.err.log
+
+# Local browser automation helpers with machine-specific paths
+work/smoke-test.cjs
+work/quick-check.cjs

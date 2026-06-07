@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pointwell | Custom Goal Rewards</title>
+    <link rel="stylesheet" href="styles.css?v=20260603-create-options">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Workspace">
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true">P</div>
+          <div>
+            <p class="eyebrow">Pointwell</p>
+            <h1>Reward systems</h1>
+          </div>
+        </div>
+
+        <section class="profile-card" aria-label="Current profile">
+          <div class="avatar" id="profileAvatar" aria-hidden="true">AR</div>
+          <div class="profile-main">
+            <strong id="profileNameLabel">Avery Rivera</strong>
+            <span id="profileHandleLabel">@avery</span>
+          </div>
+          <span class="status-pill" id="profileVisibilityLabel">Public</span>
+        </section>
+
+        <nav class="nav-tabs" aria-label="Primary views">
+          <button class="nav-tab active" type="button" data-view="dashboard" aria-label="Today">
+            <span class="tab-icon" aria-hidden="true">⌂</span>
+            <span>Today</span>
+          </button>
+          <button class="nav-tab" type="button" data-view="systems" aria-label="Systems">
+            <span class="tab-icon" aria-hidden="true">◎</span>
+            <span>Systems</span>
+          </button>
+          <button class="nav-tab" type="button" data-view="discover" aria-label="Discover">
+            <span class="tab-icon" aria-hidden="true">⌕</span>
+            <span>Discover</span>
+          </button>
+          <button class="nav-tab" type="button" data-view="communities" aria-label="Communities">
+            <span class="tab-icon" aria-hidden="true">◧</span>
+            <span>Communities</span>
+          </button>
+          <button class="nav-tab" type="button" data-view="profile" aria-label="Profile">
+            <span class="tab-icon" aria-hidden="true">◌</span>
+            <span>Profile</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <span id="todayLabel"></span>
+          <button class="ghost-button small" type="button" id="resetDemoButton">Reset demo</button>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <section class="view is-visible" id="dashboardView" aria-labelledby="dashboardTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Daily check-in</p>
+              <h2 id="dashboardTitle">Score today</h2>
+            </div>
+            <div class="header-actions">
+              <select id="trackerSystemSelect" aria-label="Choose reward system"></select>
+              <button class="primary-button" type="button" id="saveEntryButton">
+                <span aria-hidden="true">✓</span>
+                <span>Save day</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="score-band">
+            <div class="score-summary">
+              <span class="score-label">Daily Point Total</span>
+              <strong id="liveScore">0</strong>
+              <div class="target-meter" aria-label="Daily point target progress">
+                <div class="target-meter-meta">
+                  <span id="dailyTargetLabel">0 / 0 target</span>
+                  <span id="dailyProgressLabel">0%</span>
+                </div>
+                <div class="target-track">
+                  <div class="target-fill" id="dailyTargetFill"></div>
+                </div>
+                <span class="target-status" id="dailyStatusLabel">Set a goal to track progress</span>
+              </div>
+            </div>
+            <div class="score-context">
+              <span id="activeSystemName">No system selected</span>
+              <button class="secondary-button" type="button" id="syncSampleButton">Sync sample data</button>
+            </div>
+            <div class="score-rules" aria-labelledby="heroRulesTitle">
+              <span id="heroRulesTitle">Today’s rules</span>
+              <div class="category-mini-list" id="categoryProgressList"></div>
+            </div>
+          </div>
+
+          <section class="tool-panel add-entry-panel" aria-labelledby="inputsTitle">
+            <div class="panel-heading">
+              <h3 id="inputsTitle">Add Entry</h3>
+              <span id="ruleCountLabel">0 rules</span>
+            </div>
+            <div class="input-stack" id="dailyInputList"></div>
+          </section>
+
+          <div class="dashboard-side-stack">
+            <section class="tool-panel" aria-labelledby="breakdownTitle">
+              <div class="panel-heading">
+                <h3 id="breakdownTitle">Entries Added Today</h3>
+                <span id="todaySavedLabel">Unsaved</span>
+              </div>
+              <div class="breakdown-list" id="scoreBreakdown"></div>
+            </section>
+          </div>
+
+          <section class="tool-panel rule-progress-panel" aria-labelledby="ruleProgressTitle">
+            <div class="panel-heading">
+              <h3 id="ruleProgressTitle">Goal Progress</h3>
+              <span>Every active goal</span>
+            </div>
+            <div class="rule-progress-list" id="ruleProgressList"></div>
+          </section>
+
+          <section class="section-band dashboard-history" aria-labelledby="historyTitle" hidden>
+            <div class="panel-heading">
+              <h3 id="historyTitle">Weekly points</h3>
+              <span id="historyCount">0 saved</span>
+            </div>
+            <div class="weekly-chart" id="weeklyChart" aria-label="Weekly point chart"></div>
+            <div class="history-strip" id="historyList"></div>
+          </section>
+        </section>
+
+        <section class="view" id="systemsView" aria-labelledby="systemsTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Builder</p>
+              <h2 id="systemsTitle">Build a Reward System</h2>
+              <p class="view-subtitle">Choose how you want to start.</p>
+            </div>
+            <button class="primary-button" type="button" id="newSystemButton">
+              <span aria-hidden="true">＋</span>
+              <span>Create New Reward System</span>
+            </button>
+          </div>
+
+          <section class="build-start-panel" id="buildStartPanel" aria-label="Build options">
+            <button class="build-option-card" type="button" data-build-mode="search">
+              <span class="build-option-icon" aria-hidden="true">&#8981;</span>
+              <strong>Search Public Systems</strong>
+              <span>Find public profiles and reward systems you can copy or customize.</span>
+            </button>
+            <button class="build-option-card" type="button" data-build-mode="ai">
+              <span class="build-option-icon" aria-hidden="true">&#10022;</span>
+              <strong>Generate with AI</strong>
+              <span>Tell the app your goals and get a suggested reward system.</span>
+            </button>
+            <button class="build-option-card" type="button" data-build-mode="scratch">
+              <span class="build-option-icon" aria-hidden="true">+</span>
+              <strong>Start From Scratch</strong>
+              <span>Build your own reward system manually with custom rules.</span>
+            </button>
+          </section>
+
+          <section class="build-panel" id="buildSearchPanel" aria-labelledby="buildSearchTitle" hidden>
+            <div class="panel-heading">
+              <div>
+                <h3 id="buildSearchTitle">Search Public Systems</h3>
+                <span>Find profiles and public systems to copy.</span>
+              </div>
+              <button class="ghost-button small" type="button" data-build-mode="home">Back</button>
+            </div>
+            <label class="search-field">
+              <span>Search profiles or reward systems</span>
+              <input id="buildPublicSearchInput" type="search" placeholder="Search profiles or reward systems...">
+            </label>
+            <div class="build-search-results" id="buildPublicSearchResults"></div>
+          </section>
+
+          <section class="build-panel" id="buildAiPanel" aria-labelledby="buildAiTitle" hidden>
+            <div class="panel-heading">
+              <div>
+                <h3 id="buildAiTitle">Generate with AI</h3>
+                <span>Describe your goals and review a draft before saving.</span>
+              </div>
+              <button class="ghost-button small" type="button" data-build-mode="home">Back</button>
+            </div>
+            <form class="ai-generator-form" id="buildAiForm">
+              <label>
+                <span>What are your main goals?</span>
+                <textarea id="aiGoalsInput" rows="2" placeholder="Example: Lose fat while keeping muscle and sleeping better"></textarea>
+              </label>
+              <label>
+                <span>What habits do you want to reward?</span>
+                <textarea id="aiRewardHabitsInput" rows="2" placeholder="Example: Steps, lifting, protein, studying, budget check-ins"></textarea>
+              </label>
+              <label>
+                <span>What habits do you want to penalize?</span>
+                <textarea id="aiPenaltyHabitsInput" rows="2" placeholder="Example: Missing workouts, overspending, sleeping under 7 hours"></textarea>
+              </label>
+              <label>
+                <span>What categories matter?</span>
+                <input id="aiCategoriesInput" type="text" placeholder="Example: Fitness, nutrition, sleep, academics, finance">
+              </label>
+              <label>
+                <span>How strict should the system be?</span>
+                <select id="aiStrictnessInput">
+                  <option value="balanced">Balanced</option>
+                  <option value="easy">Easy</option>
+                  <option value="intense">Intense</option>
+                </select>
+              </label>
+              <label>
+                <span>Any specific targets?</span>
+                <textarea id="aiTargetsInput" rows="2" placeholder="Example: 10,000 steps, 170g protein, 7.5 hours sleep, 2 hours studying"></textarea>
+              </label>
+              <button class="primary-button" type="submit">Generate Reward System</button>
+            </form>
+            <div class="ai-draft-review" id="aiDraftReview" hidden></div>
+          </section>
+
+          <div class="systems-layout">
+            <section class="system-list-wrap" aria-labelledby="savedSystemsTitle">
+              <div class="system-list-heading">
+                <h3 id="savedSystemsTitle">Your reward systems</h3>
+              </div>
+              <div class="system-list" id="systemList"></div>
+            </section>
+
+            <section class="editor-panel" id="systemEditorPanel" aria-labelledby="editorTitle" hidden>
+              <div class="panel-heading">
+                <h3 id="editorTitle">Reward system setup</h3>
+                <div class="inline-actions">
+                  <button class="ghost-button small" type="button" id="duplicateSystemButton">Duplicate</button>
+                  <button class="danger-button small" type="button" id="deleteSystemButton">Delete</button>
+                </div>
+              </div>
+
+              <div class="setup-flow-header">
+                <div>
+                  <span class="eyebrow" id="setupStepKicker">Step 1 of 4</span>
+                  <h3 id="setupStepTitle">Basic Info</h3>
+                  <p id="setupStepIntro">Start with the name, purpose, focus area, and visibility for this reward system.</p>
+                </div>
+                <div class="setup-stepper" id="systemSetupStepper" aria-label="Reward system setup steps"></div>
+              </div>
+
+              <section class="setup-step-panel" id="setupBasicStep" data-setup-step="0" aria-labelledby="setupBasicTitle">
+                <div class="setup-step-heading">
+                  <h3 id="setupBasicTitle">Basic Info</h3>
+                  <p>Name the system and describe what it is meant to help you track.</p>
+                </div>
+              <form class="form-grid" id="systemForm">
+                <label>
+                  <span>Reward system name</span>
+                  <input id="systemTitleInput" name="title" type="text" placeholder="Example: Fitness Cut" required>
+                </label>
+                <label>
+                  <span>Category or focus area</span>
+                  <input id="systemCategoryInput" name="category" type="text" list="categoryOptions" placeholder="Example: Fitness, Nutrition, Academics" required>
+                </label>
+                <label class="wide-field">
+                  <span>Intent / purpose</span>
+                  <textarea id="systemDescriptionInput" name="description" rows="2" placeholder="Example: Track lifting, steps, sleep, and nutrition"></textarea>
+                </label>
+                <label>
+                  <span>Visibility</span>
+                  <select id="systemVisibilityInput" name="visibility">
+                    <option value="private">Private</option>
+                    <option value="public">Public</option>
+                  </select>
+                </label>
+              </form>
+
+              <datalist id="categoryOptions">
+                <option value="Fitness"></option>
+                <option value="Running"></option>
+                <option value="Lifting"></option>
+                <option value="Sleep"></option>
+                <option value="Academics"></option>
+                <option value="Finance"></option>
+                <option value="Personal habits"></option>
+                <option value="Productivity"></option>
+                <option value="General wellness"></option>
+              </datalist>
+              </section>
+
+              <section class="setup-step-panel" id="setupRulesStep" data-setup-step="1" aria-labelledby="setupRulesTitle">
+              <div class="panel-heading rule-heading">
+                <div>
+                  <h3 id="setupRulesTitle">Scoring Rules</h3>
+                  <span id="selectedRuleCount">0 rules</span>
+                </div>
+                <button class="secondary-button small" type="button" id="addNewRuleButton">Add New Rule</button>
+              </div>
+
+              <div class="rule-list" id="ruleList"></div>
+
+              <form class="rule-form simple-rule-form" id="ruleForm" aria-label="Add scoring rule">
+                <div class="rule-form-status wide-field">
+                  <div>
+                    <span class="eyebrow">Rule builder</span>
+                    <strong id="ruleFormTitle">Add scoring rule</strong>
+                  </div>
+                  <button class="ghost-button small" type="button" id="cancelRuleEditButton">Cancel edit</button>
+                </div>
+
+                <section class="builder-step wide-field" aria-label="What are you tracking?">
+                  <div class="step-label">What are you tracking?</div>
+                  <div class="form-grid compact-grid">
+                    <label>
+                      <span>What do you want to track?</span>
+                      <input id="ruleLabelInput" type="text" placeholder="Example: Steps, Protein, Sleep, Studying">
+                      <small>Examples: Steps, Gym session, Sleep, Studying, Protein, Spending</small>
+                    </label>
+                    <label>
+                      <span>What unit is this measured in?</span>
+                      <input id="ruleUnitInput" type="text" placeholder="Example: steps, grams, hours, minutes, dollars">
+                      <small>Examples: steps, minutes, hours, grams, dollars, sessions, yes/no</small>
+                    </label>
+                  </div>
+                </section>
+
+                <section class="builder-step wide-field" aria-label="What is your goal?">
+                  <div class="step-label">What is your goal?</div>
+                  <label class="range-field" id="dailyGoalField">
+                    <span>Daily goal</span>
+                    <div class="paired-input">
+                      <input id="ruleDailyTargetSlider" type="range" min="0" max="20000" step="100" value="0">
+                      <input id="ruleDailyTargetInput" type="number" step="1" placeholder="Example: 10,000">
+                    </div>
+                    <small>Example: 10,000 steps, 60 minutes, 7 hours, 1 session</small>
+                  </label>
+                </section>
+
+                <section class="builder-step wide-field" aria-label="How do you earn points?">
+                  <div class="step-label">How do you earn points?</div>
+                  <label>
+                    <span>Choose the rule type</span>
+                    <select id="ruleSimpleStyleInput">
+                      <option value="goal">Give me points when I hit my goal</option>
+                      <option value="every">Give me points for every amount I complete</option>
+                      <option value="both">Give me both</option>
+                      <option value="yesNo">Yes/No goal</option>
+                      <option value="penalty">Penalty goal</option>
+                    </select>
+                  </label>
+
+                  <div class="conditional-fields" id="goalPointsFields">
+                    <label class="range-field">
+                      <span>Points for hitting the goal</span>
+                      <div class="paired-input">
+                        <input id="ruleGoalPointsSlider" type="range" min="0" max="10" step="0.5" value="0">
+                        <input id="ruleGoalPointsInput" type="number" step="0.5" placeholder="Example: 2">
+                      </div>
+                      <small>Example: +3 points if you hit 10,000 steps</small>
+                    </label>
+                  </div>
+
+                  <div class="conditional-fields two-column" id="everyPointsFields">
+                    <label class="range-field">
+                      <span>Give points every</span>
+                      <div class="paired-input">
+                        <input id="ruleEveryAmountSlider" type="range" min="1" max="10000" step="100" value="1">
+                        <input id="ruleEveryAmountInput" type="number" step="1" placeholder="Example: 5,000">
+                      </div>
+                      <small>Example: every 5,000 steps</small>
+                    </label>
+                    <label class="range-field">
+                      <span>Points each time</span>
+                      <div class="paired-input">
+                        <input id="ruleEveryPointsSlider" type="range" min="0" max="10" step="0.5" value="0">
+                        <input id="ruleEveryPointsInput" type="number" step="0.5" placeholder="Example: 1">
+                      </div>
+                      <small>Example: +1 point</small>
+                    </label>
+                  </div>
+
+                  <div class="conditional-fields" id="yesNoPointsFields">
+                    <label class="range-field">
+                      <span>Points when checked off</span>
+                      <div class="paired-input">
+                        <input id="ruleYesNoPointsSlider" type="range" min="0" max="10" step="0.5" value="0">
+                        <input id="ruleYesNoPointsInput" type="number" step="0.5" value="2">
+                      </div>
+                      <small>Example: +2 points if you went to the gym today</small>
+                    </label>
+                  </div>
+                </section>
+
+                <section class="builder-step wide-field" aria-label="Penalties and extra rewards">
+                  <div class="step-label">Penalties and extra rewards</div>
+                  <label class="toggle-label" id="penaltyToggleWrap">
+                    <input id="rulePenaltyEnabledInput" type="checkbox">
+                    <span>Add a penalty if I miss a minimum</span>
+                  </label>
+
+                  <div class="conditional-fields two-column" id="penaltyFields">
+                    <label class="range-field">
+                      <span>Minimum required</span>
+                      <div class="paired-input">
+                        <input id="ruleMinimumSlider" type="range" min="0" max="20000" step="100" value="0">
+                        <input id="ruleMinimumInput" type="number" step="1" placeholder="Example: 7">
+                      </div>
+                    </label>
+                    <label class="range-field">
+                      <span>Penalty points</span>
+                      <div class="paired-input">
+                        <input id="rulePenaltyPointsSlider" type="range" min="-10" max="0" step="0.5" value="0">
+                        <input id="rulePenaltyPointsInput" type="number" step="0.5" placeholder="Example: -1">
+                      </div>
+                    </label>
+                    <label>
+                      <span>Penalty type</span>
+                      <select id="rulePenaltyModeInput">
+                        <option value="fixed">Fixed penalty</option>
+                        <option value="proportional">Penalty for every unit below minimum</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div class="extra-thresholds">
+                    <div class="panel-heading tight">
+                      <h3>Extra rewards after your goal</h3>
+                      <button class="ghost-button small" type="button" id="addThresholdButton">Add threshold</button>
+                    </div>
+                    <div class="threshold-list" id="extraThresholdList"></div>
+                  </div>
+                </section>
+
+                <section class="builder-step wide-field" aria-label="Daily entry method">
+                  <div class="step-label">How do you want to enter this each day?</div>
+                  <label>
+                    <span>Daily input</span>
+                    <select id="ruleInputMethodInput">
+                      <option value="slider">Slider + type a number</option>
+                      <option value="number">Type a number</option>
+                      <option value="toggle">Yes/no checkbox</option>
+                    </select>
+                  </label>
+                </section>
+
+                <section class="rule-preview wide-field" aria-live="polite">
+                  <span class="eyebrow">Live preview</span>
+                  <p id="rulePreviewText"></p>
+                </section>
+
+                <details class="advanced-rule-options wide-field">
+                  <summary>Advanced options</summary>
+                  <div class="form-grid compact-grid">
+                    <label>
+                      <span>Category</span>
+                      <input id="ruleCategoryInput" type="text" list="categoryOptions" placeholder="Example: Fitness, Nutrition, Sleep, Academics">
+                    </label>
+                    <label>
+                      <span>Maximum points per day</span>
+                      <input id="ruleMaxDailyPointsInput" type="number" step="0.25" value="0">
+                    </label>
+                    <label>
+                      <span>Input range maximum</span>
+                      <input id="ruleInputMaxInput" type="number" step="0.25" value="20000">
+                    </label>
+                    <label>
+                      <span>Input step size</span>
+                      <input id="ruleInputStepInput" type="number" step="0.25" value="100">
+                    </label>
+                  </div>
+                </details>
+
+                <button class="secondary-button add-rule-button wide-field" type="submit">
+                  <span aria-hidden="true">＋</span>
+                  <span id="ruleSubmitLabel">Add rule</span>
+                </button>
+              </form>
+              </section>
+
+              <section class="setup-step-panel" id="setupAdvancedStep" data-setup-step="2" aria-labelledby="setupAdvancedTitle">
+                <div class="setup-step-heading">
+                  <h3 id="setupAdvancedTitle">Advanced Options</h3>
+                  <p>Create optional calculated totals like calories, workout minutes, study time, or spending.</p>
+                </div>
+              <section class="calculated-total-panel" aria-labelledby="calculatedTotalsTitle">
+                <div class="panel-heading">
+                  <h3 id="calculatedTotalsTitle">Calculated totals</h3>
+                  <span>Optional</span>
+                </div>
+                <div class="calc-total-list" id="calculatedTotalList"></div>
+                <form class="calc-total-form" id="calculatedTotalForm" aria-label="Add calculated total">
+                  <label>
+                    <span>Name of total</span>
+                    <input id="calcTotalNameInput" type="text" placeholder="Total calories">
+                  </label>
+                  <label>
+                    <span>Unit</span>
+                    <input id="calcTotalUnitInput" type="text" placeholder="calories">
+                  </label>
+                  <label>
+                    <span>Goal for this total</span>
+                    <input id="calcTotalGoalInput" type="number" step="1" placeholder="2200">
+                  </label>
+                  <label>
+                    <span>Points if goal is met</span>
+                    <input id="calcTotalPointsInput" type="number" step="0.5" value="1">
+                  </label>
+                  <label>
+                    <span>How should it be calculated?</span>
+                    <select id="calcTotalFormulaInput">
+                      <option value="sum">Simple sum</option>
+                      <option value="weighted">Custom multiplier per metric</option>
+                      <option value="calories">Calories: protein x 4 + carbs x 4 + fat x 9</option>
+                    </select>
+                  </label>
+                  <label class="toggle-label">
+                    <input id="calcTotalTrackingOnlyInput" type="checkbox" checked>
+                    <span>Tracking only, no points</span>
+                  </label>
+                  <div class="calc-input-list" id="calcTotalInputList"></div>
+                  <button class="secondary-button" type="submit">
+                    <span aria-hidden="true">＋</span>
+                    <span>Add calculated total</span>
+                  </button>
+                </form>
+              </section>
+              </section>
+
+              <section class="setup-step-panel" id="setupReviewStep" data-setup-step="3" aria-labelledby="setupReviewTitle">
+                <div class="setup-step-heading">
+                  <h3 id="setupReviewTitle">Review & Complete</h3>
+                  <p>Check the system before finishing. You can go back to adjust anything.</p>
+                </div>
+                <div class="setup-review" id="setupReview"></div>
+              </section>
+
+              <div class="setup-nav" aria-label="Reward system setup navigation">
+                <button class="ghost-button" type="button" id="setupBackButton">Back</button>
+                <button class="ghost-button" type="button" id="setupSkipButton">Skip for now</button>
+                <button class="primary-button" type="button" id="setupNextButton">Next: Add scoring rules</button>
+                <button class="primary-button" type="button" id="setupCompleteButton">Complete</button>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="discoverView" aria-labelledby="discoverTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Public library</p>
+              <h2 id="discoverTitle">Copy reward systems</h2>
+            </div>
+            <select id="discoverFilter" aria-label="Filter public systems">
+              <option value="all">All categories</option>
+              <option value="Fitness">Fitness</option>
+              <option value="Academics">Academics</option>
+              <option value="Finance">Finance</option>
+              <option value="General wellness">General wellness</option>
+              <option value="Productivity">Productivity</option>
+            </select>
+          </div>
+          <div class="discover-grid" id="discoverGrid"></div>
+        </section>
+
+        <section class="view" id="communitiesView" aria-labelledby="communitiesTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Accountability</p>
+              <h2 id="communitiesTitle">Communities</h2>
+            </div>
+            <button class="primary-button" type="button" id="newCommunityButton">
+              <span aria-hidden="true">＋</span>
+              <span>New community</span>
+            </button>
+          </div>
+
+          <div class="community-layout">
+            <section class="community-list" id="communityList" aria-label="Joined communities"></section>
+
+            <section class="community-detail" aria-labelledby="communityDetailTitle">
+              <div class="panel-heading">
+                <div>
+                  <h3 id="communityDetailTitle">Community</h3>
+                  <span id="communityMeta"></span>
+                </div>
+                <button class="secondary-button small" type="button" id="inviteButton">Invite</button>
+              </div>
+
+              <div class="community-stats">
+                <div>
+                  <span>Members</span>
+                  <strong id="communityMemberCount">0</strong>
+                </div>
+                <div>
+                  <span>Today leader</span>
+                  <strong id="communityLeader">-</strong>
+                </div>
+                <div>
+                  <span>Invite code</span>
+                  <strong id="communityInvite">-</strong>
+                </div>
+              </div>
+
+              <div class="split-panel">
+                <section aria-labelledby="communityRulesTitle">
+                  <div class="panel-heading tight">
+                    <h3 id="communityRulesTitle">Shared rules</h3>
+                    <button class="ghost-button small" type="button" id="copyCommunitySystemButton">Copy to mine</button>
+                  </div>
+                  <div class="compact-rule-list" id="communityRules"></div>
+                </section>
+
+                <section aria-labelledby="leaderboardTitle">
+                  <div class="panel-heading tight">
+                    <h3 id="leaderboardTitle">Leaderboard</h3>
+                    <span>Daily / total</span>
+                  </div>
+                  <div class="leaderboard" id="leaderboardList"></div>
+                </section>
+              </div>
+
+              <section class="community-checkin" aria-labelledby="communityCheckinTitle">
+                <div class="panel-heading tight">
+                  <h3 id="communityCheckinTitle">Log for community</h3>
+                  <span id="communityLiveScore">0 points</span>
+                </div>
+                <div class="input-stack" id="communityInputList"></div>
+                <button class="primary-button" type="button" id="saveCommunityEntryButton">
+                  <span aria-hidden="true">✓</span>
+                  <span>Save community day</span>
+                </button>
+              </section>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="profileView" aria-labelledby="profileTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Identity</p>
+              <h2 id="profileTitle">Profile and privacy</h2>
+            </div>
+            <button class="primary-button" type="button" id="saveProfileButton">
+              <span aria-hidden="true">✓</span>
+              <span>Save profile</span>
+            </button>
+          </div>
+
+          <section class="profile-editor" aria-label="Profile editor">
+            <div class="large-avatar" id="largeAvatar" aria-hidden="true">AR</div>
+            <form class="profile-form" id="profileForm">
+              <label>
+                <span>Display name</span>
+                <input id="profileNameInput" type="text" required>
+              </label>
+              <label>
+                <span>Handle</span>
+                <input id="profileHandleInput" type="text" required>
+              </label>
+              <label>
+                <span>Profile visibility</span>
+                <select id="profilePrivacyInput">
+                  <option value="public">Public</option>
+                  <option value="private">Private</option>
+                </select>
+              </label>
+              <label>
+                <span>Default daily target</span>
+                <input id="dailyTargetInput" type="number" step="0.5">
+              </label>
+            </form>
+          </section>
+
+          <section class="section-band" aria-labelledby="publicPreviewTitle">
+            <div class="panel-heading">
+              <h3 id="publicPreviewTitle">Public preview</h3>
+              <span id="publicPreviewStatus"></span>
+            </div>
+            <div class="public-preview" id="publicPreview"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="scoring.js?v=20260603-create-options"></script>
+    <script src="app.js?v=20260603-create-options"></script>
+  </body>
+</html>

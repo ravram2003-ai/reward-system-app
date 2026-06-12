@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260603-create-options">
+    <link rel="stylesheet" href="styles.css?v=20260612-integrations">
   </head>
   <body>
     <div class="app-shell">
@@ -31,17 +31,13 @@
             <span class="tab-icon" aria-hidden="true">⌂</span>
             <span>Today</span>
           </button>
-          <button class="nav-tab" type="button" data-view="systems" aria-label="Systems">
-            <span class="tab-icon" aria-hidden="true">◎</span>
-            <span>Systems</span>
-          </button>
-          <button class="nav-tab" type="button" data-view="discover" aria-label="Discover">
-            <span class="tab-icon" aria-hidden="true">⌕</span>
-            <span>Discover</span>
-          </button>
           <button class="nav-tab" type="button" data-view="communities" aria-label="Communities">
             <span class="tab-icon" aria-hidden="true">◧</span>
             <span>Communities</span>
+          </button>
+          <button class="nav-tab" type="button" data-view="systems" aria-label="Build">
+            <span class="tab-icon" aria-hidden="true">◎</span>
+            <span>Build</span>
           </button>
           <button class="nav-tab" type="button" data-view="profile" aria-label="Profile">
             <span class="tab-icon" aria-hidden="true">◌</span>
@@ -63,7 +59,12 @@
               <h2 id="dashboardTitle">Score today</h2>
             </div>
             <div class="header-actions">
+              <select id="scoreContextSelect" aria-label="View score for"></select>
               <select id="trackerSystemSelect" aria-label="Choose reward system"></select>
+              <button class="primary-button" type="button" id="openAddEntryButton">
+                <span aria-hidden="true">+</span>
+                <span>Add Entry</span>
+              </button>
               <button class="primary-button" type="button" id="saveEntryButton">
                 <span aria-hidden="true">✓</span>
                 <span>Save day</span>
@@ -73,7 +74,7 @@
 
           <div class="score-band">
             <div class="score-summary">
-              <span class="score-label">Daily Point Total</span>
+              <span class="score-label" id="scoreLabel">Daily Point Total</span>
               <strong id="liveScore">0</strong>
               <div class="target-meter" aria-label="Daily point target progress">
                 <div class="target-meter-meta">
@@ -90,45 +91,133 @@
               <span id="activeSystemName">No system selected</span>
               <button class="secondary-button" type="button" id="syncSampleButton">Sync sample data</button>
             </div>
-            <div class="score-rules" aria-labelledby="heroRulesTitle">
-              <span id="heroRulesTitle">Today’s rules</span>
-              <div class="category-mini-list" id="categoryProgressList"></div>
+          </div>
+
+          <section class="top-card-panel" aria-labelledby="topCardTitle">
+            <div class="panel-heading">
+              <h3 id="topCardTitle">Top Card</h3>
+              <button class="ghost-button small" type="button" id="customizeTopCardButton">Customize Top Card</button>
+            </div>
+            <div class="top-card-block-grid" id="categoryProgressList"></div>
+          </section>
+
+          <section class="tool-panel visual-breakdown-panel" aria-labelledby="ruleProgressTitle">
+            <div class="panel-heading">
+              <h3 id="ruleProgressTitle">Visual Breakdown</h3>
+              <span id="ruleCountLabel">0 rules</span>
+            </div>
+            <div class="visual-breakdown-list" id="ruleProgressList"></div>
+          </section>
+
+          <section class="tool-panel weekly-progress-panel" aria-labelledby="weeklyProgressTitle">
+            <div class="panel-heading">
+              <div>
+                <h3 id="weeklyProgressTitle">Weekly Progress</h3>
+                <span id="weeklyChartCount">0 charts</span>
+              </div>
+              <button class="ghost-button small" type="button" id="customizeChartsButton">Customize Charts</button>
+            </div>
+            <div class="weekly-chart-grid" id="weeklyChartList"></div>
+          </section>
+
+          <div class="dashboard-side-stack entries-log-stack">
+            <section class="tool-panel entries-log-panel" aria-labelledby="breakdownTitle">
+              <div class="panel-heading">
+                <h3 id="breakdownTitle">Entries Added Today</h3>
+                <span id="todaySavedLabel">0 entries</span>
+              </div>
+              <div class="breakdown-list entries-log-list" id="scoreBreakdown"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="addEntryView" aria-labelledby="addEntryTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Daily check-in</p>
+              <h2 id="addEntryTitle">Add Entry</h2>
+            </div>
+            <div class="header-actions">
+              <select id="addEntrySystemSelect" aria-label="Choose score for entry"></select>
+              <button class="ghost-button" type="button" id="backToDashboardButton">Back to Score Today</button>
             </div>
           </div>
 
           <section class="tool-panel add-entry-panel" aria-labelledby="inputsTitle">
             <div class="panel-heading">
-              <h3 id="inputsTitle">Add Entry</h3>
-              <span id="ruleCountLabel">0 rules</span>
+              <h3 id="inputsTitle">Choose what you did</h3>
+              <span>Preview before saving</span>
             </div>
             <div class="input-stack" id="dailyInputList"></div>
           </section>
+        </section>
 
-          <div class="dashboard-side-stack">
-            <section class="tool-panel" aria-labelledby="breakdownTitle">
-              <div class="panel-heading">
-                <h3 id="breakdownTitle">Entries Added Today</h3>
-                <span id="todaySavedLabel">Unsaved</span>
-              </div>
-              <div class="breakdown-list" id="scoreBreakdown"></div>
-            </section>
+        <section class="view" id="customizeTopCardView" aria-labelledby="customizeTopCardTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Daily check-in</p>
+              <h2 id="customizeTopCardTitle">Customize Top Card</h2>
+            </div>
+            <div class="header-actions">
+              <select id="customizeTopCardSystemSelect" aria-label="Choose reward system for top card"></select>
+              <button class="ghost-button" type="button" id="cancelTopCardButton">Back</button>
+              <button class="primary-button" type="button" id="saveTopCardButton">Save</button>
+            </div>
           </div>
 
-          <section class="tool-panel rule-progress-panel" aria-labelledby="ruleProgressTitle">
+          <section class="tool-panel customize-card-panel" aria-labelledby="currentBlocksTitle">
             <div class="panel-heading">
-              <h3 id="ruleProgressTitle">Goal Progress</h3>
-              <span>Every active goal</span>
+              <h3 id="currentBlocksTitle">Current Top Card Blocks</h3>
+              <span id="topCardBlockCount">0 blocks</span>
             </div>
-            <div class="rule-progress-list" id="ruleProgressList"></div>
+            <div class="top-card-builder-list" id="topCardBlockList"></div>
           </section>
 
-          <section class="section-band dashboard-history" aria-labelledby="historyTitle" hidden>
+          <section class="tool-panel customize-card-panel" aria-labelledby="availableBlocksTitle">
             <div class="panel-heading">
-              <h3 id="historyTitle">Weekly points</h3>
-              <span id="historyCount">0 saved</span>
+              <h3 id="availableBlocksTitle">Available Blocks</h3>
+              <span>Points and completion only</span>
             </div>
-            <div class="weekly-chart" id="weeklyChart" aria-label="Weekly point chart"></div>
-            <div class="history-strip" id="historyList"></div>
+            <div class="available-block-grid" id="availableTopCardBlocks"></div>
+          </section>
+        </section>
+
+        <section class="view" id="customizeChartsView" aria-labelledby="customizeChartsTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Daily check-in</p>
+              <h2 id="customizeChartsTitle">Customize Charts</h2>
+            </div>
+            <div class="header-actions">
+              <select id="customizeChartsSystemSelect" aria-label="Choose reward system for charts"></select>
+              <button class="ghost-button" type="button" id="cancelChartsButton">Back</button>
+              <button class="primary-button" type="button" id="saveChartsButton">Save</button>
+            </div>
+          </div>
+
+          <section class="tool-panel customize-card-panel" aria-labelledby="currentChartsTitle">
+            <div class="panel-heading">
+              <h3 id="currentChartsTitle">Current Chart Blocks</h3>
+              <span id="chartBlockCount">0 charts</span>
+            </div>
+            <div class="chart-builder-list" id="chartBlockList"></div>
+          </section>
+
+          <section class="tool-panel customize-card-panel" aria-labelledby="addChartTitle">
+            <div class="panel-heading">
+              <h3 id="addChartTitle">Add Chart Block</h3>
+              <span>Weekly bar charts</span>
+            </div>
+            <div class="add-chart-row">
+              <label>
+                <span>Metric</span>
+                <select id="availableChartMetricSelect"></select>
+              </label>
+              <button class="secondary-button" type="button" id="addChartBlockButton">
+                <span aria-hidden="true">+</span>
+                <span>Add Chart</span>
+              </button>
+            </div>
           </section>
         </section>
 
@@ -139,10 +228,6 @@
               <h2 id="systemsTitle">Build a Reward System</h2>
               <p class="view-subtitle">Choose how you want to start.</p>
             </div>
-            <button class="primary-button" type="button" id="newSystemButton">
-              <span aria-hidden="true">＋</span>
-              <span>Create New Reward System</span>
-            </button>
           </div>
 
           <section class="build-start-panel" id="buildStartPanel" aria-label="Build options">
@@ -223,7 +308,7 @@
           <div class="systems-layout">
             <section class="system-list-wrap" aria-labelledby="savedSystemsTitle">
               <div class="system-list-heading">
-                <h3 id="savedSystemsTitle">Your reward systems</h3>
+                <h3 id="savedSystemsTitle">Your Reward Systems</h3>
               </div>
               <div class="system-list" id="systemList"></div>
             </section>
@@ -441,6 +526,32 @@
                   </label>
                 </section>
 
+                <section class="builder-step wide-field" aria-label="Data source">
+                  <div class="step-label">Data source</div>
+                  <div class="form-grid compact-grid">
+                    <label>
+                      <span>Data source</span>
+                      <select id="ruleDataSourceInput">
+                        <option value="manual">Manual Entry</option>
+                        <option value="apple-health">Apple Health</option>
+                        <option value="google-health-connect">Google Health Connect</option>
+                        <option value="chase">Bank Account / Chase</option>
+                        <option value="plaid">Plaid</option>
+                        <option value="calculated">Calculated Total</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Synced metric</span>
+                      <select id="ruleSourceMetricInput"></select>
+                    </label>
+                  </div>
+                  <label class="toggle-label source-override-toggle">
+                    <input id="ruleManualOverrideInput" type="checkbox" checked>
+                    <span>Allow manual adjustment</span>
+                  </label>
+                  <small class="source-help" id="ruleDataSourceHelp">Manual rules use Add Entry.</small>
+                </section>
+
                 <section class="rule-preview wide-field" aria-live="polite">
                   <span class="eyebrow">Live preview</span>
                   <p id="rulePreviewText"></p>
@@ -542,7 +653,7 @@
           </div>
         </section>
 
-        <section class="view" id="discoverView" aria-labelledby="discoverTitle">
+        <section class="view" id="discoverView" aria-labelledby="discoverTitle" hidden>
           <div class="view-header">
             <div>
               <p class="eyebrow">Public library</p>
@@ -566,70 +677,158 @@
               <p class="eyebrow">Accountability</p>
               <h2 id="communitiesTitle">Communities</h2>
             </div>
-            <button class="primary-button" type="button" id="newCommunityButton">
+          </div>
+
+          <section class="community-list" id="communityList" aria-label="Joined communities"></section>
+
+          <div class="community-actions">
+            <button class="secondary-button" type="button" id="newCommunityButton">
               <span aria-hidden="true">＋</span>
-              <span>New community</span>
+              <span>New Community</span>
+            </button>
+            <button class="primary-button" type="button" id="findCommunitiesButton">
+              <span aria-hidden="true">+</span>
+              <span>Find New Communities</span>
             </button>
           </div>
+        </section>
 
-          <div class="community-layout">
-            <section class="community-list" id="communityList" aria-label="Joined communities"></section>
-
-            <section class="community-detail" aria-labelledby="communityDetailTitle">
-              <div class="panel-heading">
-                <div>
-                  <h3 id="communityDetailTitle">Community</h3>
-                  <span id="communityMeta"></span>
-                </div>
-                <button class="secondary-button small" type="button" id="inviteButton">Invite</button>
-              </div>
-
-              <div class="community-stats">
-                <div>
-                  <span>Members</span>
-                  <strong id="communityMemberCount">0</strong>
-                </div>
-                <div>
-                  <span>Today leader</span>
-                  <strong id="communityLeader">-</strong>
-                </div>
-                <div>
-                  <span>Invite code</span>
-                  <strong id="communityInvite">-</strong>
-                </div>
-              </div>
-
-              <div class="split-panel">
-                <section aria-labelledby="communityRulesTitle">
-                  <div class="panel-heading tight">
-                    <h3 id="communityRulesTitle">Shared rules</h3>
-                    <button class="ghost-button small" type="button" id="copyCommunitySystemButton">Copy to mine</button>
-                  </div>
-                  <div class="compact-rule-list" id="communityRules"></div>
-                </section>
-
-                <section aria-labelledby="leaderboardTitle">
-                  <div class="panel-heading tight">
-                    <h3 id="leaderboardTitle">Leaderboard</h3>
-                    <span>Daily / total</span>
-                  </div>
-                  <div class="leaderboard" id="leaderboardList"></div>
-                </section>
-              </div>
-
-              <section class="community-checkin" aria-labelledby="communityCheckinTitle">
-                <div class="panel-heading tight">
-                  <h3 id="communityCheckinTitle">Log for community</h3>
-                  <span id="communityLiveScore">0 points</span>
-                </div>
-                <div class="input-stack" id="communityInputList"></div>
-                <button class="primary-button" type="button" id="saveCommunityEntryButton">
-                  <span aria-hidden="true">✓</span>
-                  <span>Save community day</span>
-                </button>
-              </section>
-            </section>
+        <section class="view" id="communityDetailView" aria-labelledby="communityDetailTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Community</p>
+              <h2>Community</h2>
+            </div>
+            <div class="header-actions">
+              <button class="ghost-button" type="button" id="backToCommunitiesButton">Back</button>
+            </div>
           </div>
+
+          <section class="community-detail" aria-label="Community detail">
+            <div class="community-hero">
+              <div>
+                <span class="visibility-pill private" id="communityStatus">Private</span>
+                <h2 id="communityDetailTitle">Community</h2>
+                <p class="community-description" id="communityDescription"></p>
+                <div class="community-meta-line" id="communityMeta">0 members · Private</div>
+              </div>
+              <div class="community-hero-actions">
+                <button class="secondary-button" type="button" id="inviteButton">Invite</button>
+                <button class="ghost-button" type="button" id="communitySettingsButton">Settings</button>
+              </div>
+            </div>
+
+            <div class="invite-options" id="inviteOptions" hidden>
+              <button class="ghost-button small" type="button" id="copyInviteLinkButton">Copy Link</button>
+              <button class="ghost-button small" type="button" id="copyInviteCodeButton">Copy Code</button>
+              <button class="ghost-button small" type="button" id="sendInviteTextButton">Send Text</button>
+              <button class="ghost-button small" type="button" id="sendInviteEmailButton">Send Email</button>
+            </div>
+
+            <section class="community-leaderboard-panel" aria-labelledby="leaderboardTitle">
+              <div class="panel-heading tight">
+                <div>
+                  <h3 id="leaderboardTitle">Leaderboard</h3>
+                  <span id="communityLeader">Daily community points</span>
+                </div>
+              </div>
+              <div class="leaderboard" id="leaderboardList"></div>
+            </section>
+          </section>
+        </section>
+
+        <section class="view" id="communitySettingsView" aria-labelledby="communitySettingsTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Community Rules</p>
+              <h2 id="communitySettingsTitle">Community Rules</h2>
+              <p class="view-subtitle" id="communitySettingsMode">View Rules</p>
+            </div>
+            <div class="header-actions">
+              <button class="ghost-button" type="button" id="backFromCommunitySettingsButton">Back</button>
+              <button class="primary-button" type="button" id="saveCommunitySettingsButton">Save Changes</button>
+            </div>
+          </div>
+
+          <section class="community-settings-panel" aria-label="Community settings">
+            <div class="community-settings-form">
+              <label>
+                <span>Community name</span>
+                <input id="communityNameInput" type="text">
+              </label>
+              <label>
+                <span>Description</span>
+                <input id="communityDescriptionInput" type="text">
+              </label>
+              <label>
+                <span>Status</span>
+                <select id="communityVisibilityInput">
+                  <option value="private">Private</option>
+                  <option value="public">Public</option>
+                </select>
+              </label>
+            </div>
+
+            <section aria-labelledby="communityRulesTitle">
+              <div class="panel-heading tight">
+                <div>
+                  <h3 id="communityRulesTitle">Community Rules</h3>
+                  <span id="communityRulesHint">Edit Rules</span>
+                </div>
+                <button class="secondary-button small" type="button" id="addCommunityRuleButton">Add Rule</button>
+              </div>
+              <div class="community-settings-rules" id="communityRules"></div>
+            </section>
+
+            <button class="ghost-button small" type="button" id="copyCommunitySystemButton">Copy to mine</button>
+          </section>
+        </section>
+
+        <section class="view" id="communityMemberActivityView" aria-labelledby="memberActivityTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Today’s Activity</p>
+              <h2 id="memberActivityTitle">Member Activity</h2>
+              <p class="view-subtitle" id="memberActivityTotal">0 points today</p>
+            </div>
+            <div class="header-actions">
+              <button class="ghost-button" type="button" id="backFromMemberActivityButton">Back</button>
+            </div>
+          </div>
+
+          <section class="community-activity" aria-label="Member community activity">
+            <div class="member-activity-grid" id="memberActivityPanel"></div>
+
+            <section class="community-checkin" id="communityCheckinSection" aria-labelledby="communityCheckinTitle">
+              <div class="panel-heading tight">
+                <h3 id="communityCheckinTitle">Log for Community</h3>
+                <span id="communityLiveScore">0 points</span>
+              </div>
+              <div class="input-stack" id="communityInputList"></div>
+              <button class="primary-button" type="button" id="saveCommunityEntryButton">
+                <span aria-hidden="true">✓</span>
+                <span>Save community day</span>
+              </button>
+            </section>
+          </section>
+        </section>
+
+        <section class="view" id="findCommunitiesView" aria-labelledby="findCommunitiesTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Explore</p>
+              <h2 id="findCommunitiesTitle">Find Communities</h2>
+            </div>
+            <button class="ghost-button" type="button" id="backFromFindCommunitiesButton">Back</button>
+          </div>
+
+          <section class="tool-panel find-communities-panel">
+            <label class="search-field">
+              <span>Search communities</span>
+              <input id="findCommunitySearchInput" type="search" placeholder="Search communities or enter invite code...">
+            </label>
+            <div class="find-community-results" id="findCommunityResults"></div>
+          </section>
         </section>
 
         <section class="view" id="profileView" aria-labelledby="profileTitle">
@@ -669,6 +868,16 @@
             </form>
           </section>
 
+          <section class="section-band integrations-panel" aria-labelledby="integrationsTitle">
+            <div class="panel-heading">
+              <div>
+                <h3 id="integrationsTitle">Integrations</h3>
+                <span>Demo connections for synced rules</span>
+              </div>
+            </div>
+            <div class="integration-list" id="integrationList"></div>
+          </section>
+
           <section class="section-band" aria-labelledby="publicPreviewTitle">
             <div class="panel-heading">
               <h3 id="publicPreviewTitle">Public preview</h3>
@@ -682,7 +891,7 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="scoring.js?v=20260603-create-options"></script>
-    <script src="app.js?v=20260603-create-options"></script>
+    <script src="scoring.js?v=20260612-integrations"></script>
+    <script src="app.js?v=20260612-integrations"></script>
   </body>
 </html>

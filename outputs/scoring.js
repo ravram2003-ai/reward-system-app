@@ -37,6 +37,9 @@
       inputMin: 0,
       inputMax: 20000,
       inputStep: 100,
+      dataSource: "manual",
+      sourceMetric: "manual",
+      allowManualOverride: true,
       ...(overrides || {})
     });
   }
@@ -54,6 +57,7 @@
     const dailyTarget = numberOrDefault(rule.dailyTarget, simpleStyle === "yesNo" ? 1 : 100);
     const everyAmount = numberOrDefault(rule.everyAmount ?? rule.awardEvery, Math.max(1, dailyTarget / 2));
     const inputMethod = simpleStyle === "yesNo" ? "toggle" : (rule.inputMethod || "slider");
+    const source = normalizeRuleSource(rule, label, unit);
     return {
       id: cleanText(rule.id || makeId("rule")),
       label,
@@ -77,6 +81,9 @@
       inputMin: numberOrDefault(rule.inputMin, 0),
       inputMax: numberOrDefault(rule.inputMax, inferInputMax(rule, dailyTarget, inputMethod)),
       inputStep: numberOrDefault(rule.inputStep, inferInputStep(unit, inputMethod)),
+      dataSource: source.dataSource,
+      sourceMetric: source.sourceMetric,
+      allowManualOverride: rule.allowManualOverride !== false,
       style: rule.style,
       type: rule.type,
       threshold: rule.threshold,
@@ -101,7 +108,10 @@
       inputMax: rule.inputMax,
       inputStep: rule.inputStep,
       maxDailyPoints: rule.maxDailyPoints || 0,
-      extraThresholds: rule.extraThresholds || []
+      extraThresholds: rule.extraThresholds || [],
+      dataSource: rule.dataSource,
+      sourceMetric: rule.sourceMetric || rule.syncedMetric,
+      allowManualOverride: rule.allowManualOverride
     };
 
     if (style === "targetBonus") {
@@ -364,6 +374,56 @@
     if (["hours", "miles", "dollars"].includes(lower)) return 0.25;
     if (["steps"].includes(lower)) return 100;
     return 1;
+  }
+
+  function normalizeRuleSource(rule, label, unit) {
+    const supported = new Set(["manual", "apple-health", "google-health-connect", "chase", "plaid", "calculated"]);
+    const savedSource = cleanText(rule.dataSource || rule.source || "");
+    if (shouldStayManualSource(label, unit)) {
+      return { dataSource: "manual", sourceMetric: "manual" };
+    }
+    const inferred = inferRuleSource(label, unit);
+    const dataSource = supported.has(savedSource)
+      ? savedSource
+      : (rule.dataSource === undefined && rule.sourceMetric === undefined ? inferred.dataSource : "manual");
+    const sourceMetric = cleanText(rule.sourceMetric || rule.syncedMetric || "")
+      || (dataSource === inferred.dataSource ? inferred.sourceMetric : dataSource);
+    return {
+      dataSource,
+      sourceMetric: sourceMetric || "manual"
+    };
+  }
+
+  function inferRuleSource(label, unit) {
+    const text = `${label || ""} ${unit || ""}`.toLowerCase();
+    if (text.includes("step")) return { dataSource: "apple-health", sourceMetric: "steps" };
+    if (text.includes("sleep")) return { dataSource: "apple-health", sourceMetric: "sleep-hours" };
+    if (text.includes("active calorie")) return { dataSource: "apple-health", sourceMetric: "active-calories" };
+    if (text.includes("calorie")) return { dataSource: "calculated", sourceMetric: "total-calories" };
+    if (text.includes("workout") || text.includes("gym session")) return { dataSource: "apple-health", sourceMetric: "workouts" };
+    if (text.includes("lifting") || text.includes("exercise minute")) return { dataSource: "apple-health", sourceMetric: "exercise-minutes" };
+    if (text.includes("dining")) return { dataSource: "plaid", sourceMetric: "dining-spending" };
+    if (text.includes("shopping")) return { dataSource: "plaid", sourceMetric: "shopping-spending" };
+    if (text.includes("spending") || text.includes("budget") || text.includes("transaction") || text.includes("dollar")) {
+      return { dataSource: "plaid", sourceMetric: "daily-spending" };
+    }
+    return { dataSource: "manual", sourceMetric: "manual" };
+  }
+
+  function shouldStayManualSource(label, unit) {
+    const text = `${label || ""} ${unit || ""}`.toLowerCase();
+    return [
+      "missed",
+      "late",
+      "phone",
+      "screen",
+      "scroll",
+      "impulse",
+      "check-in",
+      "journal",
+      "bedtime",
+      "morning"
+    ].some((term) => text.includes(term));
   }
 
   function normalizePenalty(value) {

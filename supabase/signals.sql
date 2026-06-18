@@ -8,6 +8,44 @@
 -- lives here in Postgres, not just in the UI.
 
 -- ───────────────────────────────────────────────────────────────────────────
+-- 0. profiles table (created here if it doesn't already exist) + auto-create a
+--    profile row on sign-up + backfill existing accounts. Everything below
+--    assumes public.profiles exists. Safe to re-run.
+-- ───────────────────────────────────────────────────────────────────────────
+create table if not exists public.profiles (
+  id           uuid primary key references auth.users(id) on delete cascade,
+  display_name text,
+  handle       text,
+  created_at   timestamptz not null default now()
+);
+
+-- Create a profile row automatically whenever someone signs up.
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, display_name)
+  values (new.id, coalesce(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1)))
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- Backfill rows for accounts that already existed before this table (e.g. yours).
+insert into public.profiles (id, display_name)
+select u.id, coalesce(u.raw_user_meta_data->>'display_name', split_part(u.email, '@', 1))
+from auth.users u
+on conflict (id) do nothing;
+
+-- ───────────────────────────────────────────────────────────────────────────
 -- 1. Profile columns: the per-user opt-in + a self-reported "currently behind".
 --    The recipient's own client computes "behind" with the single definition in
 --    outputs/insight.js (a real weekly average exists AND today < 0.7 * average)

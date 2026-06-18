@@ -5,7 +5,7 @@
   "description": "Static prototype for customizable goal reward systems and accountability communities.",
   "scripts": {
     "start": "node work/serve-app.cjs",
-    "test": "node --check outputs/app.js && node --check outputs/scoring.js && node --check outputs/insight.js && node --check outputs/auth-helpers.js && node --check outputs/supabase-config.js && node --check outputs/auth.js && node work/scoring-tests.cjs && node work/insight-tests.cjs && node work/auth-helpers-tests.cjs"
+    "test": "node --check outputs/app.js && node --check outputs/scoring.js && node --check outputs/insight.js && node --check outputs/auth-helpers.js && node --check outputs/supabase-config.js && node --check outputs/auth.js && node --check outputs/signals.js && node work/scoring-tests.cjs && node work/insight-tests.cjs && node work/auth-helpers-tests.cjs && node work/signals-tests.cjs"
   },
   "engines": {
     "node": ">=18"

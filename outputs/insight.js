@@ -96,6 +96,20 @@
   }
 
   /**
+   * The SINGLE definition of "behind / below pace": a real weekly average exists
+   * AND today's total is under BELOW_PACE_RATIO of it. Used by the Daily Insight
+   * sentence (step 4 above) AND by the positive-signals "motivation when behind"
+   * gate, so the two can never drift apart. Returns false when no real weekly
+   * average exists (a fresh user is never "behind").
+   */
+  function isBehind(facts) {
+    facts = facts || {};
+    var total = num(facts.dailyPointTotal, 0);
+    var avg = facts.weeklyAverage;
+    return typeof avg === "number" && avg > 0 && total < avg * INSIGHT_THRESHOLDS.BELOW_PACE_RATIO;
+  }
+
+  /**
    * Turn facts into exactly ONE sentence using a strict priority ladder.
    * Multiple conditions are often true at once — first match wins, never stack.
    */
@@ -123,7 +137,7 @@
     }
 
     // 4. Below pace (only when a real weekly average exists)
-    if (typeof facts.weeklyAverage === "number" && facts.weeklyAverage > 0 && total < facts.weeklyAverage * T.BELOW_PACE_RATIO) {
+    if (isBehind(facts)) {
       return "You're below your usual pace, but one strong entry can close the gap.";
     }
 
@@ -158,7 +172,8 @@
     INSIGHT_THRESHOLDS: INSIGHT_THRESHOLDS,
     computeInsightFacts: computeInsightFacts,
     generateInsightText: generateInsightText,
-    generateAIInsight: generateAIInsight
+    generateAIInsight: generateAIInsight,
+    isBehind: isBehind
   };
 
   if (typeof module !== "undefined" && module.exports) {

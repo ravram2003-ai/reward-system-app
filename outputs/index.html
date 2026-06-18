@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260618-pages">
+    <link rel="stylesheet" href="styles.css?v=20260618-signals">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -77,6 +77,11 @@
         <div class="sidebar-footer">
           <span id="todayLabel"></span>
           <div class="sidebar-footer-actions">
+            <button class="ghost-button small notif-button" type="button" id="notifBellButton" hidden aria-label="Notifications">
+              <span class="notif-bell-icon" aria-hidden="true">🔔</span>
+              <span>Signals</span>
+              <span class="notif-badge" id="notifUnreadBadge" hidden>0</span>
+            </button>
             <button class="ghost-button small" type="button" id="signOutButton" hidden>Sign out</button>
             <button class="ghost-button small" type="button" id="resetDemoButton">Reset demo</button>
           </div>
@@ -1167,6 +1172,10 @@
                 <span>Default daily target</span>
                 <input id="dailyTargetInput" type="number" step="0.5">
               </label>
+              <label class="toggle-label motivation-opt-in">
+                <input id="allowMotivationInput" type="checkbox">
+                <span>Let community members cheer me on when I'm behind</span>
+              </label>
             </form>
           </section>
 
@@ -1191,13 +1200,22 @@
       </main>
     </div>
 
+    <div class="notif-panel" id="notifPanel" role="dialog" aria-label="Your signals" hidden>
+      <div class="notif-panel-head">
+        <strong>Signals</strong>
+        <button class="ghost-button small" type="button" id="notifMarkAllButton" hidden>Mark all read</button>
+      </div>
+      <div class="notif-list" id="notifList"></div>
+    </div>
+
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="supabase-config.js?v=20260618-pages"></script>
-    <script src="auth-helpers.js?v=20260618-pages"></script>
-    <script src="scoring.js?v=20260618-pages"></script>
-    <script src="insight.js?v=20260618-pages"></script>
-    <script type="module" src="auth.js?v=20260618-pages"></script>
-    <script src="app.js?v=20260618-pages"></script>
+    <script src="supabase-config.js?v=20260618-signals"></script>
+    <script src="auth-helpers.js?v=20260618-signals"></script>
+    <script src="scoring.js?v=20260618-signals"></script>
+    <script src="insight.js?v=20260618-signals"></script>
+    <script src="signals.js?v=20260618-signals"></script>
+    <script type="module" src="auth.js?v=20260618-signals"></script>
+    <script src="app.js?v=20260618-signals"></script>
   </body>
 </html>

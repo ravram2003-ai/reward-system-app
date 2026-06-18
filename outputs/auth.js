@@ -45,7 +45,8 @@
       signUp: notConfigured,
       signIn: notConfigured,
       signOut: async () => {},
-      getCurrentUser: async () => null
+      getCurrentUser: async () => null,
+      getClient: () => null
     };
     whenReady(() => emit("unconfigured"));
     return;
@@ -60,7 +61,8 @@
       signUp: async () => ({ error: { message: "Auth library failed to load." } }),
       signIn: async () => ({ error: { message: "Auth library failed to load." } }),
       signOut: async () => {},
-      getCurrentUser: async () => null
+      getCurrentUser: async () => null,
+      getClient: () => null
     };
     whenReady(() => emit("error", { message: "Couldn't load the sign-in library. Check your connection and reload." }));
     return;
@@ -114,7 +116,10 @@
       const { data } = await supabase.auth.getUser();
       if (!data || !data.user) return null;
       return helpers.deriveProfileFromUser(data.user, await loadProfileRow(data.user.id));
-    }
+    },
+    // The authenticated client, shared so feature modules (e.g. signals) run
+    // their RLS-enforced reads/writes through the SAME session — never a 2nd client.
+    getClient: () => supabase
   };
 
   // React to all future auth changes (sign in / out / token refresh).

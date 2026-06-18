@@ -168,7 +168,10 @@
       handle: "@avery",
       privacy: "public",
       dailyTarget: 8,
-      accent: "#355d91"
+      accent: "#355d91",
+      // Opt-in for the "motivation when behind" signal. Default OFF; mirrored to
+      // the server (profiles.allow_motivation_when_behind), which is what RLS reads.
+      allowMotivation: false
     },
     // Authenticated account (Supabase). null = local mode / not signed in.
     // The local current-user id stays "me"; account.userId is its real identity.
@@ -606,6 +609,13 @@
   const els = {};
   let toastTimer = null;
   let dayRolloverTimer = null;
+  // Positive signals (kudos / motivation) — in-app notifications state.
+  let inboxSignals = [];
+  let unsubscribeInbox = null;
+  let currentInboxUid = null;
+  let behindPushTimer = null;
+  let lastPushedBehind = null;
+  let lastBehindWriteAt = 0;
 
   document.addEventListener("DOMContentLoaded", init);
 
@@ -638,15 +648,21 @@
       applyAccountIdentity(detail.user || {}, detail.profile);
       if (els.signOutButton) els.signOutButton.hidden = false;
       hideAuthScreen();
+      initSignals().catch(() => {});
     } else if (detail.status === "signed-out") {
       state.account = null;
+      // Don't let one account's opt-in linger in localStorage on a shared device.
+      state.profile.allowMotivation = false;
+      if (els.allowMotivationInput) els.allowMotivationInput.checked = false;
       if (els.signOutButton) els.signOutButton.hidden = true;
+      teardownSignals();
       saveState();
       if (authConfigured) showAuthScreen();
     } else {
       // "unconfigured" or "error" → local mode, app stays usable
       state.account = null;
       if (els.signOutButton) els.signOutButton.hidden = true;
+      teardownSignals();
       hideAuthScreen();
     }
   }
@@ -654,6 +670,13 @@
   // Bind the authenticated account to the local current user ("me").
   function applyAccountIdentity(user, profile) {
     state.account = { userId: user.id || "", email: user.email || "" };
+    // Bind the real Supabase id onto the local "me" member in every community so
+    // signals can resolve a real sender/recipient (other members are demo personas
+    // with no real account and therefore stay un-signalable until they're real).
+    state.communities.forEach((community) => {
+      const me = community.members.find((member) => member.id === "me");
+      if (me) me.userId = state.account.userId;
+    });
     if (profile) {
       if (profile.name) state.profile.name = profile.name;
       if (profile.handle) state.profile.handle = cleanHandle(profile.handle);
@@ -678,6 +701,242 @@
   function hideAuthScreen() {
     if (els.authScreen) els.authScreen.hidden = true;
     document.body.classList.remove("auth-locked");
+  }
+
+  // ── Positive signals (kudos / motivation) + in-app notifications ───────────
+  // The DB is the real guard for every rule (see supabase/signals.sql); the data
+  // layer is in outputs/signals.js. Here we wire the inbox bell, the per-member
+  // send affordances, and push the current user's self-reported "behind" flag
+  // (computed with the single definition exported by insight.js).
+
+  function signalsReady() {
+    return !!(window.PointwellSignals && window.PointwellSignals.isReady() && state.account && state.account.userId);
+  }
+
+  async function initSignals() {
+    if (!signalsReady()) { teardownSignals(); return; }
+    const uid = state.account.userId;
+    // Token refresh re-fires "signed-in" for the same user; don't re-subscribe.
+    const alreadySubscribed = unsubscribeInbox && currentInboxUid === uid;
+    // Sync the opt-in from server truth (what RLS reads), then reflect it in the UI.
+    const flags = await window.PointwellSignals.getMyFlags(uid);
+    if (flags && typeof flags.allow_motivation_when_behind === "boolean") {
+      state.profile.allowMotivation = flags.allow_motivation_when_behind;
+      if (els.allowMotivationInput) els.allowMotivationInput.checked = state.profile.allowMotivation;
+    }
+    await refreshInbox();
+    pushMyBehindStatus();
+    if (!alreadySubscribed) {
+      if (unsubscribeInbox) { try { unsubscribeInbox(); } catch (e) { /* ignore */ } }
+      unsubscribeInbox = window.PointwellSignals.subscribeInbox(uid, handleInboxChange);
+      currentInboxUid = uid;
+    }
+  }
+
+  function teardownSignals() {
+    if (unsubscribeInbox) { try { unsubscribeInbox(); } catch (e) { /* ignore */ } unsubscribeInbox = null; }
+    currentInboxUid = null;
+    inboxSignals = [];
+    lastPushedBehind = null;
+    lastBehindWriteAt = 0;
+    clearTimeout(behindPushTimer);
+    behindPushTimer = null;
+    if (els.notifPanel) els.notifPanel.hidden = true;
+    renderNotifications();
+  }
+
+  async function refreshInbox() {
+    if (!signalsReady()) { inboxSignals = []; renderNotifications(); return; }
+    inboxSignals = await window.PointwellSignals.fetchInbox(state.account.userId, 50);
+    renderNotifications();
+  }
+
+  function handleInboxChange(payload) {
+    refreshInbox();
+    if (payload && payload.eventType === "INSERT" && payload.new && !payload.new.read) {
+      const who = payload.new.from_name || "A teammate";
+      const kind = payload.new.type === "motivation" ? "motivation" : "kudos";
+      showToast(`${who} sent you ${kind}`);
+    }
+  }
+
+  function renderNotifications() {
+    if (!els.notifBellButton) return;
+    const ready = signalsReady();
+    els.notifBellButton.hidden = !ready;
+    if (!ready) {
+      if (els.notifPanel) els.notifPanel.hidden = true;
+      if (els.notifUnreadBadge) els.notifUnreadBadge.hidden = true;
+      return;
+    }
+    const unread = window.PointwellSignals.unreadCount(inboxSignals);
+    if (els.notifUnreadBadge) {
+      els.notifUnreadBadge.textContent = unread > 9 ? "9+" : String(unread);
+      els.notifUnreadBadge.hidden = unread === 0;
+    }
+    els.notifBellButton.classList.toggle("has-unread", unread > 0);
+    if (els.notifList) {
+      els.notifList.innerHTML = inboxSignals.length
+        ? inboxSignals.map(renderNotificationItem).join("")
+        : `<div class="notif-empty">No signals yet. When a teammate cheers you on, it shows up here.</div>`;
+    }
+    if (els.notifMarkAllButton) els.notifMarkAllButton.hidden = unread === 0;
+  }
+
+  function renderNotificationItem(sig) {
+    const who = escapeHtml(sig.from_name || "A teammate");
+    const when = escapeHtml(window.PointwellSignals.formatRelativeTime(sig.created_at, Date.now()));
+    const isMotivation = sig.type === "motivation";
+    return `
+      <div class="notif-item${sig.read ? "" : " unread"}">
+        <span class="signal-pill ${isMotivation ? "motivation" : "kudos"}">${isMotivation ? "Motivation" : "Kudos"}</span>
+        <div class="notif-item-body">
+          <p>${escapeHtml(sig.body)}</p>
+          <span class="notif-item-meta">${who} · ${when}</span>
+        </div>
+        ${sig.read ? "" : '<span class="notif-dot" aria-hidden="true"></span>'}
+      </div>
+    `;
+  }
+
+  function toggleNotifPanel() {
+    if (!els.notifPanel) return;
+    els.notifPanel.hidden = !els.notifPanel.hidden;
+    if (!els.notifPanel.hidden) refreshInbox();
+  }
+
+  async function markAllSignalsRead() {
+    if (!signalsReady()) return;
+    await window.PointwellSignals.markAllRead(state.account.userId);
+    await refreshInbox();
+  }
+
+  // The current user's "behind" status from their PERSONAL daily pace, using the
+  // single definition exported by insight.js (never a second definition).
+  function computeMyBehind() {
+    const system = getTrackerSystem();
+    if (!system || !window.PointwellInsight) return false;
+    const context = { type: "personal", community: null, system, label: "" };
+    const values = collectDraftValues(system, valuesForScoreContext(context));
+    const summary = calculateDashboardSummary(system, values, context);
+    const facts = window.PointwellInsight.computeInsightFacts({
+      mode: "personal",
+      total: summary.total,
+      target: summary.target.total,
+      entryCount: summary.entryCount,
+      weeklyAverage: insightWeeklyAverage(context, system),
+      rules: []
+    });
+    return window.PointwellInsight.isBehind(facts);
+  }
+
+  function pushMyBehindStatus() {
+    if (!signalsReady()) return;
+    clearTimeout(behindPushTimer);
+    behindPushTimer = setTimeout(() => {
+      if (!signalsReady()) return;
+      const behind = computeMyBehind();
+      const now = Date.now();
+      const changed = behind !== lastPushedBehind;
+      // Write on change; while still behind, refresh at most every 5 min so the
+      // server-stamped behind_updated_at stays inside the "currently" window
+      // without a write storm.
+      const refreshWhileBehind = behind && (now - lastBehindWriteAt > 5 * 60 * 1000);
+      if (!changed && !refreshWhileBehind) return;
+      lastPushedBehind = behind;
+      lastBehindWriteAt = now;
+      Promise.resolve(window.PointwellSignals.updateBehind(state.account.userId, behind)).catch(() => {});
+    }, 400);
+  }
+
+  function memberFirstName(member) {
+    return String((member && member.name) || "Member").split(" ")[0] || "Member";
+  }
+
+  // Per-member send affordances rendered into the member-activity view.
+  function renderMemberSignalActions(community, memberItem) {
+    if (!memberItem || memberItem.id === "me" || !signalsReady()) return "";
+    const firstName = escapeHtml(memberFirstName(memberItem));
+    return `
+      <section class="signal-actions" aria-label="Send a positive signal">
+        <div class="signal-actions-head">
+          <strong>Send ${firstName} a signal</strong>
+          <span>Celebrate a strong week — or cheer them on if they've opted in.</span>
+        </div>
+        <div class="signal-actions-buttons">
+          <button class="secondary-button small signal-open-button" type="button" data-signal-type="kudos">Send kudos</button>
+          <button class="ghost-button small signal-open-button signal-motivation-button" type="button" data-signal-type="motivation" hidden>Send motivation</button>
+        </div>
+        <div class="signal-composer" hidden>
+          <span class="signal-composer-label"></span>
+          <div class="signal-presets"></div>
+        </div>
+      </section>
+    `;
+  }
+
+  function bindMemberSignalActions(community, memberItem) {
+    const root = els.memberActivityPanel;
+    if (!root || !memberItem || memberItem.id === "me" || !signalsReady()) return;
+    const actions = root.querySelector(".signal-actions");
+    if (!actions) return;
+    const composer = actions.querySelector(".signal-composer");
+    const label = actions.querySelector(".signal-composer-label");
+    const presets = actions.querySelector(".signal-presets");
+
+    actions.querySelectorAll(".signal-open-button").forEach((button) => {
+      button.addEventListener("click", () => {
+        const type = button.dataset.signalType === "motivation" ? "motivation" : "kudos";
+        label.textContent = type === "motivation" ? "Pick an encouragement to send:" : "Pick a kudos to send:";
+        presets.innerHTML = window.PointwellSignals.presetsForType(type)
+          .map((text) => `<button class="signal-preset-chip" type="button" data-signal-type="${type}" data-signal-body="${escapeHtml(text)}">${escapeHtml(text)}</button>`)
+          .join("");
+        presets.querySelectorAll(".signal-preset-chip").forEach((chip) => {
+          chip.addEventListener("click", () => {
+            sendChosenSignal(community, memberItem, chip.dataset.signalType, chip.dataset.signalBody, composer);
+          });
+        });
+        composer.hidden = false;
+      });
+    });
+
+    // Reveal the motivation affordance ONLY if the member is nudgeable (opted-in
+    // AND currently behind). The DB is the real guard; this just hides it otherwise.
+    const motivationButton = actions.querySelector(".signal-motivation-button");
+    if (motivationButton && memberItem.userId) {
+      window.PointwellSignals.isNudgeable(memberItem.userId).then((ok) => {
+        // Explicitly set both ways so a falsy result hides it, not just relying on
+        // the initial hidden state (defensive; the DB still blocks the insert).
+        if (state.selectedCommunityMemberId === memberItem.id) motivationButton.hidden = !ok;
+      }).catch(() => {});
+    }
+  }
+
+  async function sendChosenSignal(community, memberItem, type, body, composer) {
+    const firstName = memberFirstName(memberItem);
+    if (!signalsReady()) { showToast("Sign in to send a signal"); return; }
+    if (!memberItem.userId) {
+      if (composer) composer.hidden = true;
+      showToast(`${firstName} is a demo member — invite real friends to send signals`);
+      return;
+    }
+    const result = await window.PointwellSignals.sendSignal({
+      type,
+      body,
+      fromUser: state.account.userId,
+      toUser: memberItem.userId,
+      fromName: state.profile.name,
+      communityId: community.id
+    });
+    if (composer) composer.hidden = true;
+    if (result.error) {
+      const message = /duplicate|unique/i.test(result.error.message || "")
+        ? `You already sent ${firstName} ${type === "motivation" ? "motivation" : "kudos"} today`
+        : (result.error.message || "Couldn't send that signal");
+      showToast(message);
+      return;
+    }
+    showToast(`${type === "motivation" ? "Motivation" : "Kudos"} sent to ${firstName}`);
   }
 
   function cacheElements() {
@@ -938,6 +1197,12 @@
       "publicPreviewStatus",
       "publicPreview",
       "integrationList",
+      "notifBellButton",
+      "notifUnreadBadge",
+      "notifPanel",
+      "notifList",
+      "notifMarkAllButton",
+      "allowMotivationInput",
       "toast"
     ];
     ids.forEach((id) => {
@@ -1154,6 +1419,14 @@
     });
 
     els.saveProfileButton.addEventListener("click", saveProfile);
+    if (els.notifBellButton) els.notifBellButton.addEventListener("click", toggleNotifPanel);
+    if (els.notifMarkAllButton) els.notifMarkAllButton.addEventListener("click", markAllSignalsRead);
+    document.addEventListener("click", (event) => {
+      if (!els.notifPanel || els.notifPanel.hidden) return;
+      if (els.notifPanel.contains(event.target)) return;
+      if (els.notifBellButton && els.notifBellButton.contains(event.target)) return;
+      els.notifPanel.hidden = true;
+    });
     els.resetDemoButton.addEventListener("click", () => {
       localStorage.removeItem(storageKey);
       state = structuredClone(seedState);
@@ -1175,6 +1448,8 @@
     renderCommunityMemberActivity();
     renderFindCommunities();
     renderProfile();
+    renderNotifications();
+    pushMyBehindStatus();
   }
 
   function renderChrome() {
@@ -3058,6 +3333,7 @@
     els.profileHandleInput.value = state.profile.handle.replace(/^@/, "");
     els.profilePrivacyInput.value = state.profile.privacy;
     els.dailyTargetInput.value = state.profile.dailyTarget;
+    if (els.allowMotivationInput) els.allowMotivationInput.checked = state.profile.allowMotivation === true;
 
     const publicSystems = state.profile.privacy === "public"
       ? state.systems.filter((system) => system.visibility === "public")
@@ -5013,6 +5289,8 @@
           </div>
         </section>
 
+        ${renderMemberSignalActions(community, memberItem)}
+
         <section class="top-card-panel" aria-labelledby="memberGoalCompletionTitle">
           <div class="panel-heading tight">
             <div>
@@ -5059,6 +5337,7 @@
         </section>
       </div>
     `;
+    bindMemberSignalActions(community, memberItem);
   }
 
   function calculateMemberCommunitySummary(community, values) {
@@ -6603,6 +6882,15 @@
     state.profile.handle = handle;
     state.profile.privacy = els.profilePrivacyInput.value;
     state.profile.dailyTarget = numberOrDefault(els.dailyTargetInput.value, 8);
+    if (els.allowMotivationInput) {
+      state.profile.allowMotivation = els.allowMotivationInput.checked;
+      // Mirror the opt-in to the server (what the RLS motivation gate reads), then
+      // refresh our "behind" flag so opting in while behind takes effect at once.
+      if (signalsReady()) {
+        Promise.resolve(window.PointwellSignals.setOptIn(state.account.userId, state.profile.allowMotivation)).catch(() => {});
+        pushMyBehindStatus();
+      }
+    }
     state.systems.forEach((system) => {
       system.ownerName = name;
     });

@@ -29,7 +29,7 @@
   // database remains the real enforcement.
   function validateSignalDraft(draft) {
     draft = draft || {};
-    if (draft.type !== "kudos" && draft.type !== "motivation") {
+    if (draft.type !== "kudos" && draft.type !== "motivation" && draft.type !== "text") {
       return { ok: false, reason: "Unknown signal type." };
     }
     var body = typeof draft.body === "string" ? draft.body.trim() : "";
@@ -216,6 +216,89 @@
     }
   }
 
+  // ── Free-text messaging: thread, block, report ─────────────────────────────
+
+  // The full two-way conversation (type='text') between me and another user,
+  // oldest first. RLS limits this to threads I'm part of; the filter narrows to
+  // this one pair.
+  var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  async function fetchThread(meId, otherId, limit) {
+    var sb = getClient();
+    if (!sb || !meId || !otherId) return [];
+    // Both ids feed a PostgREST or() filter string; require real UUIDs so nothing
+    // can malform the filter. RLS is still the real isolation guarantee — this
+    // .or() pair-filter is only a convenience narrowing to one conversation.
+    if (!UUID_RE.test(String(meId)) || !UUID_RE.test(String(otherId))) return [];
+    try {
+      var res = await sb
+        .from("signals")
+        .select("id, from_user, to_user, from_name, body, created_at, read, type")
+        .eq("type", "text")
+        .or("and(from_user.eq." + meId + ",to_user.eq." + otherId + "),and(from_user.eq." + otherId + ",to_user.eq." + meId + ")")
+        .order("created_at", { ascending: true })
+        .limit(limit || 100);
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async function blockUser(blocker, blocked) {
+    var sb = getClient();
+    if (!sb || !blocker || !blocked) return { error: { message: "Couldn't block." } };
+    try {
+      var res = await sb.from("blocks").insert({ blocker_user: blocker, blocked_user: blocked });
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  async function unblockUser(blocker, blocked) {
+    var sb = getClient();
+    if (!sb || !blocker || !blocked) return { error: null };
+    try {
+      var res = await sb.from("blocks").delete().eq("blocker_user", blocker).eq("blocked_user", blocked);
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // True if I (blocker) have blocked this user. (We can never see if THEY blocked
+  // us — that stays private; a send to them just fails neutrally.)
+  async function isBlockedByMe(meId, otherId) {
+    var sb = getClient();
+    if (!sb || !meId || !otherId) return false;
+    try {
+      var res = await sb
+        .from("blocks")
+        .select("blocked_user")
+        .eq("blocker_user", meId)
+        .eq("blocked_user", otherId)
+        .maybeSingle();
+      return res.error ? false : !!res.data;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function reportMessage(reporterId, messageId, reason) {
+    var sb = getClient();
+    if (!sb || !reporterId || !messageId) return { error: { message: "Couldn't file the report." } };
+    try {
+      var res = await sb.from("reports").insert({
+        reporter_user: reporterId,
+        reported_message_id: messageId,
+        reason: reason || null
+      });
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
   var api = {
     KUDOS_PRESETS: KUDOS_PRESETS,
     MOTIVATION_PRESETS: MOTIVATION_PRESETS,
@@ -233,7 +316,12 @@
     updateBehind: updateBehind,
     getMyFlags: getMyFlags,
     isNudgeable: isNudgeable,
-    subscribeInbox: subscribeInbox
+    subscribeInbox: subscribeInbox,
+    fetchThread: fetchThread,
+    blockUser: blockUser,
+    unblockUser: unblockUser,
+    isBlockedByMe: isBlockedByMe,
+    reportMessage: reportMessage
   };
 
   if (typeof module !== "undefined" && module.exports) {

@@ -23,7 +23,15 @@ assert(!signals.KUDOS_PRESETS.includes("HACK"), "presetsForType returns a copy")
 const ME = "user-a", PEER = "user-b";
 assertEqual(validReason({ type: "kudos", body: "Proud of you", fromUser: ME, toUser: PEER }), true, "valid kudos");
 assertEqual(validReason({ type: "motivation", body: "You've got this", fromUser: ME, toUser: PEER }), true, "valid motivation");
+assertEqual(validReason({ type: "text", body: "hey there", fromUser: ME, toUser: PEER }), true, "valid text message");
+assertEqual(validReason({ type: "text", body: "x".repeat(281), fromUser: ME, toUser: PEER }), "That message is a little long.", "text respects length cap");
+assertEqual(validReason({ type: "text", body: "hi", fromUser: ME, toUser: ME }), "You can't send a signal to yourself.", "text rejects self-send");
 assertEqual(validReason({ type: "boo", body: "x", fromUser: ME, toUser: PEER }), "Unknown signal type.", "rejects bad type");
+
+// messaging API surface exists
+["fetchThread", "blockUser", "unblockUser", "isBlockedByMe", "reportMessage"].forEach((fn) => {
+  assert(typeof signals[fn] === "function", "signals." + fn + " exists");
+});
 assertEqual(validReason({ type: "kudos", body: "   ", fromUser: ME, toUser: PEER }), "Pick a message to send.", "rejects empty body");
 assertEqual(validReason({ type: "kudos", body: "x".repeat(281), fromUser: ME, toUser: PEER }), "That message is a little long.", "rejects long body");
 assertEqual(validReason({ type: "kudos", body: "hi", fromUser: "", toUser: PEER }), "Sign in to send a signal.", "rejects no sender");

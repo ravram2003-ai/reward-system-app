@@ -755,7 +755,8 @@
     refreshInbox();
     if (payload && payload.eventType === "INSERT" && payload.new && !payload.new.read) {
       const who = payload.new.from_name || "A teammate";
-      const kind = payload.new.type === "motivation" ? "motivation" : "kudos";
+      const t = payload.new.type;
+      const kind = t === "motivation" ? "motivation" : (t === "text" ? "a message" : "kudos");
       showToast(`${who} sent you ${kind}`);
     }
   }
@@ -786,10 +787,11 @@
   function renderNotificationItem(sig) {
     const who = escapeHtml(sig.from_name || "A teammate");
     const when = escapeHtml(window.PointwellSignals.formatRelativeTime(sig.created_at, Date.now()));
-    const isMotivation = sig.type === "motivation";
+    const labels = { kudos: "Kudos", motivation: "Motivation", text: "Message" };
+    const type = labels[sig.type] ? sig.type : "kudos";
     return `
       <div class="notif-item${sig.read ? "" : " unread"}">
-        <span class="signal-pill ${isMotivation ? "motivation" : "kudos"}">${isMotivation ? "Motivation" : "Kudos"}</span>
+        <span class="signal-pill ${type}">${labels[type]}</span>
         <div class="notif-item-body">
           <p>${escapeHtml(sig.body)}</p>
           <span class="notif-item-meta">${who} · ${when}</span>
@@ -858,18 +860,34 @@
     if (!memberItem || memberItem.id === "me" || !signalsReady()) return "";
     const firstName = escapeHtml(memberFirstName(memberItem));
     return `
-      <section class="signal-actions" aria-label="Send a positive signal">
+      <section class="signal-actions" aria-label="Connect with this member">
         <div class="signal-actions-head">
-          <strong>Send ${firstName} a signal</strong>
-          <span>Celebrate a strong week — or cheer them on if they've opted in.</span>
+          <strong>Connect with ${firstName}</strong>
+          <span>Send a signal, or open a private conversation.</span>
         </div>
         <div class="signal-actions-buttons">
           <button class="secondary-button small signal-open-button" type="button" data-signal-type="kudos">Send kudos</button>
           <button class="ghost-button small signal-open-button signal-motivation-button" type="button" data-signal-type="motivation" hidden>Send motivation</button>
+          <button class="ghost-button small message-open-button" type="button">Message</button>
         </div>
         <div class="signal-composer" hidden>
           <span class="signal-composer-label"></span>
           <div class="signal-presets"></div>
+        </div>
+        <div class="message-thread" hidden>
+          <div class="message-thread-head">
+            <strong>Conversation with ${firstName}</strong>
+            <button class="ghost-button small message-block-button" type="button" data-blocked="false">Block</button>
+          </div>
+          <div class="message-thread-list" aria-live="polite"></div>
+          <p class="message-blocked-note" hidden>You blocked ${firstName}. Unblock to message again.</p>
+          <form class="message-composer">
+            <textarea class="message-input" rows="2" maxlength="280" placeholder="Write a message…" aria-label="Message text"></textarea>
+            <div class="message-composer-foot">
+              <span class="message-counter">0/280</span>
+              <button class="primary-button small message-send-button" type="submit" disabled>Send</button>
+            </div>
+          </form>
         </div>
       </section>
     `;
@@ -910,6 +928,153 @@
         if (state.selectedCommunityMemberId === memberItem.id) motivationButton.hidden = !ok;
       }).catch(() => {});
     }
+
+    // ── Messaging: "Message" opens the private conversation thread ──
+    const messageButton = actions.querySelector(".message-open-button");
+    const thread = actions.querySelector(".message-thread");
+    if (messageButton && thread) {
+      bindThreadControls(community, memberItem, thread);
+      messageButton.addEventListener("click", () => {
+        const opening = thread.hidden;
+        thread.hidden = !opening;
+        if (opening) openMessageThread(community, memberItem, thread).catch(() => {});
+      });
+    }
+  }
+
+  // ── Free-text messaging thread (inside the member-activity view) ───────────
+  async function openMessageThread(community, memberItem, thread) {
+    const list = thread.querySelector(".message-thread-list");
+    const form = thread.querySelector(".message-composer");
+    if (!memberItem.userId) {
+      if (list) list.innerHTML = `<p class="message-empty">${escapeHtml(memberFirstName(memberItem))} is a demo member — messaging works between real accounts.</p>`;
+      if (form) form.hidden = true;
+      return;
+    }
+    if (form) form.hidden = false;
+    await refreshThread(community, memberItem, thread);
+    await refreshBlockState(memberItem, thread);
+  }
+
+  async function refreshThread(community, memberItem, thread) {
+    if (!signalsReady() || !memberItem.userId) return;
+    const list = thread.querySelector(".message-thread-list");
+    const messages = await window.PointwellSignals.fetchThread(state.account.userId, memberItem.userId, 100);
+    if (!thread.isConnected || !list) return;
+    list.innerHTML = messages.length
+      ? messages.map(renderMessageBubble).join("")
+      : `<p class="message-empty">No messages yet. Say hello 👋</p>`;
+    list.scrollTop = list.scrollHeight;
+    // Mark received-but-unread messages in this thread as read, then refresh the bell.
+    const unreadIds = messages
+      .filter((m) => m.to_user === state.account.userId && !m.read)
+      .map((m) => m.id);
+    if (unreadIds.length) {
+      Promise.resolve(window.PointwellSignals.markRead(unreadIds)).then(() => refreshInbox()).catch(() => {});
+    }
+  }
+
+  function renderMessageBubble(m) {
+    const mine = m.from_user === state.account.userId;
+    const when = escapeHtml(window.PointwellSignals.formatRelativeTime(m.created_at, Date.now()));
+    return `
+      <div class="message-bubble ${mine ? "mine" : "theirs"}">
+        <p>${escapeHtml(m.body)}</p>
+        <div class="message-bubble-foot">
+          <span>${when}</span>
+          ${mine ? "" : `<button class="message-report-link" type="button" data-report-id="${escapeHtml(m.id)}">Report</button>`}
+        </div>
+      </div>
+    `;
+  }
+
+  function bindThreadControls(community, memberItem, thread) {
+    const form = thread.querySelector(".message-composer");
+    const input = thread.querySelector(".message-input");
+    const counter = thread.querySelector(".message-counter");
+    const sendButton = thread.querySelector(".message-send-button");
+    const blockButton = thread.querySelector(".message-block-button");
+    const list = thread.querySelector(".message-thread-list");
+    const max = (window.PointwellSignals && window.PointwellSignals.MAX_BODY) || 280;
+    if (input) input.setAttribute("maxlength", String(max)); // keep the cap in sync with MAX_BODY
+
+    function updateCounter() {
+      const len = (input.value || "").length;
+      if (counter) counter.textContent = len + "/" + max;
+      if (sendButton) sendButton.disabled = len === 0 || len > max;
+    }
+    if (input) { input.addEventListener("input", updateCounter); updateCounter(); }
+
+    if (form) form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const body = (input.value || "").trim();
+      if (!body) return;
+      if (!memberItem.userId) { showToast(`${memberFirstName(memberItem)} is a demo member`); return; }
+      if (sendButton) sendButton.disabled = true;
+      const result = await window.PointwellSignals.sendSignal({
+        type: "text",
+        body: body,
+        fromUser: state.account.userId,
+        toUser: memberItem.userId,
+        fromName: state.profile.name,
+        communityId: community.id
+      });
+      if (result.error) {
+        // Neutral message — never reveal whether the recipient blocked you.
+        showToast("Couldn't send your message right now.");
+        if (sendButton) sendButton.disabled = false;
+        return;
+      }
+      input.value = "";
+      updateCounter();
+      await refreshThread(community, memberItem, thread);
+    });
+
+    if (blockButton) blockButton.addEventListener("click", () => { toggleBlock(memberItem, thread, blockButton).catch(() => {}); });
+
+    if (list) list.addEventListener("click", (event) => {
+      const link = event.target.closest && event.target.closest(".message-report-link");
+      if (link) reportThreadMessage(link.dataset.reportId).catch(() => {});
+    });
+  }
+
+  async function toggleBlock(memberItem, thread, blockButton) {
+    if (!signalsReady() || !memberItem.userId) { showToast("Messaging works between real accounts"); return; }
+    const me = state.account.userId;
+    const firstName = memberFirstName(memberItem);
+    if (blockButton.dataset.blocked === "true") {
+      await window.PointwellSignals.unblockUser(me, memberItem.userId);
+      showToast(`Unblocked ${firstName}`);
+    } else {
+      const res = await window.PointwellSignals.blockUser(me, memberItem.userId);
+      if (res.error) { showToast("Couldn't block right now"); return; }
+      showToast(`Blocked ${firstName}`);
+    }
+    await refreshBlockState(memberItem, thread);
+  }
+
+  async function refreshBlockState(memberItem, thread) {
+    if (!signalsReady() || !memberItem.userId) return;
+    const blocked = await window.PointwellSignals.isBlockedByMe(state.account.userId, memberItem.userId);
+    if (!thread.isConnected) return;
+    const blockButton = thread.querySelector(".message-block-button");
+    const form = thread.querySelector(".message-composer");
+    const note = thread.querySelector(".message-blocked-note");
+    if (blockButton) {
+      blockButton.dataset.blocked = blocked ? "true" : "false";
+      blockButton.textContent = blocked ? "Unblock" : "Block";
+    }
+    if (form) form.hidden = blocked;
+    if (note) note.hidden = !blocked;
+    // Re-sync the counter + send-button now the composer may have reappeared.
+    const inputEl = thread.querySelector(".message-input");
+    if (inputEl && !blocked) inputEl.dispatchEvent(new Event("input"));
+  }
+
+  async function reportThreadMessage(messageId) {
+    if (!signalsReady() || !messageId) return;
+    const res = await window.PointwellSignals.reportMessage(state.account.userId, messageId, "Reported from conversation");
+    showToast(res.error ? "Couldn't file the report" : "Reported. Thanks — we'll review it.");
   }
 
   async function sendChosenSignal(community, memberItem, type, body, composer) {
@@ -3300,6 +3465,10 @@
   }
 
   function renderCommunityMemberActivity() {
+    // Only (re)build this view when it's actually on screen. Avoids collapsing an
+    // open message thread — and an off-screen isNudgeable call — on background
+    // renders (e.g. the bell refreshing) while the user is elsewhere.
+    if (state.activeView !== "community-member-activity") return;
     const community = getSelectedCommunity();
     els.communityCheckinSection.hidden = true;
     els.communityCheckinSection.innerHTML = "";

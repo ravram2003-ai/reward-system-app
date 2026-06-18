@@ -79,6 +79,26 @@ It is idempotent (safe to re-run). It adds the opt-in + behind columns to
 consent gate (`is_member_nudgeable`), the daily rate-limit, and realtime. A
 `-- VERIFY` block at the bottom shows how to confirm each rule.
 
+### Direct messaging (free text)
+
+For the member-to-member messaging feature (free text + block + report), run
+`supabase/messaging.sql` **after** `signals.sql` (also idempotent). It allows
+`type='text'` on `signals`, adds the `blocks` and `reports` tables, and enforces —
+in the database — the block (both directions), the per-hour message rate limit, and
+the report rules.
+
+There is no admin UI for reports. To review reported messages, run this in the
+Supabase SQL editor (service role bypasses RLS):
+
+```sql
+select r.created_at, r.reason, r.reporter_user,
+       s.from_user as reported_sender, s.to_user as reported_recipient,
+       s.type as reported_type, s.body as reported_message
+from public.reports r
+left join public.signals s on s.id = r.reported_message_id
+order by r.created_at desc;
+```
+
 ## Build
 
 No build step is required. The app is already served directly from the static files in `outputs/`.

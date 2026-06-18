@@ -3,10 +3,39 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260612-integrations">
+    <link rel="stylesheet" href="styles.css?v=20260618-pages">
   </head>
   <body>
+    <div class="auth-screen" id="authScreen" hidden>
+      <div class="auth-card">
+        <div class="auth-brand">
+          <div class="brand-mark" aria-hidden="true">P</div>
+          <div>
+            <p class="eyebrow">Pointwell</p>
+            <strong>Reward systems</strong>
+          </div>
+        </div>
+        <h1 id="authHeading">Welcome back</h1>
+        <p class="auth-sub">Sign in to keep your identity and communities across devices.</p>
+        <form class="auth-form" id="authForm">
+          <label>
+            <span>Email</span>
+            <input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com" required>
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="authPassword" type="password" autocomplete="current-password" placeholder="At least 6 characters" minlength="6" required>
+          </label>
+          <p class="auth-error" id="authError" role="alert" hidden></p>
+          <button class="primary-button" id="authSubmit" type="submit">Sign in</button>
+        </form>
+        <button class="ghost-button small auth-toggle" id="authToggle" type="button">New here? Create an account</button>
+      </div>
+    </div>
+
     <div class="app-shell">
       <aside class="sidebar" aria-label="Workspace">
         <div class="brand-block">
@@ -47,7 +76,10 @@
 
         <div class="sidebar-footer">
           <span id="todayLabel"></span>
-          <button class="ghost-button small" type="button" id="resetDemoButton">Reset demo</button>
+          <div class="sidebar-footer-actions">
+            <button class="ghost-button small" type="button" id="signOutButton" hidden>Sign out</button>
+            <button class="ghost-button small" type="button" id="resetDemoButton">Reset demo</button>
+          </div>
         </div>
       </aside>
 
@@ -92,6 +124,25 @@
               <button class="secondary-button" type="button" id="syncSampleButton">Sync sample data</button>
             </div>
           </div>
+
+          <div class="community-score-actions" id="communityScoreActions" hidden>
+            <div class="community-score-actions-label">
+              <span class="eyebrow">Logging toward community</span>
+              <strong id="communityScoreName">Community</strong>
+            </div>
+            <div class="community-score-actions-buttons">
+              <button class="secondary-button" type="button" id="viewLeaderboardButton">View Leaderboard</button>
+              <button class="ghost-button" type="button" id="openCommunityButton">Open Community</button>
+            </div>
+          </div>
+
+          <section class="tool-panel daily-insight-card" id="dailyInsightCard" aria-labelledby="dailyInsightTitle">
+            <span class="daily-insight-icon" aria-hidden="true">◗</span>
+            <div class="daily-insight-main">
+              <span class="eyebrow" id="dailyInsightTitle">Daily Insight</span>
+              <p class="daily-insight-text" id="dailyInsightText">Log your first entry to see today's insight.</p>
+            </div>
+          </section>
 
           <section class="top-card-panel" aria-labelledby="topCardTitle">
             <div class="panel-heading">
@@ -693,6 +744,221 @@
           </div>
         </section>
 
+        <section class="view" id="createCommunityView" aria-labelledby="createCommunityTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Accountability</p>
+              <h2 id="createCommunityTitle">Create Community</h2>
+              <p class="view-subtitle">Set up a shared accountability community step by step.</p>
+            </div>
+            <div class="header-actions">
+              <button class="ghost-button" type="button" id="cancelCreateCommunityButton">Cancel</button>
+            </div>
+          </div>
+
+          <section class="build-panel" id="ccMethodLanding" aria-label="Choose how to build community rules">
+            <div class="panel-heading tight">
+              <div>
+                <span class="eyebrow">Create Community</span>
+                <strong>How do you want to build it?</strong>
+              </div>
+            </div>
+            <div class="build-start-panel">
+              <button class="build-option-card" type="button" data-cc-method="ai">
+                <span class="build-option-icon" aria-hidden="true">&#10022;</span>
+                <strong>Generate with AI</strong>
+                <span>Describe the community and let AI draft the rules. You can review and edit everything before saving.</span>
+              </button>
+              <button class="build-option-card" type="button" data-cc-method="scratch">
+                <span class="build-option-icon" aria-hidden="true">+</span>
+                <strong>Start From Scratch</strong>
+                <span>Build the community rules manually, one at a time.</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="editor-panel" id="ccEditorPanel" aria-label="Create community setup">
+            <div class="setup-flow-header">
+              <div>
+                <span class="eyebrow" id="createCommunityStepKicker">Step 1 of 3</span>
+                <h3 id="createCommunityStepTitle">Basic Info</h3>
+                <p id="createCommunityStepIntro">Name the community and describe what it is about.</p>
+              </div>
+              <div class="setup-stepper" id="createCommunityStepper" aria-label="Create community steps"></div>
+            </div>
+
+            <section class="setup-step-panel" data-cc-step="0" aria-label="Basic info">
+              <div class="setup-step-heading">
+                <h3>Basic Info</h3>
+                <p>Start with the name, focus area, and visibility for this community.</p>
+              </div>
+              <form class="form-grid" id="createCommunityForm">
+                <label>
+                  <span>Community name</span>
+                  <input id="ccNameInput" type="text" placeholder="Example: Friday Gym Crew" autocomplete="off">
+                </label>
+                <label>
+                  <span>Category or focus area</span>
+                  <input id="ccCategoryInput" type="text" list="categoryOptions" placeholder="Example: Fitness, Academics, Sleep">
+                </label>
+                <label class="wide-field">
+                  <span>Description</span>
+                  <textarea id="ccDescriptionInput" rows="2" placeholder="Example: Daily lifting, steps, and gym accountability."></textarea>
+                </label>
+                <label>
+                  <span>Visibility</span>
+                  <select id="ccVisibilityInput">
+                    <option value="private">Private</option>
+                    <option value="public">Public</option>
+                  </select>
+                </label>
+              </form>
+            </section>
+
+            <section class="setup-step-panel" data-cc-step="1" aria-label="Community rules" hidden>
+              <section class="builder-step wide-field" id="ccAiPanel" aria-label="Generate rules with AI" hidden>
+                <div class="panel-heading tight">
+                  <div>
+                    <span class="eyebrow">AI rule builder</span>
+                    <strong>Generate Rules with AI</strong>
+                  </div>
+                  <button class="ghost-button small" type="button" data-cc-method="">Back to options</button>
+                </div>
+                <div class="cc-ai-form">
+                  <label>
+                    <span>What is this community for?</span>
+                    <textarea id="ccAiGoalsInput" rows="2" placeholder="Example: Stay accountable on lifting and steps together"></textarea>
+                  </label>
+                  <label>
+                    <span>What should members be rewarded for?</span>
+                    <textarea id="ccAiRewardInput" rows="2" placeholder="Example: Workouts, steps, protein, studying"></textarea>
+                  </label>
+                  <label>
+                    <span>What should be penalized? (optional)</span>
+                    <textarea id="ccAiPenalizeInput" rows="2" placeholder="Example: Missing workouts, sleeping under 7 hours"></textarea>
+                  </label>
+                  <label>
+                    <span>How strict should it be?</span>
+                    <select id="ccAiStrictnessInput">
+                      <option value="balanced">Balanced</option>
+                      <option value="easy">Easy</option>
+                      <option value="intense">Intense</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Any specific targets? (optional)</span>
+                    <textarea id="ccAiTargetsInput" rows="2" placeholder="Example: 10,000 steps, 3 workouts/week, 2 hours studying"></textarea>
+                  </label>
+                  <button class="primary-button" type="button" id="ccAiGenerateButton">Generate Rules</button>
+                </div>
+              </section>
+
+              <div id="ccRulesPanel" hidden>
+              <div class="panel-heading rule-heading">
+                <div>
+                  <h3>Community Rules</h3>
+                  <span id="communityDraftRuleCount">0 rules</span>
+                </div>
+                <div class="inline-actions">
+                  <button class="ghost-button small" type="button" id="ccRegenerateButton" hidden>Regenerate with AI</button>
+                  <button class="ghost-button small" type="button" data-cc-method="">Back to options</button>
+                </div>
+              </div>
+
+              <div class="rule-list" id="communityDraftRuleList"></div>
+
+              <form class="rule-form simple-rule-form" id="communityDraftRuleForm" aria-label="Add community rule">
+                <div class="rule-form-status wide-field">
+                  <div>
+                    <span class="eyebrow">Rule builder</span>
+                    <strong id="ccRuleFormTitle">Add community rule</strong>
+                  </div>
+                  <button class="ghost-button small" type="button" id="cancelCcRuleEditButton" hidden>Cancel edit</button>
+                </div>
+
+                <section class="builder-step wide-field" aria-label="What are you tracking?">
+                  <div class="step-label">What are you tracking?</div>
+                  <div class="form-grid compact-grid">
+                    <label>
+                      <span>What do you want to track?</span>
+                      <input id="ccRuleLabelInput" type="text" placeholder="Example: Gym session, Steps, Lifting, Sleep">
+                    </label>
+                    <label id="ccRuleUnitField">
+                      <span>Unit</span>
+                      <input id="ccRuleUnitInput" type="text" placeholder="Example: steps, minutes, hours">
+                    </label>
+                  </div>
+                </section>
+
+                <section class="builder-step wide-field" aria-label="How do you earn points?">
+                  <div class="step-label">How do you earn points?</div>
+                  <label>
+                    <span>Rule type</span>
+                    <select id="ccRuleTypeInput">
+                      <option value="yesNo">Yes/No — did it today</option>
+                      <option value="every">Points for every amount</option>
+                      <option value="goal">Points when I hit a goal</option>
+                      <option value="penalty">Penalty if below a minimum</option>
+                    </select>
+                  </label>
+                  <div class="form-grid compact-grid">
+                    <label id="ccRuleGoalField">
+                      <span id="ccRuleGoalLabel">Daily goal</span>
+                      <input id="ccRuleGoalInput" type="number" step="1" placeholder="Example: 10000">
+                    </label>
+                    <label id="ccRuleEveryAmountField">
+                      <span>Give points every</span>
+                      <input id="ccRuleEveryAmountInput" type="number" step="1" placeholder="Example: 5000">
+                    </label>
+                    <label>
+                      <span id="ccRulePointsLabel">Points</span>
+                      <input id="ccRulePointsInput" type="number" step="0.25" placeholder="Example: 2">
+                    </label>
+                  </div>
+                </section>
+
+                <section class="builder-step wide-field" aria-label="Data source">
+                  <div class="step-label">Data source</div>
+                  <div class="form-grid compact-grid">
+                    <label>
+                      <span>Data source</span>
+                      <select id="ccRuleDataSourceInput"></select>
+                    </label>
+                    <label>
+                      <span>Synced metric</span>
+                      <select id="ccRuleSourceMetricInput"></select>
+                    </label>
+                  </div>
+                  <label class="toggle-label source-override-toggle">
+                    <input id="ccRuleManualOverrideInput" type="checkbox" checked>
+                    <span>Allow manual adjustment</span>
+                  </label>
+                </section>
+
+                <button class="secondary-button add-rule-button wide-field" type="submit">
+                  <span aria-hidden="true">＋</span>
+                  <span id="ccRuleSubmitLabel">Add rule</span>
+                </button>
+              </form>
+              </div>
+            </section>
+
+            <section class="setup-step-panel" data-cc-step="2" aria-label="Review" hidden>
+              <div class="setup-step-heading">
+                <h3>Review &amp; Complete</h3>
+                <p>Check the community before creating it. You can go back to adjust anything.</p>
+              </div>
+              <div class="setup-review" id="createCommunityReview"></div>
+            </section>
+
+            <div class="setup-nav" aria-label="Create community navigation">
+              <button class="ghost-button" type="button" id="createCommunityBackButton">Back</button>
+              <button class="primary-button" type="button" id="createCommunityNextButton">Next: Add Rules</button>
+              <button class="primary-button" type="button" id="createCommunityCompleteButton">Complete</button>
+            </div>
+          </section>
+        </section>
+
         <section class="view" id="communityDetailView" aria-labelledby="communityDetailTitle">
           <div class="view-header">
             <div>
@@ -725,15 +991,18 @@
               <button class="ghost-button small" type="button" id="sendInviteEmailButton">Send Email</button>
             </div>
 
-            <section class="community-leaderboard-panel" aria-labelledby="leaderboardTitle">
+            <section class="community-leaderboard-panel" id="communityLeaderboardPanel" aria-labelledby="leaderboardTitle">
               <div class="panel-heading tight">
                 <div>
                   <h3 id="leaderboardTitle">Leaderboard</h3>
                   <span id="communityLeader">Daily community points</span>
                 </div>
               </div>
+              <div class="segmented" id="communityPeriodTabs" role="tablist" aria-label="Leaderboard period"></div>
               <div class="leaderboard" id="leaderboardList"></div>
             </section>
+
+            <div class="community-analytics" id="communityAnalytics"></div>
           </section>
         </section>
 
@@ -778,6 +1047,39 @@
                 <button class="secondary-button small" type="button" id="addCommunityRuleButton">Add Rule</button>
               </div>
               <div class="community-settings-rules" id="communityRules"></div>
+            </section>
+
+            <section class="community-analytics-settings" id="communityAnalyticsSettings" aria-labelledby="communityAnalyticsSettingsTitle">
+              <div class="panel-heading tight">
+                <div>
+                  <h3 id="communityAnalyticsSettingsTitle">Dashboard modules</h3>
+                  <span id="communityAnalyticsSettingsHint">Choose what the community sees</span>
+                </div>
+              </div>
+              <div class="community-analytics-toggles">
+                <label class="toggle-label"><input type="checkbox" id="ccModuleLeaderboard"><span>Leaderboard</span></label>
+                <label class="toggle-label"><input type="checkbox" id="ccModuleGroupTrends"><span>Group trends</span></label>
+                <label class="toggle-label"><input type="checkbox" id="ccModuleIndividualTrends"><span>Individual trends</span></label>
+                <label class="toggle-label"><input type="checkbox" id="ccModuleUnderperforming"><span>Underperforming section</span></label>
+              </div>
+              <div class="community-settings-form">
+                <label>
+                  <span>Default leaderboard period</span>
+                  <select id="ccDefaultPeriodInput">
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="all">All-time</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Scoring metric</span>
+                  <select id="ccMetricInput">
+                    <option value="points">Total points</option>
+                    <option value="completion">Goal completion %</option>
+                  </select>
+                </label>
+              </div>
             </section>
 
             <button class="ghost-button small" type="button" id="copyCommunitySystemButton">Copy to mine</button>
@@ -891,7 +1193,11 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="scoring.js?v=20260612-integrations"></script>
-    <script src="app.js?v=20260612-integrations"></script>
+    <script src="supabase-config.js?v=20260618-pages"></script>
+    <script src="auth-helpers.js?v=20260618-pages"></script>
+    <script src="scoring.js?v=20260618-pages"></script>
+    <script src="insight.js?v=20260618-pages"></script>
+    <script type="module" src="auth.js?v=20260618-pages"></script>
+    <script src="app.js?v=20260618-pages"></script>
   </body>
 </html>

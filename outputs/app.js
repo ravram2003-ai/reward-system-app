@@ -170,11 +170,16 @@
       dailyTarget: 8,
       accent: "#355d91"
     },
+    // Authenticated account (Supabase). null = local mode / not signed in.
+    // The local current-user id stays "me"; account.userId is its real identity.
+    account: null,
     activeView: "dashboard",
     selectedSystemId: "life-core",
     trackerSystemId: "life-core",
     selectedCommunityId: "gym-crew",
     selectedCommunityMemberId: "me",
+    communityLeaderboardPeriod: "",
+    communityTrendMemberId: "",
     scoreContext: "personal",
     buildMode: "home",
     buildSearchQuery: "",
@@ -190,6 +195,9 @@
     buildViewedPublicId: "",
     buildViewedProfileId: "",
     aiDraftSystem: null,
+    aiDraftInputs: null,
+    aiDraftAdjustments: null,
+    aiLearning: { saved: {}, feedback: [], deletedRuleLabels: {}, likedRuleLabels: {} },
     systemSetupStep: 0,
     systemEditorOpen: false,
     topCardPreferences: {},
@@ -590,6 +598,11 @@
   let addEntryDraft = { ruleId: "", amount: 0 };
   let topCardDraftBlocks = null;
   let weeklyChartDraftBlocks = null;
+  let communityDraft = null;
+  let communityDraftStep = 0;
+  let communityDraftMethod = "";
+  let editingCommunityDraftRuleId = "";
+  let authConfigured = false;
   const els = {};
   let toastTimer = null;
   let dayRolloverTimer = null;
@@ -602,6 +615,69 @@
     bindEvents();
     render();
     startDateRolloverWatcher();
+    initAuthGate();
+  }
+
+  // ── Auth bridge ───────────────────────────────────────────────────────────
+  // auth.js (the Supabase module) owns sign-in/up/out and emits `pointwell:auth`
+  // events. Here we only react: gate the app behind the auth screen when Supabase
+  // is configured, and bind the authenticated identity onto the local "me" user.
+  function initAuthGate() {
+    const config = window.POINTWELL_SUPABASE || {};
+    const helpers = window.PointwellAuthHelpers;
+    authConfigured = !!(helpers && helpers.isSupabaseConfigured(config));
+    document.addEventListener("pointwell:auth", handleAuthEvent);
+    if (authConfigured) showAuthScreen();
+    // Apply any auth state that resolved before this listener attached.
+    if (window.__pointwellAuthState) handleAuthEvent({ detail: window.__pointwellAuthState });
+  }
+
+  function handleAuthEvent(event) {
+    const detail = (event && event.detail) || {};
+    if (detail.status === "signed-in") {
+      applyAccountIdentity(detail.user || {}, detail.profile);
+      if (els.signOutButton) els.signOutButton.hidden = false;
+      hideAuthScreen();
+    } else if (detail.status === "signed-out") {
+      state.account = null;
+      if (els.signOutButton) els.signOutButton.hidden = true;
+      saveState();
+      if (authConfigured) showAuthScreen();
+    } else {
+      // "unconfigured" or "error" → local mode, app stays usable
+      state.account = null;
+      if (els.signOutButton) els.signOutButton.hidden = true;
+      hideAuthScreen();
+    }
+  }
+
+  // Bind the authenticated account to the local current user ("me").
+  function applyAccountIdentity(user, profile) {
+    state.account = { userId: user.id || "", email: user.email || "" };
+    if (profile) {
+      if (profile.name) state.profile.name = profile.name;
+      if (profile.handle) state.profile.handle = cleanHandle(profile.handle);
+      state.systems.forEach((system) => { system.ownerName = state.profile.name; });
+      state.communities.forEach((community) => {
+        const me = community.members.find((member) => member.id === "me");
+        if (me) {
+          me.name = state.profile.name;
+          me.handle = state.profile.handle;
+        }
+      });
+    }
+    saveState();
+    render();
+  }
+
+  function showAuthScreen() {
+    if (els.authScreen) els.authScreen.hidden = false;
+    document.body.classList.add("auth-locked");
+  }
+
+  function hideAuthScreen() {
+    if (els.authScreen) els.authScreen.hidden = true;
+    document.body.classList.remove("auth-locked");
   }
 
   function cacheElements() {
@@ -625,6 +701,11 @@
       "findCommunitiesView",
       "profileView",
       "scoreContextSelect",
+      "communityScoreActions",
+      "communityScoreName",
+      "viewLeaderboardButton",
+      "openCommunityButton",
+      "addEntryTitle",
       "trackerSystemSelect",
       "addEntrySystemSelect",
       "customizeTopCardSystemSelect",
@@ -643,6 +724,10 @@
       "dailyProgressLabel",
       "dailyTargetFill",
       "dailyStatusLabel",
+      "dailyInsightCard",
+      "dailyInsightText",
+      "authScreen",
+      "signOutButton",
       "syncSampleButton",
       "customizeTopCardButton",
       "customizeChartsButton",
@@ -776,6 +861,17 @@
       "copyCommunitySystemButton",
       "communityRules",
       "leaderboardList",
+      "communityLeaderboardPanel",
+      "communityPeriodTabs",
+      "communityAnalytics",
+      "communityAnalyticsSettings",
+      "communityAnalyticsSettingsHint",
+      "ccModuleLeaderboard",
+      "ccModuleGroupTrends",
+      "ccModuleIndividualTrends",
+      "ccModuleUnderperforming",
+      "ccDefaultPeriodInput",
+      "ccMetricInput",
       "backFromMemberActivityButton",
       "memberActivityTitle",
       "memberActivityTotal",
@@ -784,6 +880,52 @@
       "communityLiveScore",
       "communityInputList",
       "saveCommunityEntryButton",
+      "createCommunityView",
+      "cancelCreateCommunityButton",
+      "createCommunityStepKicker",
+      "createCommunityStepTitle",
+      "createCommunityStepIntro",
+      "createCommunityStepper",
+      "createCommunityForm",
+      "ccNameInput",
+      "ccCategoryInput",
+      "ccDescriptionInput",
+      "ccVisibilityInput",
+      "communityDraftRuleCount",
+      "communityDraftRuleList",
+      "communityDraftRuleForm",
+      "ccRuleFormTitle",
+      "cancelCcRuleEditButton",
+      "ccRuleLabelInput",
+      "ccRuleUnitField",
+      "ccRuleUnitInput",
+      "ccRuleTypeInput",
+      "ccRuleGoalField",
+      "ccRuleGoalLabel",
+      "ccRuleGoalInput",
+      "ccRuleEveryAmountField",
+      "ccRuleEveryAmountInput",
+      "ccRulePointsLabel",
+      "ccRulePointsInput",
+      "ccRuleDataSourceInput",
+      "ccRuleSourceMetricInput",
+      "ccRuleManualOverrideInput",
+      "ccRuleSubmitLabel",
+      "createCommunityReview",
+      "createCommunityBackButton",
+      "createCommunityNextButton",
+      "createCommunityCompleteButton",
+      "ccMethodLanding",
+      "ccEditorPanel",
+      "ccAiPanel",
+      "ccRulesPanel",
+      "ccAiGoalsInput",
+      "ccAiRewardInput",
+      "ccAiPenalizeInput",
+      "ccAiStrictnessInput",
+      "ccAiTargetsInput",
+      "ccAiGenerateButton",
+      "ccRegenerateButton",
       "backFromFindCommunitiesButton",
       "findCommunitySearchInput",
       "findCommunityResults",
@@ -809,6 +951,7 @@
       "customize-charts": els.customizeChartsView,
       systems: els.systemsView,
       communities: els.communitiesView,
+      "create-community": els.createCommunityView,
       "community-detail": els.communityDetailView,
       "community-settings": els.communitySettingsView,
       "community-member-activity": els.communityMemberActivityView,
@@ -953,8 +1096,10 @@
 
     els.discoverFilter?.addEventListener("change", renderDiscover);
 
-    els.newCommunityButton.addEventListener("click", createCommunity);
+    els.newCommunityButton.addEventListener("click", openCreateCommunity);
     els.findCommunitiesButton.addEventListener("click", openFindCommunities);
+    els.viewLeaderboardButton.addEventListener("click", viewCommunityLeaderboardFromScore);
+    els.openCommunityButton.addEventListener("click", openCommunityFromScore);
     els.backToCommunitiesButton.addEventListener("click", returnToCommunities);
     els.communitySettingsButton.addEventListener("click", openCommunitySettings);
     els.backFromCommunitySettingsButton.addEventListener("click", returnToCommunityDetail);
@@ -974,6 +1119,40 @@
     els.copyCommunitySystemButton.addEventListener("click", copyCommunitySystem);
     els.saveCommunityEntryButton.addEventListener("click", saveCommunityEntry);
 
+    els.cancelCreateCommunityButton.addEventListener("click", cancelCreateCommunity);
+    els.createCommunityBackButton.addEventListener("click", () => {
+      if (communityDraftStep === 0) setCommunityDraftMethod("");
+      else moveCreateCommunityStep(-1);
+    });
+    els.createCommunityNextButton.addEventListener("click", () => moveCreateCommunityStep(1));
+    els.createCommunityCompleteButton.addEventListener("click", finalizeCommunityDraft);
+    els.createCommunityForm.addEventListener("input", syncCommunityDraftFromForm);
+    els.createCommunityForm.addEventListener("change", syncCommunityDraftFromForm);
+    els.createCommunityView.addEventListener("click", (event) => {
+      const methodButton = event.target.closest("[data-cc-method]");
+      if (methodButton) setCommunityDraftMethod(methodButton.dataset.ccMethod);
+    });
+    els.ccAiGenerateButton.addEventListener("click", generateCommunityAiRules);
+    els.ccRegenerateButton.addEventListener("click", () => {
+      const draft = ensureCommunityDraft();
+      draft.rules = [];
+      editingCommunityDraftRuleId = "";
+      resetCommunityDraftRuleForm();
+      saveState();
+      renderCreateCommunity();
+      requestAnimationFrame(() => els.ccAiGoalsInput?.focus());
+    });
+    els.communityDraftRuleForm.addEventListener("submit", saveCommunityDraftRule);
+    els.ccRuleTypeInput.addEventListener("change", updateCcRuleBuilderVisibility);
+    els.ccRuleDataSourceInput.addEventListener("change", () => {
+      els.ccRuleSourceMetricInput.innerHTML = renderSourceMetricOptionHtml(els.ccRuleDataSourceInput.value || "manual", "");
+    });
+    els.cancelCcRuleEditButton.addEventListener("click", () => {
+      editingCommunityDraftRuleId = "";
+      resetCommunityDraftRuleForm();
+      renderCreateCommunity();
+    });
+
     els.saveProfileButton.addEventListener("click", saveProfile);
     els.resetDemoButton.addEventListener("click", () => {
       localStorage.removeItem(storageKey);
@@ -991,6 +1170,7 @@
     renderSystems();
     renderDiscover();
     renderCommunities();
+    renderCreateCommunity();
     renderCommunitySettings();
     renderCommunityMemberActivity();
     renderFindCommunities();
@@ -1002,7 +1182,7 @@
     els.tabs.forEach((tab) => {
       const isActive = tab.dataset.view === state.activeView
         || ((state.activeView === "add-entry" || state.activeView === "customize-top-card" || state.activeView === "customize-charts") && tab.dataset.view === "dashboard")
-        || ((state.activeView === "community-detail" || state.activeView === "community-settings" || state.activeView === "community-member-activity" || state.activeView === "find-communities") && tab.dataset.view === "communities");
+        || ((state.activeView === "create-community" || state.activeView === "community-detail" || state.activeView === "community-settings" || state.activeView === "community-member-activity" || state.activeView === "find-communities") && tab.dataset.view === "communities");
       tab.classList.toggle("active", isActive);
       tab.setAttribute("aria-current", isActive ? "page" : "false");
     });
@@ -1075,6 +1255,33 @@
     saveState();
     render();
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }
+
+  function openCommunityFromScore() {
+    const context = getActiveScoreContext();
+    if (context.type !== "community" || !context.community) return;
+    state.selectedCommunityId = context.community.id;
+    state.activeView = "community-detail";
+    saveState();
+    render();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }
+
+  function viewCommunityLeaderboardFromScore() {
+    const context = getActiveScoreContext();
+    if (context.type !== "community" || !context.community) return;
+    state.selectedCommunityId = context.community.id;
+    state.activeView = "community-detail";
+    saveState();
+    render();
+    requestAnimationFrame(() => {
+      const panel = els.leaderboardList?.closest(".community-leaderboard-panel") || els.leaderboardList;
+      if (panel && typeof panel.scrollIntoView === "function") {
+        panel.scrollIntoView({ block: "center", behavior: "smooth" });
+      } else {
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      }
+    });
   }
 
   function openCommunityMemberActivity(memberId) {
@@ -1176,11 +1383,11 @@
 
   function renderScoreContextOptions() {
     const communityOptions = state.communities.map((community) => `
-      <option value="community:${escapeHtml(community.id)}">${escapeHtml(community.name)}</option>
+      <option value="community:${escapeHtml(community.id)}">Community: ${escapeHtml(community.name)}</option>
     `).join("");
     return `
       <option value="personal">Personal Reward Systems</option>
-      ${communityOptions}
+      ${communityOptions ? `<optgroup label="Communities">${communityOptions}</optgroup>` : ""}
     `;
   }
 
@@ -1379,6 +1586,10 @@
 
     const context = getActiveScoreContext();
     const system = context.system;
+    const inCommunityMode = context.type === "community" && Boolean(context.community);
+    els.addEntryTitle.textContent = inCommunityMode ? `Add Entry for ${context.community.name}` : "Add Entry";
+    els.communityScoreActions.hidden = !inCommunityMode;
+    if (inCommunityMode) els.communityScoreName.textContent = context.community.name;
     if (!system) {
       els.dailyInputList.innerHTML = emptyState("Create a reward system to start scoring days.");
       els.ruleProgressList.innerHTML = emptyState("Create a reward system to see today's breakdown.");
@@ -1392,6 +1603,7 @@
       els.dailyProgressLabel.textContent = "0%";
       els.dailyTargetFill.style.width = "0%";
       els.dailyStatusLabel.textContent = "Create a reward system to start.";
+      if (els.dailyInsightText) els.dailyInsightText.textContent = "Create a reward system to start your daily insight.";
       els.openAddEntryButton.disabled = true;
       els.customizeTopCardButton.disabled = true;
       els.customizeChartsButton.disabled = true;
@@ -1470,6 +1682,9 @@
         state.selectedSystemId = button.dataset.deleteSystemId;
         deleteSelectedSystem();
       });
+    });
+    Array.from(els.systemList.querySelectorAll("[data-turn-community-id]")).forEach((button) => {
+      button.addEventListener("click", () => turnSystemIntoCommunity(button.dataset.turnCommunityId));
     });
     const system = getSelectedSystem();
     els.systemEditorPanel.hidden = !state.systemEditorOpen;
@@ -1553,6 +1768,8 @@
       button.addEventListener("click", () => {
         const selected = getSelectedSystem();
         const deletedRuleId = button.dataset.deleteRuleId;
+        const deletedRule = selected.rules.find((item) => item.id === deletedRuleId);
+        if (selected.aiDomain && deletedRule) recordAiRuleDeletion(selected.aiDomain, deletedRule.label);
         selected.rules = selected.rules.filter((item) => item.id !== deletedRuleId);
         selected.calculatedTotals = normalizeCalculatedTotals(selected.calculatedTotals).map((total) => ({
           ...total,
@@ -1587,6 +1804,9 @@
       return;
     }
     state.buildMode = mode === "search" || mode === "ai" ? mode : "home";
+    state.aiDraftSystem = null;
+    state.aiDraftInputs = null;
+    state.aiDraftAdjustments = null;
     if (state.buildMode === "home") {
       state.buildViewedProfileId = "";
       state.buildViewedPublicId = "";
@@ -1781,113 +2001,506 @@
 
   function generateAiDraftSystem(event) {
     event.preventDefault();
-    state.aiDraftSystem = createMockAiDraftSystem();
+    state.aiDraftInputs = readAiFormInputs();
+    state.aiDraftAdjustments = blankAiAdjustments();
+    state.aiDraftSystem = createMockAiDraftSystem(state.aiDraftInputs, state.aiDraftAdjustments);
     state.buildMode = "ai";
+    saveState();
     renderSystems();
     showToast("Draft generated");
   }
 
-  function createMockAiDraftSystem() {
-    const goals = els.aiGoalsInput.value.trim();
-    const rewards = els.aiRewardHabitsInput.value.trim();
-    const penalties = els.aiPenaltyHabitsInput.value.trim();
-    const categories = els.aiCategoriesInput.value.trim();
-    const strictness = els.aiStrictnessInput.value;
-    const targets = els.aiTargetsInput.value.trim();
-    const combined = `${goals} ${rewards} ${penalties} ${categories} ${targets}`.toLowerCase();
-    const scale = strictness === "easy" ? 0.75 : (strictness === "intense" ? 1.25 : 1);
-    const category = inferCategory(categories || goals || rewards) || "General wellness";
-    const rules = [];
+  function readAiFormInputs() {
+    return {
+      goals: els.aiGoalsInput.value.trim(),
+      rewards: els.aiRewardHabitsInput.value.trim(),
+      penalties: els.aiPenaltyHabitsInput.value.trim(),
+      categories: els.aiCategoriesInput.value.trim(),
+      strictness: els.aiStrictnessInput.value,
+      targets: els.aiTargetsInput.value.trim()
+    };
+  }
 
-    if (/protein|nutrition|food|healthy|cut|muscle/.test(combined)) {
-      rules.push(aiRule("Protein", "Nutrition", "grams", targetFromText(targets, /(\d+(?:\.\d+)?)\s*g?\s*protein/i, 150), roundScore(2 * scale)));
+  function blankAiAdjustments() {
+    return { strictnessDelta: 0, specificity: 0, extraRules: 0, removePenalties: false, focus: "" };
+  }
+
+  function regenerateAiDraft() {
+    const inputs = state.aiDraftInputs || readAiFormInputs();
+    state.aiDraftAdjustments = state.aiDraftAdjustments || blankAiAdjustments();
+    state.aiDraftSystem = createMockAiDraftSystem(inputs, state.aiDraftAdjustments);
+    saveState();
+    renderSystems();
+  }
+
+  // Domain library: each domain detects from the user's words and supplies
+  // specific, relevant rules. Tiers (core/extra/bonus) gate by strictness.
+  const AI_DOMAINS = [
+    {
+      key: "chess",
+      category: "Chess / Skill development",
+      name: "Chess Improvement Sprint",
+      keywords: ["chess", "elo", "tactic", "puzzle", "opening", "endgame", "checkmate", "rated game", "blitz", "rapid", "lichess", "grandmaster"],
+      explanation: "This system focuses on tactics, game review, and rated play because those are the most direct ways to improve at chess. Rating improvement is treated as a bonus because it matters, but it should not be the only thing rewarded.",
+      rules: [
+        { label: "Focused chess practice", category: "Chess", unit: "minutes", style: "goal", goal: 30, points: 1, tier: "core", inputMethod: "slider" },
+        { label: "Tactics puzzles solved", category: "Chess", unit: "puzzles", style: "goal", goal: 20, points: 1.5, tier: "core" },
+        { label: "Review a completed game", category: "Chess", unit: "games", style: "goal", goal: 1, points: 1, tier: "core" },
+        { label: "Play rated games", category: "Chess", unit: "games", style: "goal", goal: 2, points: 1, tier: "extra" },
+        { label: "Study opening or endgame", category: "Chess", unit: "minutes", style: "goal", goal: 20, points: 1, tier: "extra", inputMethod: "slider" },
+        { label: "Analyze mistakes after games", category: "Chess", unit: "times", style: "yesNo", points: 0.5, tier: "extra" },
+        { label: "Weekly rating increase", category: "Chess", unit: "points", style: "goal", goal: 1, points: 2, tier: "bonus" }
+      ]
+    },
+    {
+      key: "academics",
+      category: "Academics",
+      name: "Deep Study Plan",
+      keywords: ["study", "studying", "school", "academic", "homework", "assignment", "exam", "class", "college", "university", "course", "lecture", "deep work", "gpa", "revision"],
+      explanation: "This plan rewards deep work, reading, and finishing assignments because focused effort and completed tasks drive academic results more reliably than time spent alone.",
+      rules: [
+        { label: "Deep work block", category: "Academics", unit: "minutes", style: "every", goal: 120, every: 30, points: 1, tier: "core", inputMethod: "slider" },
+        { label: "Pages read", category: "Academics", unit: "pages", style: "every", goal: 30, every: 10, points: 0.5, tier: "core" },
+        { label: "Practice problems", category: "Academics", unit: "problems", style: "every", goal: 20, every: 10, points: 1, tier: "core" },
+        { label: "Assignment submitted", category: "Academics", unit: "assignments", style: "goal", goal: 1, points: 1.5, tier: "extra" },
+        { label: "Study session completed", category: "Academics", unit: "sessions", style: "yesNo", points: 1, tier: "extra" }
+      ]
+    },
+    {
+      key: "fitness",
+      category: "Fitness",
+      name: "Body Recomposition Plan",
+      keywords: ["fitness", "gym", "lift", "lifting", "workout", "strength", "muscle", "steps", "walk", "run", "running", "cardio", "weight", "exercise", "training", "recomp"],
+      explanation: "This plan combines training, daily movement, and recovery because progress comes from consistent lifting, steady activity, and enough sleep — not any single metric.",
+      rules: [
+        { label: "Lifting session", category: "Fitness", unit: "sessions", style: "yesNo", points: 2, tier: "core" },
+        { label: "Steps", category: "Fitness", unit: "steps", style: "both", goal: 10000, every: 5000, points: 1, tier: "core", inputMethod: "slider", inputStep: 500, targetPattern: /(\d[\d,]*)\s*steps/i },
+        { label: "Cardio", category: "Fitness", unit: "minutes", style: "every", goal: 30, every: 15, points: 0.5, tier: "extra", inputMethod: "slider" },
+        { label: "Calories within target", category: "Nutrition", unit: "times", style: "yesNo", points: 1, tier: "extra" },
+        { label: "Sleep 7+ hours", category: "Sleep", unit: "hours", style: "goal", goal: 7, points: 1, tier: "extra", inputMethod: "number", inputStep: 0.25, targetPattern: /(\d+(?:\.\d+)?)\s*(?:hours?|hrs?)\s*(?:of\s*)?sleep/i }
+      ]
+    },
+    {
+      key: "nutrition",
+      category: "Nutrition",
+      name: "Nutrition Plan",
+      keywords: ["protein", "nutrition", "diet", "macros", "calorie", "meal", "carbs", "eating", "hydration"],
+      explanation: "This plan rewards hitting protein and eating choices because nutrition is the biggest lever for body composition.",
+      rules: [
+        { label: "Protein", category: "Nutrition", unit: "grams", style: "goal", goal: 150, points: 2, tier: "core", inputMethod: "slider", inputStep: 5, targetPattern: /(\d+(?:\.\d+)?)\s*g?\s*protein/i },
+        { label: "Water", category: "Nutrition", unit: "glasses", style: "every", goal: 8, every: 2, points: 0.25, tier: "extra" },
+        { label: "No junk food", category: "Nutrition", unit: "times", style: "yesNo", points: 0.5, tier: "extra" }
+      ]
+    },
+    {
+      key: "finance",
+      category: "Finance",
+      name: "Money Discipline Plan",
+      keywords: ["finance", "money", "spend", "spending", "budget", "save", "saving", "savings", "invest", "investing", "debt", "expense", "frugal", "purchase"],
+      explanation: "This plan rewards staying under budget, saving, and avoiding impulse purchases because consistent small choices build wealth faster than occasional big wins.",
+      rules: [
+        { label: "Stayed under spending limit", category: "Finance", unit: "times", style: "yesNo", points: 1.5, tier: "core" },
+        { label: "Money saved", category: "Finance", unit: "dollars", style: "every", goal: 20, every: 10, points: 0.5, tier: "core" },
+        { label: "No unnecessary purchases", category: "Finance", unit: "times", style: "yesNo", points: 1, tier: "core" },
+        { label: "Logged today's spending", category: "Finance", unit: "times", style: "yesNo", points: 0.5, tier: "extra" },
+        { label: "Investing contribution", category: "Finance", unit: "dollars", style: "goal", goal: 10, points: 1, tier: "extra" },
+        { label: "Weekly budget review", category: "Finance", unit: "times", style: "yesNo", points: 1, tier: "bonus" }
+      ]
+    },
+    {
+      key: "sleep",
+      category: "Sleep",
+      name: "Sleep Reset Plan",
+      keywords: ["sleep", "bedtime", "wake", "insomnia", "circadian", "rested", "nap"],
+      explanation: "This plan rewards enough sleep and a consistent schedule because regular bed and wake times matter as much as total hours.",
+      rules: [
+        { label: "Hours slept", category: "Sleep", unit: "hours", style: "goal", goal: 7.5, points: 2, tier: "core", inputMethod: "number", inputStep: 0.25, targetPattern: /(\d+(?:\.\d+)?)\s*(?:hours?|hrs?)/i },
+        { label: "Consistent bedtime", category: "Sleep", unit: "times", style: "yesNo", points: 1, tier: "core" },
+        { label: "Consistent wake time", category: "Sleep", unit: "times", style: "yesNo", points: 1, tier: "core" },
+        { label: "No phone before bed", category: "Sleep", unit: "times", style: "yesNo", points: 1, tier: "extra" }
+      ]
+    },
+    {
+      key: "reading",
+      category: "Reading",
+      name: "Reading Habit Plan",
+      keywords: ["read", "reading", "book", "novel", "pages"],
+      explanation: "This plan rewards regular reading time and reflection so the habit compounds.",
+      rules: [
+        { label: "Pages read", category: "Reading", unit: "pages", style: "every", goal: 30, every: 10, points: 0.75, tier: "core" },
+        { label: "Reading session", category: "Reading", unit: "minutes", style: "goal", goal: 30, points: 1, tier: "core", inputMethod: "slider" },
+        { label: "Reflect on what you read", category: "Reading", unit: "times", style: "yesNo", points: 0.5, tier: "extra" }
+      ]
+    },
+    {
+      key: "coding",
+      category: "Programming",
+      name: "Coding Growth Plan",
+      keywords: ["code", "coding", "program", "programming", "leetcode", "developer", "software", "github", "algorithm"],
+      explanation: "This plan rewards focused coding, solving problems, and shipping work because consistent practice and real projects build skill fastest.",
+      rules: [
+        { label: "Focused coding", category: "Programming", unit: "minutes", style: "every", goal: 120, every: 30, points: 1, tier: "core", inputMethod: "slider" },
+        { label: "Problems solved", category: "Programming", unit: "problems", style: "every", goal: 3, every: 1, points: 1, tier: "core" },
+        { label: "Commit to a project", category: "Programming", unit: "times", style: "yesNo", points: 1, tier: "core" },
+        { label: "Learn something new", category: "Programming", unit: "times", style: "yesNo", points: 0.5, tier: "extra" }
+      ]
+    },
+    {
+      key: "language",
+      category: "Language learning",
+      name: "Language Fluency Plan",
+      keywords: ["language", "spanish", "french", "german", "japanese", "vocab", "vocabulary", "duolingo", "fluent", "grammar"],
+      explanation: "This plan rewards vocabulary, practice, and real speaking or listening because exposure plus output drives fluency.",
+      rules: [
+        { label: "New vocabulary", category: "Language learning", unit: "words", style: "every", goal: 10, every: 5, points: 0.5, tier: "core" },
+        { label: "Practice session", category: "Language learning", unit: "minutes", style: "goal", goal: 20, points: 1, tier: "core", inputMethod: "slider" },
+        { label: "Speak or listen", category: "Language learning", unit: "times", style: "yesNo", points: 1, tier: "extra" }
+      ]
+    },
+    {
+      key: "mindfulness",
+      category: "Mindfulness",
+      name: "Mindfulness Plan",
+      keywords: ["meditat", "mindful", "breath", "calm", "anxiety", "stress", "gratitude", "journal"],
+      explanation: "This plan rewards short, regular practice because consistency matters more than long sessions for calm and focus.",
+      rules: [
+        { label: "Meditation", category: "Mindfulness", unit: "minutes", style: "goal", goal: 10, points: 1, tier: "core", inputMethod: "slider" },
+        { label: "Journaling", category: "Mindfulness", unit: "times", style: "yesNo", points: 0.5, tier: "core" },
+        { label: "Gratitude note", category: "Mindfulness", unit: "times", style: "yesNo", points: 0.5, tier: "extra" }
+      ]
+    },
+    {
+      key: "music",
+      category: "Music practice",
+      name: "Music Practice Plan",
+      keywords: ["guitar", "piano", "instrument", "drums", "violin", "singing", "music practice", "scales"],
+      explanation: "This plan rewards regular practice and learning new material because daily reps build musical skill.",
+      rules: [
+        { label: "Instrument practice", category: "Music practice", unit: "minutes", style: "every", goal: 30, every: 15, points: 0.75, tier: "core", inputMethod: "slider" },
+        { label: "Technique or scales", category: "Music practice", unit: "times", style: "yesNo", points: 0.5, tier: "core" },
+        { label: "Learn part of a song", category: "Music practice", unit: "times", style: "yesNo", points: 0.5, tier: "extra" }
+      ]
+    },
+    {
+      key: "writing",
+      category: "Writing",
+      name: "Writing Habit Plan",
+      keywords: ["writing", "write", "blog", "essay", "author", "manuscript", "words"],
+      explanation: "This plan rewards a daily word count and editing because finished writing comes from showing up consistently.",
+      rules: [
+        { label: "Words written", category: "Writing", unit: "words", style: "every", goal: 500, every: 250, points: 0.75, tier: "core" },
+        { label: "Writing session", category: "Writing", unit: "minutes", style: "goal", goal: 30, points: 1, tier: "core", inputMethod: "slider" },
+        { label: "Edit or revise", category: "Writing", unit: "times", style: "yesNo", points: 0.5, tier: "extra" }
+      ]
     }
-    if (/steps|walk|fitness|cut|running|run/.test(combined) || !rules.length) {
-      rules.push(scoring.createRule({
-        id: makeId("steps"),
-        label: "Steps",
-        category: "Fitness",
-        metric: "steps",
-        unit: "steps",
-        simpleStyle: "both",
-        dailyTarget: targetFromText(targets, /(\d+(?:,\d{3})*|\d+)\s*steps/i, 10000),
-        goalPoints: roundScore(2 * scale),
-        everyAmount: 5000,
-        everyPoints: roundScore(1 * scale),
-        inputMethod: "slider",
-        inputMax: 20000,
-        inputStep: 500
-      }));
+  ];
+
+  function detectAiDomains(text) {
+    const value = String(text || "").toLowerCase();
+    return AI_DOMAINS
+      .map((domain) => {
+        let score = 0;
+        domain.keywords.forEach((kw) => {
+          try {
+            if (new RegExp("\\b" + kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(value)) score += 1;
+          } catch (error) {
+            if (value.includes(kw)) score += 1;
+          }
+        });
+        return { domain, score };
+      })
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score);
+  }
+
+  function ensureAiLearning() {
+    if (!state.aiLearning || typeof state.aiLearning !== "object") {
+      state.aiLearning = { saved: {}, feedback: [], deletedRuleLabels: {}, likedRuleLabels: {} };
     }
-    if (/lift|gym|strength|muscle|workout/.test(combined)) {
-      rules.push(aiRule("Lifting", "Fitness", "minutes", targetFromText(targets, /(\d+(?:\.\d+)?)\s*(?:min|minutes).*lift/i, 60), roundScore(1.5 * scale)));
+    state.aiLearning.saved = state.aiLearning.saved || {};
+    state.aiLearning.feedback = Array.isArray(state.aiLearning.feedback) ? state.aiLearning.feedback : [];
+    state.aiLearning.deletedRuleLabels = state.aiLearning.deletedRuleLabels || {};
+    state.aiLearning.likedRuleLabels = state.aiLearning.likedRuleLabels || {};
+    return state.aiLearning;
+  }
+
+  function aiLearningFeedbackCounts(domainKey) {
+    const learning = ensureAiLearning();
+    const counts = {};
+    learning.feedback.forEach((entry) => {
+      if (entry.domain === domainKey) counts[entry.type] = (counts[entry.type] || 0) + 1;
+    });
+    return counts;
+  }
+
+  function aiRuleSuppressed(domainKey, label) {
+    const learning = ensureAiLearning();
+    const map = learning.deletedRuleLabels[domainKey] || {};
+    return (map[String(label || "").toLowerCase()] || 0) >= 2;
+  }
+
+  function recordAiRuleDeletion(domainKey, label) {
+    if (!domainKey) return;
+    const learning = ensureAiLearning();
+    learning.deletedRuleLabels[domainKey] = learning.deletedRuleLabels[domainKey] || {};
+    const key = String(label || "").toLowerCase();
+    learning.deletedRuleLabels[domainKey][key] = (learning.deletedRuleLabels[domainKey][key] || 0) + 1;
+  }
+
+  function recordAiSave(system) {
+    const learning = ensureAiLearning();
+    const domainKey = system.aiDomain || "general";
+    learning.saved[domainKey] = (learning.saved[domainKey] || 0) + 1;
+    learning.likedRuleLabels[domainKey] = learning.likedRuleLabels[domainKey] || {};
+    (system.rules || []).forEach((rule) => {
+      const key = String(rule.label || "").toLowerCase();
+      learning.likedRuleLabels[domainKey][key] = (learning.likedRuleLabels[domainKey][key] || 0) + 1;
+    });
+  }
+
+  function resolveAiStrictness(base, adjustments, feedbackNet, genericBoost) {
+    const order = ["easy", "balanced", "intense"];
+    let index = order.indexOf(base);
+    if (index < 0) index = 1;
+    index += numberOrDefault(adjustments.strictnessDelta, 0) + numberOrDefault(feedbackNet, 0);
+    index = Math.min(2, Math.max(0, index));
+    const key = order[index];
+    const tiers = key === "easy" ? ["core"] : (key === "balanced" ? ["core", "extra"] : ["core", "extra", "bonus"]);
+    let cap = key === "easy" ? 4 : (key === "balanced" ? 6 : 8);
+    const boost = numberOrDefault(genericBoost, 0);
+    if (boost > 0) {
+      if (!tiers.includes("extra")) tiers.push("extra");
+      if (boost > 1 && !tiers.includes("bonus")) tiers.push("bonus");
+      cap += 2 * boost;
     }
-    if (/study|school|academic|focus|productivity|work/.test(combined)) {
-      rules.push(aiRule("Focused study", "Academics", "minutes", targetFromText(targets, /(\d+(?:\.\d+)?)\s*(?:hours?|hrs?).*(?:study|studying)/i, 2) * 60, roundScore(2 * scale)));
+    if (numberOrDefault(adjustments.extraRules, 0) > 0) {
+      if (!tiers.includes("extra")) tiers.push("extra");
+      if (!tiers.includes("bonus")) tiers.push("bonus");
+      cap += adjustments.extraRules;
     }
-    if (/sleep|recovery/.test(combined) || penalties.toLowerCase().includes("sleep")) {
-      rules.push(scoring.createRule({
-        id: makeId("sleep"),
-        label: "Sleep",
-        category: "Sleep",
-        metric: "sleep",
-        unit: "hours",
-        simpleStyle: "penalty",
-        dailyTarget: targetFromText(targets, /(\d+(?:\.\d+)?)\s*(?:hours?|hrs?).*sleep/i, 7.5),
-        minimumRequired: targetFromText(targets, /(\d+(?:\.\d+)?)\s*(?:hours?|hrs?).*sleep/i, 7),
-        penaltyEnabled: true,
-        penaltyPoints: roundScore(-0.5 * scale),
-        penaltyMode: "proportional",
-        inputMethod: "number",
-        inputMax: 12,
-        inputStep: 0.25
-      }));
+    if (adjustments.focus === "outcomes" && !tiers.includes("bonus")) tiers.push("bonus");
+    return {
+      key,
+      tiers,
+      cap,
+      targetScale: key === "easy" ? 0.75 : (key === "intense" ? 1.25 : 1),
+      pointScale: key === "easy" ? 0.9 : (key === "intense" ? 1.1 : 1)
+    };
+  }
+
+  function aiScaleTarget(value, scale, unit) {
+    if (!value) return value;
+    let next = value * scale;
+    if (String(unit || "").toLowerCase() === "hours") return Math.round(next * 4) / 4;
+    return next >= 10 ? Math.round(next) : Math.max(1, Math.round(next));
+  }
+
+  function aiMakeRule(desc, ctx) {
+    const strict = ctx.strict;
+    let goal = desc.goal != null ? desc.goal : 0;
+    if (desc.targetPattern && ctx.targets) goal = targetFromText(ctx.targets, desc.targetPattern, goal);
+    goal = aiScaleTarget(goal, strict.targetScale, desc.unit);
+    const points = roundScore(numberOrDefault(desc.points, 1) * strict.pointScale);
+    const every = Math.max(numberOrDefault(desc.every, 1), 1);
+    const style = desc.style || "goal";
+    const base = {
+      id: makeId("ai-rule"),
+      label: desc.label,
+      category: desc.category || ctx.category,
+      metric: String(desc.label || "").toLowerCase(),
+      unit: desc.unit || "times",
+      dataSource: "manual",
+      sourceMetric: "manual",
+      allowManualOverride: true,
+      inputMethod: desc.inputMethod || (style === "yesNo" ? "toggle" : (style === "every" ? "slider" : "number")),
+      inputStep: desc.inputStep || (String(desc.unit || "").toLowerCase() === "hours" ? 0.25 : 1),
+      inputMax: Math.max(goal * 2, every * 2, 10)
+    };
+    if (style === "yesNo") {
+      Object.assign(base, { simpleStyle: "yesNo", dailyTarget: 1, yesNoPoints: points });
+    } else if (style === "every") {
+      Object.assign(base, { simpleStyle: "every", dailyTarget: goal, everyAmount: every, everyPoints: points });
+    } else if (style === "both") {
+      Object.assign(base, { simpleStyle: "both", dailyTarget: goal, everyAmount: every, everyPoints: roundScore(points / 2), goalPoints: points });
+    } else {
+      Object.assign(base, { simpleStyle: "goal", dailyTarget: goal || 1, goalPoints: points });
     }
-    if (/budget|finance|spend|money/.test(combined)) {
-      rules.push(scoring.createRule({
-        id: makeId("budget"),
-        label: "Spending over budget",
-        category: "Finance",
-        metric: "spending",
-        unit: "dollars",
-        simpleStyle: "penalty",
-        dailyTarget: 0,
-        minimumRequired: 0,
-        penaltyEnabled: true,
-        penaltyPoints: roundScore(-1 * scale),
-        inputMethod: "number",
-        inputMax: 500,
-        inputStep: 1
-      }));
+    return scoring.createRule(base);
+  }
+
+  function aiCollectDomainRules(domain, tiersAllowed, ctx, usedLabels, target) {
+    domain.rules.forEach((desc) => {
+      if (target.length >= ctx.strict.cap) return;
+      if (!tiersAllowed.includes(desc.tier || "core")) return;
+      const labelKey = desc.label.toLowerCase();
+      if (usedLabels.has(labelKey)) return;
+      if (aiRuleSuppressed(domain.key, desc.label)) return;
+      usedLabels.add(labelKey);
+      target.push(aiMakeRule(desc, ctx));
+    });
+  }
+
+  function parseHabitList(text) {
+    return String(text || "")
+      .split(/[,\n;]|\band\b|\bplus\b|\bthen\b/i)
+      .map((part) => part.trim())
+      .filter((part) => part.length > 1 && part.length < 60)
+      .slice(0, 8);
+  }
+
+  function isMeaningfulText(text) {
+    const value = String(text || "").trim().toLowerCase();
+    if (!value) return false;
+    return !["no", "none", "nothing", "n/a", "na", "no penalties", "no penalty"].includes(value);
+  }
+
+  function aiGenericRules(rewards, goals, ctx) {
+    const items = parseHabitList(rewards).length ? parseHabitList(rewards) : parseHabitList(goals);
+    const rules = [];
+    const usedLabels = new Set();
+    items.forEach((item) => {
+      if (rules.length >= ctx.strict.cap) return;
+      const labelKey = item.toLowerCase();
+      if (usedLabels.has(labelKey)) return;
+      usedLabels.add(labelKey);
+      const lower = item.toLowerCase();
+      const timeMatch = lower.match(/(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?)/);
+      const countMatch = lower.match(/(\d+)/);
+      const label = capitalize(item.replace(/\s+/g, " ").slice(0, 48));
+      if (timeMatch) {
+        const isHours = /hour|hr/.test(timeMatch[2]);
+        rules.push(aiMakeRule({ label, category: ctx.category, unit: isHours ? "hours" : "minutes", style: "goal", goal: numberOrDefault(timeMatch[1], isHours ? 1 : 30), points: 1, inputMethod: "slider" }, ctx));
+      } else if (countMatch) {
+        rules.push(aiMakeRule({ label, category: ctx.category, unit: "times", style: "every", goal: numberOrDefault(countMatch[1], 1), every: 1, points: 1 }, ctx));
+      } else {
+        rules.push(aiMakeRule({ label, category: ctx.category, unit: "times", style: "yesNo", points: 1 }, ctx));
+      }
+    });
+    if (!rules.length) {
+      rules.push(aiMakeRule({ label: "Daily progress toward goal", category: ctx.category, unit: "times", style: "yesNo", points: 1 }, ctx));
+    }
+    return rules;
+  }
+
+  function aiPenaltyRulesFromText(penalties, ctx) {
+    return parseHabitList(penalties).map((item) => {
+      const label = capitalize(item.replace(/\s+/g, " ").slice(0, 48));
+      return aiMakeRule({ label, category: ctx.category, unit: "times", style: "yesNo", points: -roundScore(1 * ctx.strict.pointScale) }, ctx);
+    });
+  }
+
+  function aiSystemName(primary, inputs) {
+    if (primary) return primary.name;
+    const goalText = String(inputs.goals || inputs.rewards || "").replace(/^i\s+(want|need|would like)\s+to\s+/i, "").trim();
+    if (goalText) {
+      const words = goalText.split(/\s+/).slice(0, 4).join(" ");
+      return `${capitalize(words)} Plan`;
+    }
+    return `${capitalize(inputs.strictness || "balanced")} reward plan`;
+  }
+
+  function aiExplanationText(primary, ctx, rules, wantsPenalties) {
+    let base = primary
+      ? primary.explanation
+      : `This plan turns your goals into daily, trackable habits${rules.length ? ": " + rules.slice(0, 3).map((rule) => rule.label.toLowerCase()).join(", ") : ""}.`;
+    const strictnessNote = ctx.strict.key === "easy"
+      ? " Targets are kept light so the habit sticks."
+      : (ctx.strict.key === "intense" ? " Targets are ambitious, with optional bonuses for extra effort." : " Targets are realistic for steady daily progress.");
+    const focusNote = ctx.focus === "consistency"
+      ? " It leans on daily consistency."
+      : (ctx.focus === "outcomes" ? " It emphasizes outcome-based bonuses." : "");
+    const penaltyNote = wantsPenalties ? " Penalties were added for the habits you asked to discourage." : " No penalties were added.";
+    return base + strictnessNote + focusNote + penaltyNote;
+  }
+
+  function createMockAiDraftSystem(inputs, adjustments) {
+    inputs = inputs || readAiFormInputs();
+    const adj = adjustments || blankAiAdjustments();
+    const detectionText = `${inputs.goals} ${inputs.rewards} ${inputs.categories} ${inputs.targets} ${inputs.penalties}`.toLowerCase();
+    const detected = detectAiDomains(detectionText);
+    const primary = detected.length ? detected[0].domain : null;
+    const domainKey = primary ? primary.key : "general";
+
+    const feedback = aiLearningFeedbackCounts(domainKey);
+    const feedbackNet = Math.max(-2, Math.min(2, (feedback["too-easy"] || 0) - (feedback["too-hard"] || 0)));
+    const genericBoost = ((feedback["too-generic"] || 0) > 0 ? 1 : 0) + numberOrDefault(adj.specificity, 0);
+    const strict = resolveAiStrictness(inputs.strictness || "balanced", adj, feedbackNet, genericBoost);
+    const wantsPenalties = !adj.removePenalties && isMeaningfulText(inputs.penalties);
+    const category = primary ? primary.category : (inferCategory(inputs.categories || inputs.goals || inputs.rewards) || "Personal habits");
+    const ctx = { strict, targets: inputs.targets, category, focus: adj.focus };
+
+    let rules = [];
+    if (primary) {
+      const usedLabels = new Set();
+      const healthCluster = new Set(["fitness", "nutrition", "sleep", "mindfulness"]);
+      aiCollectDomainRules(primary, strict.tiers, ctx, usedLabels, rules);
+      detected.slice(1).forEach((entry) => {
+        const sameCluster = healthCluster.has(entry.domain.key) && healthCluster.has(primary.key);
+        if (sameCluster || entry.score >= 2) {
+          aiCollectDomainRules(entry.domain, ["core"], ctx, usedLabels, rules);
+        }
+      });
+    } else {
+      rules = aiGenericRules(inputs.rewards, inputs.goals, ctx);
+    }
+    rules = rules.slice(0, strict.cap);
+    if (wantsPenalties) rules = rules.concat(aiPenaltyRulesFromText(inputs.penalties, ctx));
+    if (adj.focus === "consistency") {
+      rules.sort((a, b) => (a.simpleStyle === "yesNo" ? -1 : 0) - (b.simpleStyle === "yesNo" ? -1 : 0));
     }
 
     return normalizeSystem({
       id: makeId("draft"),
       ownerId: "me",
       ownerName: state.profile.name,
-      title: `${capitalize(strictness)} ${category} system`,
+      title: aiSystemName(primary, inputs),
       category,
       visibility: "private",
-      description: goals || "A draft reward system generated from your goals.",
+      description: inputs.goals || inputs.rewards || "A reward system generated from your goals.",
       rules,
-      calculatedTotals: []
+      calculatedTotals: [],
+      aiDomain: domainKey,
+      aiExplanation: aiExplanationText(primary, ctx, rules, wantsPenalties)
     });
   }
 
-  function aiRule(label, category, unit, dailyTarget, goalPoints) {
-    return scoring.createRule({
-      id: makeId(label.toLowerCase().replace(/\s+/g, "-")),
-      label,
-      category,
-      metric: label.toLowerCase(),
-      unit,
-      simpleStyle: "goal",
-      dailyTarget,
-      goalPoints,
-      inputMethod: "slider",
-      inputMax: Math.max(dailyTarget * 2, 10),
-      inputStep: unit === "grams" ? 5 : 5
-    });
+  const AI_IMPROVEMENTS = {
+    stricter: (adj) => { adj.strictnessDelta = numberOrDefault(adj.strictnessDelta, 0) + 1; },
+    easier: (adj) => { adj.strictnessDelta = numberOrDefault(adj.strictnessDelta, 0) - 1; },
+    specific: (adj) => { adj.specificity = numberOrDefault(adj.specificity, 0) + 1; },
+    "more-rules": (adj) => { adj.extraRules = numberOrDefault(adj.extraRules, 0) + 2; },
+    "remove-penalties": (adj) => { adj.removePenalties = true; },
+    consistency: (adj) => { adj.focus = "consistency"; },
+    outcomes: (adj) => { adj.focus = "outcomes"; }
+  };
+
+  function applyAiImprovement(kind) {
+    if (!state.aiDraftSystem) return;
+    state.aiDraftAdjustments = state.aiDraftAdjustments || blankAiAdjustments();
+    const apply = AI_IMPROVEMENTS[kind];
+    if (!apply) return;
+    apply(state.aiDraftAdjustments);
+    regenerateAiDraft();
+    showToast("Draft updated");
+  }
+
+  function recordAiFeedback(type) {
+    if (!state.aiDraftSystem) return;
+    const learning = ensureAiLearning();
+    const domainKey = state.aiDraftSystem.aiDomain || "general";
+    learning.feedback.push({ domain: domainKey, type, at: new Date().toISOString() });
+    const regenerating = ["too-generic", "too-easy", "too-hard"].includes(type);
+    if (type === "too-generic") {
+      state.aiDraftAdjustments = state.aiDraftAdjustments || blankAiAdjustments();
+      state.aiDraftAdjustments.specificity = numberOrDefault(state.aiDraftAdjustments.specificity, 0) + 1;
+    }
+    saveState();
+    if (regenerating) {
+      regenerateAiDraft();
+      showToast("Thanks — updated from your feedback");
+    } else {
+      showToast("Thanks — noted for next time");
+    }
   }
 
   function targetFromText(text, pattern, fallback) {
@@ -1902,35 +2515,102 @@
     els.aiDraftReview.hidden = !draft;
     if (!draft) {
       els.aiDraftReview.innerHTML = "";
+      if (state.aiDraftInputs) {
+        const saved = state.aiDraftInputs;
+        const restore = (el, value) => { if (el && document.activeElement !== el) el.value = value || ""; };
+        restore(els.aiGoalsInput, saved.goals);
+        restore(els.aiRewardHabitsInput, saved.rewards);
+        restore(els.aiPenaltyHabitsInput, saved.penalties);
+        restore(els.aiCategoriesInput, saved.categories);
+        restore(els.aiStrictnessInput, saved.strictness);
+        restore(els.aiTargetsInput, saved.targets);
+      }
       return;
     }
     const target = calculateTargetSummary(draft).total;
+    const explanation = draft.aiExplanation || "";
+    const feedbackButtons = [
+      { type: "good", label: "Good suggestion" },
+      { type: "too-generic", label: "Too generic" },
+      { type: "too-easy", label: "Too easy" },
+      { type: "too-hard", label: "Too hard" },
+      { type: "bad-weights", label: "Bad weights" },
+      { type: "wrong-category", label: "Wrong category" }
+    ];
+    const improveButtons = [
+      { kind: "stricter", label: "Make it stricter" },
+      { kind: "easier", label: "Make it easier" },
+      { kind: "specific", label: "More specific" },
+      { kind: "more-rules", label: "Add more rules" },
+      { kind: "remove-penalties", label: "Remove penalties" },
+      { kind: "consistency", label: "Focus on consistency" },
+      { kind: "outcomes", label: "Focus on outcomes" }
+    ];
     els.aiDraftReview.innerHTML = `
       <div class="ai-draft-card">
         <div class="panel-heading tight">
           <div>
             <h3>${escapeHtml(draft.title)}</h3>
-            <span>${escapeHtml(draft.category)} Â· estimated ${formatPoints(target)} points per day</span>
+            <span>${escapeHtml(draft.category)} · estimated ${formatPoints(target)} points per day</span>
           </div>
-          <button class="secondary-button small" type="button" id="useAiDraftButton">Use This System</button>
+          <div class="inline-actions">
+            <button class="ghost-button small" type="button" id="editAiPromptButton">Edit prompt</button>
+            <button class="primary-button small" type="button" id="useAiDraftButton">Use This System</button>
+          </div>
         </div>
-        <p>${escapeHtml(draft.description || "")}</p>
-        <p class="review-note">Review this draft, then use it to open the full setup editor and customize every rule.</p>
+        ${explanation ? `<div class="source-notice"><strong>Why these rules</strong><span>${escapeHtml(explanation)}</span></div>` : ""}
         <div class="compact-rule-list">
-          ${draft.rules.map((item) => renderRuleRow(item, "preview")).join("")}
+          ${draft.rules.length ? draft.rules.map((item) => renderRuleRow(item, "preview")).join("") : emptyState("No rules generated. Try adding more detail to your goals.")}
         </div>
+        <div class="ai-feedback">
+          <span class="eyebrow">How is this draft?</span>
+          <div class="ai-feedback-row">
+            ${feedbackButtons.map((item) => `<button class="ghost-button small" type="button" data-ai-feedback="${item.type}">${escapeHtml(item.label)}</button>`).join("")}
+          </div>
+        </div>
+        <div class="ai-improve">
+          <button class="secondary-button small" type="button" id="aiImproveToggle">Improve this system</button>
+          <div class="ai-improve-panel" id="aiImprovePanel" hidden>
+            <span class="eyebrow">What should change?</span>
+            <div class="ai-feedback-row">
+              ${improveButtons.map((item) => `<button class="ghost-button small" type="button" data-ai-improve="${item.kind}">${escapeHtml(item.label)}</button>`).join("")}
+            </div>
+          </div>
+        </div>
+        <p class="review-note">Use this system to open the full setup editor and customize every rule.</p>
       </div>
     `;
     document.getElementById("useAiDraftButton")?.addEventListener("click", useAiDraftSystem);
+    document.getElementById("editAiPromptButton")?.addEventListener("click", () => {
+      state.aiDraftSystem = null;
+      saveState();
+      renderSystems();
+      requestAnimationFrame(() => els.aiGoalsInput?.focus());
+    });
+    document.getElementById("aiImproveToggle")?.addEventListener("click", () => {
+      const panel = document.getElementById("aiImprovePanel");
+      if (panel) panel.hidden = !panel.hidden;
+    });
+    Array.from(els.aiDraftReview.querySelectorAll("[data-ai-feedback]")).forEach((button) => {
+      button.addEventListener("click", () => recordAiFeedback(button.dataset.aiFeedback));
+    });
+    Array.from(els.aiDraftReview.querySelectorAll("[data-ai-improve]")).forEach((button) => {
+      button.addEventListener("click", () => applyAiImprovement(button.dataset.aiImprove));
+    });
   }
 
   function useAiDraftSystem() {
     if (!state.aiDraftSystem) return;
-    const draft = cloneSystem(normalizeSystem(state.aiDraftSystem), state.aiDraftSystem.title || "AI draft reward system");
+    const source = normalizeSystem(state.aiDraftSystem);
+    recordAiSave(source);
+    const draft = cloneSystem(source, state.aiDraftSystem.title || "AI draft reward system");
+    draft.aiDomain = source.aiDomain || "general";
     state.systems.unshift(draft);
     state.selectedSystemId = draft.id;
     state.trackerSystemId = draft.id;
     state.aiDraftSystem = null;
+    state.aiDraftInputs = null;
+    state.aiDraftAdjustments = null;
     state.buildMode = "home";
     state.buildViewedProfileId = "";
     state.buildViewedPublicId = "";
@@ -2131,6 +2811,8 @@
       els.communityStatus.className = "visibility-pill private";
       els.communityLeader.textContent = "-";
       els.leaderboardList.innerHTML = "";
+      els.communityPeriodTabs.innerHTML = "";
+      els.communityAnalytics.innerHTML = "";
       return;
     }
 
@@ -2139,8 +2821,12 @@
     if (!state.selectedCommunityMemberId || !community.members.some((memberItem) => memberItem.id === state.selectedCommunityMemberId)) {
       state.selectedCommunityMemberId = "me";
     }
-    const standings = getCommunityStandings(community);
-    const leader = standings[0];
+
+    const analytics = normalizeCommunityAnalytics(community);
+    const target = communityTarget(community);
+    const period = COMMUNITY_PERIODS.some((item) => item.id === state.communityLeaderboardPeriod)
+      ? state.communityLeaderboardPeriod
+      : analytics.defaultPeriod;
     const visibility = communityVisibility(community);
 
     els.inviteOptions.hidden = true;
@@ -2149,9 +2835,150 @@
     els.communityDescription.textContent = community.description || "";
     els.communityStatus.textContent = capitalize(visibility);
     els.communityStatus.className = `visibility-pill ${visibility}`;
-    els.communityLeader.textContent = leader ? `${leader.name.split(" ")[0]} leads today` : "Daily community points";
-    els.leaderboardList.innerHTML = standings.map(renderLeaderboardRow).join("");
-    bindLeaderboardRows();
+
+    els.communityLeaderboardPanel.hidden = !analytics.modules.leaderboard;
+    if (analytics.modules.leaderboard) {
+      const standings = communityStandings(community, period, analytics.metric);
+      const leader = standings[0];
+      const metricLabel = analytics.metric === "completion" ? "goal completion" : "points";
+      els.communityLeader.textContent = leader
+        ? `${leader.name.split(" ")[0]} leads · ${communityPeriod(period).label.toLowerCase()} ${metricLabel}`
+        : "Community points";
+      els.communityPeriodTabs.innerHTML = COMMUNITY_PERIODS.map((item) => `
+        <button class="segmented-button${item.id === period ? " active" : ""}" type="button" role="tab" aria-selected="${item.id === period ? "true" : "false"}" data-cc-period="${item.id}">${escapeHtml(item.label)}</button>
+      `).join("");
+      Array.from(els.communityPeriodTabs.querySelectorAll("[data-cc-period]")).forEach((button) => {
+        button.addEventListener("click", () => {
+          state.communityLeaderboardPeriod = button.dataset.ccPeriod;
+          saveState();
+          renderCommunityDetail();
+        });
+      });
+      els.leaderboardList.innerHTML = standings.map(renderLeaderboardRow).join("");
+      bindLeaderboardRows();
+    } else {
+      els.communityPeriodTabs.innerHTML = "";
+      els.leaderboardList.innerHTML = "";
+      els.communityLeader.textContent = "";
+    }
+
+    renderCommunityAnalytics(community, analytics, period, target);
+  }
+
+  function trendDayLabel(dateKey) {
+    return String(Number(dateKey.split("-")[2]));
+  }
+
+  function renderCommunityTrendChart(series, options) {
+    options = options || {};
+    const max = Math.max(1, ...series.map((point) => point.value));
+    const labelEvery = options.labelEvery || Math.max(1, Math.ceil(series.length / 5));
+    return `
+      <div class="trend-chart" role="img" aria-label="${escapeHtml(options.ariaLabel || "Points over time")}">
+        ${series.map((point, index) => {
+          const height = point.value > 0 ? Math.max(5, Math.round((point.value / max) * 100)) : 2;
+          const showLabel = index === series.length - 1 || index % labelEvery === 0;
+          return `
+            <div class="trend-col" title="${escapeHtml(formatDate(point.date))}: ${escapeHtml(formatPoints(point.value))}">
+              <div class="trend-bar-wrap"><div class="trend-bar" style="height:${height}%"></div></div>
+              <span class="trend-col-label">${showLabel ? escapeHtml(trendDayLabel(point.date)) : ""}</span>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function renderCommunityAnalytics(community, analytics, period, target) {
+    const modules = analytics.modules;
+    const parts = [];
+
+    if (modules.groupTrends) {
+      const groupSeries = communityGroupSeries(community, COMMUNITY_TREND_DAYS, target);
+      const weekTotal = communityGroupSeries(community, 7, target).reduce((sum, point) => sum + point.value, 0);
+      const compare = communityStandings(community, period, "points");
+      const maxCompare = Math.max(1, ...compare.map((item) => item.periodPoints));
+      const compareRows = compare.map((item) => `
+        <div class="cc-compare-row">
+          <span class="cc-compare-name">${escapeHtml(item.name.split(" ")[0])}</span>
+          <div class="mini-progress-track cc-compare-track" aria-hidden="true"><div class="mini-progress-fill" style="width:${Math.round((item.periodPoints / maxCompare) * 100)}%"></div></div>
+          <strong class="cc-compare-value">${escapeHtml(formatPoints(item.periodPoints))}</strong>
+        </div>
+      `).join("");
+      parts.push(`
+        <section class="tool-panel cc-panel">
+          <div class="panel-heading tight">
+            <div><h3>Group trend</h3><span>Community points · last ${COMMUNITY_TREND_DAYS} days</span></div>
+            <strong class="cc-stat">${escapeHtml(formatPoints(weekTotal))} this week</strong>
+          </div>
+          ${renderCommunityTrendChart(groupSeries, { ariaLabel: "Community points over time" })}
+          <div class="cc-subhead">Member comparison · ${escapeHtml(communityPeriod(period).label.toLowerCase())}</div>
+          <div class="cc-compare">${compareRows}</div>
+        </section>
+      `);
+    }
+
+    if (modules.individualTrends) {
+      let memberId = state.communityTrendMemberId;
+      if (!memberId || !community.members.some((member) => member.id === memberId)) {
+        memberId = community.members.some((member) => member.id === state.selectedCommunityMemberId)
+          ? state.selectedCommunityMemberId
+          : (community.members[0] && community.members[0].id) || "me";
+      }
+      const member = community.members.find((item) => item.id === memberId) || community.members[0];
+      const memberSeries = member ? communityMemberSeries(community, member, COMMUNITY_TREND_DAYS, target) : [];
+      const memberWeek = member ? communityMemberPeriodScore(community, member, "weekly", target) : 0;
+      const optionsHtml = community.members.map((item) => `<option value="${escapeHtml(item.id)}"${item.id === memberId ? " selected" : ""}>${escapeHtml(item.name)}</option>`).join("");
+      parts.push(`
+        <section class="tool-panel cc-panel">
+          <div class="panel-heading tight">
+            <div><h3>Individual trend</h3><span>Last ${COMMUNITY_TREND_DAYS} days</span></div>
+          </div>
+          <label class="cc-member-select"><span>Member</span><select id="communityTrendMemberSelect">${optionsHtml}</select></label>
+          ${member ? renderCommunityTrendChart(memberSeries, { ariaLabel: `${member.name} points over time` }) : emptyState("No members yet.")}
+          <div class="cc-subhead">${member ? escapeHtml(member.name.split(" ")[0]) : ""} · ${escapeHtml(formatPoints(memberWeek))} this week</div>
+        </section>
+      `);
+    }
+
+    if (modules.underperforming) {
+      const under = communityUnderperformers(community, target);
+      const rows = under.length
+        ? under.map((item) => {
+            const flag = item.label === "No activity today" ? "neutral" : "warm";
+            return `
+              <div class="cc-under-row">
+                <div class="member-left">
+                  <div class="member-avatar" aria-hidden="true" style="background:${escapeHtml(item.color)}">${getInitials(item.name)}</div>
+                  <div class="member-main">
+                    <strong>${escapeHtml(item.name)}</strong>
+                    <span>${escapeHtml(formatPoints(item.today))} of ${escapeHtml(formatPoints(item.target))} today</span>
+                  </div>
+                </div>
+                <span class="cc-flag ${flag}">${escapeHtml(item.label)}</span>
+              </div>
+            `;
+          }).join("")
+        : `<div class="cc-allgood">Everyone is on track today.</div>`;
+      parts.push(`
+        <section class="tool-panel cc-panel">
+          <div class="panel-heading tight">
+            <div><h3>Underperforming today</h3><span>Accountability nudges, not call-outs</span></div>
+          </div>
+          <div class="cc-under-list">${rows}</div>
+        </section>
+      `);
+    }
+
+    els.communityAnalytics.innerHTML = parts.join("");
+    const memberSelect = document.getElementById("communityTrendMemberSelect");
+    if (memberSelect) {
+      memberSelect.addEventListener("change", () => {
+        state.communityTrendMemberId = memberSelect.value;
+        saveState();
+        renderCommunityDetail();
+      });
+    }
   }
 
   function renderCommunitySettings() {
@@ -2183,6 +3010,18 @@
       ? community.system.rules.map((item) => canEdit ? renderCommunityRuleEditor(item) : renderRuleRow(item, "community")).join("")
       : emptyState(canEdit ? "Add a community rule to define scoring." : "No community rules yet.");
     bindCommunityRuleEditors();
+
+    const analytics = normalizeCommunityAnalytics(community);
+    els.communityAnalyticsSettings.hidden = !canEdit;
+    els.ccModuleLeaderboard.checked = analytics.modules.leaderboard;
+    els.ccModuleGroupTrends.checked = analytics.modules.groupTrends;
+    els.ccModuleIndividualTrends.checked = analytics.modules.individualTrends;
+    els.ccModuleUnderperforming.checked = analytics.modules.underperforming;
+    els.ccDefaultPeriodInput.value = analytics.defaultPeriod;
+    els.ccMetricInput.value = analytics.metric;
+    [els.ccModuleLeaderboard, els.ccModuleGroupTrends, els.ccModuleIndividualTrends, els.ccModuleUnderperforming, els.ccDefaultPeriodInput, els.ccMetricInput].forEach((input) => {
+      input.disabled = !canEdit;
+    });
   }
 
   function renderCommunityMemberActivity() {
@@ -2744,11 +3583,56 @@
     const summary = calculateDashboardSummary(system, values, context);
 
     renderDailyTargetProgress(summary.total, summary.target.total);
+    renderDailyInsight(context, system, summary);
     renderVisualBreakdown(summary.breakdown, summary.calculatedTotals, system, summary.target, summary.total);
     renderTopCardHighlights(summary.breakdown, summary.calculatedTotals, system, summary.target, summary.total);
     renderEntriesAddedSection(system, summary.breakdown, context);
 
     bindQuickEntryDeletes();
+  }
+
+  // Daily Insight: build a fact snapshot from the SAME summary the score uses
+  // (so the card never drifts), then let the insight module interpret it.
+  function renderDailyInsight(context, system, summary) {
+    if (!els.dailyInsightText || !window.PointwellInsight) return;
+    const snapshot = {
+      mode: context.type === "community" ? "community" : "personal",
+      total: summary.total,
+      target: summary.target.total,
+      entryCount: summary.entryCount,
+      rules: summary.breakdown.map((item) => ({
+        label: item.rule.label,
+        points: roundScore(item.totalPoints),
+        value: numberOrDefault(item.value, 0),
+        target: targetPointsForRule(item.rule)
+      })),
+      weeklyAverage: insightWeeklyAverage(context, system),
+      streak: null
+    };
+    const facts = window.PointwellInsight.computeInsightFacts(snapshot);
+    els.dailyInsightText.textContent = window.PointwellInsight.generateInsightText(facts);
+  }
+
+  // Truthful weekly average from REAL saved history only (no fabricated data).
+  // Personal: prior-day saved daily summaries. Community: the current user's own
+  // prior-day community logs. Returns null when no real history exists.
+  function insightWeeklyAverage(context, system) {
+    const totals = [];
+    if (context.type === "community" && context.community) {
+      const logs = Array.isArray(context.community.logs) ? context.community.logs : [];
+      for (let i = 1; i <= 6; i++) {
+        const dateKey = offsetDate(-i);
+        const entry = logs.find((item) => item.memberId === "me" && item.date === dateKey);
+        if (entry && Number.isFinite(Number(entry.today))) totals.push(Number(entry.today));
+      }
+    } else if (system) {
+      for (let i = 1; i <= 6; i++) {
+        const entry = findEntry(offsetDate(-i), system.id);
+        if (entry && Number.isFinite(Number(entry.total))) totals.push(Number(entry.total));
+      }
+    }
+    if (!totals.length) return null;
+    return roundScore(totals.reduce((sum, value) => sum + value, 0) / totals.length);
   }
 
   function calculateDashboardSummary(system, values, context = null) {
@@ -2772,7 +3656,8 @@
       calculatedTotals,
       total,
       target,
-      categories
+      categories,
+      entryCount: activeRuleIds.size
     };
   }
 
@@ -3879,6 +4764,7 @@
         <div class="system-card-actions">
           <span class="visibility-pill ${escapeHtml(system.visibility)}">${capitalize(system.visibility)}</span>
           <button class="secondary-button small" type="button" data-edit-system-id="${escapeHtml(system.id)}">Edit</button>
+          <button class="ghost-button small" type="button" data-turn-community-id="${escapeHtml(system.id)}">Turn into Community</button>
           <button class="danger-button small" type="button" data-delete-system-id="${escapeHtml(system.id)}">Delete</button>
         </div>
       </article>
@@ -4048,7 +4934,13 @@
 
   function renderLeaderboardRow(memberStanding, index) {
     const isSelected = memberStanding.id === state.selectedCommunityMemberId;
-    const progress = progressPercent(memberStanding.today, memberStanding.target || 1);
+    const metric = memberStanding.metric || "points";
+    const periodPoints = memberStanding.periodPoints != null ? memberStanding.periodPoints : memberStanding.today;
+    const denom = metric === "completion" ? 100 : (memberStanding.periodTarget || memberStanding.target || 1);
+    const progressValue = metric === "completion" ? (memberStanding.completion || 0) : periodPoints;
+    const progress = progressPercent(progressValue, denom);
+    const value = metric === "completion" ? `${memberStanding.completion || 0}%` : formatPoints(periodPoints);
+    const sub = memberStanding.periodLabel || "today";
     return `
       <button class="member-row leaderboard-button${isSelected ? " active" : ""}" type="button" data-community-member-id="${escapeHtml(memberStanding.id)}" aria-pressed="${isSelected ? "true" : "false"}">
         <div class="member-left">
@@ -4062,8 +4954,8 @@
           </div>
         </div>
         <div class="member-score">
-          ${formatPoints(memberStanding.today)}
-          <span>points today</span>
+          ${value}
+          <span>${escapeHtml(sub)}</span>
         </div>
       </button>
     `;
@@ -4862,9 +5754,17 @@
     community.system.title = `${community.name} rules`;
     community.system.category = community.category || community.system.category || "Community";
     community.system.rules = collectCommunityRuleEditorValues(community);
+    const analytics = normalizeCommunityAnalytics(community);
+    analytics.modules.leaderboard = els.ccModuleLeaderboard.checked;
+    analytics.modules.groupTrends = els.ccModuleGroupTrends.checked;
+    analytics.modules.individualTrends = els.ccModuleIndividualTrends.checked;
+    analytics.modules.underperforming = els.ccModuleUnderperforming.checked;
+    analytics.defaultPeriod = COMMUNITY_PERIODS.some((item) => item.id === els.ccDefaultPeriodInput.value) ? els.ccDefaultPeriodInput.value : "weekly";
+    analytics.metric = els.ccMetricInput.value === "completion" ? "completion" : "points";
+    community.analytics = analytics;
     saveState();
     render();
-    showToast("Community rules saved");
+    showToast("Community settings saved");
   }
 
   function collectCommunityRuleEditorValues(community) {
@@ -4933,41 +5833,502 @@
     showToast("Rule deleted");
   }
 
-  function createCommunity() {
-    const baseSystem = getSelectedSystem() || state.systems[0];
+  // ── Create Community: multi-step setup flow (mirrors the reward-system builder) ──
+  const createCommunitySteps = [
+    { title: "Basic Info", intro: "Name the community and describe what it is about.", nextLabel: "Next: Add Rules" },
+    { title: "Community Rules", intro: "Generate rules with AI, or build them from scratch.", nextLabel: "Next: Review" },
+    { title: "Review & Complete", intro: "Check the community before creating it. You can go back to adjust anything.", nextLabel: "Complete" }
+  ];
+
+  function blankCommunityDraft() {
+    return { name: "", category: "", description: "", visibility: "private", rules: [] };
+  }
+
+  function ensureCommunityDraft() {
+    if (!communityDraft) {
+      communityDraft = blankCommunityDraft();
+      communityDraftStep = 0;
+      editingCommunityDraftRuleId = "";
+    }
+    return communityDraft;
+  }
+
+  function openCreateCommunity() {
+    communityDraft = blankCommunityDraft();
+    communityDraftStep = 0;
+    communityDraftMethod = "";
+    editingCommunityDraftRuleId = "";
+    state.activeView = "create-community";
+    saveState();
+    render();
+    requestAnimationFrame(() => {
+      els.ccNameInput?.focus();
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    });
+  }
+
+  function turnSystemIntoCommunity(systemId) {
+    const system = state.systems.find((item) => item.id === systemId);
+    if (!system) return;
+    const normalized = normalizeSystem(system);
+    communityDraft = {
+      name: `${system.title || "Reward system"} Community`,
+      category: system.category || "Community",
+      description: `Shared accountability based on ${system.title || "this reward system"}.`,
+      visibility: "private",
+      rules: normalized.rules.map((rule) => scoring.createRule({ ...scoring.normalizeRule(rule), id: makeId("community-rule") }))
+    };
+    communityDraftStep = 0;
+    communityDraftMethod = "scratch";
+    editingCommunityDraftRuleId = "";
+    state.activeView = "create-community";
+    saveState();
+    render();
+    requestAnimationFrame(() => {
+      els.ccNameInput?.focus();
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    });
+    showToast(`Community draft created from ${system.title || "reward system"}`);
+  }
+
+  function setCommunityDraftMethod(method) {
+    communityDraftMethod = (method === "ai" || method === "scratch") ? method : "";
+    if (communityDraftMethod !== "") {
+      const draft = ensureCommunityDraft();
+      communityDraftStep = (draft.name.trim() && draft.category.trim()) ? 1 : 0;
+    }
+    renderCreateCommunity();
+    if (communityDraftMethod === "") return;
+    requestAnimationFrame(() => {
+      if (communityDraftStep === 0) els.ccNameInput?.focus();
+      else if (communityDraftMethod === "ai") els.ccAiGoalsInput?.focus();
+      else els.ccRuleLabelInput?.focus();
+    });
+  }
+
+  function generateCommunityAiRules() {
+    const draft = ensureCommunityDraft();
+    const inputs = {
+      goals: els.ccAiGoalsInput.value.trim(),
+      rewards: els.ccAiRewardInput.value.trim(),
+      penalties: els.ccAiPenalizeInput.value.trim(),
+      categories: (draft.category || els.ccCategoryInput.value || "").trim(),
+      strictness: els.ccAiStrictnessInput.value,
+      targets: els.ccAiTargetsInput.value.trim()
+    };
+    if (!inputs.goals && !inputs.rewards) {
+      showToast("Describe the community goal first");
+      return;
+    }
+    const generated = createMockAiDraftSystem(inputs, blankAiAdjustments());
+    draft.rules = (generated.rules || []).map((rule) => scoring.createRule({ ...scoring.normalizeRule(rule), id: makeId("community-rule") }));
+    editingCommunityDraftRuleId = "";
+    saveState();
+    renderCreateCommunity();
+    showToast(draft.rules.length ? `Generated ${draft.rules.length} rules — review and edit below` : "No rules generated — add more detail");
+  }
+
+  function cancelCreateCommunity() {
+    communityDraft = null;
+    communityDraftStep = 0;
+    communityDraftMethod = "";
+    editingCommunityDraftRuleId = "";
+    returnToCommunities();
+  }
+
+  function syncCommunityDraftFromForm() {
+    const draft = ensureCommunityDraft();
+    draft.name = els.ccNameInput.value;
+    draft.category = els.ccCategoryInput.value;
+    draft.description = els.ccDescriptionInput.value;
+    draft.visibility = els.ccVisibilityInput.value === "public" ? "public" : "private";
+  }
+
+  function validateCreateCommunityStep(step) {
+    if (step === 0) {
+      if (!els.ccNameInput.value.trim()) return "Add a community name";
+      if (!els.ccCategoryInput.value.trim()) return "Add a category or focus area";
+    }
+    return "";
+  }
+
+  function moveCreateCommunityStep(delta) {
+    syncCommunityDraftFromForm();
+    if (delta > 0) {
+      const error = validateCreateCommunityStep(communityDraftStep);
+      if (error) {
+        showToast(error);
+        return;
+      }
+    }
+    communityDraftStep = Math.min(Math.max(communityDraftStep + delta, 0), createCommunitySteps.length - 1);
+    saveState();
+    renderCreateCommunity();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }
+
+  function goToCreateCommunityStep(step) {
+    syncCommunityDraftFromForm();
+    communityDraftStep = Math.min(Math.max(Number(step) || 0, 0), createCommunitySteps.length - 1);
+    renderCreateCommunity();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }
+
+  function renderCreateCommunity() {
+    if (state.activeView !== "create-community") return;
+    const draft = ensureCommunityDraft();
+    communityDraftStep = Math.min(Math.max(communityDraftStep, 0), createCommunitySteps.length - 1);
+    const step = communityDraftStep;
+    const config = createCommunitySteps[step];
+
+    els.createCommunityStepKicker.textContent = `Step ${step + 1} of ${createCommunitySteps.length}`;
+    els.createCommunityStepTitle.textContent = config.title;
+    els.createCommunityStepIntro.textContent = config.intro;
+
+    if (document.activeElement !== els.ccNameInput) els.ccNameInput.value = draft.name;
+    if (document.activeElement !== els.ccCategoryInput) els.ccCategoryInput.value = draft.category;
+    if (document.activeElement !== els.ccDescriptionInput) els.ccDescriptionInput.value = draft.description;
+    els.ccVisibilityInput.value = draft.visibility;
+
+    els.createCommunityStepper.innerHTML = createCommunitySteps.map((item, index) => {
+      const stateClass = index === step ? "active" : (index < step ? "complete" : "");
+      return `<button class="setup-step-dot ${stateClass}" type="button" data-cc-step-jump="${index}">
+        <span>${index + 1}</span>
+        <strong>${escapeHtml(item.title)}</strong>
+      </button>`;
+    }).join("");
+    Array.from(els.createCommunityStepper.querySelectorAll("[data-cc-step-jump]")).forEach((button) => {
+      button.addEventListener("click", () => goToCreateCommunityStep(button.dataset.ccStepJump));
+    });
+
+    Array.from(els.createCommunityView.querySelectorAll("[data-cc-step]")).forEach((panel) => {
+      panel.hidden = Number(panel.dataset.ccStep) !== step;
+    });
+
+    const method = communityDraftMethod;
+    const hasRules = draft.rules.length > 0;
+    els.ccMethodLanding.hidden = method !== "";
+    els.ccEditorPanel.hidden = method === "";
+    els.ccAiPanel.hidden = !(method === "ai" && !hasRules);
+    els.ccRulesPanel.hidden = !(method === "scratch" || (method === "ai" && hasRules));
+    els.ccRegenerateButton.hidden = method !== "ai";
+
+    els.createCommunityBackButton.textContent = "Back";
+    els.createCommunityNextButton.textContent = config.nextLabel;
+    els.createCommunityNextButton.hidden = step >= createCommunitySteps.length - 1;
+    els.createCommunityCompleteButton.hidden = step !== createCommunitySteps.length - 1;
+
+    if (!els.ccRuleDataSourceInput.options.length) {
+      els.ccRuleDataSourceInput.innerHTML = renderDataSourceOptionHtml("manual");
+    }
+    if (!els.ccRuleSourceMetricInput.options.length) {
+      els.ccRuleSourceMetricInput.innerHTML = renderSourceMetricOptionHtml(els.ccRuleDataSourceInput.value || "manual", "");
+    }
+
+    renderCommunityDraftRules();
+    renderCommunityDraftRuleForm();
+    if (step === createCommunitySteps.length - 1) renderCreateCommunityReview();
+  }
+
+  function renderCommunityDraftRules() {
+    const draft = ensureCommunityDraft();
+    const rules = draft.rules.map(scoring.normalizeRule);
+    els.communityDraftRuleCount.textContent = `${rules.length} ${rules.length === 1 ? "rule" : "rules"}`;
+    els.communityDraftRuleList.innerHTML = rules.length
+      ? rules.map(renderCommunityDraftRuleRow).join("")
+      : emptyState("No community rules yet. Add your first rule below.");
+    Array.from(els.communityDraftRuleList.querySelectorAll("[data-cc-edit-rule]")).forEach((button) => {
+      button.addEventListener("click", () => editCommunityDraftRule(button.dataset.ccEditRule));
+    });
+    Array.from(els.communityDraftRuleList.querySelectorAll("[data-cc-delete-rule]")).forEach((button) => {
+      button.addEventListener("click", () => deleteCommunityDraftRule(button.dataset.ccDeleteRule));
+    });
+  }
+
+  function renderCommunityDraftRuleRow(item) {
+    const summary = [...scoring.describeRule(item), ruleSourceSummary(item)];
+    const primaryPoints = item.simpleStyle === "penalty"
+      ? item.penaltyPoints
+      : (item.simpleStyle === "yesNo" ? item.yesNoPoints : (item.goalPoints || item.everyPoints));
+    const tone = primaryPoints >= 0 ? "positive" : "negative";
+    return `
+      <div class="rule-row">
+        <div class="rule-main">
+          <strong>${escapeHtml(item.label)}</strong>
+          <div class="rule-summary-lines">
+            ${summary.map((line) => `<span>${escapeHtml(line)}</span>`).join("")}
+          </div>
+        </div>
+        <span class="point-pill ${tone}">${formatSigned(primaryPoints)}</span>
+        <div class="rule-actions">
+          <button class="ghost-button small" type="button" data-cc-edit-rule="${escapeHtml(item.id)}" aria-label="Edit ${escapeHtml(item.label)}">Edit</button>
+          <button class="ghost-button small" type="button" data-cc-delete-rule="${escapeHtml(item.id)}" aria-label="Delete ${escapeHtml(item.label)}">Delete</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function communityDraftRuleType(rule) {
+    if (rule.simpleStyle === "yesNo") return "yesNo";
+    if (rule.simpleStyle === "penalty") return "penalty";
+    if (rule.simpleStyle === "goal") return "goal";
+    return "every";
+  }
+
+  function communityDraftRulePoints(rule, type) {
+    if (type === "yesNo") return rule.yesNoPoints;
+    if (type === "penalty") return Math.abs(rule.penaltyPoints);
+    if (type === "goal") return rule.goalPoints;
+    return rule.everyPoints;
+  }
+
+  function renderCommunityDraftRuleForm() {
+    const draft = ensureCommunityDraft();
+    const editing = editingCommunityDraftRuleId
+      ? draft.rules.map(scoring.normalizeRule).find((item) => item.id === editingCommunityDraftRuleId)
+      : null;
+    if (editing) {
+      const type = communityDraftRuleType(editing);
+      els.ccRuleTypeInput.value = type;
+      els.ccRuleLabelInput.value = editing.label;
+      els.ccRuleUnitInput.value = editing.unit;
+      els.ccRuleGoalInput.value = type === "penalty" ? editing.minimumRequired : editing.dailyTarget;
+      els.ccRuleEveryAmountInput.value = editing.everyAmount;
+      els.ccRulePointsInput.value = communityDraftRulePoints(editing, type);
+      els.ccRuleDataSourceInput.innerHTML = renderDataSourceOptionHtml(editing.dataSource || "manual");
+      els.ccRuleSourceMetricInput.innerHTML = renderSourceMetricOptionHtml(editing.dataSource || "manual", editing.sourceMetric || "manual");
+      els.ccRuleManualOverrideInput.checked = editing.allowManualOverride !== false;
+      els.ccRuleFormTitle.textContent = `Editing ${editing.label}`;
+      els.ccRuleSubmitLabel.textContent = "Save rule";
+      els.cancelCcRuleEditButton.hidden = false;
+      updateCcRuleBuilderVisibility();
+    } else {
+      resetCommunityDraftRuleForm();
+    }
+  }
+
+  function updateCcRuleBuilderVisibility() {
+    const type = els.ccRuleTypeInput.value;
+    els.ccRuleGoalField.hidden = !(type === "every" || type === "goal" || type === "penalty");
+    els.ccRuleEveryAmountField.hidden = type !== "every";
+    els.ccRuleUnitField.hidden = type === "yesNo";
+    els.ccRuleGoalLabel.textContent = type === "penalty" ? "Minimum required" : "Daily goal";
+    els.ccRulePointsLabel.textContent = type === "yesNo" ? "Points when completed"
+      : type === "every" ? "Points each time"
+      : type === "penalty" ? "Penalty points"
+      : "Points for hitting goal";
+  }
+
+  function resetCommunityDraftRuleForm() {
+    els.ccRuleTypeInput.value = "yesNo";
+    els.ccRuleLabelInput.value = "";
+    els.ccRuleUnitInput.value = "";
+    els.ccRuleGoalInput.value = "";
+    els.ccRuleEveryAmountInput.value = "";
+    els.ccRulePointsInput.value = "";
+    els.ccRuleDataSourceInput.innerHTML = renderDataSourceOptionHtml("manual");
+    els.ccRuleSourceMetricInput.innerHTML = renderSourceMetricOptionHtml("manual", "manual");
+    els.ccRuleManualOverrideInput.checked = true;
+    els.ccRuleFormTitle.textContent = "Add community rule";
+    els.ccRuleSubmitLabel.textContent = "Add rule";
+    els.cancelCcRuleEditButton.hidden = true;
+    updateCcRuleBuilderVisibility();
+  }
+
+  function validateCommunityDraftRule() {
+    const type = els.ccRuleTypeInput.value;
+    if (!els.ccRuleLabelInput.value.trim()) return "Name what you are tracking";
+    if (type !== "yesNo" && !els.ccRuleUnitInput.value.trim()) return "Add a unit (e.g. steps, minutes)";
+    if ((type === "every" || type === "goal" || type === "penalty") && numberOrDefault(els.ccRuleGoalInput.value, 0) <= 0) {
+      return type === "penalty" ? "Set the minimum required" : "Set a daily goal";
+    }
+    if (type === "every" && numberOrDefault(els.ccRuleEveryAmountInput.value, 0) <= 0) return "Set the 'every' amount";
+    if (numberOrDefault(els.ccRulePointsInput.value, 0) === 0) return "Set the points";
+    return "";
+  }
+
+  function buildCommunityDraftRuleFromForm(id) {
+    const draft = ensureCommunityDraft();
+    const type = els.ccRuleTypeInput.value;
+    const label = els.ccRuleLabelInput.value.trim();
+    const unit = type === "yesNo" ? "times" : (els.ccRuleUnitInput.value.trim() || "times");
+    const goal = Math.max(numberOrDefault(els.ccRuleGoalInput.value, 0), 0);
+    const everyAmount = Math.max(numberOrDefault(els.ccRuleEveryAmountInput.value, 1), 1);
+    const points = numberOrDefault(els.ccRulePointsInput.value, 0);
+    const dataSource = els.ccRuleDataSourceInput.value || "manual";
+    const metricOptions = sourceMetricOptions[dataSource] || sourceMetricOptions.manual;
+    const rawMetric = els.ccRuleSourceMetricInput.value || metricOptions[0]?.id || "manual";
+    const sourceMetric = metricOptions.some((option) => option.id === rawMetric) ? rawMetric : (metricOptions[0]?.id || "manual");
+    const overrides = {
+      id,
+      label,
+      category: draft.category.trim() || "Community",
+      metric: label.toLowerCase(),
+      unit,
+      dataSource,
+      sourceMetric,
+      allowManualOverride: els.ccRuleManualOverrideInput.checked,
+      inputMethod: type === "yesNo" ? "toggle" : "slider",
+      inputMax: Math.max(goal * 2, everyAmount * 2, 10),
+      inputStep: 1,
+      extraThresholds: []
+    };
+    if (type === "yesNo") {
+      overrides.simpleStyle = "yesNo";
+      overrides.dailyTarget = 1;
+      overrides.yesNoPoints = points;
+    } else if (type === "every") {
+      overrides.simpleStyle = "every";
+      overrides.dailyTarget = goal;
+      overrides.everyAmount = everyAmount;
+      overrides.everyPoints = points;
+    } else if (type === "penalty") {
+      overrides.simpleStyle = "penalty";
+      overrides.minimumRequired = goal;
+      overrides.penaltyEnabled = true;
+      overrides.penaltyMode = "fixed";
+      overrides.penaltyPoints = points > 0 ? -points : points;
+    } else {
+      overrides.simpleStyle = "goal";
+      overrides.dailyTarget = goal;
+      overrides.goalPoints = points;
+    }
+    return scoring.createRule(overrides);
+  }
+
+  function saveCommunityDraftRule(event) {
+    if (event) event.preventDefault();
+    const draft = ensureCommunityDraft();
+    const error = validateCommunityDraftRule();
+    if (error) {
+      showToast(error);
+      return;
+    }
+    const editing = Boolean(editingCommunityDraftRuleId);
+    const id = editingCommunityDraftRuleId || makeId("community-rule");
+    const rule = buildCommunityDraftRuleFromForm(id);
+    if (editing) {
+      const index = draft.rules.findIndex((item) => item.id === editingCommunityDraftRuleId);
+      if (index >= 0) {
+        draft.rules[index] = rule;
+      } else {
+        editingCommunityDraftRuleId = "";
+        draft.rules.push(rule);
+      }
+    } else {
+      draft.rules.push(rule);
+    }
+    editingCommunityDraftRuleId = "";
+    resetCommunityDraftRuleForm();
+    saveState();
+    renderCreateCommunity();
+    showToast(editing ? "Rule updated" : "Rule added");
+  }
+
+  function editCommunityDraftRule(id) {
+    editingCommunityDraftRuleId = id;
+    renderCreateCommunity();
+    requestAnimationFrame(() => {
+      els.ccRuleLabelInput?.focus();
+      els.communityDraftRuleForm?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  }
+
+  function deleteCommunityDraftRule(id) {
+    const draft = ensureCommunityDraft();
+    draft.rules = draft.rules.filter((item) => item.id !== id);
+    if (editingCommunityDraftRuleId === id) {
+      editingCommunityDraftRuleId = "";
+      resetCommunityDraftRuleForm();
+    }
+    saveState();
+    renderCreateCommunity();
+    showToast("Rule deleted");
+  }
+
+  function renderCreateCommunityReview() {
+    const draft = ensureCommunityDraft();
+    const name = draft.name.trim() || "Untitled community";
+    const category = draft.category.trim() || "Community";
+    const reviewSystem = normalizeSystem({ rules: draft.rules, calculatedTotals: [] });
+    const target = calculateTargetSummary(reviewSystem).total;
+    const ruleRows = reviewSystem.rules.length
+      ? reviewSystem.rules.map((item) => `
+        <li>
+          <strong>${escapeHtml(item.label)}</strong>
+          <span>${[...scoring.describeRule(item), ruleSourceSummary(item)].map(escapeHtml).join(" · ")}</span>
+        </li>
+      `).join("")
+      : `<li><span>No rules yet.</span></li>`;
+    els.createCommunityReview.innerHTML = `
+      <div class="review-card">
+        <span>Community</span>
+        <strong>${escapeHtml(name)}</strong>
+        <p>${escapeHtml(draft.description.trim() || "No description added yet.")}</p>
+      </div>
+      <div class="review-grid">
+        <div class="review-card">
+          <span>Category</span>
+          <strong>${escapeHtml(category)}</strong>
+        </div>
+        <div class="review-card">
+          <span>Visibility</span>
+          <strong>${escapeHtml(capitalize(draft.visibility || "private"))}</strong>
+        </div>
+        <div class="review-card">
+          <span>Daily point target</span>
+          <strong>${escapeHtml(formatPoints(target))} points</strong>
+        </div>
+      </div>
+      <div class="review-card">
+        <span>Community rules</span>
+        <ul class="review-list">${ruleRows}</ul>
+      </div>
+    `;
+  }
+
+  function finalizeCommunityDraft() {
+    syncCommunityDraftFromForm();
+    const draft = ensureCommunityDraft();
+    const name = draft.name.trim();
+    const category = draft.category.trim();
+    if (!name || !category) {
+      communityDraftStep = 0;
+      renderCreateCommunity();
+      showToast(!name ? "Add a community name" : "Add a category or focus area");
+      return;
+    }
     const community = {
       id: makeId("community"),
       ownerId: "me",
       adminIds: ["me"],
-      name: `${baseSystem.category} Circle`,
-      category: baseSystem.category,
-      description: `Shared accountability for ${baseSystem.title}.`,
-      visibility: "private",
-      inviteCode: makeInviteCode(baseSystem.category),
-      system: cloneSystem(baseSystem, `${baseSystem.title} shared`),
-      members: [
-        member("me", state.profile.name, cleanHandle(state.profile.handle), state.profile.accent || "#355d91"),
-        member(makeId("member"), "Jordan Lee", "@jordan", "#266b5e"),
-        member(makeId("member"), "Riley Stone", "@riley", "#bb6a2f")
-      ],
-      logs: [
-        log("me", todayIso, 0, 0),
-        log("Jordan Lee".toLowerCase().replace(/\s/g, "-"), todayIso, 3, 12)
-      ]
+      name,
+      category,
+      description: draft.description.trim(),
+      visibility: draft.visibility === "public" ? "public" : "private",
+      inviteCode: makeInviteCode(category),
+      system: normalizeSystem({
+        id: makeId("community-system"),
+        title: `${name} rules`,
+        category,
+        rules: draft.rules,
+        calculatedTotals: []
+      }),
+      members: [member("me", state.profile.name, cleanHandle(state.profile.handle), state.profile.accent || "#355d91")],
+      logs: [log("me", todayIso, 0, 0)],
+      memberCount: 1
     };
-    community.system.id = makeId("community-system");
-    community.memberCount = community.members.length;
-    community.logs = [
-      log("me", todayIso, 0, 0),
-      log(community.members[1].id, todayIso, 3, 12),
-      log(community.members[2].id, todayIso, 2, 9)
-    ];
     state.communities.unshift(community);
     state.selectedCommunityId = community.id;
-    state.activeView = "community-detail";
     state.communityDraftInputs = {};
+    communityDraft = null;
+    communityDraftStep = 0;
+    communityDraftMethod = "";
+    editingCommunityDraftRuleId = "";
+    state.activeView = "community-detail";
     saveState();
     render();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     showToast("Community created");
   }
 
@@ -5485,6 +6846,132 @@
     }, {});
   }
 
+  // ── Community analytics: periods, deterministic demo history, aggregation ──
+  const COMMUNITY_PERIODS = [
+    { id: "daily", label: "Daily", days: 1, since: "today" },
+    { id: "weekly", label: "Weekly", days: 7, since: "this week" },
+    { id: "monthly", label: "Monthly", days: 30, since: "this month" },
+    { id: "all", label: "All-time", days: 56, since: "all-time" }
+  ];
+  const COMMUNITY_TREND_DAYS = 14;
+
+  function communityPeriod(periodId) {
+    return COMMUNITY_PERIODS.find((item) => item.id === periodId) || COMMUNITY_PERIODS[1];
+  }
+
+  function communityTarget(community) {
+    return calculateTargetSummary(community.system).total || 6;
+  }
+
+  // deterministic 0..1 hash so demo history is stable across renders
+  function hashUnit(str) {
+    let hash = 2166136261;
+    const value = String(str);
+    for (let i = 0; i < value.length; i++) {
+      hash ^= value.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return ((hash >>> 0) % 100000) / 100000;
+  }
+
+  function communityMemberStrength(member) {
+    return 0.55 + hashUnit((member.id || "") + ":strength") * 0.7;
+  }
+
+  // Points a member earned on a date. The current user's TODAY reflects real
+  // logged points; everything else is stable deterministic demo history.
+  function communityMemberPointsOnDate(community, member, dateKey, target) {
+    if (member.id === "me" && dateKey === todayIso) {
+      return roundScore(communityTotalForMember(community, "me", todayIso));
+    }
+    const seed = hashUnit(member.id + "|" + dateKey);
+    if (seed < 0.12) return 0;
+    const goal = target || communityTarget(community);
+    return roundScore(Math.max(0, goal * communityMemberStrength(member) * (0.55 + seed * 0.75)));
+  }
+
+  function communityMemberPeriodScore(community, member, periodId, target) {
+    const days = communityPeriod(periodId).days;
+    let sum = 0;
+    for (let i = 0; i < days; i++) {
+      sum += communityMemberPointsOnDate(community, member, offsetDate(-i), target);
+    }
+    return roundScore(sum);
+  }
+
+  function communityMemberSeries(community, member, days, target) {
+    const series = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const dateKey = offsetDate(-i);
+      series.push({ date: dateKey, value: communityMemberPointsOnDate(community, member, dateKey, target) });
+    }
+    return series;
+  }
+
+  function communityGroupSeries(community, days, target) {
+    const series = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const dateKey = offsetDate(-i);
+      const total = community.members.reduce((sum, member) => sum + communityMemberPointsOnDate(community, member, dateKey, target), 0);
+      series.push({ date: dateKey, value: roundScore(total) });
+    }
+    return series;
+  }
+
+  function communityStandings(community, periodId, metric) {
+    const target = communityTarget(community);
+    const period = communityPeriod(periodId);
+    const periodTarget = target * period.days;
+    return community.members.map((member) => {
+      const periodPoints = communityMemberPeriodScore(community, member, period.id, target);
+      const today = communityMemberPointsOnDate(community, member, todayIso, target);
+      const completion = periodTarget > 0 ? Math.round((periodPoints / periodTarget) * 100) : 0;
+      return {
+        ...member,
+        today,
+        target,
+        periodId: period.id,
+        periodLabel: period.since,
+        metric,
+        periodPoints,
+        periodTarget,
+        completion,
+        score: metric === "completion" ? completion : periodPoints
+      };
+    }).sort((a, b) => b.score - a.score || b.periodPoints - a.periodPoints);
+  }
+
+  function communityUnderperformers(community, target) {
+    return community.members.map((member) => {
+      const today = communityMemberPointsOnDate(community, member, todayIso, target);
+      const weekAvg = communityMemberPeriodScore(community, member, "weekly", target) / 7;
+      let label = "";
+      if (today <= 0) label = "No activity today";
+      else if (today < target) label = "Behind goal";
+      else if (today < weekAvg * 0.75) label = "Down from weekly average";
+      return { ...member, today, weekAvg, target, label };
+    }).filter((item) => item.label).sort((a, b) => {
+      const rank = (label) => label === "No activity today" ? 0 : (label === "Behind goal" ? 1 : 2);
+      return rank(a.label) - rank(b.label) || a.today - b.today;
+    });
+  }
+
+  function normalizeCommunityAnalytics(community) {
+    const source = community.analytics && typeof community.analytics === "object" ? community.analytics : {};
+    const modules = source.modules && typeof source.modules === "object" ? source.modules : {};
+    community.analytics = {
+      modules: {
+        leaderboard: modules.leaderboard !== false,
+        groupTrends: modules.groupTrends !== false,
+        individualTrends: modules.individualTrends !== false,
+        underperforming: modules.underperforming !== false
+      },
+      defaultPeriod: COMMUNITY_PERIODS.some((item) => item.id === source.defaultPeriod) ? source.defaultPeriod : "weekly",
+      metric: source.metric === "completion" ? "completion" : "points"
+    };
+    return community.analytics;
+  }
+
   function getCommunityStandings(community) {
     const target = calculateTargetSummary(community.system).total || 1;
     return community.members.map((item) => {
@@ -5747,8 +7234,11 @@
       ...seed,
       ...saved,
       profile: { ...seed.profile, ...(saved.profile || {}) },
+      account: saved.account && typeof saved.account === "object" ? saved.account : null,
       scoreContext: saved.scoreContext || seed.scoreContext,
       selectedCommunityMemberId: saved.selectedCommunityMemberId || seed.selectedCommunityMemberId,
+      communityLeaderboardPeriod: saved.communityLeaderboardPeriod || seed.communityLeaderboardPeriod,
+      communityTrendMemberId: saved.communityTrendMemberId || seed.communityTrendMemberId,
       editingRuleId: saved.editingRuleId || "",
       systemSetupStep: clampSetupStep(saved.systemSetupStep),
       systemEditorOpen: Boolean(saved.systemEditorOpen),

@@ -4029,3 +4029,1357 @@ input[type="range"]::-moz-range-thumb {
     padding: 14px;
   }
 }
+
+/* ================================================================
+   Pointwell — Premium Design Layer v2
+   Additive overrides: score band drama, radius hierarchy,
+   typography polish, button refinement, spacing.
+   ================================================================ */
+
+/* ── Score band: WHOOP-inspired large metric display ─────────── */
+.score-band {
+  min-height: 200px;
+  padding: 30px 32px;
+  border-radius: 16px;
+  background: linear-gradient(150deg, #0c2820 0%, #163c33 38%, #20524a 72%, #2a6659 100%);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow:
+    0 24px 56px rgba(8, 28, 22, 0.30),
+    0 4px 16px rgba(8, 28, 22, 0.14);
+  margin-bottom: 20px;
+}
+
+#liveScore {
+  font-size: 5.5rem;
+  font-weight: 900;
+  letter-spacing: -0.045em;
+  line-height: 0.88;
+}
+
+.member-daily-score {
+  font-size: 5rem;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 0.9;
+}
+
+.score-label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 0.67rem;
+  font-weight: 900;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.44);
+}
+
+.score-summary {
+  gap: 18px;
+}
+
+.target-track {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.target-fill {
+  border-radius: 999px;
+  box-shadow: 0 0 14px rgba(255, 255, 255, 0.22);
+}
+
+.target-status,
+.target-meter-meta span {
+  font-size: 0.76rem;
+}
+
+/* ── Typography: tight tracking on large text ─────────────────── */
+h2 {
+  letter-spacing: -0.024em;
+}
+
+h3 {
+  letter-spacing: -0.012em;
+}
+
+.eyebrow {
+  letter-spacing: 0.08em;
+}
+
+/* ── Border-radius hierarchy ──────────────────────────────────── */
+/* Panels = 14px  |  Cards = 12px  |  Rows = 10px  |  Inputs = 8px */
+
+.tool-panel,
+.editor-panel,
+.system-list-wrap,
+.section-band,
+.community-list,
+.community-detail,
+.community-activity,
+.community-checkin,
+.profile-editor,
+.build-panel,
+.top-card-panel,
+.community-leaderboard-panel,
+.community-settings-panel {
+  border-radius: 14px;
+}
+
+.top-rule-block,
+.rule-progress-card,
+.category-progress-card,
+.input-row,
+.add-entry-card,
+.add-entry-progress-card,
+.visual-card,
+.weekly-chart-card,
+.history-card,
+.system-card,
+.community-card,
+.find-community-card,
+.build-result-card,
+.ai-draft-card,
+.community-rule-editor,
+.build-option-card,
+.community-hero,
+.discover-card {
+  border-radius: 12px;
+}
+
+.entry-log-row,
+.member-row,
+.breakdown-row,
+.rule-row,
+.activity-row,
+.available-block-button,
+.calc-total-row,
+.calc-input-option,
+.source-notice,
+.integration-card,
+.integration-permission-card {
+  border-radius: 10px;
+}
+
+.weekly-chart {
+  border-radius: 12px;
+}
+
+.setup-step-dot {
+  border-radius: 10px;
+}
+
+.builder-step,
+.rule-preview,
+.advanced-rule-options,
+.setup-step-heading,
+.setup-flow-header,
+.rule-form-status {
+  border-radius: 10px;
+}
+
+.empty-state {
+  border-radius: 12px;
+}
+
+.toast {
+  border-radius: 12px;
+}
+
+.large-avatar {
+  border-radius: 22px;
+}
+
+.brand-mark {
+  border-radius: 10px;
+}
+
+.build-option-icon {
+  border-radius: 10px;
+}
+
+/* ── Buttons: refined gradient, 9px radius ────────────────────── */
+.primary-button,
+.secondary-button,
+.ghost-button,
+.danger-button {
+  border-radius: 9px;
+  letter-spacing: 0.01em;
+}
+
+.primary-button {
+  background: linear-gradient(168deg, #2f806e, #1c5e50);
+  box-shadow: 0 8px 22px rgba(18, 66, 54, 0.22);
+}
+
+.primary-button:hover {
+  background: linear-gradient(168deg, #297364, #185448);
+  box-shadow: 0 12px 30px rgba(18, 66, 54, 0.28);
+  transform: translateY(-1px);
+}
+
+.primary-button:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 12px rgba(18, 66, 54, 0.18);
+}
+
+/* ── Inputs: consistent radius ────────────────────────────────── */
+select,
+input:not([type="range"]):not([type="checkbox"]),
+textarea {
+  border-radius: 8px;
+}
+
+/* ── Sidebar: refined background ──────────────────────────────── */
+.sidebar {
+  padding: 20px 18px;
+  gap: 16px;
+  background: linear-gradient(180deg, #fffffd 0%, #f8fbf5 100%);
+  border-right: 1px solid rgba(188, 202, 190, 0.82);
+  box-shadow:
+    8px 0 32px rgba(16, 34, 26, 0.06),
+    inset -1px 0 0 rgba(255, 255, 255, 0.7);
+}
+
+/* ── Nav tabs: slightly bigger text ───────────────────────────── */
+.nav-tab {
+  font-size: 0.9rem;
+}
+
+/* ── Progress bars: consistent height ────────────────────────── */
+.mini-progress-track {
+  height: 8px;
+  border-radius: 999px;
+}
+
+.mini-progress-fill {
+  border-radius: 999px;
+}
+
+.rule-mini-track {
+  height: 5px;
+  border-radius: 999px;
+}
+
+/* ── Chart elements ───────────────────────────────────────────── */
+.chart-bar-wrap,
+.mini-chart-bar-wrap {
+  border-radius: 10px;
+}
+
+.chart-bar {
+  border-radius: 6px 6px 0 0;
+}
+
+/* ── Workspace breathing room ─────────────────────────────────── */
+.workspace {
+  padding: 28px clamp(22px, 3.2vw, 40px) 44px;
+}
+
+.view-header {
+  margin-bottom: 20px;
+}
+
+.top-card-panel,
+.visual-breakdown-panel,
+.weekly-progress-panel {
+  margin-bottom: 20px;
+}
+
+.dashboard-side-stack.entries-log-stack {
+  margin-top: 20px;
+}
+
+/* ── Background: clean sage-white ────────────────────────────── */
+html {
+  background: #eef2eb;
+}
+
+body {
+  background: linear-gradient(165deg, #e9f1e6 0%, #f2f6ef 42%, #eaefe8 100%);
+}
+
+/* ── Panel heading vertical alignment ────────────────────────── */
+.panel-heading {
+  align-items: center;
+}
+
+/* ── Goal ring cards ─────────────────────────────────────────── */
+.goal-ring-card {
+  border-radius: 10px;
+}
+
+/* ── Breakdown sections ───────────────────────────────────────── */
+.review-card {
+  border-radius: 12px;
+}
+
+/* ── Public system rows ───────────────────────────────────────── */
+.public-system-row {
+  border-radius: 10px;
+}
+
+/* ── Mobile: responsive radius and score size ─────────────────── */
+@media (max-width: 760px) {
+  #liveScore {
+    font-size: 4rem;
+    letter-spacing: -0.035em;
+  }
+
+  .member-daily-score {
+    font-size: 3.6rem;
+  }
+
+  .score-band {
+    padding: 22px;
+    border-radius: 14px;
+    margin-bottom: 18px;
+  }
+
+  .tool-panel,
+  .editor-panel,
+  .top-card-panel,
+  .community-leaderboard-panel {
+    border-radius: 12px;
+  }
+
+  .nav-tabs {
+    border-radius: 10px;
+  }
+}
+
+@media (max-width: 430px) {
+  #liveScore {
+    font-size: 3.2rem;
+    letter-spacing: -0.03em;
+  }
+
+  .member-daily-score {
+    font-size: 2.8rem;
+  }
+
+  .score-band {
+    padding: 18px;
+    border-radius: 12px;
+  }
+}
+
+/* ================================================================
+   Pointwell — Dark Performance Theme v3
+   WHOOP-inspired: near-black canvas, lifted charcoal surfaces,
+   crisp light text, one bright teal accent for metrics/progress.
+   Always-on dark. Redefines tokens, then overrides every hardcoded
+   light color the token system can't reach.
+   ================================================================ */
+
+:root {
+  color-scheme: dark;
+
+  /* Text */
+  --ink: #eef1ef;            /* primary near-white */
+  --muted: #93a09a;          /* secondary muted gray-green */
+
+  /* Backgrounds (elevation ladder) */
+  --soft: #0c0f0e;           /* app canvas + recessed tracks/insets */
+  --surface: #1a1f20;        /* card level */
+  --panel: #15191a;          /* outer panel level (below cards) */
+
+  /* Borders */
+  --line: #262b2c;
+  --line-strong: #353c3d;
+
+  /* Accent (bright teal) */
+  --accent: #3ad6a6;
+  --accent-strong: #6fe3c8;  /* used as bright accent TEXT on dark */
+  --accent-soft: #143a32;    /* dark teal tint for pills/active fills */
+
+  /* Semantic */
+  --warm: #ecac6b;
+  --warm-soft: #352a1d;
+  --danger: #f0625c;
+  --danger-soft: #3a2425;
+  --blue: #5fa3e0;
+  --blue-soft: #1b2f42;
+
+  /* Shadows (deeper, darker for dark UI) */
+  --shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+  --shadow-card: 0 6px 18px rgba(0, 0, 0, 0.4);
+  --shadow-hover: 0 14px 32px rgba(0, 0, 0, 0.5);
+
+  /* Local helper tokens */
+  --field-bg: #21282a;       /* inputs */
+  --accent-ink: #04130f;     /* dark text that sits ON bright accent */
+}
+
+/* ── Canvas ───────────────────────────────────────────────────── */
+html {
+  background: #0c0f0e;
+}
+
+body {
+  background:
+    radial-gradient(1100px 520px at 78% -8%, rgba(58, 214, 166, 0.07), transparent 60%),
+    linear-gradient(180deg, #0e1413 0%, #0c0f0e 46%, #090b0a 100%);
+  color: var(--ink);
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────── */
+.sidebar {
+  background: linear-gradient(180deg, #14191a 0%, #0e1212 100%);
+  border-right: 1px solid var(--line);
+  box-shadow: 8px 0 30px rgba(0, 0, 0, 0.4), inset -1px 0 0 rgba(255, 255, 255, 0.03);
+}
+
+.nav-tabs {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.025);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.nav-tab {
+  color: var(--muted);
+}
+
+.nav-tab:hover {
+  color: var(--ink);
+  background: rgba(58, 214, 166, 0.08);
+}
+
+.nav-tab.active {
+  color: var(--accent);
+  background: rgba(58, 214, 166, 0.12);
+  border-color: rgba(58, 214, 166, 0.34);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35), inset 3px 0 0 var(--accent);
+}
+
+.nav-tab.active .tab-icon {
+  color: var(--accent);
+}
+
+.brand-mark,
+.build-option-icon {
+  color: var(--accent-ink);
+  background: linear-gradient(150deg, #4ee3b3, #2bb392);
+  box-shadow: 0 8px 22px rgba(58, 214, 166, 0.28);
+}
+
+/* ── Outer panels (use --panel token, dark) ───────────────────── */
+.tool-panel,
+.editor-panel,
+.system-list-wrap,
+.section-band,
+.community-list,
+.community-detail,
+.community-activity,
+.community-checkin,
+.profile-editor,
+.build-panel,
+.top-card-panel,
+.community-leaderboard-panel,
+.community-settings-panel {
+  border-color: var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow-card);
+}
+
+/* ── Cards & rows (override hardcoded #fff / #fffef9 / rgba-white) ─ */
+.top-rule-block,
+.rule-progress-card,
+.category-progress-card,
+.input-row,
+.add-entry-card,
+.visual-card,
+.weekly-chart-card,
+.history-card,
+.system-card,
+.community-card,
+.find-community-card,
+.build-result-card,
+.ai-draft-card,
+.community-rule-editor,
+.build-option-card,
+.discover-card,
+.community-hero,
+.community-stats div,
+.member-row,
+.activity-row,
+.member-weekly-chart,
+.public-system-row,
+.chart-builder-row,
+.top-card-builder-row,
+.available-block-button,
+.rule-row,
+.entry-log-row,
+.entry-log-row.quick-entry-row,
+.weekly-chart,
+.setup-step-heading,
+.advanced-rule-options,
+.calc-input-option,
+.calc-total-row,
+.review-card,
+.community-settings-panel,
+.check-input,
+.entries-log-panel,
+.profile-card,
+.integration-card,
+.points-donut-center,
+.progress-ring span {
+  border-color: var(--line);
+  background: var(--surface);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+/* Recessed / inset surfaces — darker than their card parent */
+.setup-flow-header,
+.add-entry-progress-card,
+.threshold-row,
+.goal-ring-card,
+.visual-row.compact,
+.quick-entry-row,
+.rule-form-status {
+  border-color: var(--line);
+  background: #111615;
+}
+
+.builder-step,
+.rule-preview {
+  border-color: var(--line);
+  background: #161b1b;
+}
+
+.rule-preview {
+  border-color: rgba(58, 214, 166, 0.22);
+  background: rgba(58, 214, 166, 0.07);
+}
+
+.setup-step-dot {
+  background: #111615;
+}
+
+.setup-step-heading {
+  background: #161b1b;
+}
+
+/* Sticky setup footer */
+.setup-nav {
+  border-color: var(--line);
+  background: rgba(18, 22, 22, 0.92);
+}
+
+/* Accent-tinted notices / previews */
+.source-notice,
+.integration-permission-card {
+  border-color: rgba(58, 214, 166, 0.24);
+  background: rgba(58, 214, 166, 0.09);
+}
+
+.source-notice strong {
+  color: var(--accent-strong);
+}
+
+.source-notice span {
+  color: var(--muted);
+}
+
+.add-entry-progress-card.preview {
+  border-color: rgba(58, 214, 166, 0.24);
+  background: rgba(58, 214, 166, 0.1);
+}
+
+.daily-total-row {
+  border-color: rgba(58, 214, 166, 0.3);
+  background: rgba(58, 214, 166, 0.1);
+}
+
+/* ── Empty states ─────────────────────────────────────────────── */
+.empty-state {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+}
+
+/* ── Inputs, selects, textareas ───────────────────────────────── */
+select,
+input:not([type="range"]):not([type="checkbox"]),
+textarea {
+  border-color: var(--line);
+  background: var(--field-bg);
+  color: var(--ink);
+  box-shadow: none;
+}
+
+select:hover,
+input:hover,
+textarea:hover {
+  border-color: var(--line-strong);
+}
+
+select option {
+  background: #1a1f20;
+  color: var(--ink);
+}
+
+::placeholder {
+  color: #9ba79f;
+}
+
+label,
+label > span {
+  color: var(--muted);
+}
+
+/* ── Focus ring (bright, visible on dark) ─────────────────────── */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.nav-tab:focus-visible,
+.system-card:focus-visible,
+.community-card:focus-visible {
+  outline: 2px solid rgba(58, 214, 166, 0.65);
+  outline-offset: 2px;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────── */
+.primary-button {
+  color: var(--accent-ink);
+  background: linear-gradient(168deg, #4ee3b3, #2bb392);
+  box-shadow: 0 8px 22px rgba(58, 214, 166, 0.26);
+}
+
+.primary-button:hover {
+  background: linear-gradient(168deg, #5cebbe, #2fc09c);
+  box-shadow: 0 12px 30px rgba(58, 214, 166, 0.34);
+  transform: translateY(-1px);
+}
+
+.primary-button:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 12px rgba(58, 214, 166, 0.24);
+}
+
+.secondary-button {
+  color: var(--accent-strong);
+  background: rgba(58, 214, 166, 0.12);
+  border-color: rgba(58, 214, 166, 0.28);
+}
+
+.secondary-button:hover {
+  background: rgba(58, 214, 166, 0.18);
+  border-color: rgba(58, 214, 166, 0.45);
+  transform: translateY(-1px);
+}
+
+.ghost-button {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--line);
+}
+
+.ghost-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--line-strong);
+}
+
+.danger-button {
+  color: var(--danger);
+  background: rgba(240, 98, 92, 0.12);
+  border-color: rgba(240, 98, 92, 0.28);
+}
+
+.danger-button:hover {
+  background: rgba(240, 98, 92, 0.2);
+}
+
+/* ── Card / option hover & selected states ────────────────────── */
+.system-card:hover,
+.community-card:hover,
+.find-community-card:hover,
+.build-result-card:hover,
+.build-option-card:hover,
+.leaderboard-button:hover,
+.top-rule-block:hover,
+.visual-card:hover {
+  border-color: rgba(58, 214, 166, 0.3);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.5);
+  transform: translateY(-1px);
+}
+
+.available-block-button:hover:not(:disabled) {
+  border-color: rgba(58, 214, 166, 0.38);
+  background: rgba(58, 214, 166, 0.1);
+}
+
+.system-card.active,
+.community-card.active,
+.leaderboard-button.active {
+  border-color: rgba(58, 214, 166, 0.45);
+  background: rgba(58, 214, 166, 0.1);
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+
+.setup-step-dot.active,
+.setup-step-dot.complete {
+  border-color: rgba(58, 214, 166, 0.4);
+}
+
+.setup-step-dot.active span,
+.setup-step-dot.complete span {
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+/* ── Range sliders & checkboxes ───────────────────────────────── */
+input[type="range"],
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+input[type="range"] {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  border: 3px solid #0c0f0e;
+  background: var(--accent);
+  box-shadow: 0 4px 12px rgba(58, 214, 166, 0.3);
+}
+
+input[type="range"]::-moz-range-thumb {
+  border: 3px solid #0c0f0e;
+  background: var(--accent);
+  box-shadow: 0 4px 12px rgba(58, 214, 166, 0.3);
+}
+
+/* ── Hardcoded text-color overrides (refinement layer leftovers) ─ */
+.eyebrow {
+  color: var(--muted);
+}
+
+/* Avatars: keep white initials, but deepen the blue so they read on dark */
+.avatar,
+.large-avatar,
+.member-avatar {
+  color: #fff;
+  background: linear-gradient(150deg, #4385c4, #2c5687);
+}
+
+.view-subtitle,
+.nav-tab,
+.panel-heading span,
+.community-meta,
+.system-meta,
+.rule-meta,
+.history-card span,
+.breakdown-row span,
+.community-stats span,
+.entry-log-main span,
+.source-help {
+  color: var(--muted);
+}
+
+.ghost-button {
+  color: var(--ink);
+}
+
+.nav-tab.active {
+  color: var(--accent);
+}
+
+/* ── Score band: align baseline + member band to dark hero ────── */
+.score-band,
+.member-score-band {
+  border: 1px solid rgba(58, 214, 166, 0.14);
+  background:
+    radial-gradient(720px 280px at 82% -20%, rgba(58, 214, 166, 0.22), transparent 60%),
+    linear-gradient(150deg, #0c2820 0%, #11352d 40%, #184a40 74%, #1f5b4e 100%);
+  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.score-label {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+#liveScore,
+.member-daily-score {
+  color: #fff;
+}
+
+.target-track {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.target-fill {
+  background: var(--accent);
+  box-shadow: 0 0 16px rgba(58, 214, 166, 0.55);
+}
+
+.target-fill.over-goal {
+  background: var(--warm);
+  box-shadow: 0 0 16px rgba(236, 172, 107, 0.5);
+}
+
+.target-status,
+.target-meter-meta span {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+/* ── Progress bars & charts: bright fills on dark tracks ──────── */
+.mini-progress-track,
+.visual-bar-track,
+.chart-bar-wrap,
+.mini-chart-bar-wrap {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.mini-progress-fill,
+.chart-bar.positive,
+.mini-chart-bar,
+.visual-bar-fill.positive {
+  background: var(--accent);
+}
+
+.mini-progress-fill.over-goal,
+.visual-bar-fill.over-goal,
+.chart-bar.over-goal {
+  background: var(--warm);
+}
+
+.chart-bar.negative,
+.mini-chart-bar.negative,
+.visual-bar-fill.negative {
+  background: var(--danger);
+}
+
+.points-donut {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.points-donut-center {
+  background: #11201c;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.progress-ring span {
+  color: var(--accent-strong);
+  background: #11201c;
+}
+
+.rule-mini-track,
+.category-mini-track {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.rule-mini-fill,
+.category-mini-fill {
+  background: #fff;
+}
+
+.rule-mini-fill.over-goal,
+.category-mini-fill.over-goal {
+  background: var(--warm);
+}
+
+/* Top-card rows live on dark cards — recolor track + fill */
+.top-rule-row .rule-mini-track {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.top-rule-row .rule-mini-fill {
+  background: var(--accent);
+}
+
+.top-rule-row .rule-mini-fill.over-goal {
+  background: var(--warm);
+}
+
+/* ── Pills ────────────────────────────────────────────────────── */
+.point-pill.positive,
+.status-pill.public,
+.visibility-pill.public {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+.point-pill.negative {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.visibility-pill.private,
+.status-pill.private {
+  color: var(--warm);
+  background: var(--warm-soft);
+}
+
+.tracking-pill {
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
+/* ── Toast ────────────────────────────────────────────────────── */
+.toast {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #20262a;
+  color: var(--ink);
+}
+
+/* ── Discover rule chips ──────────────────────────────────────── */
+.discover-rules li {
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* ── Section dividers that used light borders read fine via --line ─ */
+.breakdown-section + .breakdown-section,
+.rule-form,
+.calculated-total-panel,
+.extra-thresholds {
+  border-color: var(--line);
+}
+
+/* ── Mobile sidebar gradient parity ───────────────────────────── */
+@media (max-width: 1050px) {
+  .sidebar {
+    background: linear-gradient(180deg, #14191a 0%, #0e1212 100%);
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+  }
+
+  .nav-tabs {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .nav-tab.active {
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.4), inset 0 -3px 0 var(--accent);
+  }
+}
+
+/* ── Score Today: community mode action bar ───────────────────── */
+.community-score-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid rgba(58, 214, 166, 0.28);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(58, 214, 166, 0.08), rgba(58, 214, 166, 0.03)),
+    var(--surface);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+.community-score-actions-label {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.community-score-actions-label .eyebrow {
+  margin: 0;
+  color: var(--accent-strong);
+}
+
+.community-score-actions-label strong {
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+
+.community-score-actions-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 560px) {
+  .community-score-actions {
+    align-items: stretch;
+  }
+
+  .community-score-actions-buttons {
+    width: 100%;
+  }
+
+  .community-score-actions-buttons > * {
+    flex: 1 1 140px;
+  }
+}
+
+/* ── AI generator: feedback + improve controls ────────────────── */
+.ai-feedback,
+.ai-improve {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.ai-feedback-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-improve-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid rgba(58, 214, 166, 0.22);
+  border-radius: 10px;
+  background: rgba(58, 214, 166, 0.06);
+}
+
+/* Community AI rule generator form */
+.cc-ai-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+/* ── Auth screen ─────────────────────────────────────────────── */
+body.auth-locked {
+  overflow: hidden;
+}
+
+.auth-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(900px 480px at 80% -10%, rgba(58, 214, 166, 0.1), transparent 60%),
+    linear-gradient(165deg, #0e1413 0%, #0c0f0e 60%);
+}
+
+.auth-card {
+  width: min(380px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 26px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.5);
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.auth-brand strong {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.auth-card h1 {
+  margin: 4px 0 0;
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+}
+
+.auth-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.auth-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.auth-form .primary-button {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.auth-error {
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid rgba(240, 98, 92, 0.3);
+  border-radius: 8px;
+  background: rgba(240, 98, 92, 0.1);
+  color: var(--danger);
+  font-size: 0.84rem;
+  font-weight: 760;
+}
+
+.auth-toggle {
+  justify-self: center;
+}
+
+.sidebar-footer-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* ── Daily Insight card ──────────────────────────────────────── */
+.daily-insight-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+}
+
+.daily-insight-icon {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--accent);
+  background: rgba(58, 214, 166, 0.12);
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.daily-insight-main {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.daily-insight-text {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.96rem;
+  font-weight: 720;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+/* ── Community analytics dashboard ───────────────────────────── */
+.segmented {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  overflow-x: auto;
+}
+
+.segmented-button {
+  flex: 1 1 auto;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 800;
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.segmented-button:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.segmented-button.active {
+  color: var(--accent);
+  background: rgba(58, 214, 166, 0.12);
+  border-color: rgba(58, 214, 166, 0.34);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.community-analytics {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.cc-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.cc-stat {
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.cc-subhead {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.trend-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 132px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.trend-col {
+  flex: 1 1 0;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+}
+
+.trend-bar-wrap {
+  width: 100%;
+  height: 100px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.trend-bar {
+  width: 100%;
+  min-height: 3px;
+  border-radius: 5px 5px 0 0;
+  background: linear-gradient(180deg, #4fe3b4, var(--accent));
+}
+
+.trend-col-label {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.cc-compare {
+  display: grid;
+  gap: 8px;
+}
+
+.cc-compare-row {
+  display: grid;
+  grid-template-columns: minmax(56px, 84px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.cc-compare-name {
+  color: var(--ink);
+  font-size: 0.84rem;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cc-compare-track {
+  width: 100%;
+}
+
+.cc-compare-value {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.cc-member-select {
+  display: grid;
+  gap: 6px;
+  max-width: 280px;
+}
+
+.cc-under-list {
+  display: grid;
+  gap: 8px;
+}
+
+.cc-under-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.cc-flag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.cc-flag.warm {
+  color: var(--warm);
+  background: var(--warm-soft);
+}
+
+.cc-flag.neutral {
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.cc-allgood {
+  padding: 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+  color: var(--muted);
+  font-weight: 750;
+  text-align: center;
+}
+
+.community-analytics-settings {
+  display: grid;
+  gap: 14px;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.community-analytics-toggles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 720px) {
+  .community-analytics-toggles {
+    grid-template-columns: 1fr;
+  }
+
+  .trend-chart {
+    height: 120px;
+    gap: 3px;
+  }
+
+  .cc-under-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cc-flag {
+    align-self: flex-start;
+  }
+}

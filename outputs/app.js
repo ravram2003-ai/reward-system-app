@@ -1233,12 +1233,9 @@
       "findCommunitiesView",
       "profileView",
       "scoreContextSelect",
-      "communityScoreActions",
-      "communityScoreName",
       "viewLeaderboardButton",
       "openCommunityButton",
       "addEntryTitle",
-      "trackerSystemSelect",
       "addEntrySystemSelect",
       "customizeTopCardSystemSelect",
       "customizeChartsSystemSelect",
@@ -1536,15 +1533,15 @@
     els.addChartBlockButton.addEventListener("click", addWeeklyChartDraftBlock);
 
     els.scoreContextSelect.addEventListener("change", (event) => {
-      state.scoreContext = event.target.value || "personal";
-      if (isCommunityScoreContext(state.scoreContext)) state.selectedCommunityId = getScoreCommunityId(state.scoreContext);
-      addEntryDraft = { ruleId: "", amount: 0 };
-      saveState();
-      renderDashboard();
-    });
-    els.trackerSystemSelect.addEventListener("change", (event) => {
-      state.trackerSystemId = event.target.value;
-      state.scoreContext = "personal";
+      const value = event.target.value || "";
+      if (value.startsWith("community:")) {
+        state.scoreContext = value;
+        state.selectedCommunityId = getScoreCommunityId(value);
+      } else {
+        // personal:<systemId> — set the active personal system in the same step.
+        state.scoreContext = "personal";
+        state.trackerSystemId = value.replace(/^personal:/, "");
+      }
       state.draftInputs = {};
       addEntryDraft = { ruleId: "", amount: 0 };
       topCardDraftBlocks = null;
@@ -1948,13 +1945,25 @@
   }
 
   function renderScoreContextOptions() {
+    // ONE grouped dropdown: a concrete option per personal system and per joined
+    // community. The value encodes the full context (personal:<systemId> /
+    // community:<communityId>) so picking it sets everything in one step.
+    const personalOptions = state.systems.map((system) => `
+      <option value="personal:${escapeHtml(system.id)}">${escapeHtml(system.title || "Untitled system")}</option>
+    `).join("");
     const communityOptions = state.communities.map((community) => `
-      <option value="community:${escapeHtml(community.id)}">Community: ${escapeHtml(community.name)}</option>
+      <option value="community:${escapeHtml(community.id)}">${escapeHtml(community.name)}</option>
     `).join("");
     return `
-      <option value="personal">Personal Reward Systems</option>
+      ${personalOptions ? `<optgroup label="Personal">${personalOptions}</optgroup>` : ""}
       ${communityOptions ? `<optgroup label="Communities">${communityOptions}</optgroup>` : ""}
     `;
+  }
+
+  // The dropdown's current value: community:<id> in community mode, else
+  // personal:<trackerSystemId> for the active personal system.
+  function currentScoreContextValue() {
+    return isCommunityScoreContext() ? state.scoreContext : ("personal:" + state.trackerSystemId);
   }
 
   function renderAddEntryContextOptions(systemOptions) {
@@ -2138,24 +2147,23 @@
       .map((system) => `<option value="${escapeHtml(system.id)}">${escapeHtml(system.title)}</option>`)
       .join("");
     els.scoreContextSelect.innerHTML = renderScoreContextOptions();
-    els.scoreContextSelect.value = state.scoreContext;
-    els.trackerSystemSelect.innerHTML = systemOptions;
+    els.scoreContextSelect.value = currentScoreContextValue();
     els.addEntrySystemSelect.innerHTML = renderAddEntryContextOptions(systemOptions);
     els.customizeTopCardSystemSelect.innerHTML = systemOptions;
     els.customizeChartsSystemSelect.innerHTML = systemOptions;
-    els.trackerSystemSelect.value = state.trackerSystemId;
     els.addEntrySystemSelect.value = isCommunityScoreContext() ? state.scoreContext : state.trackerSystemId;
     els.customizeTopCardSystemSelect.value = state.trackerSystemId;
     els.customizeChartsSystemSelect.value = state.trackerSystemId;
-    els.trackerSystemSelect.hidden = isCommunityScoreContext();
     els.syncSampleButton.hidden = isCommunityScoreContext();
 
     const context = getActiveScoreContext();
     const system = context.system;
     const inCommunityMode = context.type === "community" && Boolean(context.community);
     els.addEntryTitle.textContent = inCommunityMode ? `Add Entry for ${context.community.name}` : "Add Entry";
-    els.communityScoreActions.hidden = !inCommunityMode;
-    if (inCommunityMode) els.communityScoreName.textContent = context.community.name;
+    // Community actions now live next to the switcher (the lower banner is gone),
+    // shown only under a community context.
+    els.viewLeaderboardButton.hidden = !inCommunityMode;
+    els.openCommunityButton.hidden = !inCommunityMode;
     if (!system) {
       els.dailyInputList.innerHTML = emptyState("Create a reward system to start scoring days.");
       els.ruleProgressList.innerHTML = emptyState("Create a reward system to see today's breakdown.");

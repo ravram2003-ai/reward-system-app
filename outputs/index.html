@@ -90,8 +90,9 @@
               <h2 id="dashboardTitle">Score today</h2>
             </div>
             <div class="header-actions">
-              <select id="scoreContextSelect" aria-label="View score for"></select>
-              <select id="trackerSystemSelect" aria-label="Choose reward system"></select>
+              <select id="scoreContextSelect" aria-label="Score context"></select>
+              <button class="secondary-button" type="button" id="viewLeaderboardButton" hidden>View Leaderboard</button>
+              <button class="ghost-button" type="button" id="openCommunityButton" hidden>Open Community</button>
               <button class="primary-button" type="button" id="openAddEntryButton">
                 <span aria-hidden="true">+</span>
                 <span>Add Entry</span>
@@ -124,16 +125,6 @@
             </div>
           </div>
 
-          <div class="community-score-actions" id="communityScoreActions" hidden>
-            <div class="community-score-actions-label">
-              <span class="eyebrow">Logging toward community</span>
-              <strong id="communityScoreName">Community</strong>
-            </div>
-            <div class="community-score-actions-buttons">
-              <button class="secondary-button" type="button" id="viewLeaderboardButton">View Leaderboard</button>
-              <button class="ghost-button" type="button" id="openCommunityButton">Open Community</button>
-            </div>
-          </div>
 
           <section class="tool-panel daily-insight-card" id="dailyInsightCard" aria-labelledby="dailyInsightTitle">
             <span class="daily-insight-icon" aria-hidden="true">◗</span>

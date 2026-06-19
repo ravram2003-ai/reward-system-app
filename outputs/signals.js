@@ -525,6 +525,85 @@
     }
   }
 
+  // ── Friends ─────────────────────────────────────────────────────────────
+  // Send a friend request (insert pending as myself; RLS gates self/blocked/dupes).
+  async function sendFriendRequest(requesterId, addresseeId) {
+    var sb = getClient();
+    if (!sb || !requesterId || !addresseeId) return { error: { message: "Couldn't send request." } };
+    try {
+      var res = await sb.from("friend_requests").insert({ requester_user: requesterId, addressee_user: addresseeId });
+      if (res.error) {
+        var detail = String(res.error.message || "") + " " + String(res.error.code || "");
+        if (/duplicate|unique|already exists|23505/i.test(detail)) return { error: null, already: true };
+        return { error: res.error };
+      }
+      return { error: null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // Addressee-only accept/decline of a pending request.
+  async function respondToFriendRequest(requestId, accept) {
+    var sb = getClient();
+    if (!sb || !requestId) return { error: { message: "Couldn't respond." } };
+    try {
+      var res = await sb.rpc("respond_to_friend_request", { req_id: requestId, accept: !!accept });
+      return { error: res.error || null, status: res.error ? null : res.data };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // My accepted friends (with names).
+  async function getFriends() {
+    var sb = getClient();
+    if (!sb) return [];
+    try {
+      var res = await sb.rpc("get_friends");
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Pending friend requests addressed to me (with requester names).
+  async function getIncomingFriendRequests() {
+    var sb = getClient();
+    if (!sb) return [];
+    try {
+      var res = await sb.rpc("get_incoming_friend_requests");
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Relationship with one user: 'friends' | 'pending_out' | 'pending_in' | 'none'.
+  async function getFriendshipStatus(otherId) {
+    var sb = getClient();
+    if (!sb || !otherId) return "none";
+    try {
+      var res = await sb.rpc("get_friendship_status", { other: otherId });
+      return res.error ? "none" : (res.data || "none");
+    } catch (e) {
+      return "none";
+    }
+  }
+
+  // People I'm ALLOWED to message (public OR friends, not blocked) — for "New message".
+  async function searchMessageableProfiles(query) {
+    var sb = getClient();
+    var q = String(query || "").trim();
+    if (!sb || q.length < 2) return [];
+    try {
+      var res = await sb.rpc("search_messageable_profiles", { q: q });
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
   var api = {
     KUDOS_PRESETS: KUDOS_PRESETS,
     MOTIVATION_PRESETS: MOTIVATION_PRESETS,
@@ -553,6 +632,12 @@
     getOwnerJoinRequests: getOwnerJoinRequests,
     getMyJoinRequests: getMyJoinRequests,
     respondToJoinRequest: respondToJoinRequest,
+    sendFriendRequest: sendFriendRequest,
+    respondToFriendRequest: respondToFriendRequest,
+    getFriends: getFriends,
+    getIncomingFriendRequests: getIncomingFriendRequests,
+    getFriendshipStatus: getFriendshipStatus,
+    searchMessageableProfiles: searchMessageableProfiles,
     upsertCommunityEntry: upsertCommunityEntry,
     fetchMyCommunities: fetchMyCommunities,
     isNudgeable: isNudgeable,

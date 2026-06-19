@@ -320,6 +320,24 @@
   let communitySearchResults = []; // name-search matches (public + request_to_join)
   let ownerJoinRequests = [];      // pending join requests for communities I own
   let pendingJoinCode = "";
+  // Friends system (friends.sql). `friends` = userIds of my accepted friends;
+  // `incomingFriendRequests` = pending requests addressed to me (Accept/Decline + badge).
+  let friends = new Set();
+  let incomingFriendRequests = [];
+  // Peers I blocked from a message request this session — hidden from the inbox
+  // immediately (the DB block is the durable guarantee; this is just responsive UI).
+  let sessionHiddenPeers = new Set();
+  // Chats toolbar panels: "New message" (search people I can message) and
+  // "Add friend" (search + send requests). Each has its own debounced search state.
+  let chatsActivePanel = "";       // "" | "new-message" | "add-friend"
+  let messageSearchResults = [];
+  let messageSearchLoading = false;
+  let messageSearchSeq = 0;
+  let messageSearchTimer = null;
+  let friendSearchResults = [];    // [{ id, display_name, handle, status }]
+  let friendSearchLoading = false;
+  let friendSearchSeq = 0;
+  let friendSearchTimer = null;
   // First-run onboarding overlay state.
   let onboardingActive = false;
   let onboardingStep = 1;
@@ -672,6 +690,8 @@
     currentInboxUid = null;
     inboxSignals = [];
     ownerJoinRequests = [];
+    friends = new Set();
+    incomingFriendRequests = [];
     lastPushedBehind = null;
     lastBehindWriteAt = 0;
     clearTimeout(behindPushTimer);
@@ -682,14 +702,26 @@
   }
 
   async function refreshInbox() {
-    if (!signalsReady()) { inboxSignals = []; ownerJoinRequests = []; renderNotifications(); return; }
-    // Inbox messages AND pending join requests for communities I own, in parallel.
+    if (!signalsReady()) {
+      inboxSignals = []; ownerJoinRequests = []; friends = new Set(); incomingFriendRequests = [];
+      renderNotifications();
+      return;
+    }
+    // Inbox messages, pending join requests I own, my friends, and incoming friend
+    // requests — fetched together so the badge and both inbox tiers stay in sync.
     const out = await Promise.all([
       window.PointwellSignals.fetchInbox(state.account.userId, 200),
-      window.PointwellSignals.getOwnerJoinRequests()
+      window.PointwellSignals.getOwnerJoinRequests(),
+      window.PointwellSignals.getFriends(),
+      window.PointwellSignals.getIncomingFriendRequests()
     ]);
     inboxSignals = Array.isArray(out[0]) ? out[0] : [];
     ownerJoinRequests = Array.isArray(out[1]) ? out[1] : [];
+    const friendRows = Array.isArray(out[2]) ? out[2] : [];
+    friends = new Set(friendRows.map((f) => String(f.user_id)));
+    // Names from friends/requests help the inbox label conversations I started.
+    friendRows.forEach((f) => { if (f.display_name) rememberPeerName(String(f.user_id), f.display_name); });
+    incomingFriendRequests = Array.isArray(out[3]) ? out[3] : [];
     renderNotifications();
   }
 
@@ -723,15 +755,19 @@
     const me = state.account && state.account.userId;
     // Count only RECEIVED unread — the inbox now also holds my sent rows, which are
     // never "unread" for me.
-    const unread = ready ? window.PointwellSignals.unreadCount(inboxSignals.filter((s) => s.to_user === me)) : 0;
+    // Exclude peers I blocked-from-a-request this session so the badge can't count
+    // a hidden conversation's unread (keeps badge and list in agreement).
+    const unread = ready ? window.PointwellSignals.unreadCount(inboxSignals.filter((s) => s.to_user === me && !sessionHiddenPeers.has(String(s.from_user)))) : 0;
     const requestCount = ready ? ownerJoinRequests.length : 0;
-    const badge = unread + requestCount; // bell/tab badge covers messages AND pending requests
+    const friendReqCount = ready ? incomingFriendRequests.length : 0;
+    const badge = unread + requestCount + friendReqCount; // tab badge: messages + join requests + friend requests
     if (els.chatsUnreadBadge) {
       els.chatsUnreadBadge.textContent = badge > 9 ? "9+" : String(badge);
       els.chatsUnreadBadge.hidden = badge === 0;
     }
     if (els.chatsMarkAllButton) els.chatsMarkAllButton.hidden = unread === 0;
     renderOwnerRequests(ready);
+    renderFriendRequests(ready);
     renderChats(ready);
   }
 
@@ -806,14 +842,19 @@
     signals.forEach((sig) => {
       const peer = sig.from_user === me ? sig.to_user : sig.from_user;
       if (!peer || peer === me) return;
+      if (sessionHiddenPeers.has(String(peer))) return; // blocked from a request this session
       const incoming = sig.to_user === me;
       let group = groups.get(peer);
       if (!group) {
-        group = { peerId: peer, name: "", latest: sig, communityId: sig.community_id || "", unread: 0 };
+        group = { peerId: peer, name: "", latest: sig, communityId: sig.community_id || "", unread: 0,
+                  hasIncomingText: false, hasOutgoingText: false };
         groups.set(peer, group);
       }
       // The peer's display name is only carried on rows THEY sent (from_name).
       if (incoming && sig.from_name) group.name = sig.from_name;
+      if (sig.type === "text") {
+        if (incoming) group.hasIncomingText = true; else group.hasOutgoingText = true;
+      }
       if (new Date(sig.created_at) >= new Date(group.latest.created_at)) {
         group.latest = sig;
         if (sig.community_id) group.communityId = sig.community_id;
@@ -821,7 +862,14 @@
       if (incoming && !sig.read) group.unread += 1;
     });
     return Array.from(groups.values())
-      .map((group) => ({ ...group, name: group.name || rememberedPeerName(group.peerId) }))
+      .map((group) => {
+        const isFriend = friends.has(String(group.peerId));
+        // "Message request": a non-friend cold-messaged me and I never replied. Once
+        // we're friends OR I've sent any text back, it graduates to the Main inbox.
+        // Kudos/motivation-only conversations never qualify (no incoming text).
+        const isRequest = !isFriend && group.hasIncomingText && !group.hasOutgoingText;
+        return { ...group, name: group.name || rememberedPeerName(group.peerId), isFriend, isRequest };
+      })
       .sort((a, b) => new Date(b.latest.created_at) - new Date(a.latest.created_at));
   }
 
@@ -829,13 +877,57 @@
     if (!els.chatsList) return;
     if (!ready) {
       els.chatsList.innerHTML = `<div class="chats-empty">Sign in to see your chats.</div>`;
+      renderMessageRequests(false, []);
       if (els.chatsLayout) els.chatsLayout.classList.remove("has-active");
       return;
     }
     const groups = groupConversations(inboxSignals);
-    els.chatsList.innerHTML = groups.length
-      ? groups.map(renderChatRow).join("")
-      : `<div class="chats-empty">No chats yet. Messages, kudos, and motivation from members show up here.</div>`;
+    const main = groups.filter((g) => !g.isRequest);
+    const requests = groups.filter((g) => g.isRequest);
+    els.chatsList.innerHTML = main.length
+      ? main.map(renderChatRow).join("")
+      : `<div class="chats-empty">No chats yet. Messages, kudos, and motivation from friends show up here.</div>`;
+    renderMessageRequests(true, requests);
+  }
+
+  // Tier 2 of the inbox: conversations a NON-friend started with me that I haven't
+  // engaged. Each row opens (to read/reply, which graduates it), or I can add them
+  // as a friend or block them outright.
+  function renderMessageRequests(ready, requests) {
+    if (!els.chatsMessageRequests) return;
+    if (!ready || !requests.length) {
+      els.chatsMessageRequests.innerHTML = "";
+      els.chatsMessageRequests.hidden = true;
+      return;
+    }
+    els.chatsMessageRequests.hidden = false;
+    els.chatsMessageRequests.innerHTML =
+      `<div class="join-requests-head"><strong>Message requests</strong><span>${requests.length} from people you haven't added</span></div>` +
+      requests.map(renderMessageRequestRow).join("");
+  }
+
+  function renderMessageRequestRow(group) {
+    const who = escapeHtml(group.name);
+    const initials = escapeHtml(getInitials(group.name));
+    const when = escapeHtml(window.PointwellSignals.formatRelativeTime(group.latest.created_at, Date.now()));
+    const preview = escapeHtml(group.latest.body || "");
+    const peer = escapeHtml(String(group.peerId));
+    return `
+      <div class="message-request-item${group.unread ? " unread" : ""}">
+        <button class="message-request-open" type="button" data-msgreq-open="${peer}" data-msgreq-name="${who}" data-community-id="${escapeHtml(group.communityId || "")}">
+          <span class="member-avatar" aria-hidden="true">${initials}</span>
+          <span class="chat-row-main">
+            <span class="chat-row-top"><strong>${who}</strong><span class="chat-row-time">${when}</span></span>
+            <span class="chat-row-preview"><span class="chat-row-preview-text">${preview}</span></span>
+          </span>
+          ${group.unread ? '<span class="notif-dot" aria-hidden="true"></span>' : ""}
+        </button>
+        <div class="message-request-actions">
+          <button class="primary-button small" type="button" data-msgreq-add="${peer}" data-msgreq-name="${who}">Add friend</button>
+          <button class="ghost-button small" type="button" data-msgreq-block="${peer}" data-msgreq-name="${who}">Block</button>
+        </div>
+      </div>
+    `;
   }
 
   function renderChatRow(group) {
@@ -884,6 +976,233 @@
     if (unreadIds.length) {
       Promise.resolve(window.PointwellSignals.markRead(unreadIds)).then(() => refreshInbox()).catch(() => {});
     }
+  }
+
+  // ── Friends: incoming requests (Accept/Decline) ───────────────────────────
+  // Renders into the "Add friend" panel and keeps the toolbar badge in sync. Runs
+  // on every inbox refresh so the badge is right even while the panel is closed.
+  function renderFriendRequests(ready) {
+    const count = ready ? incomingFriendRequests.length : 0;
+    if (els.chatsFriendReqBadge) {
+      els.chatsFriendReqBadge.textContent = count > 9 ? "9+" : String(count);
+      els.chatsFriendReqBadge.hidden = count === 0;
+    }
+    if (!els.chatsFriendRequests) return;
+    if (!count) {
+      els.chatsFriendRequests.innerHTML = `<p class="chats-panel-empty">No pending friend requests.</p>`;
+      return;
+    }
+    els.chatsFriendRequests.innerHTML =
+      `<div class="join-requests-head"><strong>Friend requests</strong><span>${count} pending</span></div>` +
+      incomingFriendRequests.map(renderFriendRequestItem).join("");
+  }
+
+  function renderFriendRequestItem(req) {
+    const label = req.requester_name || req.requester_handle || "Someone";
+    const who = escapeHtml(label);
+    const initials = escapeHtml(getInitials(label));
+    const handle = escapeHtml(cleanHandle(req.requester_handle || "") || "");
+    const when = escapeHtml(window.PointwellSignals.formatRelativeTime(req.created_at, Date.now()));
+    const id = escapeHtml(String(req.request_id));
+    return `
+      <div class="join-request-item" data-friend-request-id="${id}">
+        <span class="member-avatar" aria-hidden="true">${initials}</span>
+        <div class="join-request-main">
+          <strong>${who}</strong>
+          <span>wants to connect${handle ? " &middot; " + handle : ""} &middot; ${when}</span>
+        </div>
+        <div class="join-request-actions">
+          <button class="primary-button small" type="button" data-friend-accept="${id}">Accept</button>
+          <button class="ghost-button small" type="button" data-friend-decline="${id}">Decline</button>
+        </div>
+      </div>
+    `;
+  }
+
+  async function respondToFriendRequest(requestId, accept) {
+    if (!signalsReady() || !requestId) return;
+    // Capture the requester BEFORE refreshInbox clears the pending list, so we can
+    // fix the search-panel row's status in place (it self-corrects otherwise only on
+    // the next keystroke).
+    const req = incomingFriendRequests.find((r) => String(r.request_id) === String(requestId));
+    const requesterId = req ? String(req.requester_user) : "";
+    const res = await window.PointwellSignals.respondToFriendRequest(requestId, accept);
+    if (res.error) { showToast(communityDbError(res.error, "Couldn't respond to that request")); return; }
+    showToast(accept ? "Friend request accepted" : "Friend request declined");
+    await refreshInbox();          // updates friends set, badge, and reclassifies the inbox
+    if (requesterId) {
+      const row = friendSearchResults.find((p) => String(p.id) === requesterId);
+      if (row) row.status = accept ? "friends" : "none";
+    }
+    renderFriendSearchResults();   // reflect the change if the search list is showing them
+  }
+
+  // Accept the pending request a given user sent me (used from the search results,
+  // where I only know their user id). Looks the request up in the incoming list.
+  function acceptFriendByUser(userId) {
+    const req = incomingFriendRequests.find((r) => String(r.requester_user) === String(userId));
+    if (req) respondToFriendRequest(req.request_id, true);
+  }
+
+  // ── Chats toolbar panels: "New message" + "Add friend" ─────────────────────
+  function toggleChatsPanel(panel) {
+    chatsActivePanel = chatsActivePanel === panel ? "" : panel;
+    renderChatsPanels();
+    if (chatsActivePanel === "new-message" && els.chatsNewMessageInput) {
+      requestAnimationFrame(() => els.chatsNewMessageInput.focus());
+    }
+    if (chatsActivePanel === "add-friend" && els.chatsAddFriendInput) {
+      requestAnimationFrame(() => els.chatsAddFriendInput.focus());
+    }
+  }
+
+  function renderChatsPanels() {
+    if (els.chatsNewMessagePanel) els.chatsNewMessagePanel.hidden = chatsActivePanel !== "new-message";
+    if (els.chatsAddFriendPanel) els.chatsAddFriendPanel.hidden = chatsActivePanel !== "add-friend";
+    if (els.chatsNewMessageButton) els.chatsNewMessageButton.classList.toggle("active", chatsActivePanel === "new-message");
+    if (els.chatsAddFriendButton) els.chatsAddFriendButton.classList.toggle("active", chatsActivePanel === "add-friend");
+  }
+
+  // "New message": search people I'm ALLOWED to message (public OR friends), via the
+  // server-side gate. Selecting one opens the shared thread view. Debounced + guarded.
+  function runMessageSearch(rawQuery) {
+    const query = String(rawQuery || "").trim();
+    clearTimeout(messageSearchTimer);
+    if (!signalsReady() || query.length < 2) {
+      messageSearchResults = [];
+      messageSearchLoading = false;
+      messageSearchSeq++;
+      renderMessageSearchResults();
+      return;
+    }
+    messageSearchLoading = true;
+    const seq = ++messageSearchSeq;
+    renderMessageSearchResults();
+    messageSearchTimer = setTimeout(() => {
+      Promise.resolve(window.PointwellSignals.searchMessageableProfiles(query)).then((rows) => {
+        if (seq !== messageSearchSeq) return;
+        messageSearchResults = Array.isArray(rows) ? rows : [];
+        messageSearchLoading = false;
+        renderMessageSearchResults();
+      }).catch(() => {
+        if (seq !== messageSearchSeq) return;
+        messageSearchResults = [];
+        messageSearchLoading = false;
+        renderMessageSearchResults();
+      });
+    }, 250);
+  }
+
+  function renderMessageSearchResults() {
+    if (!els.chatsNewMessageResults) return;
+    if (messageSearchLoading) { els.chatsNewMessageResults.innerHTML = `<p class="chats-panel-empty">Searching…</p>`; return; }
+    if (!messageSearchResults.length) {
+      els.chatsNewMessageResults.innerHTML = `<p class="chats-panel-empty">Search by name or handle to start a conversation. You can message friends and anyone with a public profile.</p>`;
+      return;
+    }
+    els.chatsNewMessageResults.innerHTML = messageSearchResults.map((p) => renderChatsPersonRow(p, "message")).join("");
+  }
+
+  // "Add friend": general people search, each annotated with our relationship so the
+  // button reflects state (Add / Requested / Friends / Accept). Debounced + guarded.
+  function runFriendSearch(rawQuery) {
+    const query = String(rawQuery || "").trim();
+    clearTimeout(friendSearchTimer);
+    if (!signalsReady() || query.length < 2) {
+      friendSearchResults = [];
+      friendSearchLoading = false;
+      friendSearchSeq++;
+      renderFriendSearchResults();
+      return;
+    }
+    friendSearchLoading = true;
+    const seq = ++friendSearchSeq;
+    renderFriendSearchResults();
+    friendSearchTimer = setTimeout(() => {
+      Promise.resolve(window.PointwellSignals.searchProfiles(query)).then(async (rows) => {
+        if (seq !== friendSearchSeq) return;
+        const list = Array.isArray(rows) ? rows : [];
+        const statuses = await Promise.all(
+          list.map((p) => Promise.resolve(window.PointwellSignals.getFriendshipStatus(String(p.id))).catch(() => "none"))
+        );
+        if (seq !== friendSearchSeq) return;
+        friendSearchResults = list.map((p, i) => ({ ...p, status: statuses[i] || "none" }));
+        friendSearchLoading = false;
+        renderFriendSearchResults();
+      }).catch(() => {
+        if (seq !== friendSearchSeq) return;
+        friendSearchResults = [];
+        friendSearchLoading = false;
+        renderFriendSearchResults();
+      });
+    }, 250);
+  }
+
+  function renderFriendSearchResults() {
+    if (!els.chatsAddFriendResults) return;
+    if (friendSearchLoading) { els.chatsAddFriendResults.innerHTML = `<p class="chats-panel-empty">Searching…</p>`; return; }
+    if (!friendSearchResults.length) {
+      els.chatsAddFriendResults.innerHTML = `<p class="chats-panel-empty">Search by name or handle to send a friend request.</p>`;
+      return;
+    }
+    els.chatsAddFriendResults.innerHTML = friendSearchResults.map((p) => renderChatsPersonRow(p, "friend")).join("");
+  }
+
+  // One person row, shared by both panels. mode "message" → a Message button;
+  // mode "friend" → an action that reflects the relationship status.
+  function renderChatsPersonRow(person, mode) {
+    const name = escapeHtml(person.display_name || "Member");
+    const handle = escapeHtml(cleanHandle(person.handle || "") || "@member");
+    const initials = escapeHtml(getInitials(person.display_name || "Member"));
+    const id = escapeHtml(String(person.id));
+    let action;
+    if (mode === "message") {
+      action = `<button class="primary-button small" type="button" data-message-person="${id}" data-message-name="${name}">Message</button>`;
+    } else if (person.status === "friends") {
+      action = `<span class="chats-person-status">Friends</span>`;
+    } else if (person.status === "pending_out") {
+      action = `<span class="chats-person-status">Requested</span>`;
+    } else if (person.status === "pending_in") {
+      action = `<button class="primary-button small" type="button" data-friend-accept-user="${id}">Accept request</button>`;
+    } else {
+      action = `<button class="primary-button small" type="button" data-friend-add="${id}" data-friend-name="${name}">Add friend</button>`;
+    }
+    return `
+      <div class="chats-person-row">
+        <span class="member-avatar" aria-hidden="true">${initials}</span>
+        <div class="chats-person-main"><strong>${name}</strong><span>${handle}</span></div>
+        ${action}
+      </div>
+    `;
+  }
+
+  async function sendFriendRequestTo(userId, name) {
+    if (!signalsReady() || !userId) return;
+    const res = await window.PointwellSignals.sendFriendRequest(state.account.userId, userId);
+    if (res.error) { showToast(communityDbError(res.error, "Couldn't send friend request")); return; }
+    if (name) rememberPeerName(userId, name);
+    showToast(res.already ? "Friend request already sent" : `Friend request sent to ${name || "them"}`);
+    const row = friendSearchResults.find((p) => String(p.id) === String(userId));
+    if (row) { row.status = "pending_out"; renderFriendSearchResults(); }
+  }
+
+  // Open a conversation from a panel (New message) or message-request row. Closes the
+  // open panel and reuses the shared thread view via openChatConversation().
+  function openConversationFromPanel(userId, name) {
+    if (!userId) return;
+    if (name) rememberPeerName(userId, name);
+    chatsActivePanel = "";
+    renderChatsPanels();
+    openChatConversation(userId, name || rememberedPeerName(userId), "");
+  }
+
+  async function blockFromRequest(userId, name) {
+    if (!signalsReady() || !userId) return;
+    const res = await window.PointwellSignals.blockUser(state.account.userId, userId);
+    if (res.error) { showToast("Couldn't block right now"); return; }
+    sessionHiddenPeers.add(String(userId)); // drop the request row immediately
+    showToast(`Blocked ${name || "them"} — they can no longer message you`);
+    renderNotifications(); // re-render BOTH the list and the badge from the same source
   }
 
   // The top-right header avatar routes to the existing Profile & privacy view —
@@ -1481,6 +1800,17 @@
       "chatsMarkAllButton",
       "chatsUnreadBadge",
       "chatsLayout",
+      "chatsNewMessageButton",
+      "chatsAddFriendButton",
+      "chatsFriendReqBadge",
+      "chatsNewMessagePanel",
+      "chatsNewMessageInput",
+      "chatsNewMessageResults",
+      "chatsAddFriendPanel",
+      "chatsAddFriendInput",
+      "chatsAddFriendResults",
+      "chatsFriendRequests",
+      "chatsMessageRequests",
       "onboardingScreen",
       "onboardingBody",
       "allowMotivationInput",
@@ -1713,6 +2043,34 @@
     if (els.headerAvatarButton) els.headerAvatarButton.addEventListener("click", openProfile);
     if (els.onboardingScreen) els.onboardingScreen.addEventListener("click", handleOnboardingClick);
     if (els.chatsMarkAllButton) els.chatsMarkAllButton.addEventListener("click", markAllSignalsRead);
+    if (els.chatsNewMessageButton) els.chatsNewMessageButton.addEventListener("click", () => toggleChatsPanel("new-message"));
+    if (els.chatsAddFriendButton) els.chatsAddFriendButton.addEventListener("click", () => toggleChatsPanel("add-friend"));
+    if (els.chatsNewMessageInput) els.chatsNewMessageInput.addEventListener("input", (event) => runMessageSearch(event.target.value));
+    if (els.chatsAddFriendInput) els.chatsAddFriendInput.addEventListener("input", (event) => runFriendSearch(event.target.value));
+    if (els.chatsNewMessageResults) els.chatsNewMessageResults.addEventListener("click", (event) => {
+      const t = event.target.closest && event.target.closest("[data-message-person]");
+      if (t) openConversationFromPanel(t.dataset.messagePerson, t.dataset.messageName);
+    });
+    if (els.chatsAddFriendResults) els.chatsAddFriendResults.addEventListener("click", (event) => {
+      const add = event.target.closest && event.target.closest("[data-friend-add]");
+      const acceptUser = event.target.closest && event.target.closest("[data-friend-accept-user]");
+      if (add) sendFriendRequestTo(add.dataset.friendAdd, add.dataset.friendName);
+      else if (acceptUser) acceptFriendByUser(acceptUser.dataset.friendAcceptUser);
+    });
+    if (els.chatsFriendRequests) els.chatsFriendRequests.addEventListener("click", (event) => {
+      const accept = event.target.closest && event.target.closest("[data-friend-accept]");
+      const decline = event.target.closest && event.target.closest("[data-friend-decline]");
+      if (accept) respondToFriendRequest(accept.dataset.friendAccept, true);
+      else if (decline) respondToFriendRequest(decline.dataset.friendDecline, false);
+    });
+    if (els.chatsMessageRequests) els.chatsMessageRequests.addEventListener("click", (event) => {
+      const open = event.target.closest && event.target.closest("[data-msgreq-open]");
+      const add = event.target.closest && event.target.closest("[data-msgreq-add]");
+      const block = event.target.closest && event.target.closest("[data-msgreq-block]");
+      if (add) sendFriendRequestTo(add.dataset.msgreqAdd, add.dataset.msgreqName);
+      else if (block) blockFromRequest(block.dataset.msgreqBlock, block.dataset.msgreqName);
+      else if (open) openConversationFromPanel(open.dataset.msgreqOpen, open.dataset.msgreqName);
+    });
     if (els.chatsList) els.chatsList.addEventListener("click", (event) => {
       const row = event.target.closest && event.target.closest(".chat-row");
       if (!row) return;

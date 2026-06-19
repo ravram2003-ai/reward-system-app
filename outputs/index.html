@@ -1138,7 +1138,35 @@
             <button class="ghost-button small" type="button" id="chatsMarkAllButton" hidden>Mark all read</button>
           </div>
 
+          <div class="chats-toolbar">
+            <button class="secondary-button small" type="button" id="chatsNewMessageButton">
+              <span aria-hidden="true">✉</span><span>New message</span>
+            </button>
+            <button class="secondary-button small" type="button" id="chatsAddFriendButton">
+              <span aria-hidden="true">＋</span><span>Add friend</span>
+              <span class="toolbar-badge" id="chatsFriendReqBadge" hidden>0</span>
+            </button>
+          </div>
+
+          <div class="chats-panel" id="chatsNewMessagePanel" hidden>
+            <label class="chats-panel-search">
+              <span class="sr-only">Search people you can message</span>
+              <input id="chatsNewMessageInput" type="search" placeholder="Search people you can message…" autocomplete="off">
+            </label>
+            <div class="chats-panel-results" id="chatsNewMessageResults"></div>
+          </div>
+
+          <div class="chats-panel" id="chatsAddFriendPanel" hidden>
+            <label class="chats-panel-search">
+              <span class="sr-only">Search people to add as friends</span>
+              <input id="chatsAddFriendInput" type="search" placeholder="Search people by name or handle…" autocomplete="off">
+            </label>
+            <div class="chats-panel-results" id="chatsAddFriendResults"></div>
+            <div class="chats-friend-requests" id="chatsFriendRequests"></div>
+          </div>
+
           <div class="chats-requests" id="chatsRequests" hidden></div>
+          <div class="chats-message-requests" id="chatsMessageRequests" hidden></div>
 
           <div class="chats-layout" id="chatsLayout">
             <div class="chats-list" id="chatsList" aria-label="Conversations"></div>

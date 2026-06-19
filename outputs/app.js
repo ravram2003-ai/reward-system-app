@@ -6887,11 +6887,20 @@
       system: system
     });
     if (res.error || !res.data) {
-      showToast(/duplicate|unique/i.test((res.error && res.error.message) || "") ? "Try creating again (code clash)" : "Couldn't create community");
+      if (/duplicate|unique/i.test((res.error && res.error.message) || "")) {
+        showToast("That invite code already exists — try creating again.");
+      } else {
+        showToast(communityDbError(res.error, "Couldn't save the community"));
+      }
       return;
     }
-    // Creator becomes the first member (owner).
-    await window.PointwellSignals.joinCommunity(res.data.id, state.account.userId, "owner");
+    // Creator becomes the first member (owner). If THIS fails, the community would
+    // be saved but invisible (membership is how it loads) — so surface it.
+    const joined = await window.PointwellSignals.joinCommunity(res.data.id, state.account.userId, "owner");
+    if (joined && joined.error) {
+      showToast(communityDbError(joined.error, "Saved the community, but couldn't add you as a member"));
+      return;
+    }
     state.communityDraftInputs = {};
     communityDraft = null;
     communityDraftStep = 0;
@@ -6900,8 +6909,14 @@
     state.selectedCommunityId = res.data.id;
     state.activeView = "community-detail";
     await loadCommunitiesFromDb();
+    // If the freshly-created community didn't come back from the DB, don't show a
+    // blank "Community" — say why so it's diagnosable instead of silently empty.
+    if (!state.communities.some((community) => community.id === res.data.id)) {
+      showToast("Saved, but couldn't reload it — re-run supabase/communities.sql in Supabase.");
+      return;
+    }
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-    showToast("Community created");
+    showToast(`Created "${name}"`);
   }
 
   function joinPublicCommunity(communityId) {
@@ -7604,6 +7619,20 @@
   // data SOURCE changed (per-user simulation → one shared row many people can join).
   function communitiesAreShared() { return signalsReady(); }
 
+  // Turn a raw Supabase error into a human message — and, crucially, detect the
+  // "tables don't exist yet" case so a failed write tells you to run the migration
+  // instead of failing silently.
+  function communityDbError(error, fallback) {
+    const msg = (error && error.message) ? String(error.message) : "";
+    if (/relation .* does not exist|could not find the table|schema cache|does not exist/i.test(msg)) {
+      return "Communities aren't set up in the database yet — run supabase/communities.sql in Supabase.";
+    }
+    if (/permission denied|row-level security|violates row-level/i.test(msg)) {
+      return "Blocked by the database — re-run supabase/communities.sql so the policies are applied.";
+    }
+    return msg ? (fallback + ": " + msg) : fallback;
+  }
+
   function memberColorFor(id) {
     const palette = ["#266b5e", "#bb6a2f", "#7a4b86", "#355d91", "#2f7d6b", "#a4562f"];
     const key = String(id || "");
@@ -7706,7 +7735,7 @@
   async function joinCommunityById(communityId) {
     if (!communitiesAreShared() || !communityId) return;
     const res = await window.PointwellSignals.joinCommunity(communityId, state.account.userId, "member");
-    if (res.error) { showToast("Couldn't join that community"); return; }
+    if (res.error) { showToast(communityDbError(res.error, "Couldn't join that community")); return; }
     state.selectedCommunityId = communityId;
     state.activeView = "community-detail";
     communityCodeResult = null;

@@ -131,10 +131,11 @@
             <div class="daily-insight-main">
               <span class="eyebrow" id="dailyInsightTitle">Daily Insight</span>
               <p class="daily-insight-text" id="dailyInsightText">Log your first entry to see today's insight.</p>
+              <div class="signal-presets quick-log-chips" id="quickLogChips" aria-label="Quick log" hidden></div>
             </div>
           </section>
 
-          <section class="top-card-panel" aria-labelledby="topCardTitle">
+          <section class="top-card-panel" id="topCardPanel" aria-labelledby="topCardTitle">
             <div class="panel-heading">
               <h3 id="topCardTitle">Top Card</h3>
               <button class="ghost-button small" type="button" id="customizeTopCardButton">Customize Top Card</button>
@@ -142,7 +143,7 @@
             <div class="top-card-block-grid" id="categoryProgressList"></div>
           </section>
 
-          <section class="tool-panel visual-breakdown-panel" aria-labelledby="ruleProgressTitle">
+          <section class="tool-panel visual-breakdown-panel" id="visualBreakdownPanel" aria-labelledby="ruleProgressTitle">
             <div class="panel-heading">
               <h3 id="ruleProgressTitle">Visual Breakdown</h3>
               <span id="ruleCountLabel">0 rules</span>
@@ -150,7 +151,7 @@
             <div class="visual-breakdown-list" id="ruleProgressList"></div>
           </section>
 
-          <section class="tool-panel weekly-progress-panel" aria-labelledby="weeklyProgressTitle">
+          <section class="tool-panel weekly-progress-panel" id="weeklyProgressPanel" aria-labelledby="weeklyProgressTitle">
             <div class="panel-heading">
               <div>
                 <h3 id="weeklyProgressTitle">Weekly Progress</h3>

@@ -5480,6 +5480,15 @@ body.auth-locked {
   overflow-wrap: anywhere;
 }
 
+/* Quick-log chips (action-first empty state) — reuse the .signal-preset-chip pill. */
+.quick-log-chips {
+  margin-top: 10px;
+}
+.quick-log-chip-points {
+  color: var(--accent-strong);
+  font-weight: 850;
+}
+
 /* ── Community analytics dashboard ───────────────────────────── */
 .segmented {
   display: flex;

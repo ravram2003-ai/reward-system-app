@@ -1255,6 +1255,10 @@
       "dailyStatusLabel",
       "dailyInsightCard",
       "dailyInsightText",
+      "quickLogChips",
+      "topCardPanel",
+      "visualBreakdownPanel",
+      "weeklyProgressPanel",
       "authScreen",
       "signOutButton",
       "syncSampleButton",
@@ -2143,6 +2147,13 @@
     }
     state.scoreContext = normalizeScoreContextValue(state.scoreContext);
 
+    // Default analytics visibility; updateDashboardComputed() flips these for the
+    // action-first empty state (and the no-system branch below leaves them visible).
+    if (els.topCardPanel) els.topCardPanel.hidden = false;
+    if (els.visualBreakdownPanel) els.visualBreakdownPanel.hidden = false;
+    if (els.weeklyProgressPanel) els.weeklyProgressPanel.hidden = false;
+    if (els.quickLogChips) els.quickLogChips.hidden = true;
+
     const systemOptions = state.systems
       .map((system) => `<option value="${escapeHtml(system.id)}">${escapeHtml(system.title)}</option>`)
       .join("");
@@ -2212,10 +2223,14 @@
 
     els.dailyInputList.innerHTML = renderAddEntryPanel(system);
     bindDailyInputs();
-    updateDashboardComputed();
+    const emptyDay = updateDashboardComputed();
 
-    if (context.type === "personal") renderWeeklyProgress(system);
-    else renderCommunityWeeklyProgress(context.community);
+    // Skip the weekly chart when the day is empty (updateDashboardComputed already
+    // hid its panel) — it's restored the moment an entry exists.
+    if (!emptyDay) {
+      if (context.type === "personal") renderWeeklyProgress(system);
+      else renderCommunityWeeklyProgress(context.community);
+    }
     renderCustomizeTopCardView(system);
     renderCustomizeChartsView(system);
   }
@@ -4357,17 +4372,66 @@
   function updateDashboardComputed() {
     const context = getActiveScoreContext();
     const system = context.system;
-    if (!system) return;
+    if (!system) return false;
     const values = collectDraftValues(system, valuesForScoreContext(context));
     const summary = calculateDashboardSummary(system, values, context);
 
     renderDailyTargetProgress(summary.total, summary.target.total);
     renderDailyInsight(context, system, summary);
-    renderVisualBreakdown(summary.breakdown, summary.calculatedTotals, system, summary.target, summary.total);
-    renderTopCardHighlights(summary.breakdown, summary.calculatedTotals, system, summary.target, summary.total);
+
+    // Action-first empty state: "empty" = no entries for today's context, off the
+    // SAME entryCount the analytics use (so they always agree). When empty, skip the
+    // zero-value analytics and offer one quick-log chip per rule instead.
+    const empty = summary.entryCount === 0;
+    if (els.topCardPanel) els.topCardPanel.hidden = empty;
+    if (els.visualBreakdownPanel) els.visualBreakdownPanel.hidden = empty;
+    if (els.weeklyProgressPanel) els.weeklyProgressPanel.hidden = empty;
+    if (els.quickLogChips) els.quickLogChips.hidden = !empty;
+    if (empty) {
+      renderQuickLogChips(system);
+    } else {
+      els.quickLogChips.innerHTML = "";
+      renderVisualBreakdown(summary.breakdown, summary.calculatedTotals, system, summary.target, summary.total);
+      renderTopCardHighlights(summary.breakdown, summary.calculatedTotals, system, summary.target, summary.total);
+    }
     renderEntriesAddedSection(system, summary.breakdown, context);
 
     bindQuickEntryDeletes();
+    return empty;
+  }
+
+  // One tappable chip per rule in the active system. yes/no rules log in one tap at
+  // their default value (showing the point value); rules that need an amount open
+  // the existing Add Entry UI prefilled to that rule.
+  function renderQuickLogChips(system) {
+    if (!els.quickLogChips) return;
+    const rules = (system.rules || []).map(scoring.normalizeRule);
+    els.quickLogChips.innerHTML = rules.map((rule) => {
+      const points = canOneTapLog(rule) ? ` <span class="quick-log-chip-points">+${escapeHtml(formatPoints(rule.yesNoPoints))}</span>` : "";
+      return `<button class="signal-preset-chip quick-log-chip" type="button" data-quick-log-rule="${escapeHtml(rule.id)}">${escapeHtml(rule.label)}${points}</button>`;
+    }).join("");
+    Array.from(els.quickLogChips.querySelectorAll("[data-quick-log-rule]")).forEach((button) => {
+      button.addEventListener("click", () => quickLogChipTap(button.dataset.quickLogRule));
+    });
+  }
+
+  // yes/no (toggle) rules have a fixed completion value, so they can be logged in
+  // one tap; everything else needs a chosen amount.
+  function canOneTapLog(rule) {
+    return rule.inputMethod === "toggle" || rule.simpleStyle === "yesNo";
+  }
+
+  function quickLogChipTap(ruleId) {
+    const system = getActiveScoreContext().system;
+    const rule = system && system.rules.map(scoring.normalizeRule).find((item) => item.id === ruleId);
+    if (!rule) return;
+    // Reuse the EXISTING add-entry path — no new logging flow.
+    addEntryDraft = { ruleId: rule.id, amount: suggestedEntryAmount(rule) };
+    if (canOneTapLog(rule)) {
+      addDailyEntryFromDraft();
+    } else {
+      openAddEntryPage();
+    }
   }
 
   // Daily Insight: build a fact snapshot from the SAME summary the score uses

@@ -110,13 +110,18 @@
   async function fetchInbox(userId, limit) {
     var sb = getClient();
     if (!sb || !userId) return [];
+    // userId feeds an .or() filter string, so require a real UUID. RLS is still the
+    // real guarantee — it limits rows to ones where you are the sender OR recipient.
+    if (!UUID_RE.test(String(userId))) return [];
     try {
-      // RLS already restricts rows to the recipient; the explicit filter is
-      // belt-and-suspenders and keeps intent clear.
+      // BOTH directions (received AND sent) so a conversation shows for BOTH
+      // participants — the recipient sees what was sent to them, and the sender
+      // sees conversations they started. to_user is selected so the UI can tell who
+      // the peer is and which rows are incoming (for the unread count).
       var res = await sb
         .from("signals")
-        .select("id, from_user, from_name, community_id, type, body, created_at, read")
-        .eq("to_user", userId)
+        .select("id, from_user, to_user, from_name, community_id, type, body, created_at, read")
+        .or("to_user.eq." + userId + ",from_user.eq." + userId)
         .order("created_at", { ascending: false })
         .limit(limit || 50);
       return res.error ? [] : (res.data || []);

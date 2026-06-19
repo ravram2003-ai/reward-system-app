@@ -613,6 +613,9 @@
   let inboxSignals = [];
   let unsubscribeInbox = null;
   let currentInboxUid = null;
+  // The conversation thread currently open on screen, so realtime inserts can
+  // live-update it (not just the inbox). { peerId, community, memberItem, thread }.
+  let activeThread = null;
   let behindPushTimer = null;
   let lastPushedBehind = null;
   let lastBehindWriteAt = 0;
@@ -958,18 +961,32 @@
     lastBehindWriteAt = 0;
     clearTimeout(behindPushTimer);
     behindPushTimer = null;
+    activeThread = null;
     if (els.chatsLayout) els.chatsLayout.classList.remove("has-active");
     renderNotifications();
   }
 
   async function refreshInbox() {
     if (!signalsReady()) { inboxSignals = []; renderNotifications(); return; }
-    inboxSignals = await window.PointwellSignals.fetchInbox(state.account.userId, 50);
+    // Wider window now that the inbox holds BOTH directions — so sent rows can't
+    // push recent RECEIVED items (and their unread count) out of the fetched set.
+    inboxSignals = await window.PointwellSignals.fetchInbox(state.account.userId, 200);
     renderNotifications();
   }
 
   function handleInboxChange(payload) {
+    // The Chats inbox is rebuilt from the freshly-fetched inbox and re-sorted by
+    // latest time, so the affected conversation moves to the top automatically.
     refreshInbox();
+    // Also live-update an OPEN thread with the same peer so a new message appears
+    // without a reload — for recipient (incoming) and sender (peer's reply) alike.
+    // offsetParent !== null means the thread is actually on screen, so we never
+    // mark messages read while it's collapsed or behind another view.
+    if (activeThread && activeThread.thread && activeThread.thread.isConnected
+        && activeThread.thread.offsetParent !== null
+        && payload && payload.new && payload.new.from_user === activeThread.peerId) {
+      refreshThread(activeThread.community, activeThread.memberItem, activeThread.thread).catch(() => {});
+    }
     if (payload && payload.eventType === "INSERT" && payload.new && !payload.new.read) {
       const who = payload.new.from_name || "A teammate";
       const t = payload.new.type;
@@ -984,7 +1001,10 @@
   // removed; the Chats inbox supersedes them.)
   function renderNotifications() {
     const ready = signalsReady();
-    const unread = ready ? window.PointwellSignals.unreadCount(inboxSignals) : 0;
+    const me = state.account && state.account.userId;
+    // Count only RECEIVED unread — the inbox now also holds my sent rows, which are
+    // never "unread" for me.
+    const unread = ready ? window.PointwellSignals.unreadCount(inboxSignals.filter((s) => s.to_user === me)) : 0;
     if (els.chatsUnreadBadge) {
       els.chatsUnreadBadge.textContent = unread > 9 ? "9+" : String(unread);
       els.chatsUnreadBadge.hidden = unread === 0;
@@ -993,26 +1013,47 @@
     renderChats(ready);
   }
 
-  // Group the received inbox (kudos / motivation / text messages) into one row
-  // per sender — the unified conversation list.
+  // Remember a peer's display name so a conversation I STARTED (whose rows carry
+  // only my own from_name) still shows the right name in the Chats list, even after
+  // a reload and before the peer has replied.
+  function rememberPeerName(peerId, name) {
+    if (!peerId || !name) return;
+    if (!state.peerNames) state.peerNames = {};
+    if (state.peerNames[peerId] !== name) {
+      state.peerNames[peerId] = name;
+      saveState();
+    }
+  }
+  function rememberedPeerName(peerId) {
+    return (state.peerNames && state.peerNames[peerId]) || "Member";
+  }
+
+  // Group the inbox into one row per OTHER person — a conversation. The inbox holds
+  // BOTH directions now (sent + received), so the conversation shows for both
+  // participants. The peer is whichever party isn't me. Unread counts RECEIVED
+  // unread only (a row I sent is never "unread" for me).
   function groupConversations(signals) {
+    const me = state.account && state.account.userId;
     const groups = new Map();
     signals.forEach((sig) => {
-      const peer = sig.from_user;
-      if (!peer) return;
+      const peer = sig.from_user === me ? sig.to_user : sig.from_user;
+      if (!peer || peer === me) return;
+      const incoming = sig.to_user === me;
       let group = groups.get(peer);
       if (!group) {
-        group = { peerId: peer, name: sig.from_name || "A teammate", latest: sig, communityId: sig.community_id || "", unread: 0 };
+        group = { peerId: peer, name: "", latest: sig, communityId: sig.community_id || "", unread: 0 };
         groups.set(peer, group);
       }
+      // The peer's display name is only carried on rows THEY sent (from_name).
+      if (incoming && sig.from_name) group.name = sig.from_name;
       if (new Date(sig.created_at) >= new Date(group.latest.created_at)) {
         group.latest = sig;
-        group.name = sig.from_name || group.name;
-        group.communityId = sig.community_id || group.communityId;
+        if (sig.community_id) group.communityId = sig.community_id;
       }
-      if (!sig.read) group.unread += 1;
+      if (incoming && !sig.read) group.unread += 1;
     });
     return Array.from(groups.values())
+      .map((group) => ({ ...group, name: group.name || rememberedPeerName(group.peerId) }))
       .sort((a, b) => new Date(b.latest.created_at) - new Date(a.latest.created_at));
   }
 
@@ -1030,13 +1071,15 @@
   }
 
   function renderChatRow(group) {
+    const me = state.account && state.account.userId;
     const who = escapeHtml(group.name);
     const initials = escapeHtml(getInitials(group.name));
     const when = escapeHtml(window.PointwellSignals.formatRelativeTime(group.latest.created_at, Date.now()));
     const labels = { kudos: "Kudos", motivation: "Motivation" };
     const type = group.latest.type;
     const pill = labels[type] ? `<span class="signal-pill ${type}">${labels[type]}</span>` : "";
-    const preview = escapeHtml(group.latest.body || "");
+    const mine = group.latest.from_user === me;
+    const preview = escapeHtml((mine ? "You: " : "") + (group.latest.body || ""));
     return `
       <button class="chat-row${group.unread ? " unread" : ""}" type="button" data-peer-id="${escapeHtml(group.peerId)}" data-peer-name="${who}" data-community-id="${escapeHtml(group.communityId || "")}">
         <span class="member-avatar" aria-hidden="true">${initials}</span>
@@ -1227,6 +1270,7 @@
         const opening = thread.hidden;
         thread.hidden = !opening;
         if (opening) openMessageThread(community, memberItem, thread).catch(() => {});
+        else if (activeThread && activeThread.thread === thread) activeThread = null;
       });
     }
   }
@@ -1241,6 +1285,9 @@
       return;
     }
     if (form) form.hidden = false;
+    // Remember this as the on-screen thread so realtime inserts refresh it live.
+    activeThread = { peerId: memberItem.userId, community: community, memberItem: memberItem, thread: thread };
+    rememberPeerName(memberItem.userId, memberItem.name);
     await refreshThread(community, memberItem, thread);
     await refreshBlockState(memberItem, thread);
   }
@@ -1317,6 +1364,9 @@
       input.value = "";
       updateCounter();
       await refreshThread(community, memberItem, thread);
+      // Realtime won't echo my own send (the inbox channel filters to_user=me), so
+      // refresh the inbox locally → the conversation shows/moves to top in MY Chats.
+      refreshInbox();
     });
 
     if (blockButton) blockButton.addEventListener("click", () => { toggleBlock(memberItem, thread, blockButton).catch(() => {}); });
@@ -1391,6 +1441,9 @@
       return;
     }
     showToast(`${type === "motivation" ? "Motivation" : "Kudos"} sent to ${firstName}`);
+    // Show the conversation in MY Chats too (realtime won't echo my own send).
+    rememberPeerName(memberItem.userId, memberItem.name);
+    refreshInbox();
   }
 
   function cacheElements() {
@@ -1890,6 +1943,7 @@
     });
     if (els.chatsBackButton) els.chatsBackButton.addEventListener("click", () => {
       if (els.chatsLayout) els.chatsLayout.classList.remove("has-active");
+      activeThread = null; // leaving the open thread → stop live-refreshing it
     });
     els.resetDemoButton.addEventListener("click", () => {
       localStorage.removeItem(storageKey);

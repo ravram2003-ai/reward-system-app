@@ -1368,6 +1368,7 @@
       "newCommunityButton",
       "findCommunitiesButton",
       "communityList",
+      "communityFeed",
       "communityDetailTitle",
       "communityMeta",
       "communityDescription",
@@ -3381,6 +3382,8 @@
       state.selectedCommunityId = state.communities[0]?.id || "";
     }
 
+    renderCommunityFeed();
+
     els.communityList.innerHTML = state.communities.length
       ? state.communities.map(renderCommunityCard).join("")
       : emptyState("No communities yet.");
@@ -3397,6 +3400,88 @@
     });
 
     renderCommunityDetail();
+  }
+
+  // ── Recent activity feed (top of Communities view) ──────────────────────────
+  // ONE chronological list of recent check-ins across all joined communities,
+  // built from the community entries already in state — no new tables/queries.
+  function renderCommunityFeed() {
+    if (!els.communityFeed) return;
+    const items = (state.communityEntries || [])
+      .map((entry) => {
+        const community = state.communities.find((item) => item.id === entry.communityId);
+        if (!community) return null;
+        const member = (community.members || []).find((item) => item.id === entry.userId);
+        if (!member) return null;
+        const rule = (community.system.rules || []).map(scoring.normalizeRule).find((item) => item.id === entry.ruleId);
+        return { entry: entry, community: community, member: member, rule: rule, when: entry.timestamp || entry.dateKey || entry.date || "" };
+      })
+      .filter(Boolean)
+      .sort((a, b) => String(b.when).localeCompare(String(a.when)))
+      .slice(0, 15);
+
+    // Hide entirely when there's nothing to show (no joined communities at all);
+    // show a friendly empty state when you have communities but no logs yet.
+    if (!items.length && !state.communities.length) {
+      els.communityFeed.hidden = true;
+      els.communityFeed.innerHTML = "";
+      return;
+    }
+    els.communityFeed.hidden = false;
+    els.communityFeed.innerHTML = `
+      <div class="panel-heading">
+        <h3>Recent activity</h3>
+        ${items.length ? `<span>${plural(items.length, "update")}</span>` : ""}
+      </div>
+      ${items.length
+        ? `<div class="community-feed-list">${items.map(renderCommunityFeedRow).join("")}</div>`
+        : emptyState("No check-ins yet — log a community day and it'll show up here.")}
+    `;
+    bindCommunityFeedActions();
+  }
+
+  function renderCommunityFeedRow(item) {
+    const isMe = item.entry.userId === "me";
+    const first = escapeHtml(memberFirstName(item.member));
+    const points = item.rule ? scoring.calculateRule(item.rule, item.entry.amount).totalPoints : 0;
+    const log = escapeHtml(entryLogText(item.entry, item.rule));
+    const rel = window.PointwellSignals.formatRelativeTime(item.when, Date.now()) || "";
+    const relText = escapeHtml(rel === "just now" || !rel ? (rel || "") : rel + " ago");
+    const actions = isMe ? "" : `
+        <div class="community-feed-actions">
+          <button class="secondary-button small community-feed-cheer" type="button" data-feed-member="${escapeHtml(item.member.id)}" data-feed-community="${escapeHtml(item.community.id)}">Cheer</button>
+          <button class="ghost-button small community-feed-message" type="button" data-feed-message="${escapeHtml(item.member.userId || "")}" data-feed-name="${escapeHtml(item.member.name)}" data-feed-community="${escapeHtml(item.community.id)}">Message</button>
+        </div>`;
+    return `
+      <div class="community-feed-row">
+        <div class="member-avatar" aria-hidden="true" style="background:${escapeHtml(item.member.color || "#355d91")}">${escapeHtml(getInitials(item.member.name))}</div>
+        <div class="community-feed-main">
+          <strong>${first} <span class="community-feed-log">${log} · ${escapeHtml(formatPoints(points))} pts</span></strong>
+          <span class="community-feed-meta">${escapeHtml(item.community.name)}${relText ? " · " + relText : ""}</span>
+        </div>
+        ${actions}
+      </div>
+    `;
+  }
+
+  function bindCommunityFeedActions() {
+    Array.from(els.communityFeed.querySelectorAll("[data-feed-member]")).forEach((button) => {
+      button.addEventListener("click", () => {
+        const community = state.communities.find((item) => item.id === button.dataset.feedCommunity);
+        const member = community && (community.members || []).find((item) => item.id === button.dataset.feedMember);
+        if (community && member) {
+          sendChosenSignal(community, member, "kudos", window.PointwellSignals.presetsForType("kudos")[0], null).catch(() => {});
+        }
+      });
+    });
+    Array.from(els.communityFeed.querySelectorAll("[data-feed-message]")).forEach((button) => {
+      button.addEventListener("click", () => {
+        openChatConversation(button.dataset.feedMessage, button.dataset.feedName, button.dataset.feedCommunity);
+        state.activeView = "chats";
+        saveState();
+        render();
+      });
+    });
   }
 
   function renderCommunityDetail() {

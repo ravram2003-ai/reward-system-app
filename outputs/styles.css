@@ -2563,6 +2563,66 @@ label small {
   margin-bottom: 16px;
 }
 
+/* Recent activity feed (top of Communities view) */
+.community-feed {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  margin-bottom: 16px;
+}
+.community-feed-list {
+  display: grid;
+  gap: 8px;
+}
+.community-feed-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.community-feed-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.community-feed-main strong {
+  font-size: 0.92rem;
+  font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.community-feed-log {
+  color: var(--muted);
+  font-weight: 650;
+}
+.community-feed-meta {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.community-feed-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 560px) {
+  .community-feed-row {
+    flex-wrap: wrap;
+  }
+  .community-feed-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
 .community-actions {
   display: flex;
   justify-content: flex-end;

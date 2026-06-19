@@ -176,12 +176,58 @@
     try {
       var res = await sb
         .from("profiles")
-        .select("allow_motivation_when_behind")
+        .select("allow_motivation_when_behind, handle, visibility, onboarding_completed")
         .eq("id", userId)
         .maybeSingle();
       return res.error ? null : (res.data || null);
     } catch (e) {
       return null;
+    }
+  }
+
+  // Persist the editable profile basics to the DB (self-update is allowed by the
+  // existing "profiles self update" RLS policy). This is what makes a user
+  // findable by their chosen name/handle and applies their visibility choice.
+  async function updateProfile(userId, fields) {
+    var sb = getClient();
+    if (!sb || !userId || !fields) return { error: null };
+    var patch = {};
+    if (typeof fields.display_name === "string") patch.display_name = fields.display_name;
+    if (typeof fields.handle === "string") patch.handle = fields.handle;
+    if (fields.visibility === "public" || fields.visibility === "private") patch.visibility = fields.visibility;
+    if (!Object.keys(patch).length) return { error: null };
+    try {
+      var res = await sb.from("profiles").update(patch).eq("id", userId);
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // Mark first-run onboarding done so it never shows again for this account.
+  async function setOnboardingCompleted(userId) {
+    var sb = getClient();
+    if (!sb || !userId) return { error: null };
+    try {
+      var res = await sb.from("profiles").update({ onboarding_completed: true }).eq("id", userId);
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // Real user search via the SECURITY DEFINER RPC. Visibility, self-exclusion, and
+  // the safe column set are enforced server-side (search-onboarding.sql); this is
+  // convenience only. Returns [{ id, display_name, handle }].
+  async function searchProfiles(query) {
+    var sb = getClient();
+    var q = String(query || "").trim();
+    if (!sb || q.length < 2) return [];
+    try {
+      var res = await sb.rpc("search_profiles", { q: q });
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
     }
   }
 
@@ -315,6 +361,9 @@
     setOptIn: setOptIn,
     updateBehind: updateBehind,
     getMyFlags: getMyFlags,
+    updateProfile: updateProfile,
+    setOnboardingCompleted: setOnboardingCompleted,
+    searchProfiles: searchProfiles,
     isNudgeable: isNudgeable,
     subscribeInbox: subscribeInbox,
     fetchThread: fetchThread,

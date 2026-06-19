@@ -616,6 +616,17 @@
   let behindPushTimer = null;
   let lastPushedBehind = null;
   let lastBehindWriteAt = 0;
+  // Real people-search (Build → Search "People"): results from the search_profiles
+  // RPC, plus a sequence guard so a slow earlier query can't overwrite a newer one.
+  let peopleResults = [];
+  let peopleSearchLoading = false;
+  let peopleSearchSeq = 0;
+  let peopleSearchTimer = null;
+  // First-run onboarding overlay state.
+  let onboardingActive = false;
+  let onboardingStep = 1;
+  let onboardingFocus = "";
+  let onboardingShownThisSession = false;
 
   document.addEventListener("DOMContentLoaded", init);
 
@@ -656,6 +667,9 @@
       if (els.allowMotivationInput) els.allowMotivationInput.checked = false;
       if (els.signOutButton) els.signOutButton.hidden = true;
       teardownSignals();
+      // Clear onboarding session state so a DIFFERENT brand-new account signing in
+      // next (same tab, no reload) is evaluated for onboarding cleanly.
+      resetOnboardingSession();
       saveState();
       if (authConfigured) showAuthScreen();
     } else {
@@ -703,6 +717,200 @@
     document.body.classList.remove("auth-locked");
   }
 
+  // ── First-run onboarding ───────────────────────────────────────────────────
+  // Shown ONLY to brand-new accounts (profiles.onboarding_completed = false, gated
+  // server-side; existing accounts were backfilled true). Four calm screens, one
+  // concept each, a visible "Skip for now" everywhere, every choice a tap. No fake
+  // users or demo members appear. The payoff drops the user into a real, pre-filled
+  // starter reward system built through the normal creation path.
+  const ONBOARDING_FOCI = [
+    { key: "fitness", label: "Fitness", icon: "🏋", blurb: "Move, train, and rest.",
+      system: { title: "Fitness baseline", category: "Fitness", rules: [
+        { label: "Workout", unit: "session", simpleStyle: "yesNo", yesNoPoints: 3 },
+        { label: "10,000 steps", unit: "steps", simpleStyle: "goal", dailyTarget: 10000, goalPoints: 2, inputMethod: "number", inputMax: 30000, inputStep: 500 },
+        { label: "Sleep 8h", unit: "hours", simpleStyle: "goal", dailyTarget: 8, goalPoints: 1, inputMethod: "number", inputMax: 12, inputStep: 0.5 }
+      ] } },
+    { key: "study", label: "Study", icon: "📚", blurb: "Focus and learn.",
+      system: { title: "Study sprint", category: "Study", rules: [
+        { label: "Deep work 2h", unit: "session", simpleStyle: "yesNo", yesNoPoints: 3 },
+        { label: "Read 30 min", unit: "session", simpleStyle: "yesNo", yesNoPoints: 2 },
+        { label: "Review notes", unit: "session", simpleStyle: "yesNo", yesNoPoints: 1 }
+      ] } },
+    { key: "habits", label: "Habits", icon: "✦", blurb: "Small daily wins.",
+      system: { title: "Daily habits", category: "Habits", rules: [
+        { label: "Wake by 7am", unit: "day", simpleStyle: "yesNo", yesNoPoints: 1 },
+        { label: "Meditate 10 min", unit: "session", simpleStyle: "yesNo", yesNoPoints: 2 },
+        { label: "Plan tomorrow", unit: "day", simpleStyle: "yesNo", yesNoPoints: 1 }
+      ] } },
+    { key: "money", label: "Money", icon: "$", blurb: "Spend with intent.",
+      system: { title: "Money habits", category: "Finance", rules: [
+        { label: "Logged spending", unit: "day", simpleStyle: "yesNo", yesNoPoints: 1 },
+        { label: "No impulse buy", unit: "day", simpleStyle: "yesNo", yesNoPoints: 2 },
+        { label: "Saved today", unit: "day", simpleStyle: "yesNo", yesNoPoints: 1 }
+      ] } }
+  ];
+
+  function maybeStartOnboarding() {
+    if (onboardingShownThisSession || onboardingActive || !els.onboardingScreen) return;
+    showOnboarding();
+  }
+
+  // Reset the per-session onboarding guard + overlay (called on sign-out) so a
+  // different account in the same tab gets a clean onboarding evaluation.
+  function resetOnboardingSession() {
+    onboardingShownThisSession = false;
+    onboardingActive = false;
+    if (els.onboardingScreen) els.onboardingScreen.hidden = true;
+    document.body.classList.remove("onboarding-locked");
+  }
+
+  function showOnboarding() {
+    if (!els.onboardingScreen) return;
+    onboardingShownThisSession = true;
+    onboardingActive = true;
+    onboardingStep = 1;
+    onboardingFocus = "";
+    els.onboardingScreen.hidden = false;
+    document.body.classList.add("onboarding-locked");
+    renderOnboarding();
+  }
+
+  function renderOnboarding() {
+    if (!els.onboardingBody) return;
+    els.onboardingBody.innerHTML = onboardingScreenMarkup();
+  }
+
+  function starterRulePoints(rule) {
+    const pts = rule.yesNoPoints != null ? rule.yesNoPoints : (rule.goalPoints != null ? rule.goalPoints : 1);
+    return "+" + pts;
+  }
+
+  function onboardingScreenMarkup() {
+    const skip = `<button class="ghost-button small onboard-skip" type="button" data-onboard="skip">Skip for now</button>`;
+    if (onboardingStep === 2) {
+      return `
+        <div class="onboard-screen onboard-fork">
+          <p class="eyebrow">Choose a starting point</p>
+          <h2>How do you want to begin?</h2>
+          <div class="onboard-cards">
+            <button class="onboard-card onboard-card-primary" type="button" data-onboard="fork-build">
+              <span class="onboard-card-icon" aria-hidden="true">◎</span>
+              <strong>Build my own</strong>
+              <span>Start a personal reward system — it works on your own, right away.</span>
+            </button>
+            <button class="onboard-card" type="button" data-onboard="fork-community">
+              <span class="onboard-card-icon" aria-hidden="true">◧</span>
+              <strong>Join a community</strong>
+              <span>Do it together with others. You can always start one later.</span>
+            </button>
+          </div>
+          ${skip}
+        </div>`;
+    }
+    if (onboardingStep === 3) {
+      return `
+        <div class="onboard-screen onboard-focus">
+          <p class="eyebrow">One tap</p>
+          <h2>What do you want to focus on?</h2>
+          <div class="onboard-focus-grid">
+            ${ONBOARDING_FOCI.map((focus) => `
+              <button class="onboard-focus-card" type="button" data-onboard="focus" data-focus="${escapeHtml(focus.key)}">
+                <span class="onboard-card-icon" aria-hidden="true">${focus.icon}</span>
+                <strong>${escapeHtml(focus.label)}</strong>
+                <span>${escapeHtml(focus.blurb)}</span>
+              </button>`).join("")}
+          </div>
+          ${skip}
+        </div>`;
+    }
+    if (onboardingStep === 4) {
+      const focus = ONBOARDING_FOCI.find((item) => item.key === onboardingFocus) || ONBOARDING_FOCI[0];
+      return `
+        <div class="onboard-screen onboard-payoff">
+          <p class="eyebrow">${escapeHtml(focus.label)} · your starter system</p>
+          <h2>${escapeHtml(focus.system.title)}</h2>
+          <p class="onboard-sub">Pre-filled and ready. Start now, or tweak the rules anytime.</p>
+          <ul class="onboard-rule-list">
+            ${focus.system.rules.map((rule) => `
+              <li>
+                <span>${escapeHtml(rule.label)}</span>
+                <span class="onboard-rule-points">${escapeHtml(starterRulePoints(rule))}</span>
+              </li>`).join("")}
+          </ul>
+          <div class="onboard-actions">
+            <button class="primary-button" type="button" data-onboard="start" data-focus="${escapeHtml(focus.key)}">Start tracking</button>
+            ${skip}
+          </div>
+        </div>`;
+    }
+    // Step 1 — welcome.
+    return `
+      <div class="onboard-screen onboard-welcome">
+        <div class="onboard-brand">
+          <div class="brand-mark" aria-hidden="true">P</div>
+          <p class="eyebrow">Welcome to Pointwell</p>
+        </div>
+        <h2>Track what matters to you and earn points for showing up.</h2>
+        <div class="onboard-actions">
+          <button class="primary-button" type="button" data-onboard="continue">Get started</button>
+          ${skip}
+        </div>
+      </div>`;
+  }
+
+  function handleOnboardingClick(event) {
+    const target = event.target.closest && event.target.closest("[data-onboard]");
+    if (!target) return;
+    const action = target.dataset.onboard;
+    if (action === "skip") { finishOnboarding(); return; }
+    if (action === "continue") { onboardingStep = 2; renderOnboarding(); return; }
+    if (action === "fork-build") { onboardingStep = 3; renderOnboarding(); return; }
+    if (action === "fork-community") { finishOnboarding({ landing: "communities" }); return; }
+    if (action === "focus") { onboardingFocus = target.dataset.focus || ""; onboardingStep = 4; renderOnboarding(); return; }
+    if (action === "start") { startStarterSystem(target.dataset.focus || onboardingFocus); return; }
+  }
+
+  // Build the chosen starter system through the normal model (scoring.normalizeRule),
+  // make it the active tracker, and land the user on the dashboard holding it.
+  function startStarterSystem(focusKey) {
+    const focus = ONBOARDING_FOCI.find((item) => item.key === focusKey) || ONBOARDING_FOCI[0];
+    const tpl = focus.system;
+    const system = {
+      id: makeId("system"),
+      ownerId: "me",
+      ownerName: state.profile.name,
+      title: tpl.title,
+      category: tpl.category,
+      visibility: "private",
+      description: "Your starter " + focus.label.toLowerCase() + " system — edit the rules anytime.",
+      rules: tpl.rules.map((rule) => scoring.normalizeRule(Object.assign({ category: tpl.category }, rule))),
+      calculatedTotals: []
+    };
+    state.systems.unshift(system);
+    state.selectedSystemId = system.id;
+    state.trackerSystemId = system.id;
+    state.systemEditorOpen = false;
+    state.buildMode = "home";
+    state.activeView = "dashboard";
+    finishOnboarding({ skipRender: true });
+    saveState();
+    render();
+    showToast("Your starter system is ready");
+  }
+
+  function finishOnboarding(opts) {
+    opts = opts || {};
+    onboardingActive = false;
+    if (els.onboardingScreen) els.onboardingScreen.hidden = true;
+    document.body.classList.remove("onboarding-locked");
+    // Persist the completed flag so onboarding never shows again for this account.
+    if (signalsReady()) {
+      Promise.resolve(window.PointwellSignals.setOnboardingCompleted(state.account.userId)).catch(() => {});
+    }
+    if (opts.landing === "communities") state.activeView = "communities";
+    if (!opts.skipRender) { saveState(); render(); }
+  }
+
   // ── Positive signals (kudos / motivation) + in-app notifications ───────────
   // The DB is the real guard for every rule (see supabase/signals.sql); the data
   // layer is in outputs/signals.js. Here we wire the inbox bell, the per-member
@@ -723,6 +931,15 @@
     if (flags && typeof flags.allow_motivation_when_behind === "boolean") {
       state.profile.allowMotivation = flags.allow_motivation_when_behind;
       if (els.allowMotivationInput) els.allowMotivationInput.checked = state.profile.allowMotivation;
+    }
+    if (flags) {
+      // Reflect server truth for the searchable handle + visibility choice.
+      if (flags.handle) state.profile.handle = cleanHandle(flags.handle);
+      if (flags.visibility === "public" || flags.visibility === "private") state.profile.privacy = flags.visibility;
+      // Brand-new account that hasn't finished first-run onboarding → show it now.
+      // Existing accounts were backfilled onboarding_completed=true (search-onboarding.sql),
+      // so they're never re-onboarded. A failed/null fetch is treated as completed.
+      if (flags.onboarding_completed === false) maybeStartOnboarding();
     }
     await refreshInbox();
     pushMyBehindStatus();
@@ -964,8 +1181,8 @@
         </div>`;
   }
 
-  function bindMemberSignalActions(community, memberItem) {
-    const root = els.memberActivityPanel;
+  function bindMemberSignalActions(community, memberItem, root) {
+    root = root || els.memberActivityPanel;
     if (!root || !memberItem || memberItem.id === "me" || !signalsReady()) return;
     const actions = root.querySelector(".signal-actions");
     if (!actions) return;
@@ -996,7 +1213,8 @@
       window.PointwellSignals.isNudgeable(memberItem.userId).then((ok) => {
         // Explicitly set both ways so a falsy result hides it, not just relying on
         // the initial hidden state (defensive; the DB still blocks the insert).
-        if (state.selectedCommunityMemberId === memberItem.id) motivationButton.hidden = !ok;
+        // isConnected guards against a stale async result after the panel re-rendered.
+        if (motivationButton.isConnected) motivationButton.hidden = !ok;
       }).catch(() => {});
     }
 
@@ -1439,6 +1657,8 @@
       "chatsMarkAllButton",
       "chatsUnreadBadge",
       "chatsLayout",
+      "onboardingScreen",
+      "onboardingBody",
       "allowMotivationInput",
       "toast"
     ];
@@ -1557,6 +1777,8 @@
     });
     els.buildPublicSearchInput.addEventListener("input", (event) => {
       state.buildSearchQuery = event.target.value;
+      state.buildViewedProfileId = ""; // a new query leaves any open profile view
+      runPeopleSearch(event.target.value);
       renderBuildSearchResults();
     });
     els.buildAiForm.addEventListener("submit", generateAiDraftSystem);
@@ -1659,6 +1881,7 @@
 
     els.saveProfileButton.addEventListener("click", saveProfile);
     if (els.headerAvatarButton) els.headerAvatarButton.addEventListener("click", openProfile);
+    if (els.onboardingScreen) els.onboardingScreen.addEventListener("click", handleOnboardingClick);
     if (els.chatsMarkAllButton) els.chatsMarkAllButton.addEventListener("click", markAllSignalsRead);
     if (els.chatsList) els.chatsList.addEventListener("click", (event) => {
       const row = event.target.closest && event.target.closest(".chat-row");
@@ -2326,7 +2549,10 @@
     }
     saveState();
     renderSystems();
-    if (state.buildMode === "search") els.buildPublicSearchInput.focus();
+    if (state.buildMode === "search") {
+      els.buildPublicSearchInput.focus();
+      runPeopleSearch(state.buildSearchQuery); // refresh real people for any persisted query
+    }
     if (state.buildMode === "ai") els.aiGoalsInput.focus();
   }
 
@@ -2359,51 +2585,51 @@
     if (!els.buildPublicSearchResults) return;
     const query = String(state.buildSearchQuery || "").trim().toLowerCase();
     const systems = getBuildPublicSystems();
-    const profiles = getBuildPublicProfiles(systems);
 
+    // A selected real person → open their profile view, where the existing
+    // kudos / motivation / message flows are reused (renderMemberSignalActions).
     if (state.buildViewedProfileId) {
-      const profile = profiles.find((item) => item.id === state.buildViewedProfileId);
-      if (!profile) {
+      const person = peopleResults.find((item) => String(item.id) === state.buildViewedProfileId);
+      if (!person) {
         state.buildViewedProfileId = "";
-        renderBuildSearchResults();
+      } else {
+        els.buildPublicSearchResults.innerHTML = renderPersonDetail(person);
+        const back = els.buildPublicSearchResults.querySelector("[data-build-back-results]");
+        if (back) back.addEventListener("click", () => {
+          state.buildViewedProfileId = "";
+          state.buildViewedPublicId = "";
+          saveState();
+          renderBuildSearchResults();
+        });
+        bindMemberSignalActions(personCommunity(), personToMember(person), els.buildPublicSearchResults);
         return;
       }
-      els.buildPublicSearchResults.innerHTML = renderBuildProfileDetail(profile);
-    } else {
-      const visibleProfiles = profiles.filter((profile) => matchesProfileSearch(profile, query));
-      const visibleSystems = systems.filter((system) => matchesSystemSearch(system, query));
-      els.buildPublicSearchResults.innerHTML = `
-        <section class="build-result-section" aria-label="Profiles">
-          <div class="build-result-section-heading">
-            <h3>Profiles</h3>
-            <span>${plural(visibleProfiles.length, "result")}</span>
-          </div>
-          ${visibleProfiles.length ? visibleProfiles.map(renderBuildProfileResult).join("") : emptyState("No public profiles match that search.")}
-        </section>
-        <section class="build-result-section" aria-label="Reward Systems">
-          <div class="build-result-section-heading">
-            <h3>Reward Systems</h3>
-            <span>${plural(visibleSystems.length, "result")}</span>
-          </div>
-          ${visibleSystems.length ? visibleSystems.map(renderBuildPublicResult).join("") : emptyState("No public reward systems match that search.")}
-        </section>
-      `;
     }
+
+    const visibleSystems = systems.filter((system) => matchesSystemSearch(system, query));
+    els.buildPublicSearchResults.innerHTML = `
+      <section class="build-result-section" aria-label="People">
+        <div class="build-result-section-heading">
+          <h3>People</h3>
+          <span>${plural(peopleResults.length, "result")}</span>
+        </div>
+        ${renderPeopleSection(query)}
+      </section>
+      <section class="build-result-section" aria-label="Reward Systems">
+        <div class="build-result-section-heading">
+          <h3>Reward Systems</h3>
+          <span>${plural(visibleSystems.length, "result")}</span>
+        </div>
+        ${visibleSystems.length ? visibleSystems.map(renderBuildPublicResult).join("") : emptyState("No public reward systems match that search.")}
+      </section>
+    `;
 
     Array.from(els.buildPublicSearchResults.querySelectorAll("[data-build-copy-public-id]")).forEach((button) => {
       button.addEventListener("click", () => copyPublicSystem(button.dataset.buildCopyPublicId, systems));
     });
-    Array.from(els.buildPublicSearchResults.querySelectorAll("[data-build-view-profile-id]")).forEach((button) => {
+    Array.from(els.buildPublicSearchResults.querySelectorAll("[data-build-view-person-id]")).forEach((button) => {
       button.addEventListener("click", () => {
-        state.buildViewedProfileId = button.dataset.buildViewProfileId;
-        state.buildViewedPublicId = "";
-        saveState();
-        renderBuildSearchResults();
-      });
-    });
-    Array.from(els.buildPublicSearchResults.querySelectorAll("[data-build-back-results]")).forEach((button) => {
-      button.addEventListener("click", () => {
-        state.buildViewedProfileId = "";
+        state.buildViewedProfileId = button.dataset.buildViewPersonId;
         state.buildViewedPublicId = "";
         saveState();
         renderBuildSearchResults();
@@ -2420,31 +2646,93 @@
     });
   }
 
-  function getBuildPublicProfiles(systems) {
-    const grouped = new Map();
-    systems.forEach((system) => {
-      const id = system.ownerId || system.ownerHandle || system.ownerName || "public";
-      if (!grouped.has(id)) {
-        grouped.set(id, {
-          id,
-          name: system.ownerName || "Public profile",
-          handle: system.ownerHandle || "",
-          systems: []
-        });
-      }
-      grouped.get(id).systems.push(system);
-    });
-    return Array.from(grouped.values()).sort((a, b) => b.systems.length - a.systems.length || a.name.localeCompare(b.name));
+  // Debounced real user search via the search_profiles RPC. A sequence guard drops
+  // out-of-order (slow earlier) responses so the freshest query always wins.
+  function runPeopleSearch(rawQuery) {
+    const query = String(rawQuery || "").trim();
+    clearTimeout(peopleSearchTimer);
+    if (!signalsReady() || query.length < 2) {
+      peopleResults = [];
+      peopleSearchLoading = false;
+      peopleSearchSeq++; // invalidate any in-flight request
+      if (state.buildMode === "search") renderBuildSearchResults();
+      return;
+    }
+    peopleSearchLoading = true;
+    const seq = ++peopleSearchSeq;
+    if (state.buildMode === "search") renderBuildSearchResults(); // show "Searching…"
+    peopleSearchTimer = setTimeout(() => {
+      Promise.resolve(window.PointwellSignals.searchProfiles(query)).then((rows) => {
+        if (seq !== peopleSearchSeq) return;
+        peopleResults = Array.isArray(rows) ? rows : [];
+        peopleSearchLoading = false;
+        if (state.buildMode === "search") renderBuildSearchResults();
+      }).catch(() => {
+        if (seq !== peopleSearchSeq) return;
+        peopleResults = [];
+        peopleSearchLoading = false;
+        if (state.buildMode === "search") renderBuildSearchResults();
+      });
+    }, 250);
   }
 
-  function matchesProfileSearch(profile, query) {
-    if (!query) return true;
-    const searchable = [
-      profile.name,
-      profile.handle,
-      ...profile.systems.map((system) => `${system.title} ${system.category} ${system.description}`)
-    ].join(" ").toLowerCase();
-    return searchable.includes(query);
+  function renderPeopleSection(query) {
+    if (!signalsReady()) return emptyState("Sign in to search for people.");
+    if (query.length < 2) return emptyState("Type at least 2 characters to find people by name or handle.");
+    if (peopleSearchLoading) return emptyState("Searching…");
+    if (!peopleResults.length) return emptyState("No people match that search.");
+    return peopleResults.map(renderPersonResult).join("");
+  }
+
+  function renderPersonResult(person) {
+    const name = escapeHtml(person.display_name || "Member");
+    const handle = escapeHtml(cleanHandle(person.handle || "") || "@member");
+    const initials = escapeHtml(getInitials(person.display_name || "Member"));
+    return `
+      <article class="build-result-card person-result-card">
+        <div class="person-result-identity">
+          <span class="member-avatar" aria-hidden="true">${initials}</span>
+          <div class="build-result-main">
+            <strong>${name}</strong>
+            <span>${handle}</span>
+          </div>
+        </div>
+        <div class="build-result-actions">
+          <button class="secondary-button small" type="button" data-build-view-person-id="${escapeHtml(String(person.id))}">View profile</button>
+        </div>
+      </article>
+    `;
+  }
+
+  function renderPersonDetail(person) {
+    const name = escapeHtml(person.display_name || "Member");
+    const handle = escapeHtml(cleanHandle(person.handle || "") || "@member");
+    const initials = escapeHtml(getInitials(person.display_name || "Member"));
+    return `
+      <section class="build-profile-detail person-detail">
+        <div class="build-profile-header">
+          <button class="ghost-button small" type="button" data-build-back-results>Back</button>
+          <div class="person-detail-identity">
+            <span class="large-avatar person-detail-avatar" aria-hidden="true">${initials}</span>
+            <div>
+              <h3>${name}</h3>
+              <span>${handle}</span>
+            </div>
+          </div>
+        </div>
+        ${renderMemberSignalActions(personCommunity(), personToMember(person))}
+      </section>
+    `;
+  }
+
+  // Shape a searched person like a community member so the existing connect flows
+  // (kudos / motivation / message + thread) work unchanged. id is a real uuid (not
+  // "me") and userId is set, so the member is fully signalable.
+  function personToMember(person) {
+    return { id: String(person.id), userId: String(person.id), name: person.display_name || "Member", handle: person.handle || "" };
+  }
+  function personCommunity() {
+    return { id: null, members: [] };
   }
 
   function matchesSystemSearch(system, query) {
@@ -2458,38 +2746,6 @@
       ...(system.rules || []).map((item) => `${item.label} ${item.category} ${item.unit}`)
     ].join(" ").toLowerCase();
     return searchable.includes(query);
-  }
-
-  function renderBuildProfileResult(profile) {
-    return `
-      <article class="build-result-card profile-result-card">
-        <div class="build-result-main">
-          <strong>${escapeHtml(profile.name)}</strong>
-          <span>${escapeHtml(profile.handle || "@public")}</span>
-          <span>${plural(profile.systems.length, "public system")}</span>
-        </div>
-        <div class="build-result-actions">
-          <button class="secondary-button small" type="button" data-build-view-profile-id="${escapeHtml(profile.id)}">View Profile</button>
-        </div>
-      </article>
-    `;
-  }
-
-  function renderBuildProfileDetail(profile) {
-    return `
-      <section class="build-profile-detail">
-        <div class="build-profile-header">
-          <button class="ghost-button small" type="button" data-build-back-results>Back</button>
-          <div>
-            <h3>${escapeHtml(profile.name)}</h3>
-            <span>${escapeHtml(profile.handle || "@public")} &middot; ${plural(profile.systems.length, "public system")}</span>
-          </div>
-        </div>
-        <div class="build-search-results">
-          ${profile.systems.map(renderBuildPublicResult).join("")}
-        </div>
-      </section>
-    `;
   }
 
   function renderBuildPublicResult(system) {
@@ -7124,6 +7380,16 @@
     state.profile.handle = handle;
     state.profile.privacy = els.profilePrivacyInput.value;
     state.profile.dailyTarget = numberOrDefault(els.dailyTargetInput.value, 8);
+    // Persist the searchable basics + visibility to the DB (RLS allows self-update).
+    // This is what makes you findable by your chosen name/handle and applies your
+    // public/private choice server-side — and fixes edits being lost on reload.
+    if (signalsReady()) {
+      Promise.resolve(window.PointwellSignals.updateProfile(state.account.userId, {
+        display_name: name,
+        handle: handle,
+        visibility: state.profile.privacy === "private" ? "private" : "public"
+      })).catch(() => {});
+    }
     if (els.allowMotivationInput) {
       state.profile.allowMotivation = els.allowMotivationInput.checked;
       // Mirror the opt-in to the server (what the RLS motivation gate reads), then

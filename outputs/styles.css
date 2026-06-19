@@ -5091,6 +5091,209 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* ── Auth screen ─────────────────────────────────────────────── */
+/* ── First-run onboarding overlay (calm, native, one concept per screen) ── */
+body.onboarding-locked {
+  overflow: hidden;
+}
+
+.onboarding-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(900px 480px at 80% -10%, rgba(58, 214, 166, 0.1), transparent 60%),
+    linear-gradient(165deg, #0e1413 0%, #0c0f0e 60%);
+}
+
+.onboarding-card {
+  width: min(460px, 100%);
+  padding: 30px 28px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.5);
+}
+
+.onboard-screen {
+  display: grid;
+  gap: 18px;
+}
+
+.onboard-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.onboard-screen h2 {
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+
+.onboard-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.onboard-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.onboard-actions .primary-button {
+  width: 100%;
+  justify-content: center;
+}
+
+.onboard-skip {
+  justify-self: center;
+  color: var(--muted);
+}
+
+.onboard-cards {
+  display: grid;
+  gap: 12px;
+}
+
+.onboard-card,
+.onboard-focus-card {
+  display: grid;
+  gap: 6px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.onboard-card {
+  padding: 18px;
+}
+
+.onboard-focus-card {
+  padding: 16px;
+}
+
+.onboard-card:hover,
+.onboard-focus-card:hover {
+  border-color: var(--line-strong);
+  background: var(--field-bg);
+  transform: translateY(-1px);
+}
+
+.onboard-card strong {
+  font-size: 1.02rem;
+}
+
+.onboard-focus-card strong {
+  font-size: 0.98rem;
+}
+
+.onboard-card span:last-child,
+.onboard-focus-card span:last-child {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.onboard-card-primary {
+  border-color: rgba(58, 214, 166, 0.4);
+  background: var(--accent-soft);
+}
+
+.onboard-card-primary:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.onboard-card-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--field-bg);
+  color: var(--accent-strong);
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.onboard-card-primary .onboard-card-icon {
+  background: rgba(58, 214, 166, 0.18);
+}
+
+.onboard-focus-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.onboard-rule-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.onboard-rule-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-weight: 750;
+}
+
+.onboard-rule-points {
+  flex: 0 0 auto;
+  padding: 2px 10px;
+  border-radius: 999px;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+@media (max-width: 460px) {
+  .onboard-focus-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* People search results (real accounts) */
+.person-result-card {
+  align-items: center;
+}
+
+.person-result-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.person-detail-identity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.person-detail-avatar {
+  width: 60px;
+  height: 60px;
+  border-radius: 18px;
+  font-size: 1.3rem;
+}
+
 body.auth-locked {
   overflow: hidden;
 }

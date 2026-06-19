@@ -7179,13 +7179,20 @@
     }
     entriesToAdd.forEach((item) => addCommunityEntry(community.id, "me", item.rule, item.amount));
     saveCommunitySummaryForMember(community, "me");
-    // Share the logged points with the rest of the community (one row per rule/day).
-    entriesToAdd.forEach((item) => pushCommunityEntryToDb(community, item.rule.id));
     state.communityDraftInputs = {};
     state.selectedCommunityMemberId = "me";
     saveState();
     render();
-    showToast("Community entry added");
+    // Share the logged points with the rest of the community (one row per rule/day).
+    // Surface the real error if the shared write is rejected (e.g. the
+    // community_entries RLS policies weren't applied) instead of silently keeping
+    // it device-local — that's why a log could vanish on reload / for other members.
+    Promise.all(entriesToAdd.map((item) => pushCommunityEntryToDb(community, item.rule.id))).then((results) => {
+      const failed = results.find((result) => result && result.error);
+      showToast(failed
+        ? communityDbError(failed.error, "Logged here, but couldn't save it to the community")
+        : "Community entry added");
+    });
   }
 
   function saveProfile() {
@@ -7704,18 +7711,18 @@
   // Persist a member's logged check-in for one rule/day to the shared table (the
   // per-rule daily TOTAL, to match the table's one-row-per-rule/day shape).
   function pushCommunityEntryToDb(community, ruleId) {
-    if (!communitiesAreShared() || !community || !ruleId) return;
+    if (!communitiesAreShared() || !community || !ruleId) return Promise.resolve({ error: null });
     const today = getTodayKey();
     const total = getCommunityEntriesForMemberOnDate(community.id, "me", today)
       .filter((entry) => entry.ruleId === ruleId)
       .reduce((sum, entry) => sum + numberOrDefault(entry.amount, 0), 0);
-    Promise.resolve(window.PointwellSignals.upsertCommunityEntry({
+    return Promise.resolve(window.PointwellSignals.upsertCommunityEntry({
       community_id: community.id,
       user_id: state.account.userId,
       rule_id: ruleId,
       amount: total,
       entry_date: today
-    })).catch(() => {});
+    })).catch(() => ({ error: { message: "Couldn't reach the server." } }));
   }
 
   function runCommunityCodeSearch(query) {

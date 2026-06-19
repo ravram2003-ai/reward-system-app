@@ -369,10 +369,18 @@
     var sb = getClient();
     if (!sb || !communityId || !userId) return { error: { message: "Couldn't join." } };
     try {
+      // Plain INSERT — NOT upsert. An upsert emits "INSERT ... ON CONFLICT DO UPDATE",
+      // which RLS blocks unless the table has an UPDATE policy (community_members has
+      // none, by design — you can't edit a membership). Joining is a pure insert; a
+      // duplicate just means you're already a member, which we treat as success.
       var res = await sb.from("community_members")
-        .upsert({ community_id: communityId, user_id: userId, role: role || "member" },
-          { onConflict: "community_id,user_id" });
-      return { error: res.error || null };
+        .insert({ community_id: communityId, user_id: userId, role: role || "member" });
+      if (res.error) {
+        var detail = String(res.error.message || "") + " " + String(res.error.code || "");
+        if (/duplicate|unique|already exists|23505/i.test(detail)) return { error: null };
+        return { error: res.error };
+      }
+      return { error: null };
     } catch (e) {
       return { error: { message: "Couldn't reach the server." } };
     }

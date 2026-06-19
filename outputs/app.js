@@ -741,7 +741,7 @@
     lastBehindWriteAt = 0;
     clearTimeout(behindPushTimer);
     behindPushTimer = null;
-    if (els.notifPanel) els.notifPanel.hidden = true;
+    if (els.chatsLayout) els.chatsLayout.classList.remove("has-active");
     renderNotifications();
   }
 
@@ -761,50 +761,110 @@
     }
   }
 
+  // The unread count drives the Chats nav-tab badge — the SAME unreadCount over
+  // the SAME fetched inbox the conversation list is built from, so the badge and
+  // the list can never disagree. (The old desktop-only bell + notif panel were
+  // removed; the Chats inbox supersedes them.)
   function renderNotifications() {
-    if (!els.notifBellButton) return;
     const ready = signalsReady();
-    els.notifBellButton.hidden = !ready;
-    if (!ready) {
-      if (els.notifPanel) els.notifPanel.hidden = true;
-      if (els.notifUnreadBadge) els.notifUnreadBadge.hidden = true;
-      return;
+    const unread = ready ? window.PointwellSignals.unreadCount(inboxSignals) : 0;
+    if (els.chatsUnreadBadge) {
+      els.chatsUnreadBadge.textContent = unread > 9 ? "9+" : String(unread);
+      els.chatsUnreadBadge.hidden = unread === 0;
     }
-    const unread = window.PointwellSignals.unreadCount(inboxSignals);
-    if (els.notifUnreadBadge) {
-      els.notifUnreadBadge.textContent = unread > 9 ? "9+" : String(unread);
-      els.notifUnreadBadge.hidden = unread === 0;
-    }
-    els.notifBellButton.classList.toggle("has-unread", unread > 0);
-    if (els.notifList) {
-      els.notifList.innerHTML = inboxSignals.length
-        ? inboxSignals.map(renderNotificationItem).join("")
-        : `<div class="notif-empty">No signals yet. When a teammate cheers you on, it shows up here.</div>`;
-    }
-    if (els.notifMarkAllButton) els.notifMarkAllButton.hidden = unread === 0;
+    if (els.chatsMarkAllButton) els.chatsMarkAllButton.hidden = unread === 0;
+    renderChats(ready);
   }
 
-  function renderNotificationItem(sig) {
-    const who = escapeHtml(sig.from_name || "A teammate");
-    const when = escapeHtml(window.PointwellSignals.formatRelativeTime(sig.created_at, Date.now()));
-    const labels = { kudos: "Kudos", motivation: "Motivation", text: "Message" };
-    const type = labels[sig.type] ? sig.type : "kudos";
+  // Group the received inbox (kudos / motivation / text messages) into one row
+  // per sender — the unified conversation list.
+  function groupConversations(signals) {
+    const groups = new Map();
+    signals.forEach((sig) => {
+      const peer = sig.from_user;
+      if (!peer) return;
+      let group = groups.get(peer);
+      if (!group) {
+        group = { peerId: peer, name: sig.from_name || "A teammate", latest: sig, communityId: sig.community_id || "", unread: 0 };
+        groups.set(peer, group);
+      }
+      if (new Date(sig.created_at) >= new Date(group.latest.created_at)) {
+        group.latest = sig;
+        group.name = sig.from_name || group.name;
+        group.communityId = sig.community_id || group.communityId;
+      }
+      if (!sig.read) group.unread += 1;
+    });
+    return Array.from(groups.values())
+      .sort((a, b) => new Date(b.latest.created_at) - new Date(a.latest.created_at));
+  }
+
+  function renderChats(ready) {
+    if (!els.chatsList) return;
+    if (!ready) {
+      els.chatsList.innerHTML = `<div class="chats-empty">Sign in to see your chats.</div>`;
+      if (els.chatsLayout) els.chatsLayout.classList.remove("has-active");
+      return;
+    }
+    const groups = groupConversations(inboxSignals);
+    els.chatsList.innerHTML = groups.length
+      ? groups.map(renderChatRow).join("")
+      : `<div class="chats-empty">No chats yet. Messages, kudos, and motivation from members show up here.</div>`;
+  }
+
+  function renderChatRow(group) {
+    const who = escapeHtml(group.name);
+    const initials = escapeHtml(getInitials(group.name));
+    const when = escapeHtml(window.PointwellSignals.formatRelativeTime(group.latest.created_at, Date.now()));
+    const labels = { kudos: "Kudos", motivation: "Motivation" };
+    const type = group.latest.type;
+    const pill = labels[type] ? `<span class="signal-pill ${type}">${labels[type]}</span>` : "";
+    const preview = escapeHtml(group.latest.body || "");
     return `
-      <div class="notif-item${sig.read ? "" : " unread"}">
-        <span class="signal-pill ${type}">${labels[type]}</span>
-        <div class="notif-item-body">
-          <p>${escapeHtml(sig.body)}</p>
-          <span class="notif-item-meta">${who} · ${when}</span>
-        </div>
-        ${sig.read ? "" : '<span class="notif-dot" aria-hidden="true"></span>'}
-      </div>
+      <button class="chat-row${group.unread ? " unread" : ""}" type="button" data-peer-id="${escapeHtml(group.peerId)}" data-peer-name="${who}" data-community-id="${escapeHtml(group.communityId || "")}">
+        <span class="member-avatar" aria-hidden="true">${initials}</span>
+        <span class="chat-row-main">
+          <span class="chat-row-top"><strong>${who}</strong><span class="chat-row-time">${when}</span></span>
+          <span class="chat-row-preview">${pill}<span class="chat-row-preview-text">${preview}</span></span>
+        </span>
+        ${group.unread ? '<span class="notif-dot" aria-hidden="true"></span>' : ""}
+      </button>
     `;
   }
 
-  function toggleNotifPanel() {
-    if (!els.notifPanel) return;
-    els.notifPanel.hidden = !els.notifPanel.hidden;
-    if (!els.notifPanel.hidden) refreshInbox();
+  // Open a conversation from the Chats inbox. Reuses the EXISTING thread view:
+  // mount the shared messageThreadMarkup() and drive it with the existing
+  // bindThreadControls() + openMessageThread() — no second thread implementation.
+  function openChatConversation(peerId, peerName, communityId) {
+    if (!els.chatsThreadMount || !signalsReady() || !peerId) return;
+    const community = { id: communityId || null };
+    const memberItem = { id: peerId, userId: peerId, name: peerName || "A teammate" };
+    const firstName = escapeHtml(memberFirstName(memberItem));
+    // Fresh markup each open => no stacked listeners from a prior conversation.
+    els.chatsThreadMount.innerHTML = messageThreadMarkup(firstName, { hidden: false });
+    const thread = els.chatsThreadMount.querySelector(".message-thread");
+    if (!thread) return;
+    bindThreadControls(community, memberItem, thread);
+    openMessageThread(community, memberItem, thread).catch(() => {});
+    if (els.chatsLayout) els.chatsLayout.classList.add("has-active");
+    // Tapping a conversation clears its unread — including kudos/motivation, which
+    // have no thread of their own. refreshThread() also marks text messages read;
+    // doing both is idempotent and keeps the badge and list in sync.
+    const unreadIds = inboxSignals
+      .filter((sig) => sig.from_user === peerId && !sig.read)
+      .map((sig) => sig.id);
+    if (unreadIds.length) {
+      Promise.resolve(window.PointwellSignals.markRead(unreadIds)).then(() => refreshInbox()).catch(() => {});
+    }
+  }
+
+  // The top-right header avatar routes to the existing Profile & privacy view —
+  // the settings content and Save are unchanged; only how it's reached moved here.
+  function openProfile() {
+    state.activeView = "profile";
+    saveState();
+    render();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }
 
   async function markAllSignalsRead() {
@@ -874,7 +934,20 @@
           <span class="signal-composer-label"></span>
           <div class="signal-presets"></div>
         </div>
-        <div class="message-thread" hidden>
+        ${messageThreadMarkup(firstName, { hidden: true })}
+      </section>
+    `;
+  }
+
+  // Single source of truth for the conversation-thread markup. Used by the member
+  // activity panel AND the Chats inbox so there is exactly one thread view. The
+  // child selectors (.message-thread-list, .message-composer, …) are what
+  // bindThreadControls() and openMessageThread() wire up. firstName must already
+  // be escaped by the caller.
+  function messageThreadMarkup(firstName, opts) {
+    const hidden = opts && opts.hidden ? " hidden" : "";
+    return `
+        <div class="message-thread"${hidden}>
           <div class="message-thread-head">
             <strong>Conversation with ${firstName}</strong>
             <button class="ghost-button small message-block-button" type="button" data-blocked="false">Block</button>
@@ -888,9 +961,7 @@
               <button class="primary-button small message-send-button" type="submit" disabled>Send</button>
             </div>
           </form>
-        </div>
-      </section>
-    `;
+        </div>`;
   }
 
   function bindMemberSignalActions(community, memberItem) {
@@ -1107,9 +1178,7 @@
   function cacheElements() {
     const ids = [
       "profileAvatar",
-      "profileNameLabel",
-      "profileHandleLabel",
-      "profileVisibilityLabel",
+      "headerAvatarButton",
       "todayLabel",
       "resetDemoButton",
       "dashboardView",
@@ -1362,11 +1431,14 @@
       "publicPreviewStatus",
       "publicPreview",
       "integrationList",
-      "notifBellButton",
-      "notifUnreadBadge",
-      "notifPanel",
-      "notifList",
-      "notifMarkAllButton",
+      "chatsView",
+      "chatsList",
+      "chatsThread",
+      "chatsThreadMount",
+      "chatsBackButton",
+      "chatsMarkAllButton",
+      "chatsUnreadBadge",
+      "chatsLayout",
       "allowMotivationInput",
       "toast"
     ];
@@ -1386,6 +1458,7 @@
       "community-settings": els.communitySettingsView,
       "community-member-activity": els.communityMemberActivityView,
       "find-communities": els.findCommunitiesView,
+      chats: els.chatsView,
       profile: els.profileView
     };
   }
@@ -1404,6 +1477,7 @@
         if (state.activeView === "systems" && !state.systemEditorOpen) {
           scrollSystemsListToTop();
         }
+        if (state.activeView === "chats") refreshInbox();
       });
     });
 
@@ -1584,13 +1658,15 @@
     });
 
     els.saveProfileButton.addEventListener("click", saveProfile);
-    if (els.notifBellButton) els.notifBellButton.addEventListener("click", toggleNotifPanel);
-    if (els.notifMarkAllButton) els.notifMarkAllButton.addEventListener("click", markAllSignalsRead);
-    document.addEventListener("click", (event) => {
-      if (!els.notifPanel || els.notifPanel.hidden) return;
-      if (els.notifPanel.contains(event.target)) return;
-      if (els.notifBellButton && els.notifBellButton.contains(event.target)) return;
-      els.notifPanel.hidden = true;
+    if (els.headerAvatarButton) els.headerAvatarButton.addEventListener("click", openProfile);
+    if (els.chatsMarkAllButton) els.chatsMarkAllButton.addEventListener("click", markAllSignalsRead);
+    if (els.chatsList) els.chatsList.addEventListener("click", (event) => {
+      const row = event.target.closest && event.target.closest(".chat-row");
+      if (!row) return;
+      openChatConversation(row.dataset.peerId, row.dataset.peerName, row.dataset.communityId);
+    });
+    if (els.chatsBackButton) els.chatsBackButton.addEventListener("click", () => {
+      if (els.chatsLayout) els.chatsLayout.classList.remove("has-active");
     });
     els.resetDemoButton.addEventListener("click", () => {
       localStorage.removeItem(storageKey);
@@ -1631,12 +1707,9 @@
     });
 
     const initials = getInitials(state.profile.name);
-    els.profileAvatar.textContent = initials;
-    els.largeAvatar.textContent = initials;
-    els.profileNameLabel.textContent = state.profile.name;
-    els.profileHandleLabel.textContent = cleanHandle(state.profile.handle);
-    els.profileVisibilityLabel.textContent = capitalize(state.profile.privacy);
-    els.profileVisibilityLabel.className = `status-pill ${state.profile.privacy}`;
+    if (els.profileAvatar) els.profileAvatar.textContent = initials;
+    if (els.largeAvatar) els.largeAvatar.textContent = initials;
+    if (els.headerAvatarButton) els.headerAvatarButton.classList.toggle("is-active", state.activeView === "profile");
     els.todayLabel.textContent = formatDate(todayIso);
   }
 

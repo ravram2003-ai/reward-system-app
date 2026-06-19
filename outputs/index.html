@@ -44,16 +44,10 @@
             <p class="eyebrow">Pointwell</p>
             <h1>Reward systems</h1>
           </div>
+          <button class="header-avatar" type="button" id="headerAvatarButton" aria-label="Open profile and settings" aria-haspopup="dialog">
+            <span class="avatar" id="profileAvatar" aria-hidden="true">AR</span>
+          </button>
         </div>
-
-        <section class="profile-card" aria-label="Current profile">
-          <div class="avatar" id="profileAvatar" aria-hidden="true">AR</div>
-          <div class="profile-main">
-            <strong id="profileNameLabel">Avery Rivera</strong>
-            <span id="profileHandleLabel">@avery</span>
-          </div>
-          <span class="status-pill" id="profileVisibilityLabel">Public</span>
-        </section>
 
         <nav class="nav-tabs" aria-label="Primary views">
           <button class="nav-tab active" type="button" data-view="dashboard" aria-label="Today">
@@ -68,20 +62,16 @@
             <span class="tab-icon" aria-hidden="true">◎</span>
             <span>Build</span>
           </button>
-          <button class="nav-tab" type="button" data-view="profile" aria-label="Profile">
-            <span class="tab-icon" aria-hidden="true">◌</span>
-            <span>Profile</span>
+          <button class="nav-tab" type="button" data-view="chats" aria-label="Chats">
+            <span class="tab-icon" aria-hidden="true">✉</span>
+            <span class="nav-badge" id="chatsUnreadBadge" hidden>0</span>
+            <span>Chats</span>
           </button>
         </nav>
 
         <div class="sidebar-footer">
           <span id="todayLabel"></span>
           <div class="sidebar-footer-actions">
-            <button class="ghost-button small notif-button" type="button" id="notifBellButton" hidden aria-label="Notifications">
-              <span class="notif-bell-icon" aria-hidden="true">🔔</span>
-              <span>Signals</span>
-              <span class="notif-badge" id="notifUnreadBadge" hidden>0</span>
-            </button>
             <button class="ghost-button small" type="button" id="signOutButton" hidden>Sign out</button>
             <button class="ghost-button small" type="button" id="resetDemoButton">Reset demo</button>
           </div>
@@ -1138,6 +1128,27 @@
           </section>
         </section>
 
+        <section class="view" id="chatsView" aria-labelledby="chatsTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Inbox</p>
+              <h2 id="chatsTitle">Chats</h2>
+              <p class="view-subtitle">Messages, kudos, and motivation from your community — all in one place.</p>
+            </div>
+            <button class="ghost-button small" type="button" id="chatsMarkAllButton" hidden>Mark all read</button>
+          </div>
+
+          <div class="chats-layout" id="chatsLayout">
+            <div class="chats-list" id="chatsList" aria-label="Conversations"></div>
+            <div class="chats-thread" id="chatsThread">
+              <button class="ghost-button small chats-back-button" type="button" id="chatsBackButton">← All chats</button>
+              <div id="chatsThreadMount">
+                <p class="chats-placeholder">Select a conversation to open it.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section class="view" id="profileView" aria-labelledby="profileTitle">
           <div class="view-header">
             <div>
@@ -1198,14 +1209,6 @@
           </section>
         </section>
       </main>
-    </div>
-
-    <div class="notif-panel" id="notifPanel" role="dialog" aria-label="Your signals" hidden>
-      <div class="notif-panel-head">
-        <strong>Signals</strong>
-        <button class="ghost-button small" type="button" id="notifMarkAllButton" hidden>Mark all read</button>
-      </div>
-      <div class="notif-list" id="notifList"></div>
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>

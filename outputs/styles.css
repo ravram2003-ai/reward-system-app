@@ -246,6 +246,7 @@ h3 {
 }
 
 .nav-tab {
+  position: relative;
   gap: 10px;
   width: 100%;
   min-height: 44px;
@@ -256,6 +257,55 @@ h3 {
   background: transparent;
   font-weight: 800;
   text-align: left;
+}
+
+.nav-badge {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.64rem;
+  font-weight: 850;
+  line-height: 1;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+.header-avatar {
+  margin-left: auto;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.header-avatar .avatar {
+  width: 42px;
+  height: 42px;
+}
+
+.header-avatar:hover .avatar {
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.header-avatar.is-active .avatar {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.header-avatar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .nav-tab:hover {
@@ -5499,6 +5549,114 @@ body.auth-locked {
   text-align: center;
   font-size: 0.82rem;
   color: var(--muted);
+}
+
+/* ── Chats inbox (unified conversations: DMs + kudos + motivation) ─ */
+.chats-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.chats-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chat-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.chat-row:hover {
+  background: var(--field-bg);
+  border-color: var(--line-strong);
+}
+.chat-row.unread {
+  border-color: rgba(58, 214, 166, 0.35);
+}
+.chat-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.chat-row-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.chat-row-top strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.92rem;
+}
+.chat-row-time {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 750;
+}
+.chat-row-preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.chat-row-preview .signal-pill {
+  flex: 0 0 auto;
+}
+.chat-row-preview-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-row .notif-dot {
+  position: static;
+  flex: 0 0 auto;
+}
+.chats-thread {
+  min-width: 0;
+}
+.chats-placeholder,
+.chats-empty {
+  padding: 22px 18px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+.chats-back-button {
+  display: none;
+  margin-bottom: 12px;
+}
+@media (max-width: 720px) {
+  .chats-layout {
+    grid-template-columns: 1fr;
+  }
+  .chats-layout:not(.has-active) .chats-thread {
+    display: none;
+  }
+  .chats-layout.has-active .chats-list {
+    display: none;
+  }
+  .chats-back-button {
+    display: inline-flex;
+  }
 }
 
 /* ── Signal type pills (inbox) ────────────────────────────────── */

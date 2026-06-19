@@ -4055,6 +4055,16 @@
     if (context.type === "community") {
       addCommunityEntry(context.community.id, "me", rule, amount, isRuleSynced(rule) ? "manual-adjustment" : "manual");
       saveCommunitySummaryForMember(context.community, "me");
+      // Persist to the shared DB just like the community check-in button does, so a
+      // dashboard "Add Entry" survives navigation / reload / other members. Surface
+      // the real error if the write is rejected instead of keeping it device-local.
+      const dbCommunity = context.community;
+      const dbRuleId = rule.id;
+      Promise.resolve(pushCommunityEntryToDb(dbCommunity, dbRuleId)).then((result) => {
+        if (result && result.error) {
+          showToast(communityDbError(result.error, "Logged here, but couldn't save it to the community"));
+        }
+      });
     } else {
       const dateKey = getTodayKey();
       state.quickEntries = state.quickEntries || [];

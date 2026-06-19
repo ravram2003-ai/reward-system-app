@@ -389,6 +389,7 @@
     if (detail.status === "signed-in") {
       applyAccountIdentity(detail.user || {}, detail.profile);
       if (els.signOutButton) els.signOutButton.hidden = false;
+      if (els.profileSignOutButton) els.profileSignOutButton.hidden = false;
       hideAuthScreen();
       initSignals().catch(() => {});
     } else if (detail.status === "signed-out") {
@@ -397,6 +398,7 @@
       state.profile.allowMotivation = false;
       if (els.allowMotivationInput) els.allowMotivationInput.checked = false;
       if (els.signOutButton) els.signOutButton.hidden = true;
+      if (els.profileSignOutButton) els.profileSignOutButton.hidden = true;
       teardownSignals();
       // Clear onboarding session state so a DIFFERENT brand-new account signing in
       // next (same tab, no reload) is evaluated for onboarding cleanly.
@@ -407,6 +409,7 @@
       // "unconfigured" or "error" → local mode, app stays usable
       state.account = null;
       if (els.signOutButton) els.signOutButton.hidden = true;
+      if (els.profileSignOutButton) els.profileSignOutButton.hidden = true;
       teardownSignals();
       hideAuthScreen();
     }
@@ -1580,6 +1583,7 @@
       "weeklyProgressPanel",
       "authScreen",
       "signOutButton",
+      "profileSignOutButton",
       "syncSampleButton",
       "customizeTopCardButton",
       "customizeChartsButton",
@@ -2040,6 +2044,9 @@
     });
 
     els.saveProfileButton.addEventListener("click", saveProfile);
+    if (els.profileSignOutButton) els.profileSignOutButton.addEventListener("click", () => {
+      Promise.resolve(window.PointwellAuth && window.PointwellAuth.signOut && window.PointwellAuth.signOut()).catch(() => {});
+    });
     if (els.headerAvatarButton) els.headerAvatarButton.addEventListener("click", openProfile);
     if (els.onboardingScreen) els.onboardingScreen.addEventListener("click", handleOnboardingClick);
     if (els.chatsMarkAllButton) els.chatsMarkAllButton.addEventListener("click", markAllSignalsRead);

@@ -6414,3 +6414,15 @@ body.auth-locked {
     flex: 1;
   }
 }
+
+/* ── Profile: Account / Sign out ──────────────────────────────────────── */
+.profile-account .profile-signout-button {
+  width: 100%;
+  margin-top: 2px;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.profile-account .profile-signout-button:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}

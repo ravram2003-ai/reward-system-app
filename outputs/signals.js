@@ -604,6 +604,33 @@
     }
   }
 
+  // Today's community activity for a friend, gated server-side by friendship +
+  // their visibility + our shared communities. forDate = the viewer's local today key.
+  // Returns [{ community_id, community_name, rule_id, amount, entry_date }].
+  async function getFriendTodayActivity(targetId, forDate) {
+    var sb = getClient();
+    if (!sb || !targetId || !forDate) return [];
+    try {
+      var res = await sb.rpc("get_friend_today_activity", { target: targetId, for_date: forDate });
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Which of my friends have visible activity today (for the "active today" dot).
+  // Returns [{ user_id }].
+  async function getFriendsActiveToday(forDate) {
+    var sb = getClient();
+    if (!sb || !forDate) return [];
+    try {
+      var res = await sb.rpc("friends_active_today", { for_date: forDate });
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
   var api = {
     KUDOS_PRESETS: KUDOS_PRESETS,
     MOTIVATION_PRESETS: MOTIVATION_PRESETS,
@@ -638,6 +665,8 @@
     getIncomingFriendRequests: getIncomingFriendRequests,
     getFriendshipStatus: getFriendshipStatus,
     searchMessageableProfiles: searchMessageableProfiles,
+    getFriendTodayActivity: getFriendTodayActivity,
+    getFriendsActiveToday: getFriendsActiveToday,
     upsertCommunityEntry: upsertCommunityEntry,
     fetchMyCommunities: fetchMyCommunities,
     isNudgeable: isNudgeable,

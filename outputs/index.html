@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260619-friends">
+    <link rel="stylesheet" href="styles.css?v=20260619-friends-activity">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -86,6 +86,10 @@
         <section class="view is-visible" id="dashboardView" aria-labelledby="dashboardTitle">
           <div class="view-header">
             <div>
+              <button class="ghost-button small dashboard-friends-button" type="button" id="openFriendsButton">
+                <span aria-hidden="true">◍</span><span>Friends</span>
+                <span class="toolbar-badge" id="friendsReqBadge" hidden>0</span>
+              </button>
               <p class="eyebrow">Daily check-in</p>
               <h2 id="dashboardTitle">Score today</h2>
             </div>
@@ -1128,6 +1132,46 @@
           </section>
         </section>
 
+        <section class="view" id="friendsView" aria-labelledby="friendsTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">People</p>
+              <h2 id="friendsTitle">Friends</h2>
+              <p class="view-subtitle">Your friends and what they logged today.</p>
+            </div>
+            <button class="ghost-button" type="button" id="backFromFriendsButton">Back</button>
+          </div>
+
+          <div class="friends-toolbar">
+            <button class="secondary-button small" type="button" id="friendsAddButton">
+              <span aria-hidden="true">＋</span><span>Add friend</span>
+              <span class="toolbar-badge" id="friendsAddBadge" hidden>0</span>
+            </button>
+          </div>
+
+          <section class="tool-panel friends-panel">
+            <div class="friends-list" id="friendsList"></div>
+          </section>
+        </section>
+
+        <section class="view" id="friendActivityView" aria-labelledby="friendActivityTitle">
+          <div class="view-header">
+            <div class="friend-activity-identity">
+              <span class="member-avatar friend-activity-avatar" id="friendActivityAvatar" aria-hidden="true"></span>
+              <div>
+                <p class="eyebrow">Today</p>
+                <h2 id="friendActivityTitle">Friend</h2>
+                <p class="view-subtitle" id="friendActivitySubtitle"></p>
+              </div>
+            </div>
+            <button class="ghost-button" type="button" id="backFromFriendActivityButton">Back</button>
+          </div>
+
+          <section class="tool-panel friend-activity-panel">
+            <div class="friend-activity-body" id="friendActivityBody"></div>
+          </section>
+        </section>
+
         <section class="view" id="chatsView" aria-labelledby="chatsTitle">
           <div class="view-header">
             <div>
@@ -1253,12 +1297,12 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="supabase-config.js?v=20260619-friends"></script>
-    <script src="auth-helpers.js?v=20260619-friends"></script>
-    <script src="scoring.js?v=20260619-friends"></script>
-    <script src="insight.js?v=20260619-friends"></script>
-    <script src="signals.js?v=20260619-friends"></script>
-    <script type="module" src="auth.js?v=20260619-friends"></script>
-    <script src="app.js?v=20260619-friends"></script>
+    <script src="supabase-config.js?v=20260619-friends-activity"></script>
+    <script src="auth-helpers.js?v=20260619-friends-activity"></script>
+    <script src="scoring.js?v=20260619-friends-activity"></script>
+    <script src="insight.js?v=20260619-friends-activity"></script>
+    <script src="signals.js?v=20260619-friends-activity"></script>
+    <script type="module" src="auth.js?v=20260619-friends-activity"></script>
+    <script src="app.js?v=20260619-friends-activity"></script>
   </body>
 </html>

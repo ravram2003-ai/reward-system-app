@@ -338,6 +338,12 @@
   let friendSearchLoading = false;
   let friendSearchSeq = 0;
   let friendSearchTimer = null;
+  // Friends activity (friends-activity.sql): the Friends view + a friend's today view.
+  let friendsDetailed = [];        // accepted friends WITH names: [{ user_id, display_name, handle, since }]
+  let friendsActiveTodayIds = new Set(); // friends with visible activity today (the dot)
+  let viewedFriend = null;         // { id, name } whose activity view is open
+  let friendActivityRows = [];     // [{ community_id, community_name, rule_id, amount, entry_date }]
+  let friendActivityLoading = false;
   // First-run onboarding overlay state.
   let onboardingActive = false;
   let onboardingStep = 1;
@@ -695,6 +701,10 @@
     ownerJoinRequests = [];
     friends = new Set();
     incomingFriendRequests = [];
+    friendsDetailed = [];
+    friendsActiveTodayIds = new Set();
+    viewedFriend = null;
+    friendActivityRows = [];
     lastPushedBehind = null;
     lastBehindWriteAt = 0;
     clearTimeout(behindPushTimer);
@@ -706,7 +716,7 @@
 
   async function refreshInbox() {
     if (!signalsReady()) {
-      inboxSignals = []; ownerJoinRequests = []; friends = new Set(); incomingFriendRequests = [];
+      inboxSignals = []; ownerJoinRequests = []; friends = new Set(); incomingFriendRequests = []; friendsDetailed = [];
       renderNotifications();
       return;
     }
@@ -722,6 +732,7 @@
     ownerJoinRequests = Array.isArray(out[1]) ? out[1] : [];
     const friendRows = Array.isArray(out[2]) ? out[2] : [];
     friends = new Set(friendRows.map((f) => String(f.user_id)));
+    friendsDetailed = friendRows; // accepted friends WITH names, for the Friends view
     // Names from friends/requests help the inbox label conversations I started.
     friendRows.forEach((f) => { if (f.display_name) rememberPeerName(String(f.user_id), f.display_name); });
     incomingFriendRequests = Array.isArray(out[3]) ? out[3] : [];
@@ -769,6 +780,11 @@
       els.chatsUnreadBadge.hidden = badge === 0;
     }
     if (els.chatsMarkAllButton) els.chatsMarkAllButton.hidden = unread === 0;
+    // The Today "Friends" button + the friends-view "Add friend" button both surface
+    // the pending friend-request count (same data as the Chats friend-request badge).
+    const friendBadgeText = friendReqCount > 9 ? "9+" : String(friendReqCount);
+    if (els.friendsReqBadge) { els.friendsReqBadge.textContent = friendBadgeText; els.friendsReqBadge.hidden = friendReqCount === 0; }
+    if (els.friendsAddBadge) { els.friendsAddBadge.textContent = friendBadgeText; els.friendsAddBadge.hidden = friendReqCount === 0; }
     renderOwnerRequests(ready);
     renderFriendRequests(ready);
     renderChats(ready);
@@ -1815,6 +1831,19 @@
       "chatsAddFriendResults",
       "chatsFriendRequests",
       "chatsMessageRequests",
+      "openFriendsButton",
+      "friendsReqBadge",
+      "friendsView",
+      "backFromFriendsButton",
+      "friendsAddButton",
+      "friendsAddBadge",
+      "friendsList",
+      "friendActivityView",
+      "friendActivityTitle",
+      "friendActivitySubtitle",
+      "friendActivityAvatar",
+      "friendActivityBody",
+      "backFromFriendActivityButton",
       "onboardingScreen",
       "onboardingBody",
       "allowMotivationInput",
@@ -1836,6 +1865,8 @@
       "community-settings": els.communitySettingsView,
       "community-member-activity": els.communityMemberActivityView,
       "find-communities": els.findCommunitiesView,
+      friends: els.friendsView,
+      "friend-activity": els.friendActivityView,
       chats: els.chatsView,
       profile: els.profileView
     };
@@ -1990,6 +2021,14 @@
     els.backFromCommunitySettingsButton.addEventListener("click", returnToCommunityDetail);
     els.backFromMemberActivityButton.addEventListener("click", returnToCommunityDetail);
     els.backFromFindCommunitiesButton.addEventListener("click", returnToCommunities);
+    if (els.openFriendsButton) els.openFriendsButton.addEventListener("click", openFriends);
+    if (els.backFromFriendsButton) els.backFromFriendsButton.addEventListener("click", returnToDashboard);
+    if (els.friendsAddButton) els.friendsAddButton.addEventListener("click", openAddFriendFromFriends);
+    if (els.backFromFriendActivityButton) els.backFromFriendActivityButton.addEventListener("click", returnToFriends);
+    if (els.friendsList) els.friendsList.addEventListener("click", (event) => {
+      const row = event.target.closest && event.target.closest("[data-friend-open]");
+      if (row) openFriendActivity(row.dataset.friendOpen, row.dataset.friendName);
+    });
     els.findCommunitySearchInput.addEventListener("input", (event) => {
       runCommunityCodeSearch(event.target.value);
     });
@@ -2107,6 +2146,8 @@
     renderCommunitySettings();
     renderCommunityMemberActivity();
     renderFindCommunities();
+    renderFriends();
+    renderFriendActivity();
     renderProfile();
     renderNotifications();
     pushMyBehindStatus();
@@ -2116,7 +2157,7 @@
     if (!els.views[state.activeView]) state.activeView = "dashboard";
     els.tabs.forEach((tab) => {
       const isActive = tab.dataset.view === state.activeView
-        || ((state.activeView === "add-entry" || state.activeView === "customize-top-card" || state.activeView === "customize-charts") && tab.dataset.view === "dashboard")
+        || ((state.activeView === "add-entry" || state.activeView === "customize-top-card" || state.activeView === "customize-charts" || state.activeView === "friends" || state.activeView === "friend-activity") && tab.dataset.view === "dashboard")
         || ((state.activeView === "create-community" || state.activeView === "community-detail" || state.activeView === "community-settings" || state.activeView === "community-member-activity" || state.activeView === "find-communities") && tab.dataset.view === "communities");
       tab.classList.toggle("active", isActive);
       tab.setAttribute("aria-current", isActive ? "page" : "false");
@@ -2249,6 +2290,153 @@
     saveState();
     render();
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }
+
+  // ── Friends view + a friend's today activity ───────────────────────────────
+  // Open the friends list (reached from the Today top-left "Friends" button).
+  function openFriends() {
+    state.activeView = "friends";
+    saveState();
+    render();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    if (!signalsReady()) return;
+    refreshInbox(); // refresh friend names + pending badge from server truth
+    // Load which friends have visible activity today (the "active today" dot).
+    Promise.resolve(window.PointwellSignals.getFriendsActiveToday(getTodayKey())).then((rows) => {
+      friendsActiveTodayIds = new Set((Array.isArray(rows) ? rows : []).map((r) => String(r.user_id)));
+      renderFriends();
+    }).catch(() => {});
+  }
+
+  function returnToFriends() {
+    viewedFriend = null;
+    state.activeView = "friends";
+    saveState();
+    render();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }
+
+  // The friends-view "Add friend" shortcut reuses the full Chats add-friend panel
+  // (search + send + incoming requests) rather than duplicating that machinery.
+  function openAddFriendFromFriends() {
+    state.activeView = "chats";
+    chatsActivePanel = "add-friend";
+    saveState();
+    render();
+    renderChatsPanels();
+    requestAnimationFrame(() => { if (els.chatsAddFriendInput) els.chatsAddFriendInput.focus(); });
+  }
+
+  function renderFriends() {
+    if (!els.friendsList) return;
+    if (!signalsReady()) {
+      els.friendsList.innerHTML = emptyState("Sign in to see your friends.");
+      return;
+    }
+    els.friendsList.innerHTML = friendsDetailed.length
+      ? friendsDetailed.map(renderFriendListRow).join("")
+      : emptyState("No friends yet. Tap “Add friend” to send a request.");
+  }
+
+  function renderFriendListRow(f) {
+    const id = escapeHtml(String(f.user_id));
+    const label = f.display_name || "Friend";
+    const name = escapeHtml(label);
+    const handle = escapeHtml(cleanHandle(f.handle || "") || "@member");
+    const initials = escapeHtml(getInitials(label));
+    const active = friendsActiveTodayIds.has(String(f.user_id));
+    return `
+      <button class="friend-row" type="button" data-friend-open="${id}" data-friend-name="${name}">
+        <span class="member-avatar" aria-hidden="true">${initials}</span>
+        <span class="friend-row-main">
+          <span class="friend-row-top"><strong>${name}</strong>${active ? '<span class="friend-active-dot" title="Active today" aria-label="Active today"></span>' : ""}</span>
+          <span class="friend-row-handle">${handle}</span>
+        </span>
+        ${active ? '<span class="friend-active-label">Active today</span>' : ""}
+      </button>
+    `;
+  }
+
+  // Open a friend's TODAY activity. The DB function enforces the visibility rules;
+  // this just fetches and renders (empty result → clean "no shared activity" state).
+  function openFriendActivity(friendId, name) {
+    if (!friendId) return;
+    viewedFriend = { id: String(friendId), name: name || rememberedPeerName(friendId) || "Friend" };
+    friendActivityRows = [];
+    friendActivityLoading = true;
+    state.activeView = "friend-activity";
+    saveState();
+    render();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    Promise.resolve(window.PointwellSignals.getFriendTodayActivity(viewedFriend.id, getTodayKey())).then((rows) => {
+      if (!viewedFriend || viewedFriend.id !== String(friendId)) return; // navigated away
+      friendActivityRows = Array.isArray(rows) ? rows : [];
+      friendActivityLoading = false;
+      renderFriendActivity();
+    }).catch(() => {
+      if (!viewedFriend || viewedFriend.id !== String(friendId)) return;
+      friendActivityLoading = false;
+      renderFriendActivity();
+    });
+  }
+
+  function renderFriendActivity() {
+    if (!els.friendActivityBody) return;
+    const name = viewedFriend ? viewedFriend.name : "Friend";
+    if (els.friendActivityTitle) els.friendActivityTitle.textContent = name;
+    if (els.friendActivityAvatar) els.friendActivityAvatar.textContent = getInitials(name);
+    if (els.friendActivitySubtitle) {
+      els.friendActivitySubtitle.textContent = friendActivityLoading
+        ? "Loading today’s activity…"
+        : `What ${name} logged today`;
+    }
+    if (!viewedFriend) { els.friendActivityBody.innerHTML = ""; return; }
+    if (friendActivityLoading) { els.friendActivityBody.innerHTML = emptyState("Loading…"); return; }
+    if (!friendActivityRows.length) {
+      // PRIVATE friend with no shared community, or simply nothing logged today.
+      els.friendActivityBody.innerHTML = emptyState("No shared activity today.");
+      return;
+    }
+    // Group the visible rows by community.
+    const byCommunity = new Map();
+    friendActivityRows.forEach((r) => {
+      const key = String(r.community_id);
+      if (!byCommunity.has(key)) byCommunity.set(key, { id: r.community_id, name: r.community_name || "Community", rules: [] });
+      byCommunity.get(key).rules.push(r);
+    });
+    els.friendActivityBody.innerHTML = Array.from(byCommunity.values()).map(renderFriendActivityCommunity).join("");
+  }
+
+  function renderFriendActivityCommunity(group) {
+    const name = escapeHtml(group.name);
+    const rows = group.rules.map((r) => {
+      const ruleLabel = escapeHtml(friendActivityRuleLabel(r.community_id, r.rule_id));
+      const amount = escapeHtml(formatActivityAmount(r.amount));
+      return `<li class="friend-activity-rule"><span class="friend-activity-rule-label">${ruleLabel}</span><span class="friend-activity-amount">${amount}</span></li>`;
+    }).join("");
+    return `
+      <section class="friend-activity-community">
+        <h3>${name}</h3>
+        <ul class="friend-activity-rules">${rows}</ul>
+      </section>
+    `;
+  }
+
+  // Resolve a rule_id to its label using the viewer's own copy of the community's
+  // scoring rules (available for communities the viewer is in). For a public friend's
+  // community the viewer isn't in, fall back to the raw rule id.
+  function friendActivityRuleLabel(communityId, ruleId) {
+    const community = (state.communities || []).find((c) => String(c.id) === String(communityId));
+    const rule = community && community.system && Array.isArray(community.system.rules)
+      ? community.system.rules.find((r) => String(r.id) === String(ruleId))
+      : null;
+    return (rule && rule.label) || String(ruleId || "Activity");
+  }
+
+  function formatActivityAmount(amount) {
+    const n = Number(amount);
+    if (!isFinite(n)) return String(amount == null ? "" : amount);
+    return String(Math.round(n * 100) / 100);
   }
 
   function openCustomizeTopCardPage() {

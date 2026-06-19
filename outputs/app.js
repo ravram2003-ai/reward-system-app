@@ -314,6 +314,10 @@
   let peopleSearchLoading = false;
   let peopleSearchSeq = 0;
   let peopleSearchTimer = null;
+  // Shared-community (DB) state: an invite code being looked up in "Find", and a
+  // join code captured from a ?join= invite link before sign-in resolves.
+  let communityCodeResult = null; // null | "notfound" | { id, name, category, description, member_count }
+  let pendingJoinCode = "";
   // First-run onboarding overlay state.
   let onboardingActive = false;
   let onboardingStep = 1;
@@ -324,11 +328,26 @@
 
   function init() {
     resetSavedBuildSubpage();
+    captureJoinCodeFromUrl();
     cacheElements();
     bindEvents();
     render();
     startDateRolloverWatcher();
     initAuthGate();
+  }
+
+  // An invite link is <app-url>?join=CODE. Capture the code, then strip it from the
+  // address bar so a refresh doesn't re-trigger the join. It's resolved after sign-in.
+  function captureJoinCodeFromUrl() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const code = (params.get("join") || "").trim();
+      if (!code) return;
+      pendingJoinCode = code;
+      params.delete("join");
+      const clean = window.location.pathname + (params.toString() ? "?" + params.toString() : "") + window.location.hash;
+      window.history.replaceState({}, "", clean);
+    } catch (e) { /* ignore */ }
   }
 
   // ── Auth bridge ───────────────────────────────────────────────────────────
@@ -640,6 +659,10 @@
       unsubscribeInbox = window.PointwellSignals.subscribeInbox(uid, handleInboxChange);
       currentInboxUid = uid;
     }
+    // Load the user's shared communities (one DB row each) into local state, then
+    // act on any ?join= invite link that brought them here.
+    await loadCommunitiesFromDb();
+    await resolvePendingJoin();
   }
 
   function teardownSignals() {
@@ -1440,6 +1463,7 @@
           scrollSystemsListToTop();
         }
         if (state.activeView === "chats") refreshInbox();
+        if (state.activeView === "communities") loadCommunitiesFromDb();
       });
     });
 
@@ -1574,8 +1598,7 @@
     els.backFromMemberActivityButton.addEventListener("click", returnToCommunityDetail);
     els.backFromFindCommunitiesButton.addEventListener("click", returnToCommunities);
     els.findCommunitySearchInput.addEventListener("input", (event) => {
-      state.communitySearchQuery = event.target.value;
-      renderFindCommunities();
+      runCommunityCodeSearch(event.target.value);
     });
     els.inviteButton.addEventListener("click", toggleInviteOptions);
     els.copyInviteLinkButton.addEventListener("click", copyInviteLink);
@@ -3558,15 +3581,40 @@
     if (els.findCommunitySearchInput.value !== query) {
       els.findCommunitySearchInput.value = query;
     }
-    const results = getVisiblePublicCommunities(query);
-
-    els.findCommunityResults.innerHTML = results.length
-      ? results.map(renderFindCommunityResult).join("")
-      : emptyState("No communities found.");
+    const code = query.trim();
+    let html;
+    if (!communitiesAreShared()) {
+      html = emptyState("Sign in to find and join communities.");
+    } else if (code.length < 2) {
+      html = emptyState("Enter a community's invite code to find it.");
+    } else if (communityCodeResult === "notfound" || communityCodeResult === null) {
+      html = emptyState(`No community found for "${escapeHtml(code)}". Check the invite code.`);
+    } else {
+      html = renderFoundCommunityCard(communityCodeResult);
+    }
+    els.findCommunityResults.innerHTML = html;
 
     Array.from(els.findCommunityResults.querySelectorAll("[data-join-community-id]")).forEach((button) => {
-      button.addEventListener("click", () => joinPublicCommunity(button.dataset.joinCommunityId));
+      button.addEventListener("click", () => joinCommunityById(button.dataset.joinCommunityId));
     });
+  }
+
+  function renderFoundCommunityCard(found) {
+    const already = state.communities.some((community) => community.id === found.id);
+    return `
+      <article class="find-community-card">
+        <div class="find-community-main">
+          <strong>${escapeHtml(found.name || "Community")}</strong>
+          <span>${escapeHtml(found.category || "Community")} &middot; ${plural(Number(found.member_count) || 0, "member")}</span>
+          ${found.description ? `<p>${escapeHtml(found.description)}</p>` : ""}
+        </div>
+        <div class="find-community-actions">
+          ${already
+            ? `<button class="secondary-button small" type="button" data-join-community-id="${escapeHtml(String(found.id))}">Open</button>`
+            : `<button class="primary-button small" type="button" data-join-community-id="${escapeHtml(String(found.id))}">Join</button>`}
+        </div>
+      </article>
+    `;
   }
 
   function renderProfile() {
@@ -6807,7 +6855,7 @@
     `;
   }
 
-  function finalizeCommunityDraft() {
+  async function finalizeCommunityDraft() {
     syncCommunityDraftFromForm();
     const draft = ensureCommunityDraft();
     const name = draft.name.trim();
@@ -6818,36 +6866,40 @@
       showToast(!name ? "Add a community name" : "Add a category or focus area");
       return;
     }
-    const community = {
-      id: makeId("community"),
-      ownerId: "me",
-      adminIds: ["me"],
+    if (!communitiesAreShared()) {
+      showToast("Sign in to create a shared community");
+      return;
+    }
+    const system = normalizeSystem({
+      id: makeId("community-system"),
+      title: `${name} rules`,
+      category,
+      rules: draft.rules,
+      calculatedTotals: []
+    });
+    const res = await window.PointwellSignals.createCommunity({
+      owner_user: state.account.userId,
       name,
       category,
       description: draft.description.trim(),
       visibility: draft.visibility === "public" ? "public" : "private",
-      inviteCode: makeInviteCode(category),
-      system: normalizeSystem({
-        id: makeId("community-system"),
-        title: `${name} rules`,
-        category,
-        rules: draft.rules,
-        calculatedTotals: []
-      }),
-      members: [member("me", state.profile.name, cleanHandle(state.profile.handle), state.profile.accent || "#355d91")],
-      logs: [log("me", todayIso, 0, 0)],
-      memberCount: 1
-    };
-    state.communities.unshift(community);
-    state.selectedCommunityId = community.id;
+      invite_code: makeInviteCode(category),
+      system: system
+    });
+    if (res.error || !res.data) {
+      showToast(/duplicate|unique/i.test((res.error && res.error.message) || "") ? "Try creating again (code clash)" : "Couldn't create community");
+      return;
+    }
+    // Creator becomes the first member (owner).
+    await window.PointwellSignals.joinCommunity(res.data.id, state.account.userId, "owner");
     state.communityDraftInputs = {};
     communityDraft = null;
     communityDraftStep = 0;
     communityDraftMethod = "";
     editingCommunityDraftRuleId = "";
+    state.selectedCommunityId = res.data.id;
     state.activeView = "community-detail";
-    saveState();
-    render();
+    await loadCommunitiesFromDb();
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     showToast("Community created");
   }
@@ -6984,7 +7036,10 @@
 
   function communityInviteLink(community) {
     const code = encodeURIComponent(community.inviteCode || "");
-    return `https://join.pointwell.app/community/${code}`;
+    // Point at the REAL running app (its own origin+path), with the code as a
+    // ?join= param the app reads on load. No invented domain.
+    const base = window.location.origin + window.location.pathname;
+    return `${base}?join=${code}`;
   }
 
   function copyInviteLink() {
@@ -7109,6 +7164,8 @@
     }
     entriesToAdd.forEach((item) => addCommunityEntry(community.id, "me", item.rule, item.amount));
     saveCommunitySummaryForMember(community, "me");
+    // Share the logged points with the rest of the community (one row per rule/day).
+    entriesToAdd.forEach((item) => pushCommunityEntryToDb(community, item.rule.id));
     state.communityDraftInputs = {};
     state.selectedCommunityMemberId = "me";
     saveState();
@@ -7417,16 +7474,11 @@
     return 0.55 + hashUnit((member.id || "") + ":strength") * 0.7;
   }
 
-  // Points a member earned on a date. The current user's TODAY reflects real
-  // logged points; everything else is stable deterministic demo history.
-  function communityMemberPointsOnDate(community, member, dateKey, target) {
-    if (member.id === "me" && dateKey === todayIso) {
-      return roundScore(communityTotalForMember(community, "me", todayIso));
-    }
-    const seed = hashUnit(member.id + "|" + dateKey);
-    if (seed < 0.12) return 0;
-    const goal = target || communityTarget(community);
-    return roundScore(Math.max(0, goal * communityMemberStrength(member) * (0.55 + seed * 0.75)));
+  // Points a member earned on a date — REAL, from the shared community_entries (no
+  // more per-member simulation). Members who haven't logged that day score 0, so
+  // every account sees the same leaderboard.
+  function communityMemberPointsOnDate(community, member, dateKey) {
+    return roundScore(communityTotalForMember(community, member.id, dateKey));
   }
 
   function communityMemberPeriodScore(community, member, periodId, target) {
@@ -7543,6 +7595,135 @@
 
   function getSelectedCommunity() {
     return state.communities.find((community) => community.id === state.selectedCommunityId);
+  }
+
+  // ── Shared (DB-backed) communities bridge ──────────────────────────────────
+  // Communities + membership + entries live in Supabase (supabase/communities.sql).
+  // We load them into state.communities/state.communityEntries in the SAME shape the
+  // local UI already renders, so the rendering/scoring code is untouched — only the
+  // data SOURCE changed (per-user simulation → one shared row many people can join).
+  function communitiesAreShared() { return signalsReady(); }
+
+  function memberColorFor(id) {
+    const palette = ["#266b5e", "#bb6a2f", "#7a4b86", "#355d91", "#2f7d6b", "#a4562f"];
+    const key = String(id || "");
+    let sum = 0;
+    for (let i = 0; i < key.length; i++) sum += key.charCodeAt(i);
+    return palette[sum % palette.length];
+  }
+
+  function communityFromDb(row, memberRows) {
+    const myId = state.account && state.account.userId;
+    const members = (memberRows || []).map((m) => {
+      const isMe = m.user_id === myId;
+      return {
+        id: isMe ? "me" : m.user_id,
+        userId: m.user_id,
+        name: isMe ? state.profile.name : (m.display_name || "Member"),
+        handle: cleanHandle(m.handle || ""),
+        color: isMe ? (state.profile.accent || "#355d91") : memberColorFor(m.user_id)
+      };
+    });
+    const ownerIsMe = row.owner_user === myId;
+    const system = (row.system && Array.isArray(row.system.rules))
+      ? row.system
+      : { id: makeId("community-system"), title: (row.name || "") + " rules", category: row.category, rules: [], calculatedTotals: [] };
+    return {
+      id: row.id,
+      ownerId: ownerIsMe ? "me" : row.owner_user,
+      adminIds: ownerIsMe ? ["me"] : [],
+      name: row.name,
+      category: row.category || "",
+      description: row.description || "",
+      visibility: row.visibility === "public" ? "public" : "private",
+      inviteCode: row.invite_code,
+      system: normalizeSystem(system),
+      members: members,
+      logs: [],
+      memberCount: members.length
+    };
+  }
+
+  function communityEntryFromDb(entry) {
+    const myId = state.account && state.account.userId;
+    return {
+      id: entry.id,
+      communityId: entry.community_id,
+      userId: entry.user_id === myId ? "me" : entry.user_id,
+      ruleId: entry.rule_id,
+      amount: numberOrDefault(entry.amount, 0),
+      date: entry.entry_date,
+      dateKey: entry.entry_date,
+      timestamp: entry.updated_at || ""
+    };
+  }
+
+  // Replace state.communities/entries with the shared truth from the database.
+  async function loadCommunitiesFromDb() {
+    if (!communitiesAreShared()) return;
+    const res = await window.PointwellSignals.fetchMyCommunities(state.account.userId);
+    state.communities = (res.communities || []).map((row) =>
+      communityFromDb(row, (res.membersByCommunity || {})[row.id] || []));
+    state.communityEntries = (res.entries || []).map(communityEntryFromDb);
+    if (!state.communities.some((community) => community.id === state.selectedCommunityId)) {
+      state.selectedCommunityId = state.communities[0] ? state.communities[0].id : "";
+    }
+    saveState();
+    render();
+  }
+
+  // Persist a member's logged check-in for one rule/day to the shared table (the
+  // per-rule daily TOTAL, to match the table's one-row-per-rule/day shape).
+  function pushCommunityEntryToDb(community, ruleId) {
+    if (!communitiesAreShared() || !community || !ruleId) return;
+    const today = getTodayKey();
+    const total = getCommunityEntriesForMemberOnDate(community.id, "me", today)
+      .filter((entry) => entry.ruleId === ruleId)
+      .reduce((sum, entry) => sum + numberOrDefault(entry.amount, 0), 0);
+    Promise.resolve(window.PointwellSignals.upsertCommunityEntry({
+      community_id: community.id,
+      user_id: state.account.userId,
+      rule_id: ruleId,
+      amount: total,
+      entry_date: today
+    })).catch(() => {});
+  }
+
+  function runCommunityCodeSearch(query) {
+    state.communitySearchQuery = query;
+    const code = String(query || "").trim();
+    if (!communitiesAreShared() || code.length < 2) {
+      communityCodeResult = null;
+      renderFindCommunities();
+      return;
+    }
+    Promise.resolve(window.PointwellSignals.findCommunityByCode(code)).then((found) => {
+      communityCodeResult = found || "notfound";
+      renderFindCommunities();
+    }).catch(() => { communityCodeResult = "notfound"; renderFindCommunities(); });
+  }
+
+  async function joinCommunityById(communityId) {
+    if (!communitiesAreShared() || !communityId) return;
+    const res = await window.PointwellSignals.joinCommunity(communityId, state.account.userId, "member");
+    if (res.error) { showToast("Couldn't join that community"); return; }
+    state.selectedCommunityId = communityId;
+    state.activeView = "community-detail";
+    communityCodeResult = null;
+    state.communitySearchQuery = "";
+    await loadCommunitiesFromDb();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    showToast("Joined community");
+  }
+
+  // Resolve a ?join=CODE invite link once the user is signed in.
+  async function resolvePendingJoin() {
+    if (!pendingJoinCode || !communitiesAreShared()) return;
+    const code = pendingJoinCode;
+    pendingJoinCode = "";
+    const found = await window.PointwellSignals.findCommunityByCode(code);
+    if (!found) { showToast("That invite link is no longer valid"); return; }
+    await joinCommunityById(found.id);
   }
 
   function getVisiblePublicCommunities(query) {

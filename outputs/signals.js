@@ -350,6 +350,102 @@
     }
   }
 
+  // ── Shared communities (DB-backed) ─────────────────────────────────────────
+  // A community is ONE row in public.communities; membership is the relationship
+  // table public.community_members. All access rules are RLS (supabase/communities.sql).
+
+  async function createCommunity(row) {
+    var sb = getClient();
+    if (!sb) return { error: { message: "Communities need a connection." }, data: null };
+    try {
+      var res = await sb.from("communities").insert(row).select().single();
+      return { error: res.error || null, data: res.error ? null : res.data };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." }, data: null };
+    }
+  }
+
+  async function joinCommunity(communityId, userId, role) {
+    var sb = getClient();
+    if (!sb || !communityId || !userId) return { error: { message: "Couldn't join." } };
+    try {
+      var res = await sb.from("community_members")
+        .upsert({ community_id: communityId, user_id: userId, role: role || "member" },
+          { onConflict: "community_id,user_id" });
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  async function leaveCommunity(communityId, userId) {
+    var sb = getClient();
+    if (!sb || !communityId || !userId) return { error: null };
+    try {
+      var res = await sb.from("community_members").delete()
+        .eq("community_id", communityId).eq("user_id", userId);
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // Look up a community by its invite code (works for non-members so they can join).
+  async function findCommunityByCode(code) {
+    var sb = getClient();
+    var c = String(code || "").trim();
+    if (!sb || c.length < 2) return null;
+    try {
+      var res = await sb.rpc("find_community_by_code", { code: c });
+      if (res.error) return null;
+      var rows = res.data || [];
+      return rows.length ? rows[0] : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function upsertCommunityEntry(entry) {
+    var sb = getClient();
+    if (!sb || !entry || !entry.community_id || !entry.user_id) return { error: null };
+    try {
+      var res = await sb.from("community_entries")
+        .upsert(entry, { onConflict: "community_id,user_id,rule_id,entry_date" });
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // Every community the user belongs to, with its members (names via a definer
+  // function, since profiles RLS is self-only) and the shared entries.
+  async function fetchMyCommunities(userId) {
+    var sb = getClient();
+    var empty = { communities: [], membersByCommunity: {}, entries: [] };
+    if (!sb || !userId || !UUID_RE.test(String(userId))) return empty;
+    try {
+      var mine = await sb.from("community_members").select("community_id").eq("user_id", userId);
+      if (mine.error) return empty;
+      var ids = [];
+      (mine.data || []).forEach(function (r) { if (ids.indexOf(r.community_id) === -1) ids.push(r.community_id); });
+      if (!ids.length) return empty;
+      var cRes = await sb.from("communities").select("*").in("id", ids);
+      var eRes = await sb.from("community_entries").select("*").in("community_id", ids);
+      var membersByCommunity = {};
+      for (var i = 0; i < ids.length; i++) {
+        var mr = await sb.rpc("get_community_members", { cid: ids[i] });
+        membersByCommunity[ids[i]] = mr.error ? [] : (mr.data || []);
+      }
+      return {
+        communities: cRes.error ? [] : (cRes.data || []),
+        membersByCommunity: membersByCommunity,
+        entries: eRes.error ? [] : (eRes.data || [])
+      };
+    } catch (e) {
+      return empty;
+    }
+  }
+
   var api = {
     KUDOS_PRESETS: KUDOS_PRESETS,
     MOTIVATION_PRESETS: MOTIVATION_PRESETS,
@@ -369,6 +465,12 @@
     updateProfile: updateProfile,
     setOnboardingCompleted: setOnboardingCompleted,
     searchProfiles: searchProfiles,
+    createCommunity: createCommunity,
+    joinCommunity: joinCommunity,
+    leaveCommunity: leaveCommunity,
+    findCommunityByCode: findCommunityByCode,
+    upsertCommunityEntry: upsertCommunityEntry,
+    fetchMyCommunities: fetchMyCommunities,
     isNudgeable: isNudgeable,
     subscribeInbox: subscribeInbox,
     fetchThread: fetchThread,

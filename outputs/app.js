@@ -179,8 +179,8 @@
     activeView: "dashboard",
     selectedSystemId: "life-core",
     trackerSystemId: "life-core",
-    selectedCommunityId: "gym-crew",
-    selectedCommunityMemberId: "me",
+    selectedCommunityId: "",
+    selectedCommunityMemberId: "",
     communityLeaderboardPeriod: "",
     communityTrendMemberId: "",
     scoreContext: "personal",
@@ -208,24 +208,7 @@
     editingRuleId: "",
     draftInputs: {},
     quickEntries: [],
-    communityEntries: [
-      communityEntry("ce-gym-me-gym", "gym-crew", "me", "gym", 1, "Gym session", "sessions", todayIso, "2026-06-12T09:05:00.000Z"),
-      communityEntry("ce-gym-me-steps", "gym-crew", "me", "steps", 8500, "Steps", "steps", todayIso, "2026-06-12T09:10:00.000Z"),
-      communityEntry("ce-gym-me-lifting", "gym-crew", "me", "lifting", 45, "Lifting", "minutes", todayIso, "2026-06-12T09:15:00.000Z"),
-      communityEntry("ce-gym-maya-gym", "gym-crew", "maya", "gym", 1, "Gym session", "sessions", todayIso, "2026-06-12T08:20:00.000Z"),
-      communityEntry("ce-gym-maya-steps", "gym-crew", "maya", "steps", 11000, "Steps", "steps", todayIso, "2026-06-12T08:25:00.000Z"),
-      communityEntry("ce-gym-maya-lifting", "gym-crew", "maya", "lifting", 60, "Lifting", "minutes", todayIso, "2026-06-12T08:30:00.000Z"),
-      communityEntry("ce-gym-jules-gym", "gym-crew", "jules", "gym", 1, "Gym session", "sessions", todayIso, "2026-06-12T10:00:00.000Z"),
-      communityEntry("ce-gym-jules-steps", "gym-crew", "jules", "steps", 7200, "Steps", "steps", todayIso, "2026-06-12T10:05:00.000Z"),
-      communityEntry("ce-gym-tariq-steps", "gym-crew", "tariq", "steps", 9900, "Steps", "steps", todayIso, "2026-06-12T07:45:00.000Z"),
-      communityEntry("ce-gym-tariq-lifting", "gym-crew", "tariq", "lifting", 35, "Lifting", "minutes", todayIso, "2026-06-12T07:50:00.000Z"),
-      communityEntry("ce-study-me-focus", "study-room", "me", "focus", 2, "Focused study block", "blocks", todayIso, "2026-06-12T14:00:00.000Z"),
-      communityEntry("ce-study-me-practice", "study-room", "me", "practice", 30, "Practice problems", "problems", todayIso, "2026-06-12T14:10:00.000Z"),
-      communityEntry("ce-study-noah-focus", "study-room", "noah", "focus", 4, "Focused study block", "blocks", todayIso, "2026-06-12T12:45:00.000Z"),
-      communityEntry("ce-study-noah-practice", "study-room", "noah", "practice", 45, "Practice problems", "problems", todayIso, "2026-06-12T12:50:00.000Z"),
-      communityEntry("ce-study-iris-focus", "study-room", "iris", "focus", 3, "Focused study block", "blocks", todayIso, "2026-06-12T13:20:00.000Z"),
-      communityEntry("ce-study-iris-review", "study-room", "iris", "review", 1, "Review session", "done", todayIso, "2026-06-12T13:25:00.000Z")
-    ],
+    communityEntries: [],
     communityDraftInputs: {},
     systems: [
       {
@@ -275,72 +258,7 @@
         ]
       }
     ],
-    publicSystems: [
-      {
-        id: "public-maya-strength",
-        ownerId: "maya",
-        ownerName: "Maya Chen",
-        ownerHandle: "@mayalifts",
-        title: "Strength consistency",
-        category: "Fitness",
-        visibility: "public",
-        description: "Simple weights, steps, and recovery scoring for getting to the gym.",
-        rules: [
-          rule("gym", "Gym session", "Fitness", "count", 1, "sessions", 2),
-          rule("steps", "Steps", "Fitness", "per", 5000, "steps", 1),
-          rule("lifting", "Lifting", "Lifting", "per", 30, "minutes", 0.5),
-          rule("missed", "Missed planned workout", "Fitness", "count", 1, "misses", -1)
-        ]
-      },
-      {
-        id: "public-noah-focus",
-        ownerId: "noah",
-        ownerName: "Noah Patel",
-        ownerHandle: "@noahfocus",
-        title: "Exam week focus",
-        category: "Academics",
-        visibility: "public",
-        description: "A sprint template for study sessions, practice sets, and sleep protection.",
-        rules: [
-          rule("sessions", "Study session", "Academics", "count", 1, "sessions", 1),
-          rule("practice", "Practice problems", "Academics", "per", 15, "problems", 1),
-          rule("phone", "Phone over limit", "Productivity", "over", 45, "minutes", -1),
-          rule("sleep", "Sleep below target", "Sleep", "below", 7, "hours", -0.5)
-        ]
-      },
-      {
-        id: "public-sam-money",
-        ownerId: "sam",
-        ownerName: "Sam Okafor",
-        ownerHandle: "@samplans",
-        title: "Budget guardrails",
-        category: "Finance",
-        visibility: "public",
-        description: "Daily finance habits with small rewards for checking, saving, and staying under budget.",
-        rules: [
-          rule("check", "Budget check-in", "Finance", "once", 1, "done", 1),
-          rule("save", "Dollars saved", "Finance", "per", 25, "dollars", 1),
-          rule("over", "Spending over daily budget", "Finance", "over", 0, "dollars", -1.5),
-          rule("impulse", "Impulse purchases", "Personal habits", "count", 1, "purchases", -0.75)
-        ]
-      },
-      {
-        id: "public-eli-wellness",
-        ownerId: "eli",
-        ownerName: "Eli Morgan",
-        ownerHandle: "@eliwell",
-        title: "Wellness floor",
-        category: "General wellness",
-        visibility: "public",
-        description: "A gentle score for sleep, hydration, movement, and checking in.",
-        rules: [
-          rule("water", "Water", "General wellness", "per", 24, "ounces", 0.5),
-          rule("walk", "Walk", "Fitness", "per", 15, "minutes", 0.5),
-          rule("journal", "Journal entry", "Personal habits", "once", 1, "done", 1),
-          rule("sleep", "Sleep below target", "Sleep", "below", 7.5, "hours", -0.5)
-        ]
-      }
-    ],
+    publicSystems: [],
     entries: [
       {
         id: "entry-1",
@@ -364,237 +282,8 @@
         total: 7
       }
     ],
-    communities: [
-      {
-        id: "gym-crew",
-        name: "Friday Gym Crew",
-        category: "Fitness",
-        description: "Friends keeping each other honest on planned workouts.",
-        inviteCode: "GYM-742",
-        system: {
-          id: "gym-crew-system",
-          title: "Gym consistency",
-          category: "Fitness",
-          rules: [
-            rule("gym", "Gym session", "Fitness", "count", 1, "sessions", 2),
-            rule("steps", "Steps", "Fitness", "per", 5000, "steps", 1),
-            rule("missed", "Missed planned workout", "Fitness", "count", 1, "misses", -1),
-            rule("lifting", "Lifting", "Lifting", "per", 30, "minutes", 0.5)
-          ]
-        },
-        members: [
-          member("me", "Avery Rivera", "@avery", "#355d91"),
-          member("maya", "Maya Chen", "@mayalifts", "#266b5e"),
-          member("jules", "Jules Hart", "@jules", "#bb6a2f"),
-          member("tariq", "Tariq Lane", "@tariq", "#7a4b86")
-        ],
-        logs: [
-          log("me", todayIso, 4, 31),
-          log("maya", todayIso, 6, 42),
-          log("jules", todayIso, 3, 28),
-          log("tariq", todayIso, 5, 35),
-          log("me", offsetDate(-1), 5, 27),
-          log("maya", offsetDate(-1), 4, 36),
-          log("jules", offsetDate(-1), 4, 25),
-          log("tariq", offsetDate(-1), 3, 30)
-        ]
-      },
-      {
-        id: "study-room",
-        name: "Library Sprint",
-        category: "Academics",
-        description: "Shared points for focused study and finished practice sets.",
-        inviteCode: "LIB-119",
-        system: {
-          id: "study-room-system",
-          title: "Study accountability",
-          category: "Academics",
-          rules: [
-            rule("focus", "Focused study block", "Academics", "count", 1, "blocks", 1),
-            rule("practice", "Practice problems", "Academics", "per", 20, "problems", 1),
-            rule("review", "Review session", "Academics", "once", 1, "done", 1.5),
-            rule("phone", "Phone over limit", "Productivity", "over", 30, "minutes", -1)
-          ]
-        },
-        members: [
-          member("me", "Avery Rivera", "@avery", "#355d91"),
-          member("noah", "Noah Patel", "@noahfocus", "#266b5e"),
-          member("iris", "Iris West", "@iris", "#bb6a2f")
-        ],
-        logs: [
-          log("me", todayIso, 3.5, 23),
-          log("noah", todayIso, 6, 39),
-          log("iris", todayIso, 4, 31),
-          log("me", offsetDate(-1), 5, 19.5),
-          log("noah", offsetDate(-1), 4, 33),
-          log("iris", offsetDate(-1), 4.5, 27)
-        ]
-      }
-    ],
-    publicCommunities: [
-      {
-        id: "public-morning-lifts",
-        name: "Morning Lifts",
-        category: "Fitness",
-        goalType: "Gym",
-        keywords: ["gym", "fitness", "lifting", "steps", "strength"],
-        visibility: "public",
-        memberCount: 12,
-        description: "Daily lifting and steps accountability.",
-        inviteCode: "LFT-284",
-        system: {
-          id: "morning-lifts-system",
-          title: "Morning lifting accountability",
-          category: "Fitness",
-          rules: [
-            rule("lift", "Lift workout", "Fitness", "count", 1, "workouts", 2),
-            rule("steps", "Steps", "Fitness", "per", 5000, "steps", 1),
-            rule("protein", "Protein target", "Nutrition", "once", 1, "done", 1),
-            rule("missed", "Missed planned workout", "Fitness", "count", 1, "misses", -1)
-          ]
-        },
-        members: [
-          member("maya-public", "Maya Chen", "@mayalifts", "#266b5e"),
-          member("leo-public", "Leo Park", "@leopark", "#bb6a2f"),
-          member("riley-public", "Riley Stone", "@riley", "#7a4b86")
-        ]
-      },
-      {
-        id: "public-study-hall",
-        name: "Study Hall Push",
-        category: "Academics",
-        goalType: "Study",
-        keywords: ["study", "school", "academics", "productivity", "exams"],
-        visibility: "private",
-        memberCount: 8,
-        description: "Focused study blocks, practice problems, and phone limits.",
-        inviteCode: "STU-638",
-        system: {
-          id: "study-hall-system",
-          title: "Study hall focus",
-          category: "Academics",
-          rules: [
-            rule("focus", "Focused study block", "Academics", "count", 1, "blocks", 1),
-            rule("practice", "Practice problems", "Academics", "per", 20, "problems", 1),
-            rule("review", "Review session", "Academics", "once", 1, "done", 1.5),
-            rule("phone", "Phone over limit", "Productivity", "over", 30, "minutes", -1)
-          ]
-        },
-        members: [
-          member("noah-public", "Noah Patel", "@noahfocus", "#266b5e"),
-          member("iris-public", "Iris West", "@iris", "#bb6a2f"),
-          member("cam-public", "Cam Brooks", "@camb", "#355d91")
-        ]
-      },
-      {
-        id: "public-runner-base",
-        name: "Runner Base Camp",
-        category: "Running",
-        goalType: "Running",
-        keywords: ["running", "fitness", "miles", "mobility", "cardio"],
-        visibility: "public",
-        memberCount: 15,
-        description: "Mileage, mobility, and recovery for consistent base training.",
-        inviteCode: "RUN-427",
-        system: {
-          id: "runner-base-system",
-          title: "Runner base training",
-          category: "Running",
-          rules: [
-            rule("miles", "Miles run", "Running", "per", 1, "miles", 1),
-            rule("mobility", "Mobility session", "General wellness", "once", 1, "done", 1),
-            rule("zone-two", "Zone 2 time", "Running", "per", 20, "minutes", 0.75),
-            rule("sleep", "Sleep below target", "Sleep", "below", 7, "hours", -0.5)
-          ]
-        },
-        members: [
-          member("tariq-public", "Tariq Lane", "@tariq", "#7a4b86"),
-          member("sam-public", "Sam Okafor", "@samruns", "#bb6a2f"),
-          member("jules-public", "Jules Hart", "@jules", "#266b5e")
-        ]
-      },
-      {
-        id: "public-sleep-reset",
-        name: "Nightly Sleep Reset",
-        category: "Sleep",
-        goalType: "Sleep",
-        keywords: ["sleep", "wellness", "recovery", "habits", "routine"],
-        visibility: "public",
-        memberCount: 6,
-        description: "A calm group for better bedtimes and morning energy.",
-        inviteCode: "SLP-905",
-        system: {
-          id: "sleep-reset-system",
-          title: "Sleep reset",
-          category: "Sleep",
-          rules: [
-            rule("bedtime", "On-time bedtime", "Sleep", "once", 1, "done", 2),
-            rule("hours", "Sleep below target", "Sleep", "below", 7.5, "hours", -1),
-            rule("screens", "Late screen time", "Personal habits", "over", 0, "minutes", -0.75),
-            rule("morning", "Morning check-in", "General wellness", "once", 1, "done", 1)
-          ]
-        },
-        members: [
-          member("eli-public", "Eli Morgan", "@eliwell", "#266b5e"),
-          member("ana-public", "Ana Ruiz", "@anar", "#355d91"),
-          member("drew-public", "Drew Kim", "@drew", "#bb6a2f")
-        ]
-      },
-      {
-        id: "public-budget-buddies",
-        name: "Budget Buddies",
-        category: "Finance",
-        goalType: "Budgeting",
-        keywords: ["budgeting", "budget", "finance", "saving", "productivity"],
-        visibility: "private",
-        memberCount: 10,
-        description: "Daily budget checks, savings goals, and spending guardrails.",
-        inviteCode: "BUD-316",
-        system: {
-          id: "budget-buddies-system",
-          title: "Budget accountability",
-          category: "Finance",
-          rules: [
-            rule("check", "Budget check-in", "Finance", "once", 1, "done", 1),
-            rule("save", "Dollars saved", "Finance", "per", 25, "dollars", 1),
-            rule("over", "Spending over daily budget", "Finance", "over", 0, "dollars", -1.5),
-            rule("impulse", "Impulse purchases", "Personal habits", "count", 1, "purchases", -0.75)
-          ]
-        },
-        members: [
-          member("sam-budget", "Sam Okafor", "@samplans", "#bb6a2f"),
-          member("priya-budget", "Priya Shah", "@priya", "#266b5e"),
-          member("gabe-budget", "Gabe Lin", "@gabe", "#355d91")
-        ]
-      },
-      {
-        id: "public-productivity-loop",
-        name: "Productivity Loop",
-        category: "Productivity",
-        goalType: "Productivity",
-        keywords: ["productivity", "focus", "habits", "planning", "study"],
-        visibility: "public",
-        memberCount: 9,
-        description: "Plan the day, finish focus blocks, and keep distractions low.",
-        inviteCode: "PRD-552",
-        system: {
-          id: "productivity-loop-system",
-          title: "Productivity loop",
-          category: "Productivity",
-          rules: [
-            rule("plan", "Daily plan", "Productivity", "once", 1, "done", 1),
-            rule("focus", "Focus block", "Productivity", "count", 1, "blocks", 1),
-            rule("admin", "Admin sweep", "Productivity", "once", 1, "done", 0.75),
-            rule("scroll", "Scrolling over limit", "Personal habits", "over", 30, "minutes", -1)
-          ]
-        },
-        members: [
-          member("noah-loop", "Noah Patel", "@noahfocus", "#266b5e"),
-          member("lina-loop", "Lina Torres", "@lina", "#7a4b86"),
-          member("riley-loop", "Riley Stone", "@riley", "#bb6a2f")
-        ]
-      }
-    ]
+    communities: [],
+    publicCommunities: []
   };
 
   let state = loadState();
@@ -8141,6 +7830,14 @@
       logs: Array.isArray(community.logs) ? community.logs : [],
       system: normalizeSystem(community.system || { rules: [] })
     }));
+    // Retire the seeded demo communities (and their entries) so the removed demo
+    // personas can't linger in a returning user's saved state. Real, user-created
+    // communities (non-demo ids) are kept untouched.
+    nextState.communities = nextState.communities.filter((community) => !isSeededDemoCommunity(community.id));
+    nextState.communityEntries = (nextState.communityEntries || []).filter((entry) => !isSeededDemoCommunity(entry.communityId));
+    if (!nextState.communities.some((community) => community.id === nextState.selectedCommunityId)) {
+      nextState.selectedCommunityId = nextState.communities[0] ? nextState.communities[0].id : "";
+    }
     nextState.communityEntries = backfillDemoCommunityEntries(nextState);
     return nextState;
   }
@@ -8176,9 +7873,15 @@
     return entries;
   }
 
-  function shouldBackfillCommunityEntries(community) {
-    const id = String(community.id || "");
-    return id === "gym-crew" || id === "study-room" || id.startsWith("public-");
+  // Demo communities are no longer seeded; this guard now disables ALL demo-entry
+  // re-seeding so the removed personas can never reappear on load.
+  function shouldBackfillCommunityEntries() {
+    return false;
+  }
+
+  function isSeededDemoCommunity(id) {
+    const value = String(id || "");
+    return value === "gym-crew" || value === "study-room" || value.startsWith("public-");
   }
 
   function normalizeSystem(system) {

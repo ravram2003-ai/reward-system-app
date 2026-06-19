@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260619-entryfix">
+    <link rel="stylesheet" href="styles.css?v=20260619-discovery">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -807,8 +807,9 @@
                 <label>
                   <span>Visibility</span>
                   <select id="ccVisibilityInput">
-                    <option value="private">Private</option>
-                    <option value="public">Public</option>
+                    <option value="public">Public — anyone can find &amp; join</option>
+                    <option value="request_to_join">Request to join — found by name, you approve</option>
+                    <option value="private">Private — invite code only</option>
                   </select>
                 </label>
               </form>
@@ -1031,8 +1032,9 @@
               <label>
                 <span>Status</span>
                 <select id="communityVisibilityInput">
-                  <option value="private">Private</option>
-                  <option value="public">Public</option>
+                  <option value="public">Public — anyone can find &amp; join</option>
+                  <option value="request_to_join">Request to join — found by name, you approve</option>
+                  <option value="private">Private — invite code only</option>
                 </select>
               </label>
             </div>
@@ -1142,6 +1144,8 @@
             <button class="ghost-button small" type="button" id="chatsMarkAllButton" hidden>Mark all read</button>
           </div>
 
+          <div class="chats-requests" id="chatsRequests" hidden></div>
+
           <div class="chats-layout" id="chatsLayout">
             <div class="chats-list" id="chatsList" aria-label="Conversations"></div>
             <div class="chats-thread" id="chatsThread">
@@ -1217,12 +1221,12 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="supabase-config.js?v=20260619-entryfix"></script>
-    <script src="auth-helpers.js?v=20260619-entryfix"></script>
-    <script src="scoring.js?v=20260619-entryfix"></script>
-    <script src="insight.js?v=20260619-entryfix"></script>
-    <script src="signals.js?v=20260619-entryfix"></script>
-    <script type="module" src="auth.js?v=20260619-entryfix"></script>
-    <script src="app.js?v=20260619-entryfix"></script>
+    <script src="supabase-config.js?v=20260619-discovery"></script>
+    <script src="auth-helpers.js?v=20260619-discovery"></script>
+    <script src="scoring.js?v=20260619-discovery"></script>
+    <script src="insight.js?v=20260619-discovery"></script>
+    <script src="signals.js?v=20260619-discovery"></script>
+    <script type="module" src="auth.js?v=20260619-discovery"></script>
+    <script src="app.js?v=20260619-discovery"></script>
   </body>
 </html>

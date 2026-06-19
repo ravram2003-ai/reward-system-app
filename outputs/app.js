@@ -317,6 +317,8 @@
   // Shared-community (DB) state: an invite code being looked up in "Find", and a
   // join code captured from a ?join= invite link before sign-in resolves.
   let communityCodeResult = null; // null | "notfound" | { id, name, category, description, member_count }
+  let communitySearchResults = []; // name-search matches (public + request_to_join)
+  let ownerJoinRequests = [];      // pending join requests for communities I own
   let pendingJoinCode = "";
   // First-run onboarding overlay state.
   let onboardingActive = false;
@@ -669,6 +671,7 @@
     if (unsubscribeInbox) { try { unsubscribeInbox(); } catch (e) { /* ignore */ } unsubscribeInbox = null; }
     currentInboxUid = null;
     inboxSignals = [];
+    ownerJoinRequests = [];
     lastPushedBehind = null;
     lastBehindWriteAt = 0;
     clearTimeout(behindPushTimer);
@@ -679,10 +682,14 @@
   }
 
   async function refreshInbox() {
-    if (!signalsReady()) { inboxSignals = []; renderNotifications(); return; }
-    // Wider window now that the inbox holds BOTH directions — so sent rows can't
-    // push recent RECEIVED items (and their unread count) out of the fetched set.
-    inboxSignals = await window.PointwellSignals.fetchInbox(state.account.userId, 200);
+    if (!signalsReady()) { inboxSignals = []; ownerJoinRequests = []; renderNotifications(); return; }
+    // Inbox messages AND pending join requests for communities I own, in parallel.
+    const out = await Promise.all([
+      window.PointwellSignals.fetchInbox(state.account.userId, 200),
+      window.PointwellSignals.getOwnerJoinRequests()
+    ]);
+    inboxSignals = Array.isArray(out[0]) ? out[0] : [];
+    ownerJoinRequests = Array.isArray(out[1]) ? out[1] : [];
     renderNotifications();
   }
 
@@ -717,12 +724,61 @@
     // Count only RECEIVED unread — the inbox now also holds my sent rows, which are
     // never "unread" for me.
     const unread = ready ? window.PointwellSignals.unreadCount(inboxSignals.filter((s) => s.to_user === me)) : 0;
+    const requestCount = ready ? ownerJoinRequests.length : 0;
+    const badge = unread + requestCount; // bell/tab badge covers messages AND pending requests
     if (els.chatsUnreadBadge) {
-      els.chatsUnreadBadge.textContent = unread > 9 ? "9+" : String(unread);
-      els.chatsUnreadBadge.hidden = unread === 0;
+      els.chatsUnreadBadge.textContent = badge > 9 ? "9+" : String(badge);
+      els.chatsUnreadBadge.hidden = badge === 0;
     }
     if (els.chatsMarkAllButton) els.chatsMarkAllButton.hidden = unread === 0;
+    renderOwnerRequests(ready);
     renderChats(ready);
+  }
+
+  // Pending join requests for communities I own — action items (Accept / Decline),
+  // deliberately NOT chat rows (no reply box). Shown above the conversation list.
+  function renderOwnerRequests(ready) {
+    if (!els.chatsRequests) return;
+    if (!ready || !ownerJoinRequests.length) {
+      els.chatsRequests.innerHTML = "";
+      els.chatsRequests.hidden = true;
+      return;
+    }
+    els.chatsRequests.hidden = false;
+    els.chatsRequests.innerHTML =
+      `<div class="join-requests-head"><strong>Join requests</strong><span>${ownerJoinRequests.length} pending</span></div>` +
+      ownerJoinRequests.map(renderJoinRequestItem).join("");
+  }
+
+  function renderJoinRequestItem(req) {
+    const label = req.requester_name || req.requester_handle || "A member";
+    const who = escapeHtml(label);
+    const initials = escapeHtml(getInitials(label));
+    const community = escapeHtml(req.community_name || "your community");
+    const when = escapeHtml(window.PointwellSignals.formatRelativeTime(req.created_at, Date.now()));
+    const id = escapeHtml(String(req.request_id));
+    return `
+      <div class="join-request-item" data-request-id="${id}">
+        <span class="member-avatar" aria-hidden="true">${initials}</span>
+        <div class="join-request-main">
+          <strong>${who}</strong>
+          <span>wants to join ${community} &middot; ${when}</span>
+        </div>
+        <div class="join-request-actions">
+          <button class="primary-button small" type="button" data-request-accept="${id}">Accept</button>
+          <button class="ghost-button small" type="button" data-request-decline="${id}">Decline</button>
+        </div>
+      </div>
+    `;
+  }
+
+  async function respondToRequest(requestId, accept) {
+    if (!signalsReady() || !requestId) return;
+    const res = await window.PointwellSignals.respondToJoinRequest(requestId, accept);
+    if (res.error) { showToast(communityDbError(res.error, "Couldn't respond to that request")); return; }
+    showToast(accept ? "Request accepted — they're now a member" : "Request declined");
+    await refreshInbox();          // drop it from the pending list + badge
+    await loadCommunitiesFromDb(); // member count reflects the new member
   }
 
   // Remember a peer's display name so a conversation I STARTED (whose rows carry
@@ -1416,6 +1472,7 @@
       "integrationList",
       "chatsView",
       "chatsList",
+      "chatsRequests",
       "chatsThread",
       "chatsThreadMount",
       "chatsBackButton",
@@ -1599,6 +1656,12 @@
     els.backFromFindCommunitiesButton.addEventListener("click", returnToCommunities);
     els.findCommunitySearchInput.addEventListener("input", (event) => {
       runCommunityCodeSearch(event.target.value);
+    });
+    if (els.chatsRequests) els.chatsRequests.addEventListener("click", (event) => {
+      const accept = event.target.closest && event.target.closest("[data-request-accept]");
+      const decline = event.target.closest && event.target.closest("[data-request-decline]");
+      if (accept) respondToRequest(accept.dataset.requestAccept, true);
+      else if (decline) respondToRequest(decline.dataset.requestDecline, false);
     });
     els.inviteButton.addEventListener("click", toggleInviteOptions);
     els.copyInviteLinkButton.addEventListener("click", copyInviteLink);
@@ -3366,10 +3429,10 @@
 
     els.inviteOptions.hidden = true;
     els.communityDetailTitle.textContent = community.name;
-    els.communityMeta.textContent = `${plural(getCommunityMemberCount(community), "member")} · ${capitalize(visibility)}`;
+    els.communityMeta.textContent = `${plural(getCommunityMemberCount(community), "member")} · ${visibilityLabel(visibility)}`;
     els.communityDescription.textContent = community.description || "";
-    els.communityStatus.textContent = capitalize(visibility);
-    els.communityStatus.className = `visibility-pill ${visibility}`;
+    els.communityStatus.textContent = visibilityLabel(visibility);
+    els.communityStatus.className = `visibility-pill ${visibility === "request_to_join" ? "request" : visibility}`;
 
     els.communityLeaderboardPanel.hidden = !analytics.modules.leaderboard;
     if (analytics.modules.leaderboard) {
@@ -3581,40 +3644,88 @@
     if (els.findCommunitySearchInput.value !== query) {
       els.findCommunitySearchInput.value = query;
     }
-    const code = query.trim();
-    let html;
+    const q = query.trim();
     if (!communitiesAreShared()) {
-      html = emptyState("Sign in to find and join communities.");
-    } else if (code.length < 2) {
-      html = emptyState("Enter a community's invite code to find it.");
-    } else if (communityCodeResult === "notfound" || communityCodeResult === null) {
-      html = emptyState(`No community found for "${escapeHtml(code)}". Check the invite code.`);
-    } else {
-      html = renderFoundCommunityCard(communityCodeResult);
+      els.findCommunityResults.innerHTML = emptyState("Sign in to find and join communities.");
+      return;
     }
-    els.findCommunityResults.innerHTML = html;
+    if (q.length < 2) {
+      els.findCommunityResults.innerHTML = emptyState("Search by community name, or paste an invite code.");
+      return;
+    }
+
+    // Merge name-search matches with the exact invite-code match (which may be a
+    // private community not present in name results). Dedup by id.
+    const byId = new Map();
+    communitySearchResults.forEach((item) => byId.set(String(item.id), item));
+    if (communityCodeResult && typeof communityCodeResult === "object") {
+      const id = String(communityCodeResult.id);
+      if (!byId.has(id)) {
+        byId.set(id, {
+          id: communityCodeResult.id,
+          name: communityCodeResult.name,
+          category: communityCodeResult.category,
+          description: communityCodeResult.description,
+          member_count: communityCodeResult.member_count,
+          visibility: "code", // found by exact code → instant join regardless of tier
+          is_member: state.communities.some((c) => c.id === communityCodeResult.id),
+          request_status: null
+        });
+      }
+    }
+
+    const results = Array.from(byId.values());
+    els.findCommunityResults.innerHTML = results.length
+      ? results.map(renderCommunitySearchCard).join("")
+      : emptyState(`No communities found for "${escapeHtml(q)}". Try another name, or paste an exact invite code.`);
 
     Array.from(els.findCommunityResults.querySelectorAll("[data-join-community-id]")).forEach((button) => {
       button.addEventListener("click", () => joinCommunityById(button.dataset.joinCommunityId));
     });
+    Array.from(els.findCommunityResults.querySelectorAll("[data-request-community-id]")).forEach((button) => {
+      button.addEventListener("click", () => requestToJoinById(button.dataset.requestCommunityId));
+    });
   }
 
-  function renderFoundCommunityCard(found) {
-    const already = state.communities.some((community) => community.id === found.id);
+  function renderCommunitySearchCard(item) {
+    const id = escapeHtml(String(item.id));
+    const already = item.is_member || state.communities.some((community) => community.id === item.id);
+    let action;
+    if (already) {
+      action = `<button class="secondary-button small" type="button" data-join-community-id="${id}">Open</button>`;
+    } else if (item.visibility === "request_to_join") {
+      if (item.request_status === "pending") {
+        action = `<button class="ghost-button small" type="button" disabled>Requested</button>`;
+      } else if (item.request_status === "declined") {
+        action = `<button class="secondary-button small" type="button" data-request-community-id="${id}">Request again</button>`;
+      } else {
+        action = `<button class="primary-button small" type="button" data-request-community-id="${id}">Request to join</button>`;
+      }
+    } else {
+      // public, or found by exact invite code (any tier) → join instantly
+      action = `<button class="primary-button small" type="button" data-join-community-id="${id}">Join</button>`;
+    }
+    const tier = item.visibility === "request_to_join"
+      ? `<span class="visibility-pill request">Request to join</span>`
+      : item.visibility === "public" ? `<span class="visibility-pill public">Public</span>` : "";
     return `
       <article class="find-community-card">
         <div class="find-community-main">
-          <strong>${escapeHtml(found.name || "Community")}</strong>
-          <span>${escapeHtml(found.category || "Community")} &middot; ${plural(Number(found.member_count) || 0, "member")}</span>
-          ${found.description ? `<p>${escapeHtml(found.description)}</p>` : ""}
+          <strong>${escapeHtml(item.name || "Community")}</strong>
+          <span>${escapeHtml(item.category || "Community")} &middot; ${plural(Number(item.member_count) || 0, "member")} ${tier}</span>
+          ${item.description ? `<p>${escapeHtml(item.description)}</p>` : ""}
         </div>
-        <div class="find-community-actions">
-          ${already
-            ? `<button class="secondary-button small" type="button" data-join-community-id="${escapeHtml(String(found.id))}">Open</button>`
-            : `<button class="primary-button small" type="button" data-join-community-id="${escapeHtml(String(found.id))}">Join</button>`}
-        </div>
+        <div class="find-community-actions">${action}</div>
       </article>
     `;
+  }
+
+  async function requestToJoinById(communityId) {
+    if (!communitiesAreShared() || !communityId) return;
+    const res = await window.PointwellSignals.requestToJoin(communityId, state.account.userId);
+    if (res.error) { showToast(communityDbError(res.error, "Couldn't request to join")); return; }
+    showToast(res.already ? "You've already requested to join" : "Request sent — the owner will review it");
+    runCommunityCodeSearch(state.communitySearchQuery || ""); // refresh the action to "Requested"
   }
 
   function renderProfile() {
@@ -5467,10 +5578,10 @@
         <div class="community-card-main">
           <strong>${escapeHtml(community.name)}</strong>
           <span class="community-card-description">${escapeHtml(communityDescriptionLine(community))}</span>
-          <span class="community-meta">${plural(getCommunityMemberCount(community), "member")} · ${escapeHtml(capitalize(visibility))}</span>
+          <span class="community-meta">${plural(getCommunityMemberCount(community), "member")} · ${escapeHtml(visibilityLabel(visibility))}</span>
           <span class="community-score-line">My score today: ${escapeHtml(formatPoints(myScore))} points</span>
         </div>
-        <span class="visibility-pill ${escapeHtml(visibility)}">${escapeHtml(capitalize(visibility))}</span>
+        <span class="visibility-pill ${visibility === "request_to_join" ? "request" : escapeHtml(visibility)}">${escapeHtml(visibilityLabel(visibility))}</span>
       </button>
     `;
   }
@@ -5479,8 +5590,19 @@
     return community.description || community.category || "Community accountability";
   }
 
+  // Three discovery tiers; anything unrecognized falls back to the safest (private).
+  function normalizeVisibilityTier(value) {
+    return (value === "public" || value === "request_to_join") ? value : "private";
+  }
+
   function communityVisibility(community) {
-    return community.visibility === "public" ? "public" : "private";
+    return normalizeVisibilityTier(community.visibility);
+  }
+
+  function visibilityLabel(value) {
+    if (value === "public") return "Public";
+    if (value === "request_to_join") return "Request to join";
+    return "Private";
   }
 
   function isCommunityAdmin(community) {
@@ -6327,7 +6449,7 @@
     if (!community || !isCommunityAdmin(community)) return;
     community.name = els.communityNameInput.value.trim() || community.name || "Community";
     community.description = els.communityDescriptionInput.value.trim();
-    community.visibility = els.communityVisibilityInput.value === "public" ? "public" : "private";
+    community.visibility = normalizeVisibilityTier(els.communityVisibilityInput.value);
     community.system = normalizeSystem(community.system || { rules: [] });
     community.system.title = `${community.name} rules`;
     community.system.category = community.category || community.system.category || "Community";
@@ -6519,7 +6641,7 @@
     draft.name = els.ccNameInput.value;
     draft.category = els.ccCategoryInput.value;
     draft.description = els.ccDescriptionInput.value;
-    draft.visibility = els.ccVisibilityInput.value === "public" ? "public" : "private";
+    draft.visibility = normalizeVisibilityTier(els.ccVisibilityInput.value);
   }
 
   function validateCreateCommunityStep(step) {
@@ -6892,7 +7014,7 @@
       name,
       category,
       description: draft.description.trim(),
-      visibility: draft.visibility === "public" ? "public" : "private",
+      visibility: normalizeVisibilityTier(draft.visibility),
       invite_code: makeInviteCode(category),
       system: system
     });
@@ -7737,16 +7859,24 @@
 
   function runCommunityCodeSearch(query) {
     state.communitySearchQuery = query;
-    const code = String(query || "").trim();
-    if (!communitiesAreShared() || code.length < 2) {
+    const q = String(query || "").trim();
+    if (!communitiesAreShared() || q.length < 2) {
       communityCodeResult = null;
+      communitySearchResults = [];
       renderFindCommunities();
       return;
     }
-    Promise.resolve(window.PointwellSignals.findCommunityByCode(code)).then((found) => {
-      communityCodeResult = found || "notfound";
+    // Two lookups in parallel: NAME search (public + request_to_join only, private
+    // excluded in the DB) AND an exact invite-code match (finds ANY tier, incl.
+    // private — invites keep working for everyone).
+    Promise.all([
+      Promise.resolve(window.PointwellSignals.searchCommunities(q)).catch(() => []),
+      Promise.resolve(window.PointwellSignals.findCommunityByCode(q)).catch(() => null)
+    ]).then((out) => {
+      communitySearchResults = Array.isArray(out[0]) ? out[0] : [];
+      communityCodeResult = out[1] || null;
       renderFindCommunities();
-    }).catch(() => { communityCodeResult = "notfound"; renderFindCommunities(); });
+    });
   }
 
   async function joinCommunityById(communityId) {

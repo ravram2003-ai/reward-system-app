@@ -454,6 +454,77 @@
     }
   }
 
+  // ── Community discovery: name search + request-to-join ──────────────────────
+
+  // Name search — returns only public + request_to_join communities (private is
+  // excluded in the DB function), each with member count + my membership/request
+  // status so the UI shows the right per-tier action.
+  async function searchCommunities(query) {
+    var sb = getClient();
+    var q = String(query || "").trim();
+    if (!sb || q.length < 2) return [];
+    try {
+      var res = await sb.rpc("search_communities", { q: q });
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Create a PENDING request to join a request_to_join community. A duplicate
+  // (already pending) is treated as success. DB RLS enforces the real rules.
+  async function requestToJoin(communityId, userId) {
+    var sb = getClient();
+    if (!sb || !communityId || !userId) return { error: { message: "Couldn't request to join." } };
+    try {
+      var res = await sb.from("join_requests").insert({ community_id: communityId, requester_user: userId });
+      if (res.error) {
+        var detail = String(res.error.message || "") + " " + String(res.error.code || "");
+        if (/duplicate|unique|already exists|23505/i.test(detail)) return { error: null, already: true };
+        return { error: res.error };
+      }
+      return { error: null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // Pending requests for communities I OWN (with requester names) — owner inbox.
+  async function getOwnerJoinRequests() {
+    var sb = getClient();
+    if (!sb) return [];
+    try {
+      var res = await sb.rpc("get_owner_join_requests");
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // My own requests + their status (pending / accepted / declined).
+  async function getMyJoinRequests() {
+    var sb = getClient();
+    if (!sb) return [];
+    try {
+      var res = await sb.rpc("get_my_join_requests");
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Owner-only: accept (creates the membership) or decline a request.
+  async function respondToJoinRequest(requestId, accept) {
+    var sb = getClient();
+    if (!sb || !requestId) return { error: { message: "Couldn't respond." } };
+    try {
+      var res = await sb.rpc("respond_to_join_request", { req_id: requestId, accept: !!accept });
+      return { error: res.error || null, status: res.error ? null : res.data };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
   var api = {
     KUDOS_PRESETS: KUDOS_PRESETS,
     MOTIVATION_PRESETS: MOTIVATION_PRESETS,
@@ -477,6 +548,11 @@
     joinCommunity: joinCommunity,
     leaveCommunity: leaveCommunity,
     findCommunityByCode: findCommunityByCode,
+    searchCommunities: searchCommunities,
+    requestToJoin: requestToJoin,
+    getOwnerJoinRequests: getOwnerJoinRequests,
+    getMyJoinRequests: getMyJoinRequests,
+    respondToJoinRequest: respondToJoinRequest,
     upsertCommunityEntry: upsertCommunityEntry,
     fetchMyCommunities: fetchMyCommunities,
     isNudgeable: isNudgeable,

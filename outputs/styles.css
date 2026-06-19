@@ -6100,3 +6100,81 @@ body.auth-locked {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* ════════════════════════════════════════════════════════════════
+   Community discovery — request-to-join tier pill + owner request inbox.
+   ════════════════════════════════════════════════════════════════ */
+.visibility-pill.request {
+  color: var(--warm);
+  background: var(--warm-soft);
+}
+
+/* Owner inbox: pending join requests as action items (distinct from chat rows). */
+.chats-requests {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--warm-soft);
+}
+.join-requests-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.join-requests-head strong {
+  font-size: 0.9rem;
+  font-weight: 850;
+  color: var(--ink);
+}
+.join-requests-head span {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.join-request-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.join-request-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.join-request-main strong {
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+.join-request-main span {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.join-request-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 720px) {
+  .join-request-item {
+    flex-wrap: wrap;
+  }
+  .join-request-actions {
+    width: 100%;
+  }
+  .join-request-actions .primary-button,
+  .join-request-actions .ghost-button {
+    flex: 1;
+  }
+}

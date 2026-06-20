@@ -19,10 +19,17 @@
     { id: "manual", label: "Manual Entry" },
     { id: "apple-health", label: "Apple Health" },
     { id: "google-health-connect", label: "Google Health Connect" },
+    { id: "google-health", label: "Google Health (Fitbit)" },
+    { id: "whoop", label: "Whoop" },
     { id: "chase", label: "Bank Account / Chase" },
     { id: "plaid", label: "Plaid" },
     { id: "calculated", label: "Calculated Total" }
   ];
+
+  // Sources backed by a REAL live OAuth connection (the Supabase wearables
+  // connector), not the in-app mock/sample data. See outputs/wearables.js.
+  // "google-health" = the Google Health API (how real Fitbit data reaches the web app).
+  const REAL_WEARABLE_SOURCES = new Set(["google-health", "whoop"]);
 
   const sourceMetricOptions = {
     manual: [
@@ -44,6 +51,21 @@
       { id: "exercise-sessions", label: "Exercise sessions" },
       { id: "calories", label: "Calories" },
       { id: "nutrition", label: "Nutrition" }
+    ],
+    "google-health": [
+      { id: "steps", label: "Steps" },
+      { id: "sleep-hours", label: "Sleep hours" },
+      { id: "resting-heart-rate", label: "Resting heart rate" },
+      { id: "active-calories", label: "Active calories" }
+    ],
+    whoop: [
+      { id: "recovery", label: "Recovery %" },
+      { id: "sleep-hours", label: "Sleep hours" },
+      { id: "sleep-performance", label: "Sleep performance %" },
+      { id: "resting-heart-rate", label: "Resting heart rate" },
+      { id: "hrv", label: "HRV (ms)" },
+      { id: "strain", label: "Day strain" },
+      { id: "calories", label: "Calories" }
     ],
     chase: [
       { id: "transactions", label: "Transactions" },
@@ -82,6 +104,20 @@
       privacy: "Google Health Connect data is only used for the rules you link to this app. You can disconnect anytime."
     },
     {
+      id: "google-health",
+      label: "Google Health (Fitbit)",
+      live: true,
+      description: "Live steps, sleep, resting heart rate, and active calories from your Fitbit via the Google Health API.",
+      privacy: "Pointwell connects through Google with read-only access and only uses the data to calculate your reward-system progress. You can disconnect anytime, which deletes the stored connection."
+    },
+    {
+      id: "whoop",
+      label: "Whoop",
+      live: true,
+      description: "Live recovery, sleep, resting heart rate, HRV, day strain, and calories from your WHOOP account.",
+      privacy: "Pointwell connects to WHOOP with read-only access and only uses the data to calculate your reward-system progress. You can disconnect anytime, which deletes the stored connection."
+    },
+    {
       id: "chase",
       label: "Chase",
       description: "Transactions, daily spending, category spending, recurring charges, and balances.",
@@ -112,6 +148,23 @@
       "exercise-sessions": 1,
       calories: 2180,
       nutrition: 1
+    },
+    // Google Health (Fitbit) and Whoop are LIVE sources: these zeros are only the
+    // pre-sync fallback. Real values arrive from the wearables connector and overwrite them.
+    "google-health": {
+      steps: 0,
+      "sleep-hours": 0,
+      "resting-heart-rate": 0,
+      "active-calories": 0
+    },
+    whoop: {
+      recovery: 0,
+      "sleep-hours": 0,
+      "sleep-performance": 0,
+      "resting-heart-rate": 0,
+      hrv: 0,
+      strain: 0,
+      calories: 0
     },
     chase: {
       transactions: 6,
@@ -193,6 +246,8 @@
     integrations: {
       "apple-health": { status: "not-connected", lastSynced: "" },
       "google-health-connect": { status: "not-connected", lastSynced: "" },
+      "google-health": { status: "not-connected", lastSynced: "" },
+      whoop: { status: "not-connected", lastSynced: "" },
       chase: { status: "not-connected", lastSynced: "" },
       plaid: { status: "not-connected", lastSynced: "" }
     },
@@ -402,6 +457,7 @@
       if (els.profileSignOutButton) els.profileSignOutButton.hidden = false;
       hideAuthScreen();
       initSignals().catch(() => {});
+      initWearables();
     } else if (detail.status === "signed-out") {
       state.account = null;
       // Don't let one account's opt-in linger in localStorage on a shared device.
@@ -4844,7 +4900,16 @@
     const permissionCard = pending ? renderIntegrationPermissionCard(pending) : "";
     els.integrationList.innerHTML = `${cards}${permissionCard}`;
     Array.from(els.integrationList.querySelectorAll("[data-connect-integration]")).forEach((button) => {
-      button.addEventListener("click", () => openMockIntegrationPermission(button.dataset.connectIntegration));
+      button.addEventListener("click", () => {
+        const id = button.dataset.connectIntegration;
+        // Real devices (Fitbit/Whoop) start a live OAuth connection; the others
+        // keep using the in-app mock permission flow.
+        if (isRealWearable(id)) connectWearable(id);
+        else openMockIntegrationPermission(id);
+      });
+    });
+    Array.from(els.integrationList.querySelectorAll("[data-sync-integration]")).forEach((button) => {
+      button.addEventListener("click", () => syncWearable(button.dataset.syncIntegration));
     });
     Array.from(els.integrationList.querySelectorAll("[data-confirm-integration]")).forEach((button) => {
       button.addEventListener("click", () => confirmMockIntegration(button.dataset.confirmIntegration));
@@ -4863,26 +4928,42 @@
   function renderIntegrationCard(definition) {
     const integration = state.integrations?.[definition.id] || { status: "not-connected", lastSynced: "" };
     const connected = integration.status === "connected";
+    const live = isRealWearable(definition.id);
     const metrics = Object.entries(state.mockSyncData?.[definition.id] || defaultMockSyncData[definition.id] || {})
+      .filter(([, value]) => !live || Number(value) > 0) // hide zero pre-sync values for live devices
       .slice(0, 3)
       .map(([metric, value]) => `${sourceMetricLabel(definition.id, metric)}: ${formatValue(value)}`)
       .join(" · ");
+    const statusText = connected
+      ? (live ? wearableSyncedLabel(integration.lastSynced) : "Connected in demo mode")
+      : "Not connected";
+    const fallback = live ? "Connect to start syncing your live data." : "Mock data ready for testing.";
     return `
       <article class="integration-card">
         <div class="integration-main">
           <strong>${escapeHtml(definition.label)}</strong>
-          <span>${escapeHtml(connected ? "Connected in demo mode" : "Not connected")}</span>
+          <span>${escapeHtml(statusText)}</span>
           <p>${escapeHtml(definition.description)}</p>
-          <small>${escapeHtml(metrics || "Mock data ready for testing.")}</small>
+          <small>${escapeHtml(metrics || fallback)}</small>
         </div>
         <div class="integration-actions">
           ${connected
-            ? `<button class="secondary-button small" type="button" data-manage-integration="${escapeHtml(definition.id)}">Manage</button>
+            ? `${live ? `<button class="secondary-button small" type="button" data-sync-integration="${escapeHtml(definition.id)}">Sync now</button>` : `<button class="secondary-button small" type="button" data-manage-integration="${escapeHtml(definition.id)}">Manage</button>`}
                <button class="ghost-button small" type="button" data-disconnect-integration="${escapeHtml(definition.id)}">Disconnect</button>`
             : `<button class="secondary-button small" type="button" data-connect-integration="${escapeHtml(definition.id)}">Connect</button>`}
         </div>
       </article>
     `;
+  }
+
+  // "Synced just now / 5m ago", reusing the signals relative-time formatter.
+  function wearableSyncedLabel(iso) {
+    if (!iso) return "Connected";
+    const rel = window.PointwellSignals && typeof window.PointwellSignals.formatRelativeTime === "function"
+      ? window.PointwellSignals.formatRelativeTime(iso)
+      : "";
+    if (!rel) return "Connected";
+    return rel === "just now" ? "Synced just now" : `Synced ${rel} ago`;
   }
 
   function renderIntegrationPermissionCard(definition) {
@@ -4941,6 +5022,12 @@
       lastSynced: ""
     };
     state.pendingIntegrationId = "";
+    // For a real device, revoke server-side and clear the cached live values.
+    if (isRealWearable(integrationId)) {
+      state.mockSyncData = mergeMockSyncData(state.mockSyncData);
+      state.mockSyncData[integrationId] = { ...defaultMockSyncData[integrationId] };
+      if (window.PointwellWearables) window.PointwellWearables.disconnect(integrationId).catch(() => {});
+    }
     const system = getTrackerSystem();
     if (system) {
       syncDraftInputsFromEntries(system);
@@ -4949,6 +5036,125 @@
     saveState();
     render();
     showToast(`${dataSourceLabel(integrationId)} disconnected`);
+  }
+
+  // ── Real wearable devices (Fitbit / Whoop) — live OAuth + sync ───────────────
+  // These funnel real metrics into state.mockSyncData[provider], so the entire
+  // existing synced-rule pipeline (syncedValueForRule, dashboards, charts) renders
+  // live data with no further changes.
+  function isRealWearable(id) {
+    return REAL_WEARABLE_SOURCES.has(id) && !!window.PointwellWearables;
+  }
+
+  async function connectWearable(provider) {
+    const api = window.PointwellWearables;
+    if (!api || !api.isConfigured()) {
+      showToast("Sign in with your account first to connect a device.");
+      return;
+    }
+    showToast(`Opening ${dataSourceLabel(provider)} to connect…`);
+    const res = await api.connect(provider);
+    // On success the browser is already redirecting; only surface failures.
+    if (res && res.error) showToast(res.error.message || "Couldn't start the connection.");
+  }
+
+  async function syncWearable(provider, options = {}) {
+    const api = window.PointwellWearables;
+    if (!api) return;
+    if (!options.silent) showToast(`Syncing ${dataSourceLabel(provider)}…`);
+    const res = await api.sync(provider);
+    if (res.error) {
+      if (!options.silent) showToast(res.error.message || "Couldn't sync right now.");
+      return;
+    }
+    const changed = applyWearableMetrics(res.data && res.data.providers);
+    const system = getTrackerSystem();
+    if (system) {
+      syncDraftInputsFromEntries(system);
+      autoSaveToday(system);
+    }
+    saveState();
+    render();
+    if (!options.silent) {
+      const result = res.data && res.data.providers && res.data.providers[provider];
+      if (result && result.error === "reconnect") showToast(`Reconnect ${dataSourceLabel(provider)} to keep syncing.`);
+      else if (changed) showToast(`${dataSourceLabel(provider)} synced`);
+      else showToast(`No new ${dataSourceLabel(provider)} data yet today.`);
+    }
+  }
+
+  // Merge connector results into local state. Returns true if any value landed.
+  function applyWearableMetrics(providers) {
+    if (!providers || typeof providers !== "object") return false;
+    state.mockSyncData = mergeMockSyncData(state.mockSyncData);
+    state.integrations = normalizeIntegrations(state.integrations);
+    let changed = false;
+    Object.keys(providers).forEach((provider) => {
+      const result = providers[provider] || {};
+      if (!result.metrics) return;
+      const numeric = numericMetrics(result.metrics);
+      state.integrations[provider] = {
+        status: "connected",
+        lastSynced: result.last_synced_at || new Date().toISOString()
+      };
+      state.mockSyncData[provider] = { ...(state.mockSyncData[provider] || {}), ...numeric };
+      if (Object.keys(numeric).length) changed = true;
+    });
+    return changed;
+  }
+
+  function numericMetrics(metrics) {
+    const out = {};
+    Object.keys(metrics || {}).forEach((key) => {
+      const value = Number(metrics[key]);
+      if (Number.isFinite(value)) out[key] = value;
+    });
+    return out;
+  }
+
+  // Finish an OAuth round-trip if the user just returned from Fitbit/Whoop, then
+  // refresh status + pull a fresh snapshot for any already-connected device.
+  let wearablesBootstrapped = false;
+  function initWearables() {
+    const api = window.PointwellWearables;
+    if (!api) return;
+    completeWearableRedirect().catch(() => {});
+    if (wearablesBootstrapped) return;
+    wearablesBootstrapped = true;
+    api.status().then((res) => {
+      if (res.error || !res.data) return;
+      const connections = res.data.connections || [];
+      if (!connections.length) return;
+      const providers = {};
+      connections.forEach((c) => {
+        providers[c.provider] = { metrics: c.last_metrics || {}, last_synced_at: c.last_synced_at };
+      });
+      applyWearableMetrics(providers);
+      saveState();
+      render();
+      // Then refresh each connected device live in the background.
+      connections.forEach((c) => syncWearable(c.provider, { silent: true }));
+    }).catch(() => {});
+  }
+
+  async function completeWearableRedirect() {
+    const api = window.PointwellWearables;
+    if (!api) return;
+    const result = await api.completeRedirect();
+    if (!result) return;
+    if (result.error) {
+      showToast(result.error.message || "The connection didn't complete.");
+      return;
+    }
+    const provider = result.provider;
+    if (!provider) return;
+    state.integrations = normalizeIntegrations(state.integrations);
+    state.integrations[provider] = { status: "connected", lastSynced: new Date().toISOString() };
+    saveState();
+    render();
+    showToast(`${dataSourceLabel(provider)} connected — syncing your data…`);
+    await syncWearable(provider, { silent: true });
+    showToast(`${dataSourceLabel(provider)} connected`);
   }
 
   function manageIntegration(integrationId) {
@@ -7417,6 +7623,22 @@
       if (text.includes("spend")) return "net-spending";
       return "total-calories";
     }
+    if (source === "google-health") {
+      if (text.includes("sleep")) return "sleep-hours";
+      if (text.includes("resting") || text.includes("heart")) return "resting-heart-rate";
+      if (text.includes("calorie")) return "active-calories";
+      return "steps";
+    }
+    if (source === "whoop") {
+      if (text.includes("sleep performance")) return "sleep-performance";
+      if (text.includes("sleep")) return "sleep-hours";
+      if (text.includes("recovery")) return "recovery";
+      if (text.includes("hrv")) return "hrv";
+      if (text.includes("strain")) return "strain";
+      if (text.includes("calorie")) return "calories";
+      if (text.includes("resting") || text.includes("heart")) return "resting-heart-rate";
+      return "recovery";
+    }
     return "manual";
   }
 
@@ -7424,6 +7646,12 @@
     if (source === "manual") return "Manual rules use Add Entry.";
     if (source === "calculated") return `${sourceMetricLabel(source, metric)} is calculated from other tracked values in this demo.`;
     const status = integrationStatus(source);
+    if (REAL_WEARABLE_SOURCES.has(source)) {
+      const connection = status === "connected"
+        ? "Connected — syncs live from your device."
+        : `Connect ${dataSourceLabel(source)} in Profile to sync this automatically.`;
+      return `${sourceMetricLabel(source, metric)} updates from your ${dataSourceLabel(source)} account. ${connection}`;
+    }
     const connection = status === "connected" ? "Connected in demo mode." : "Connect this integration in Profile to use mock synced values.";
     return `${sourceMetricLabel(source, metric)} will update automatically. ${connection}`;
   }

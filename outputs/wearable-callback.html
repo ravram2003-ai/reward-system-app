@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Finishing connection… | Pointwell</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0c0f0e; color: #e7efe9;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .wrap { height: 100%; display: flex; align-items: center; justify-content: center; }
+      p { opacity: .8; font-size: 15px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap"><p>Finishing connection…</p></div>
+    <script>
+      // Capture the provider's OAuth return params, hand them to the app via
+      // sessionStorage, then bounce back to index.html. This keeps the ?code= off
+      // the main app URL so the Supabase auth client never tries to consume it.
+      (function () {
+        try {
+          var p = new URLSearchParams(location.search);
+          var payload = {
+            code: p.get("code"),
+            state: p.get("state"),
+            error: p.get("error") || p.get("error_description"),
+            ts: Date.now()
+          };
+          sessionStorage.setItem("pointwell_wearable_callback", JSON.stringify(payload));
+        } catch (e) { /* ignore */ }
+        var base = location.pathname.replace(/wearable-callback\.html$/, "");
+        location.replace(base + "index.html");
+      })();
+    </script>
+  </body>
+</html>

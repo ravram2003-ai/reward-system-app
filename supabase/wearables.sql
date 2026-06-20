@@ -18,7 +18,7 @@
 -- ── Connections: one row per (user, provider) holding tokens + last snapshot ──
 create table if not exists public.wearable_connections (
   user_id         uuid not null references auth.users(id) on delete cascade,
-  provider        text not null check (provider in ('fitbit', 'whoop')),
+  provider        text not null check (provider in ('google-health', 'whoop')),
   access_token    text,
   refresh_token   text,
   token_type      text,
@@ -37,7 +37,7 @@ create table if not exists public.wearable_connections (
 create table if not exists public.wearable_oauth_states (
   state         text primary key,
   user_id       uuid not null references auth.users(id) on delete cascade,
-  provider      text not null check (provider in ('fitbit', 'whoop')),
+  provider      text not null check (provider in ('google-health', 'whoop')),
   code_verifier text,
   redirect_uri  text,
   created_at    timestamptz not null default now()

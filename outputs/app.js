@@ -19,6 +19,7 @@
     { id: "manual", label: "Manual Entry" },
     { id: "apple-health", label: "Apple Health" },
     { id: "google-health-connect", label: "Google Health Connect" },
+    { id: "google-health", label: "Google Health (Fitbit)" },
     { id: "fitbit", label: "Fitbit" },
     { id: "whoop", label: "Whoop" },
     { id: "chase", label: "Bank Account / Chase" },
@@ -28,7 +29,8 @@
 
   // Sources backed by a REAL live OAuth connection (the Supabase wearables
   // connector), not the in-app mock/sample data. See outputs/wearables.js.
-  const REAL_WEARABLE_SOURCES = new Set(["fitbit", "whoop"]);
+  // "google-health" = the Google Health API (how real Fitbit data reaches the web app).
+  const REAL_WEARABLE_SOURCES = new Set(["google-health", "fitbit", "whoop"]);
 
   const sourceMetricOptions = {
     manual: [
@@ -50,6 +52,12 @@
       { id: "exercise-sessions", label: "Exercise sessions" },
       { id: "calories", label: "Calories" },
       { id: "nutrition", label: "Nutrition" }
+    ],
+    "google-health": [
+      { id: "steps", label: "Steps" },
+      { id: "sleep-hours", label: "Sleep hours" },
+      { id: "resting-heart-rate", label: "Resting heart rate" },
+      { id: "active-calories", label: "Active calories" }
     ],
     fitbit: [
       { id: "steps", label: "Steps" },
@@ -105,6 +113,13 @@
       privacy: "Google Health Connect data is only used for the rules you link to this app. You can disconnect anytime."
     },
     {
+      id: "google-health",
+      label: "Google Health (Fitbit)",
+      live: true,
+      description: "Live steps, sleep, resting heart rate, and active calories from your Fitbit via the Google Health API.",
+      privacy: "Pointwell connects through Google with read-only access and only uses the data to calculate your reward-system progress. You can disconnect anytime, which deletes the stored connection."
+    },
+    {
       id: "fitbit",
       label: "Fitbit",
       live: true,
@@ -150,8 +165,14 @@
       calories: 2180,
       nutrition: 1
     },
-    // Fitbit/Whoop are LIVE sources: these zeros are only the pre-sync fallback.
-    // Real values arrive from the wearables connector and overwrite them.
+    // Google Health/Fitbit/Whoop are LIVE sources: these zeros are only the pre-sync
+    // fallback. Real values arrive from the wearables connector and overwrite them.
+    "google-health": {
+      steps: 0,
+      "sleep-hours": 0,
+      "resting-heart-rate": 0,
+      "active-calories": 0
+    },
     fitbit: {
       steps: 0,
       "sleep-hours": 0,
@@ -249,6 +270,7 @@
     integrations: {
       "apple-health": { status: "not-connected", lastSynced: "" },
       "google-health-connect": { status: "not-connected", lastSynced: "" },
+      "google-health": { status: "not-connected", lastSynced: "" },
       fitbit: { status: "not-connected", lastSynced: "" },
       whoop: { status: "not-connected", lastSynced: "" },
       chase: { status: "not-connected", lastSynced: "" },
@@ -7625,6 +7647,12 @@
       if (text.includes("workout") || text.includes("exercise")) return "workout-minutes";
       if (text.includes("spend")) return "net-spending";
       return "total-calories";
+    }
+    if (source === "google-health") {
+      if (text.includes("sleep")) return "sleep-hours";
+      if (text.includes("resting") || text.includes("heart")) return "resting-heart-rate";
+      if (text.includes("calorie")) return "active-calories";
+      return "steps";
     }
     if (source === "fitbit") {
       if (text.includes("sleep")) return "sleep-hours";

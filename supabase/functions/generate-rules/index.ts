@@ -1,0 +1,146 @@
+// Pointwell — "Generate with AI" Edge Function.
+// Calls the real Anthropic Claude API server-side so the API key NEVER touches the
+// frontend or the (public) repo. The key is read from the Supabase secret
+// ANTHROPIC_API_KEY (set via `supabase secrets set` — see the README/hand-off).
+//
+// Contract:
+//   POST { goals, rewards, penalties, categories, strictness, targets, kind }
+//   -> 200 { system: { title, category, description, explanation, rules: [...] } }
+//   -> 4xx/5xx { error: "<clean, user-facing message>" }
+//
+// Each rule is the SIMPLE spec the app already consumes:
+//   { label, category, unit, style: "goal"|"every"|"yesNo", goal, every, points, tier }
+//   tier: "core"|"extra"|"bonus"|"penalty"  (penalty rules use negative points)
+
+import Anthropic from "npm:@anthropic-ai/sdk";
+
+const MODEL = "claude-haiku-4-5"; // cheapest current model — ideal for short rule generation
+
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+const SYSTEM_PROMPT = `You design "reward systems" for Pointwell, a daily habit/goal tracker. A reward system is a small set of scoring rules a person checks off each day to earn (or lose) points.
+
+You will receive the user's goals, habits to reward, habits to discourage (penalties), categories, a strictness level, and optional numeric targets. Produce a focused, motivating system tailored to THEM — specific to their actual words, not generic.
+
+RULE MODEL — every rule has:
+- "label": short, specific name of the habit (e.g. "Deep work block", "10k steps").
+- "category": a short grouping label.
+- "unit": what is being measured (e.g. "minutes", "steps", "sessions", "pages", "times").
+- "style": one of
+    - "goal"  — hit a daily target once (use "goal" = the target amount).
+    - "every" — earn points repeatedly per increment (use "goal" = daily target, "every" = the increment that earns points).
+    - "yesNo" — simple did-it / didn't (set "goal" to 0).
+- "goal": numeric daily target (0 for yesNo).
+- "every": numeric increment for "every" style (0 otherwise).
+- "points": points earned, a small number (0.5–3). For PENALTY rules use a NEGATIVE number.
+- "tier": "core" (essential), "extra" (supporting), "bonus" (stretch), or "penalty".
+
+GUIDELINES:
+- 4–8 rules total. Lean toward "core" rules; add "extra"/"bonus" for depth.
+- Respect strictness: "lenient" = fewer, easier rules and lower targets; "balanced" = moderate; "strict" = more rules, higher targets, and include penalties if any were given.
+- Only include PENALTY rules (tier "penalty", negative points) if the user actually listed habits to discourage. For a penalty, "goal" is the minimum acceptable amount per day.
+- Honor any numeric targets the user gave.
+- Keep labels concrete and concise. No fluff.
+
+OUTPUT: Respond with ONLY a single minified JSON object, no prose, no markdown code fences. Exact shape:
+{"title":string,"category":string,"description":string,"explanation":string,"rules":[{"label":string,"category":string,"unit":string,"style":"goal"|"every"|"yesNo","goal":number,"every":number,"points":number,"tier":"core"|"extra"|"bonus"|"penalty"}]}
+- "title": a short name for the system.
+- "description": one sentence on what it rewards.
+- "explanation": 1–2 sentences on why these rules, for the review screen.`;
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS, "Content-Type": "application/json" },
+  });
+}
+
+function buildUserMessage(input: Record<string, unknown>): string {
+  // Clamp every field — bounds the prompt size so a large body can't amplify API cost.
+  const s = (v: unknown) => String(v ?? "").trim().slice(0, 600);
+  const lines = [
+    `Goals: ${s(input.goals) || "(not specified)"}`,
+    `Habits to reward: ${s(input.rewards) || "(not specified)"}`,
+    `Habits to discourage (penalties): ${s(input.penalties) || "(none)"}`,
+    `Categories / focus: ${s(input.categories) || "(not specified)"}`,
+    `Strictness: ${s(input.strictness) || "balanced"}`,
+    `Targets: ${s(input.targets) || "(none)"}`,
+  ];
+  const adjust = s(input.adjust);
+  if (adjust) lines.push(`Adjustments to apply this time: ${adjust}.`);
+  const kind = s(input.kind);
+  if (kind === "community") {
+    lines.unshift("This system is for a COMMUNITY of people working toward a shared goal — keep rules fair and broadly applicable.");
+  }
+  return lines.join("\n");
+}
+
+// Defensive: pull the JSON object out of the model's text even if it wrapped it in
+// prose or ```json fences.
+function extractJson(text: string): any | null {
+  if (!text) return null;
+  let t = text.trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) t = fence[1].trim();
+  const start = t.indexOf("{");
+  const end = t.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    return JSON.parse(t.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method !== "POST") return jsonResponse({ error: "Method not allowed." }, 405);
+
+  const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!apiKey) {
+    console.error("ANTHROPIC_API_KEY secret is not set on this Edge Function.");
+    return jsonResponse({ error: "AI isn't configured yet." }, 500);
+  }
+
+  let input: Record<string, unknown> = {};
+  try {
+    input = (await req.json()) || {};
+  } catch {
+    input = {};
+  }
+
+  try {
+    const client = new Anthropic({ apiKey });
+    const message = await client.messages.create({
+      model: MODEL,
+      max_tokens: 1500,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: buildUserMessage(input) }],
+    });
+
+    const text = (message.content || [])
+      .filter((b: any) => b.type === "text")
+      .map((b: any) => b.text)
+      .join("");
+
+    const parsed = extractJson(text);
+    if (!parsed || !Array.isArray(parsed.rules) || parsed.rules.length === 0) {
+      return jsonResponse({ error: "The AI returned an unexpected response. Please try again." }, 502);
+    }
+    return jsonResponse({ system: parsed }, 200);
+  } catch (err: any) {
+    const status = err?.status;
+    // Log the operator-facing detail; return a generic message that never names secrets.
+    console.error("generate-rules failed:", status, err?.message);
+    const message =
+      status === 401 ? "AI is temporarily unavailable." :
+      status === 429 ? "The AI is busy right now — try again in a moment." :
+      status === 400 ? "The AI couldn't process that request." :
+      "Couldn't reach the AI service. Please try again.";
+    return jsonResponse({ error: message }, 502);
+  }
+});

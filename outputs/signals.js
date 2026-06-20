@@ -604,6 +604,28 @@
     }
   }
 
+  // "Generate with AI" — calls the generate-rules Supabase Edge Function, which runs
+  // the Anthropic Claude call server-side (the API key never reaches the client).
+  // Returns { error, system } where system = { title, category, description, explanation, rules:[...] }.
+  async function generateRules(inputs) {
+    var sb = getClient();
+    if (!sb || !sb.functions || typeof sb.functions.invoke !== "function") {
+      return { error: { message: "AI generation needs a connection." } };
+    }
+    try {
+      var res = await sb.functions.invoke("generate-rules", { body: inputs || {} });
+      if (res.error) return { error: res.error };
+      var data = res.data || {};
+      if (data.error) return { error: { message: String(data.error) } };
+      if (!data.system || !Array.isArray(data.system.rules)) {
+        return { error: { message: "The AI returned an unexpected response." } };
+      }
+      return { error: null, system: data.system };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the AI service." } };
+    }
+  }
+
   // Today's community activity for a friend, gated server-side by friendship +
   // their visibility + our shared communities. forDate = the viewer's local today key.
   // Returns [{ community_id, community_name, rule_id, amount, entry_date }].
@@ -667,6 +689,7 @@
     searchMessageableProfiles: searchMessageableProfiles,
     getFriendTodayActivity: getFriendTodayActivity,
     getFriendsActiveToday: getFriendsActiveToday,
+    generateRules: generateRules,
     upsertCommunityEntry: upsertCommunityEntry,
     fetchMyCommunities: fetchMyCommunities,
     isNudgeable: isNudgeable,

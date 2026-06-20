@@ -346,6 +346,7 @@
   let viewedFriend = null;         // { id, name } whose activity view is open
   let friendActivityRows = [];     // [{ community_id, community_name, rule_id, amount, entry_date }]
   let friendActivityLoading = false;
+  let aiGenerating = false;         // guards the async "Generate with AI" calls
   // First-run onboarding overlay state.
   let onboardingActive = false;
   let onboardingStep = 1;
@@ -3326,15 +3327,27 @@
     `;
   }
 
-  function generateAiDraftSystem(event) {
-    event.preventDefault();
-    state.aiDraftInputs = readAiFormInputs();
-    state.aiDraftAdjustments = blankAiAdjustments();
-    state.aiDraftSystem = createMockAiDraftSystem(state.aiDraftInputs, state.aiDraftAdjustments);
-    state.buildMode = "ai";
-    saveState();
-    renderSystems();
-    showToast("Draft generated");
+  async function generateAiDraftSystem(event) {
+    if (event) event.preventDefault();
+    if (aiGenerating) return;
+    const inputs = readAiFormInputs();
+    if (!isMeaningfulText(inputs.goals) && !isMeaningfulText(inputs.rewards)) {
+      showToast("Describe your goals or habits first");
+      return;
+    }
+    aiGenerating = true;
+    showToast("Generating with AI…");
+    try {
+      state.aiDraftInputs = inputs;
+      state.aiDraftAdjustments = blankAiAdjustments();
+      state.aiDraftSystem = await aiGenerateDraft(inputs, state.aiDraftAdjustments, "personal");
+      state.buildMode = "ai";
+      saveState();
+      renderSystems();
+      showToast("Draft generated");
+    } finally {
+      aiGenerating = false;
+    }
   }
 
   function readAiFormInputs() {
@@ -3352,12 +3365,57 @@
     return { strictnessDelta: 0, specificity: 0, extraRules: 0, removePenalties: false, focus: "" };
   }
 
-  function regenerateAiDraft() {
+  async function regenerateAiDraft() {
+    if (aiGenerating) return;
     const inputs = state.aiDraftInputs || readAiFormInputs();
     state.aiDraftAdjustments = state.aiDraftAdjustments || blankAiAdjustments();
-    state.aiDraftSystem = createMockAiDraftSystem(inputs, state.aiDraftAdjustments);
-    saveState();
-    renderSystems();
+    aiGenerating = true;
+    showToast("Regenerating…");
+    try {
+      state.aiDraftSystem = await aiGenerateDraft(inputs, state.aiDraftAdjustments, "personal");
+      saveState();
+      renderSystems();
+    } finally {
+      aiGenerating = false;
+    }
+  }
+
+  // Calls the real AI Edge Function; on any failure shows a clean message and falls
+  // back to the local template so the feature still produces an editable draft.
+  async function aiGenerateDraft(inputs, adjustments, kind) {
+    if (signalsReady() && window.PointwellSignals && typeof window.PointwellSignals.generateRules === "function") {
+      const res = await window.PointwellSignals.generateRules({
+        goals: inputs.goals,
+        rewards: inputs.rewards,
+        penalties: inputs.penalties,
+        categories: inputs.categories,
+        strictness: inputs.strictness,
+        targets: inputs.targets,
+        adjust: aiAdjustInstruction(adjustments),
+        kind: kind || "personal"
+      });
+      if (!res.error && res.system) {
+        return buildAiDraftFromAiSystem(res.system, inputs, adjustments);
+      }
+      const reason = res.error && res.error.message ? res.error.message : "AI is unavailable right now.";
+      showToast(reason + " Using a starter template you can edit.");
+    }
+    return createMockAiDraftSystem(inputs, adjustments);
+  }
+
+  // Translate the review-screen improvement chips (adjustments) into a plain-English
+  // instruction the AI can act on when regenerating.
+  function aiAdjustInstruction(adj) {
+    if (!adj) return "";
+    const parts = [];
+    if (numberOrDefault(adj.strictnessDelta, 0) > 0) parts.push("make the rules stricter with higher targets");
+    if (numberOrDefault(adj.strictnessDelta, 0) < 0) parts.push("make the rules easier with lower targets");
+    if (numberOrDefault(adj.specificity, 0) > 0) parts.push("make the rules more specific and detailed");
+    if (numberOrDefault(adj.extraRules, 0) > 0) parts.push("add a few more rules");
+    if (adj.removePenalties) parts.push("remove all penalty rules");
+    if (adj.focus === "consistency") parts.push("favor simple yes/no consistency habits");
+    else if (adj.focus) parts.push("focus on " + adj.focus);
+    return parts.join("; ");
   }
 
   // Domain library: each domain detects from the user's words and supplies
@@ -3791,6 +3849,75 @@
     });
   }
 
+  // Convert ONE Edge-Function rule spec into a normalized rule. Rewards reuse the same
+  // aiMakeRule() the local generator uses; penalties build a penalty rule directly.
+  function aiRuleFromAiSpec(spec, ctx) {
+    spec = spec || {};
+    const label = (String(spec.label || "").trim() || "Habit").slice(0, 80);
+    const unit = (String(spec.unit || "").trim() || "times").slice(0, 30);
+    const category = (String(spec.category || "").trim() || ctx.category || "Personal habits").slice(0, 60);
+    const points = numberOrDefault(spec.points, 1);
+    const isPenalty = spec.tier === "penalty" || spec.style === "penalty" || points < 0;
+    if (isPenalty) {
+      const minimum = Math.max(numberOrDefault(spec.goal, 1), 0) || 1;
+      return scoring.createRule({
+        id: makeId("ai-rule"),
+        label, category, metric: label.toLowerCase(), unit,
+        simpleStyle: "penalty",
+        dailyTarget: minimum,
+        minimumRequired: minimum,
+        penaltyEnabled: true,
+        penaltyDirection: "below",
+        penaltyPoints: -(Math.abs(points) || 1),
+        penaltyMode: "fixed",
+        inputMethod: spec.inputMethod || "number",
+        dataSource: "manual", sourceMetric: "manual", allowManualOverride: true
+      });
+    }
+    const style = ["goal", "every", "yesNo", "both"].includes(spec.style) ? spec.style : "goal";
+    return aiMakeRule({
+      label, category, unit, style,
+      goal: numberOrDefault(spec.goal, 0),
+      every: Math.max(numberOrDefault(spec.every, 1), 1),
+      points: Math.abs(points) || 1,
+      inputMethod: spec.inputMethod
+    }, ctx);
+  }
+
+  // Build a draft system from the Edge Function's response — SAME shape/normalization
+  // as createMockAiDraftSystem, so the review/edit/save flow is unchanged.
+  function buildAiDraftFromAiSystem(aiSystem, inputs, adjustments) {
+    aiSystem = aiSystem || {};
+    const adj = adjustments || blankAiAdjustments();
+    const category = (String(aiSystem.category || inputs.categories || "").trim()) ||
+      (inferCategory(inputs.categories || inputs.goals || inputs.rewards) || "Personal habits");
+    // Neutral scaling — the AI already accounted for strictness, so don't re-scale here.
+    const ctx = { strict: { pointScale: 1, targetScale: 1 }, targets: inputs.targets, category, focus: adj.focus };
+    const specs = Array.isArray(aiSystem.rules) ? aiSystem.rules.slice(0, 16) : [];
+    const usedLabels = new Set();
+    const rules = [];
+    specs.forEach((spec) => {
+      const rule = aiRuleFromAiSpec(spec, ctx);
+      const key = String(rule.label || "").toLowerCase();
+      if (!key || usedLabels.has(key)) return;
+      usedLabels.add(key);
+      rules.push(rule);
+    });
+    return normalizeSystem({
+      id: makeId("draft"),
+      ownerId: "me",
+      ownerName: state.profile.name,
+      title: (String(aiSystem.title || "").trim()) || aiSystemName(null, inputs),
+      category,
+      visibility: "private",
+      description: (String(aiSystem.description || "").trim()) || inputs.goals || inputs.rewards || "A reward system generated from your goals.",
+      rules,
+      calculatedTotals: [],
+      aiDomain: "ai",
+      aiExplanation: (String(aiSystem.explanation || "").trim()) || "These rules were generated from your goals — review and tweak anything before saving."
+    });
+  }
+
   const AI_IMPROVEMENTS = {
     stricter: (adj) => { adj.strictnessDelta = numberOrDefault(adj.strictnessDelta, 0) + 1; },
     easier: (adj) => { adj.strictnessDelta = numberOrDefault(adj.strictnessDelta, 0) - 1; },
@@ -3801,17 +3928,18 @@
     outcomes: (adj) => { adj.focus = "outcomes"; }
   };
 
-  function applyAiImprovement(kind) {
+  async function applyAiImprovement(kind) {
     if (!state.aiDraftSystem) return;
-    state.aiDraftAdjustments = state.aiDraftAdjustments || blankAiAdjustments();
     const apply = AI_IMPROVEMENTS[kind];
     if (!apply) return;
+    if (aiGenerating) { showToast("Still generating — try again in a moment"); return; }
+    state.aiDraftAdjustments = state.aiDraftAdjustments || blankAiAdjustments();
     apply(state.aiDraftAdjustments);
-    regenerateAiDraft();
+    await regenerateAiDraft(); // toast only after the (async) regenerate actually completes
     showToast("Draft updated");
   }
 
-  function recordAiFeedback(type) {
+  async function recordAiFeedback(type) {
     if (!state.aiDraftSystem) return;
     const learning = ensureAiLearning();
     const domainKey = state.aiDraftSystem.aiDomain || "general";
@@ -3823,7 +3951,8 @@
     }
     saveState();
     if (regenerating) {
-      regenerateAiDraft();
+      if (aiGenerating) { showToast("Still generating — try again in a moment"); return; }
+      await regenerateAiDraft();
       showToast("Thanks — updated from your feedback");
     } else {
       showToast("Thanks — noted for next time");
@@ -7626,7 +7755,8 @@
     });
   }
 
-  function generateCommunityAiRules() {
+  async function generateCommunityAiRules() {
+    if (aiGenerating) return;
     const draft = ensureCommunityDraft();
     const inputs = {
       goals: els.ccAiGoalsInput.value.trim(),
@@ -7640,12 +7770,18 @@
       showToast("Describe the community goal first");
       return;
     }
-    const generated = createMockAiDraftSystem(inputs, blankAiAdjustments());
-    draft.rules = (generated.rules || []).map((rule) => scoring.createRule({ ...scoring.normalizeRule(rule), id: makeId("community-rule") }));
-    editingCommunityDraftRuleId = "";
-    saveState();
-    renderCreateCommunity();
-    showToast(draft.rules.length ? `Generated ${draft.rules.length} rules — review and edit below` : "No rules generated — add more detail");
+    aiGenerating = true;
+    showToast("Generating with AI…");
+    try {
+      const generated = await aiGenerateDraft(inputs, blankAiAdjustments(), "community");
+      draft.rules = (generated.rules || []).map((rule) => scoring.createRule({ ...scoring.normalizeRule(rule), id: makeId("community-rule") }));
+      editingCommunityDraftRuleId = "";
+      saveState();
+      renderCreateCommunity();
+      showToast(draft.rules.length ? `Generated ${draft.rules.length} rules — review and edit below` : "No rules generated — add more detail");
+    } finally {
+      aiGenerating = false;
+    }
   }
 
   function cancelCreateCommunity() {

@@ -3129,11 +3129,20 @@ label small {
     grid-template-columns: 1fr;
   }
 
+  /* Pin the shared header (logo + bell + avatar) to the top on every page/sub-view.
+     position:fixed makes it persistent (static would scroll away on long pages, the
+     reason it looked "missing" on Today/Build). backdrop-filter:none removes the
+     containing-block trap so the fixed bottom nav anchors to the viewport, not here. */
   .sidebar {
-    position: static;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 60;
     height: auto;
     gap: 12px;
     padding: 12px;
+    backdrop-filter: none;
   }
 
   .profile-card {
@@ -6747,8 +6756,11 @@ button.notif-item:hover {
     font-weight: 700;
     line-height: 1;
   }
-  /* Clear the fixed bar so content/footers aren't hidden behind it. */
+  /* Clear the fixed bars: the persistent header (top) and the bottom nav.
+     Authoritative here (last @media(max-width:1050px) rule) so it wins over the
+     earlier .workspace padding declarations in this range. */
   .workspace {
+    padding-top: 78px;
     padding-bottom: 84px;
   }
   /* The bell dropdown can fill more width on a phone. */

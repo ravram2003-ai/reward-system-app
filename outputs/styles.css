@@ -6698,11 +6698,13 @@ button.notif-item:hover {
   color: var(--accent-strong);
 }
 
-/* ── Responsive bottom nav (mobile only) ──────────────────────────────────
-   Desktop sidebar is untouched. At narrow widths the existing nav-tabs become a
-   fixed bottom tab bar (icons + labels). Same destinations, just repositioned.
-   Appended last so it wins over the earlier tablet (max-width:1050px) rules. */
-@media (max-width: 640px) {
+/* ── Responsive bottom nav (narrow widths) ────────────────────────────────
+   Desktop sidebar (>1050px) is untouched. Below 1050px the sidebar already
+   collapses, so instead of the old unlabeled top icon-strip we turn the existing
+   nav-tabs into a fixed bottom tab bar (icons + labels) across that whole range —
+   same destinations, just repositioned. Appended last so it wins over the earlier
+   max-width:1050px rules. */
+@media (max-width: 1050px) {
   .nav-tabs {
     position: fixed;
     left: 0;

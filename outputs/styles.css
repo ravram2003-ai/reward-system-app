@@ -6809,11 +6809,14 @@ button.notif-item:hover {
   stroke-dashoffset: 100;
   transition: stroke-dashoffset 0.4s ease;
 }
-.score-ring-label {
+/* id+class so this beats the old #liveScore "big number" rules (4rem) at every width. */
+#liveScore.score-ring-label {
+  display: block;
   font-size: 0.82rem;
   font-weight: 850;
-  color: var(--ink);
+  letter-spacing: 0;
   line-height: 1;
+  color: var(--ink);
 }
 .score-strip-main {
   flex: 1 1 auto;

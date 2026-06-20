@@ -6553,6 +6553,13 @@ body.auth-locked {
   margin-left: auto;
   flex: 0 0 auto;
 }
+/* The avatar also has margin-left:auto; with two auto margins flexbox SPLITS the
+   free space, so on a wide (phone) header the bell drifts to the middle instead of
+   sitting beside the avatar. Drop the avatar's auto when it follows the bell so the
+   bell+avatar stay grouped at the far right. */
+.header-notif + .header-avatar {
+  margin-left: 0;
+}
 .header-bell {
   position: relative;
   display: inline-flex;

@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260619-friends-activity">
+    <link rel="stylesheet" href="styles.css?v=20260620-activity">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -137,6 +137,14 @@
               <p class="daily-insight-text" id="dailyInsightText">Log your first entry to see today's insight.</p>
               <div class="signal-presets quick-log-chips" id="quickLogChips" aria-label="Quick log" hidden></div>
             </div>
+          </section>
+
+          <section class="tool-panel home-feed-panel" id="homeFeedPanel" aria-labelledby="homeFeedTitle">
+            <div class="panel-heading">
+              <h3 id="homeFeedTitle">Activity</h3>
+              <div class="home-feed-chips" id="homeFeedChips" role="tablist" aria-label="Filter activity"></div>
+            </div>
+            <div class="home-feed-list" id="homeFeedList"></div>
           </section>
 
           <section class="top-card-panel" id="topCardPanel" aria-labelledby="topCardTitle">
@@ -1297,12 +1305,12 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="supabase-config.js?v=20260619-friends-activity"></script>
-    <script src="auth-helpers.js?v=20260619-friends-activity"></script>
-    <script src="scoring.js?v=20260619-friends-activity"></script>
-    <script src="insight.js?v=20260619-friends-activity"></script>
-    <script src="signals.js?v=20260619-friends-activity"></script>
-    <script type="module" src="auth.js?v=20260619-friends-activity"></script>
-    <script src="app.js?v=20260619-friends-activity"></script>
+    <script src="supabase-config.js?v=20260620-activity"></script>
+    <script src="auth-helpers.js?v=20260620-activity"></script>
+    <script src="scoring.js?v=20260620-activity"></script>
+    <script src="insight.js?v=20260620-activity"></script>
+    <script src="signals.js?v=20260620-activity"></script>
+    <script type="module" src="auth.js?v=20260620-activity"></script>
+    <script src="app.js?v=20260620-activity"></script>
   </body>
 </html>

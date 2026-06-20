@@ -2623,6 +2623,61 @@ label small {
   }
 }
 
+/* Blended home activity feed (Today view) */
+.home-feed-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.home-feed-chip {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.home-feed-chip:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+.home-feed-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.home-feed-list-rows {
+  display: grid;
+  gap: 8px;
+}
+.feed-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.feed-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.feed-tag-friend {
+  background: #EEEDFE;
+  color: #3C3489;
+}
+.feed-tag-community {
+  background: #E1F5EE;
+  color: #0F6E56;
+}
+
 .community-actions {
   display: flex;
   justify-content: flex-end;
@@ -5023,6 +5078,16 @@ input[type="range"]::-moz-range-thumb {
 .tracking-pill {
   color: var(--blue);
   background: var(--blue-soft);
+}
+
+.feed-tag-friend {
+  color: #b7a9f5;
+  background: #241d4a;
+}
+
+.feed-tag-community {
+  color: #5fd8b4;
+  background: #133a31;
 }
 
 /* ── Toast ────────────────────────────────────────────────────── */

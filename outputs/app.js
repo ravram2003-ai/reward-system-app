@@ -183,6 +183,7 @@
     selectedCommunityMemberId: "",
     communityLeaderboardPeriod: "",
     communityTrendMemberId: "",
+    homeFeedFilter: "all",
     scoreContext: "personal",
     buildMode: "home",
     buildSearchQuery: "",
@@ -1709,6 +1710,9 @@
       "findCommunitiesButton",
       "communityList",
       "communityFeed",
+      "homeFeedPanel",
+      "homeFeedChips",
+      "homeFeedList",
       "communityDetailTitle",
       "communityMeta",
       "communityDescription",
@@ -2695,6 +2699,7 @@
 
   function renderDashboard() {
     refreshToday();
+    renderHomeFeed();
     if (!state.trackerSystemId || !state.systems.some((system) => system.id === state.trackerSystemId)) {
       state.trackerSystemId = state.systems[0]?.id || "";
     }
@@ -4051,6 +4056,136 @@
       });
     });
     Array.from(els.communityFeed.querySelectorAll("[data-feed-message]")).forEach((button) => {
+      button.addEventListener("click", () => {
+        openChatConversation(button.dataset.feedMessage, button.dataset.feedName, button.dataset.feedCommunity);
+        state.activeView = "chats";
+        saveState();
+        render();
+      });
+    });
+  }
+
+  // ── Blended activity feed (top of the Today/dashboard view) ─────────────────
+  // Same source as renderCommunityFeed (community entries already in state), but
+  // adds relationship tags (Friend / community) and filter chips. No new data.
+  const HOME_FEED_FILTERS = [
+    { id: "all", label: "All" },
+    { id: "friends", label: "Friends" },
+    { id: "communities", label: "Communities" },
+  ];
+
+  function renderHomeFeed() {
+    if (!els.homeFeedList) return;
+    if (!HOME_FEED_FILTERS.some((item) => item.id === state.homeFeedFilter)) {
+      state.homeFeedFilter = "all";
+    }
+
+    const allItems = (state.communityEntries || [])
+      .map((entry) => {
+        const community = state.communities.find((item) => item.id === entry.communityId);
+        if (!community) return null;
+        const member = (community.members || []).find((item) => item.id === entry.userId);
+        if (!member) return null;
+        const rule = (community.system.rules || []).map(scoring.normalizeRule).find((item) => item.id === entry.ruleId);
+        return {
+          entry: entry,
+          community: community,
+          member: member,
+          rule: rule,
+          when: entry.timestamp || entry.dateKey || entry.date || "",
+          isFriend: friends.has(String(member.userId)),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => String(b.when).localeCompare(String(a.when)));
+
+    const filter = state.homeFeedFilter;
+    const items = allItems
+      .filter((item) => {
+        if (filter === "friends") return item.isFriend;
+        if (filter === "communities") return !item.isFriend;
+        return true;
+      })
+      .slice(0, 15);
+
+    // Chips always render so the user can switch filters.
+    if (els.homeFeedChips) {
+      els.homeFeedChips.innerHTML = HOME_FEED_FILTERS.map((chip) => `
+        <button class="home-feed-chip${chip.id === filter ? " active" : ""}" type="button" role="tab" aria-selected="${chip.id === filter}" data-home-feed-filter="${escapeHtml(chip.id)}">${escapeHtml(chip.label)}</button>
+      `).join("");
+    }
+
+    let body;
+    if (!state.communities.length) {
+      body = emptyState("Join a community to see activity from others.");
+    } else if (!items.length) {
+      body = filter === "friends"
+        ? emptyState("No activity from friends yet — add friends or wait for them to log a day.")
+        : filter === "communities"
+          ? emptyState("No activity from community members yet.")
+          : emptyState("No check-ins yet — community activity will show up here.");
+    } else {
+      body = `<div class="home-feed-list-rows">${items.map(renderHomeFeedRow).join("")}</div>`;
+    }
+    els.homeFeedList.innerHTML = body;
+
+    bindHomeFeedChips();
+    bindHomeFeedActions();
+  }
+
+  function renderHomeFeedRow(item) {
+    const isMe = item.entry.userId === "me";
+    const first = escapeHtml(memberFirstName(item.member));
+    const points = item.rule ? scoring.calculateRule(item.rule, item.entry.amount).totalPoints : 0;
+    const log = escapeHtml(entryLogText(item.entry, item.rule));
+    const rel = window.PointwellSignals.formatRelativeTime(item.when, Date.now()) || "";
+    const relText = escapeHtml(rel === "just now" || !rel ? (rel || "") : rel + " ago");
+    const tags = `
+        <div class="feed-tags">
+          ${item.isFriend ? `<span class="feed-tag feed-tag-friend">Friend</span>` : ""}
+          <span class="feed-tag feed-tag-community">${escapeHtml(item.community.name)}</span>
+        </div>`;
+    const actions = isMe ? "" : `
+        <div class="community-feed-actions">
+          <button class="secondary-button small community-feed-cheer" type="button" data-feed-member="${escapeHtml(item.member.id)}" data-feed-community="${escapeHtml(item.community.id)}">Cheer</button>
+          <button class="ghost-button small community-feed-message" type="button" data-feed-message="${escapeHtml(item.member.userId || "")}" data-feed-name="${escapeHtml(item.member.name)}" data-feed-community="${escapeHtml(item.community.id)}">Message</button>
+        </div>`;
+    return `
+      <div class="community-feed-row">
+        <div class="member-avatar" aria-hidden="true" style="background:${escapeHtml(item.member.color || "#355d91")}">${escapeHtml(getInitials(item.member.name))}</div>
+        <div class="community-feed-main">
+          <strong>${first} <span class="community-feed-log">${log} · ${escapeHtml(formatPoints(points))} pts</span></strong>
+          ${tags}
+          <span class="community-feed-meta">${relText}</span>
+        </div>
+        ${actions}
+      </div>
+    `;
+  }
+
+  function bindHomeFeedChips() {
+    if (!els.homeFeedChips) return;
+    Array.from(els.homeFeedChips.querySelectorAll("[data-home-feed-filter]")).forEach((button) => {
+      button.addEventListener("click", () => {
+        state.homeFeedFilter = button.dataset.homeFeedFilter;
+        saveState();
+        renderHomeFeed();
+      });
+    });
+  }
+
+  function bindHomeFeedActions() {
+    if (!els.homeFeedList) return;
+    Array.from(els.homeFeedList.querySelectorAll("[data-feed-member]")).forEach((button) => {
+      button.addEventListener("click", () => {
+        const community = state.communities.find((item) => item.id === button.dataset.feedCommunity);
+        const member = community && (community.members || []).find((item) => item.id === button.dataset.feedMember);
+        if (community && member) {
+          sendChosenSignal(community, member, "kudos", window.PointwellSignals.presetsForType("kudos")[0], null).catch(() => {});
+        }
+      });
+    });
+    Array.from(els.homeFeedList.querySelectorAll("[data-feed-message]")).forEach((button) => {
       button.addEventListener("click", () => {
         openChatConversation(button.dataset.feedMessage, button.dataset.feedName, button.dataset.feedCommunity);
         state.activeView = "chats";
@@ -8845,6 +8980,7 @@
       selectedCommunityMemberId: saved.selectedCommunityMemberId || seed.selectedCommunityMemberId,
       communityLeaderboardPeriod: saved.communityLeaderboardPeriod || seed.communityLeaderboardPeriod,
       communityTrendMemberId: saved.communityTrendMemberId || seed.communityTrendMemberId,
+      homeFeedFilter: ["all", "friends", "communities"].includes(saved.homeFeedFilter) ? saved.homeFeedFilter : seed.homeFeedFilter,
       editingRuleId: saved.editingRuleId || "",
       systemSetupStep: clampSetupStep(saved.systemSetupStep),
       systemEditorOpen: Boolean(saved.systemEditorOpen),

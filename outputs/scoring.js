@@ -377,7 +377,7 @@
   }
 
   function normalizeRuleSource(rule, label, unit) {
-    const supported = new Set(["manual", "apple-health", "google-health-connect", "google-health", "fitbit", "whoop", "chase", "plaid", "calculated"]);
+    const supported = new Set(["manual", "apple-health", "google-health-connect", "google-health", "whoop", "chase", "plaid", "calculated"]);
     const savedSource = cleanText(rule.dataSource || rule.source || "");
     if (shouldStayManualSource(label, unit)) {
       return { dataSource: "manual", sourceMetric: "manual" };

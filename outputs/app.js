@@ -20,7 +20,6 @@
     { id: "apple-health", label: "Apple Health" },
     { id: "google-health-connect", label: "Google Health Connect" },
     { id: "google-health", label: "Google Health (Fitbit)" },
-    { id: "fitbit", label: "Fitbit" },
     { id: "whoop", label: "Whoop" },
     { id: "chase", label: "Bank Account / Chase" },
     { id: "plaid", label: "Plaid" },
@@ -30,7 +29,7 @@
   // Sources backed by a REAL live OAuth connection (the Supabase wearables
   // connector), not the in-app mock/sample data. See outputs/wearables.js.
   // "google-health" = the Google Health API (how real Fitbit data reaches the web app).
-  const REAL_WEARABLE_SOURCES = new Set(["google-health", "fitbit", "whoop"]);
+  const REAL_WEARABLE_SOURCES = new Set(["google-health", "whoop"]);
 
   const sourceMetricOptions = {
     manual: [
@@ -58,14 +57,6 @@
       { id: "sleep-hours", label: "Sleep hours" },
       { id: "resting-heart-rate", label: "Resting heart rate" },
       { id: "active-calories", label: "Active calories" }
-    ],
-    fitbit: [
-      { id: "steps", label: "Steps" },
-      { id: "sleep-hours", label: "Sleep hours" },
-      { id: "resting-heart-rate", label: "Resting heart rate" },
-      { id: "active-calories", label: "Active calories" },
-      { id: "active-minutes", label: "Active minutes" },
-      { id: "distance-miles", label: "Distance (miles)" }
     ],
     whoop: [
       { id: "recovery", label: "Recovery %" },
@@ -120,13 +111,6 @@
       privacy: "Pointwell connects through Google with read-only access and only uses the data to calculate your reward-system progress. You can disconnect anytime, which deletes the stored connection."
     },
     {
-      id: "fitbit",
-      label: "Fitbit",
-      live: true,
-      description: "Live steps, sleep, resting heart rate, active calories, active minutes, and distance from your Fitbit account.",
-      privacy: "Pointwell connects to Fitbit with read-only access and only uses the data to calculate your reward-system progress. You can disconnect anytime, which deletes the stored connection."
-    },
-    {
       id: "whoop",
       label: "Whoop",
       live: true,
@@ -165,21 +149,13 @@
       calories: 2180,
       nutrition: 1
     },
-    // Google Health/Fitbit/Whoop are LIVE sources: these zeros are only the pre-sync
-    // fallback. Real values arrive from the wearables connector and overwrite them.
+    // Google Health (Fitbit) and Whoop are LIVE sources: these zeros are only the
+    // pre-sync fallback. Real values arrive from the wearables connector and overwrite them.
     "google-health": {
       steps: 0,
       "sleep-hours": 0,
       "resting-heart-rate": 0,
       "active-calories": 0
-    },
-    fitbit: {
-      steps: 0,
-      "sleep-hours": 0,
-      "resting-heart-rate": 0,
-      "active-calories": 0,
-      "active-minutes": 0,
-      "distance-miles": 0
     },
     whoop: {
       recovery: 0,
@@ -271,7 +247,6 @@
       "apple-health": { status: "not-connected", lastSynced: "" },
       "google-health-connect": { status: "not-connected", lastSynced: "" },
       "google-health": { status: "not-connected", lastSynced: "" },
-      fitbit: { status: "not-connected", lastSynced: "" },
       whoop: { status: "not-connected", lastSynced: "" },
       chase: { status: "not-connected", lastSynced: "" },
       plaid: { status: "not-connected", lastSynced: "" }
@@ -7652,14 +7627,6 @@
       if (text.includes("sleep")) return "sleep-hours";
       if (text.includes("resting") || text.includes("heart")) return "resting-heart-rate";
       if (text.includes("calorie")) return "active-calories";
-      return "steps";
-    }
-    if (source === "fitbit") {
-      if (text.includes("sleep")) return "sleep-hours";
-      if (text.includes("resting") || text.includes("heart")) return "resting-heart-rate";
-      if (text.includes("calorie")) return "active-calories";
-      if (text.includes("active") || text.includes("exercise") || text.includes("minute")) return "active-minutes";
-      if (text.includes("distance") || text.includes("mile")) return "distance-miles";
       return "steps";
     }
     if (source === "whoop") {

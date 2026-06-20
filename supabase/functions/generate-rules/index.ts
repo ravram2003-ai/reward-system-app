@@ -1,10 +1,13 @@
 // Pointwell — "Generate with AI" Edge Function.
 // Calls the real Anthropic Claude API server-side so the API key NEVER touches the
 // frontend or the (public) repo. The key is read from the Supabase secret
-// ANTHROPIC_API_KEY (set via `supabase secrets set` — see the README/hand-off).
+// ANTHROPIC_API_KEY (set in the dashboard: Edge Functions -> Secrets, or via the CLI).
+//
+// Uses a plain fetch to the Anthropic Messages API (no external dependency) so it
+// deploys cleanly from the Supabase dashboard editor or the CLI.
 //
 // Contract:
-//   POST { goals, rewards, penalties, categories, strictness, targets, kind }
+//   POST { goals, rewards, penalties, categories, strictness, targets, adjust, kind }
 //   -> 200 { system: { title, category, description, explanation, rules: [...] } }
 //   -> 4xx/5xx { error: "<clean, user-facing message>" }
 //
@@ -12,9 +15,8 @@
 //   { label, category, unit, style: "goal"|"every"|"yesNo", goal, every, points, tier }
 //   tier: "core"|"extra"|"bonus"|"penalty"  (penalty rules use negative points)
 
-import Anthropic from "npm:@anthropic-ai/sdk";
-
 const MODEL = "claude-haiku-4-5"; // cheapest current model — ideal for short rule generation
+const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -80,7 +82,7 @@ function buildUserMessage(input: Record<string, unknown>): string {
 }
 
 // Defensive: pull the JSON object out of the model's text even if it wrapped it in
-// prose or ```json fences.
+// prose or markdown code fences.
 function extractJson(text: string): any | null {
   if (!text) return null;
   let t = text.trim();
@@ -94,6 +96,13 @@ function extractJson(text: string): any | null {
   } catch {
     return null;
   }
+}
+
+function messageForStatus(status: number): string {
+  if (status === 401 || status === 403) return "AI is temporarily unavailable.";
+  if (status === 429) return "The AI is busy right now — try again in a moment.";
+  if (status === 400) return "The AI couldn't process that request.";
+  return "Couldn't reach the AI service. Please try again.";
 }
 
 Deno.serve(async (req: Request) => {
@@ -114,16 +123,30 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const client = new Anthropic({ apiKey });
-    const message = await client.messages.create({
-      model: MODEL,
-      max_tokens: 1500,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: buildUserMessage(input) }],
+    const resp = await fetch(ANTHROPIC_URL, {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 1500,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: buildUserMessage(input) }],
+      }),
     });
 
-    const text = (message.content || [])
-      .filter((b: any) => b.type === "text")
+    if (!resp.ok) {
+      const detail = await resp.text().catch(() => "");
+      console.error("Anthropic error:", resp.status, detail.slice(0, 300));
+      return jsonResponse({ error: messageForStatus(resp.status) }, 502);
+    }
+
+    const data = await resp.json();
+    const text = (data?.content || [])
+      .filter((b: any) => b?.type === "text")
       .map((b: any) => b.text)
       .join("");
 
@@ -133,14 +156,7 @@ Deno.serve(async (req: Request) => {
     }
     return jsonResponse({ system: parsed }, 200);
   } catch (err: any) {
-    const status = err?.status;
-    // Log the operator-facing detail; return a generic message that never names secrets.
-    console.error("generate-rules failed:", status, err?.message);
-    const message =
-      status === 401 ? "AI is temporarily unavailable." :
-      status === 429 ? "The AI is busy right now — try again in a moment." :
-      status === 400 ? "The AI couldn't process that request." :
-      "Couldn't reach the AI service. Please try again.";
-    return jsonResponse({ error: message }, 502);
+    console.error("generate-rules failed:", err?.message);
+    return jsonResponse({ error: "Couldn't reach the AI service. Please try again." }, 502);
   }
 });

@@ -57,9 +57,9 @@ button {
   display: none;
 }
 
-#syncSampleButton,
-#activeSystemName,
-#dailyStatusLabel {
+/* Sync-sample stays hidden (it always was); the status line + system-name label
+   are now driven by the compact score strip instead. */
+#syncSampleButton {
   display: none;
 }
 
@@ -6767,4 +6767,201 @@ button.notif-item:hover {
   .notif-panel {
     width: min(340px, calc(100vw - 24px));
   }
+}
+
+/* ── Dashboard redesign: compact score strip ──────────────────────────── */
+.score-strip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  margin-bottom: 14px;
+}
+.score-ring {
+  position: relative;
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+}
+.score-ring-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.score-ring-bg {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 4;
+}
+.score-ring-fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  transition: stroke-dashoffset 0.4s ease;
+}
+.score-ring-label {
+  font-size: 0.82rem;
+  font-weight: 850;
+  color: var(--ink);
+  line-height: 1;
+}
+.score-strip-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.score-strip-context {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+.score-strip-context #scoreContextSelect {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-weight: 850;
+  font-size: 0.95rem;
+  padding: 2px 18px 2px 2px;
+  cursor: pointer;
+  max-width: 58vw;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2393a09a' stroke-width='3'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 2px center;
+}
+.score-strip-context #scoreContextSelect:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.score-strip-status {
+  color: var(--muted);
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.score-strip-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.score-strip-add { white-space: nowrap; }
+
+/* ── Dashboard mini leaderboard ────────────────────────────────────────── */
+.mini-leaderboard {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  margin-bottom: 14px;
+}
+.mini-leaderboard .panel-heading { margin-bottom: 10px; }
+.mini-leaderboard h3 {
+  font-size: 0.95rem;
+  font-weight: 850;
+  color: var(--ink);
+}
+.link-button {
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  font-weight: 750;
+  font-size: 0.82rem;
+  cursor: pointer;
+  padding: 0;
+}
+.link-button:hover { text-decoration: underline; }
+.mini-lb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mini-lb-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+.mini-lb-row.is-me { background: var(--accent-soft); }
+.mini-lb-rank {
+  flex: 0 0 auto;
+  width: 16px;
+  text-align: center;
+  color: var(--muted);
+  font-weight: 800;
+  font-size: 0.85rem;
+}
+.member-avatar.mini-lb-avatar {
+  width: 30px;
+  height: 30px;
+  font-size: 0.72rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.mini-lb-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 750;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mini-lb-row.is-me .mini-lb-name { color: var(--accent-strong); }
+.mini-lb-points {
+  flex: 0 0 auto;
+  color: var(--ink);
+  font-weight: 850;
+  font-size: 0.9rem;
+}
+
+/* ── Dashboard analytics collapse ──────────────────────────────────────── */
+.analytics-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 750;
+  font-size: 0.92rem;
+  cursor: pointer;
+  margin-bottom: 14px;
+}
+.analytics-toggle:hover { border-color: var(--line-strong); }
+.analytics-toggle-caret {
+  color: var(--muted);
+  font-size: 1.1rem;
+  transition: transform 0.18s ease;
+}
+.analytics-toggle[aria-expanded="true"] .analytics-toggle-caret { transform: rotate(90deg); }
+.dashboard-analytics {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }

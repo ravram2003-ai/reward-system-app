@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260620-ai2">
+    <link rel="stylesheet" href="styles.css?v=20260620-dash">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -101,13 +101,8 @@
               <h2 id="dashboardTitle">Score today</h2>
             </div>
             <div class="header-actions">
-              <select id="scoreContextSelect" aria-label="Score context"></select>
               <button class="secondary-button" type="button" id="viewLeaderboardButton" hidden>View Leaderboard</button>
               <button class="ghost-button" type="button" id="openCommunityButton" hidden>Open Community</button>
-              <button class="primary-button" type="button" id="openAddEntryButton">
-                <span aria-hidden="true">+</span>
-                <span>Add Entry</span>
-              </button>
               <button class="primary-button" type="button" id="saveEntryButton">
                 <span aria-hidden="true">✓</span>
                 <span>Save day</span>
@@ -115,37 +110,31 @@
             </div>
           </div>
 
-          <div class="score-band">
-            <div class="score-summary">
-              <span class="score-label" id="scoreLabel">Daily Point Total</span>
-              <strong id="liveScore">0</strong>
-              <div class="target-meter" aria-label="Daily point target progress">
-                <div class="target-meter-meta">
-                  <span id="dailyTargetLabel">0 / 0 target</span>
-                  <span id="dailyProgressLabel">0%</span>
-                </div>
-                <div class="target-track">
-                  <div class="target-fill" id="dailyTargetFill"></div>
-                </div>
-                <span class="target-status" id="dailyStatusLabel">Set a goal to track progress</span>
-                <span class="score-nudge" id="scoreNudge" hidden></span>
+          <section class="score-strip" aria-label="Today's score">
+            <div class="score-ring" aria-hidden="true">
+              <svg class="score-ring-svg" viewBox="0 0 44 44">
+                <circle class="score-ring-bg" cx="22" cy="22" r="19"></circle>
+                <circle class="score-ring-fill" id="scoreRingFill" cx="22" cy="22" r="19" pathLength="100"></circle>
+              </svg>
+              <strong class="score-ring-label" id="liveScore">0/0</strong>
+            </div>
+            <div class="score-strip-main">
+              <div class="score-strip-context">
+                <span class="score-strip-prefix">Today ·</span>
+                <select id="scoreContextSelect" aria-label="Score context"></select>
               </div>
+              <span class="score-strip-status" id="dailyStatusLabel">Set a goal to track progress</span>
+              <span class="score-nudge" id="scoreNudge" hidden></span>
             </div>
-            <div class="score-context">
-              <span id="activeSystemName">No system selected</span>
-              <button class="secondary-button" type="button" id="syncSampleButton">Sync sample data</button>
-            </div>
-          </div>
-
-
-          <section class="tool-panel daily-insight-card" id="dailyInsightCard" aria-labelledby="dailyInsightTitle">
-            <span class="daily-insight-icon" aria-hidden="true">◗</span>
-            <div class="daily-insight-main">
-              <span class="eyebrow" id="dailyInsightTitle">Daily Insight</span>
-              <p class="daily-insight-text" id="dailyInsightText">Log your first entry to see today's insight.</p>
-              <div class="signal-presets quick-log-chips" id="quickLogChips" aria-label="Quick log" hidden></div>
+            <div class="score-strip-actions">
+              <button class="secondary-button small" type="button" id="syncSampleButton">Sync sample data</button>
+              <button class="primary-button score-strip-add" type="button" id="openAddEntryButton">
+                <span aria-hidden="true">+</span><span>Add entry</span>
+              </button>
             </div>
           </section>
+
+          <section class="mini-leaderboard" id="miniLeaderboard" aria-label="Community standings" hidden></section>
 
           <section class="tool-panel home-feed-panel" id="homeFeedPanel" aria-labelledby="homeFeedTitle">
             <div class="panel-heading">
@@ -154,6 +143,21 @@
             </div>
             <div class="home-feed-list" id="homeFeedList"></div>
           </section>
+
+          <button class="analytics-toggle" type="button" id="analyticsToggle" aria-expanded="false" aria-controls="dashboardAnalytics">
+            <span>See full breakdown &amp; charts</span>
+            <span class="analytics-toggle-caret" aria-hidden="true">›</span>
+          </button>
+
+          <div class="dashboard-analytics" id="dashboardAnalytics" hidden>
+            <section class="tool-panel daily-insight-card" id="dailyInsightCard" aria-labelledby="dailyInsightTitle">
+              <span class="daily-insight-icon" aria-hidden="true">◗</span>
+              <div class="daily-insight-main">
+                <span class="eyebrow" id="dailyInsightTitle">Daily Insight</span>
+                <p class="daily-insight-text" id="dailyInsightText">Log your first entry to see today's insight.</p>
+                <div class="signal-presets quick-log-chips" id="quickLogChips" aria-label="Quick log" hidden></div>
+              </div>
+            </section>
 
           <section class="top-card-panel" id="topCardPanel" aria-labelledby="topCardTitle">
             <div class="panel-heading">
@@ -190,6 +194,7 @@
               </div>
               <div class="breakdown-list entries-log-list" id="scoreBreakdown"></div>
             </section>
+          </div>
           </div>
         </section>
 
@@ -1311,12 +1316,12 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="supabase-config.js?v=20260620-ai2"></script>
-    <script src="auth-helpers.js?v=20260620-ai2"></script>
-    <script src="scoring.js?v=20260620-ai2"></script>
-    <script src="insight.js?v=20260620-ai2"></script>
-    <script src="signals.js?v=20260620-ai2"></script>
-    <script type="module" src="auth.js?v=20260620-ai2"></script>
-    <script src="app.js?v=20260620-ai2"></script>
+    <script src="supabase-config.js?v=20260620-dash"></script>
+    <script src="auth-helpers.js?v=20260620-dash"></script>
+    <script src="scoring.js?v=20260620-dash"></script>
+    <script src="insight.js?v=20260620-dash"></script>
+    <script src="signals.js?v=20260620-dash"></script>
+    <script type="module" src="auth.js?v=20260620-dash"></script>
+    <script src="app.js?v=20260620-dash"></script>
   </body>
 </html>

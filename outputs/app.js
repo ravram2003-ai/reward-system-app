@@ -184,6 +184,7 @@
     communityLeaderboardPeriod: "",
     communityTrendMemberId: "",
     homeFeedFilter: "all",
+    dashboardAnalyticsOpen: false,
     scoreContext: "personal",
     buildMode: "home",
     buildSearchQuery: "",
@@ -1704,14 +1705,13 @@
       "cancelChartsButton",
       "saveChartsButton",
       "saveEntryButton",
-      "scoreLabel",
       "liveScore",
-      "activeSystemName",
-      "dailyTargetLabel",
-      "dailyProgressLabel",
-      "dailyTargetFill",
       "dailyStatusLabel",
       "scoreNudge",
+      "scoreRingFill",
+      "miniLeaderboard",
+      "analyticsToggle",
+      "dashboardAnalytics",
       "notifBellButton",
       "notifBellBadge",
       "notifPanel",
@@ -2087,6 +2087,10 @@
     });
 
     els.saveEntryButton.addEventListener("click", saveDailyEntry);
+    if (els.analyticsToggle) els.analyticsToggle.addEventListener("click", toggleDashboardAnalytics);
+    if (els.miniLeaderboard) els.miniLeaderboard.addEventListener("click", (event) => {
+      if (event.target.closest && event.target.closest("[data-open-full-leaderboard]")) viewCommunityLeaderboardFromScore();
+    });
 
     els.newSystemButton?.addEventListener("click", openBuildOptions);
     Array.from(document.querySelectorAll("[data-build-mode]")).forEach((button) => {
@@ -2859,6 +2863,7 @@
     if (els.visualBreakdownPanel) els.visualBreakdownPanel.hidden = false;
     if (els.weeklyProgressPanel) els.weeklyProgressPanel.hidden = false;
     if (els.quickLogChips) els.quickLogChips.hidden = true;
+    renderDashboardAnalyticsToggle();
 
     const systemOptions = state.systems
       .map((system) => `<option value="${escapeHtml(system.id)}">${escapeHtml(system.title)}</option>`)
@@ -2888,11 +2893,9 @@
       els.scoreBreakdown.innerHTML = "";
       els.weeklyChartCount.textContent = "0 charts";
       els.weeklyChartList.innerHTML = emptyState("Create a reward system to see weekly progress.");
-      els.liveScore.textContent = "0 / 0 points";
-      els.activeSystemName.textContent = "No system selected";
-      els.dailyTargetLabel.textContent = "0 / 0 target";
-      els.dailyProgressLabel.textContent = "0%";
-      els.dailyTargetFill.style.width = "0%";
+      els.liveScore.textContent = "0/0";
+      if (els.scoreRingFill) els.scoreRingFill.style.strokeDashoffset = "100";
+      if (els.miniLeaderboard) els.miniLeaderboard.hidden = true;
       els.dailyStatusLabel.textContent = "Create a reward system to start.";
       if (els.dailyInsightText) els.dailyInsightText.textContent = "Create a reward system to start your daily insight.";
       els.openAddEntryButton.disabled = true;
@@ -2914,8 +2917,6 @@
     } else {
       saveCommunitySummaryForMember(context.community, "me");
     }
-    els.scoreLabel.textContent = context.type === "community" ? "My Community Daily Total" : "Daily Point Total";
-    els.activeSystemName.textContent = context.type === "community" ? `Community: ${context.label.trim()}` : context.label;
     els.breakdownTitle.textContent = "Entries Added Today";
     els.ruleCountLabel.textContent = plural(system.rules.length, "rule");
     els.openAddEntryButton.disabled = !system.rules.length;
@@ -5346,6 +5347,7 @@
 
     renderDailyTargetProgress(summary.total, summary.target.total);
     renderScoreNudge(context);
+    renderMiniLeaderboard(context);
     renderDailyInsight(context, system, summary);
 
     // Action-first empty state: "empty" = no entries for today's context, off the
@@ -6526,16 +6528,15 @@
     const target = Math.max(numberOrDefault(dailyTarget, 0), 0);
     const percent = progressPercent(total, target);
     const remaining = Math.max(target - total, 0);
-    els.liveScore.textContent = `${formatPoints(total)} / ${formatPoints(target)} points`;
-    els.dailyTargetLabel.textContent = "Daily point target";
-    els.dailyProgressLabel.textContent = `${formatPercent(percent)} complete`;
+    // Compact strip: ring center shows points/target ("1/3"); the SVG arc fills by
+    // percent; the status line reads "1 of 3 points · 2 to go".
+    els.liveScore.textContent = `${formatPoints(total)}/${formatPoints(target)}`;
+    if (els.scoreRingFill) els.scoreRingFill.style.strokeDashoffset = String(100 - Math.min(Math.max(percent, 0), 100));
     els.dailyStatusLabel.textContent = target > 0
-      ? (remaining > 0 ? `${formatPoints(remaining)} points left to hit today’s goal` : "Daily point goal reached")
+      ? (remaining > 0
+          ? `${formatPoints(total)} of ${formatPoints(target)} points · ${formatPoints(remaining)} to go`
+          : "Daily point goal reached")
       : "Add positive scoring rules to set a daily target";
-    els.dailyStatusLabel.textContent = target > 0
-      ? (remaining > 0 ? `${formatPoints(remaining)} points left today` : "Daily point target reached")
-      : "Add positive scoring rules to set a daily target";
-    setWidth("#dailyTargetFill", percent);
   }
 
   // Subtle social nudge under the progress bar: the top OTHER member's points today
@@ -6559,6 +6560,62 @@
     }
     els.scoreNudge.textContent = text;
     els.scoreNudge.hidden = !text;
+  }
+
+  // Inline mini leaderboard on the dashboard — only under a community context, and
+  // only when this community's leaderboard module is shown to members. Reuses
+  // communityStandings(); shows the top 3 by today's points with my row highlighted.
+  function renderMiniLeaderboard(context) {
+    if (!els.miniLeaderboard) return;
+    const community = context && context.type === "community" ? context.community : null;
+    const modules = (community && community.analytics && community.analytics.modules) || {};
+    if (!community || !Array.isArray(community.members) || modules.leaderboard === false) {
+      els.miniLeaderboard.hidden = true;
+      els.miniLeaderboard.innerHTML = "";
+      return;
+    }
+    const period = COMMUNITY_PERIODS.some((p) => p.id === state.communityLeaderboardPeriod)
+      ? state.communityLeaderboardPeriod
+      : COMMUNITY_PERIODS[0].id;
+    const top = communityStandings(community, period, "points")
+      .slice()
+      .sort((a, b) => b.today - a.today)
+      .slice(0, 3);
+    els.miniLeaderboard.hidden = false;
+    els.miniLeaderboard.innerHTML = `
+      <div class="panel-heading">
+        <h3>Standings · ${escapeHtml(community.name)}</h3>
+        <button class="link-button mini-lb-full" type="button" data-open-full-leaderboard>Full leaderboard ›</button>
+      </div>
+      <div class="mini-lb-list">${top.map(renderMiniLeaderboardRow).join("")}</div>
+    `;
+  }
+
+  function renderMiniLeaderboardRow(member, index) {
+    const isMe = member.id === "me";
+    const pts = numberOrDefault(member.today, 0);
+    return `
+      <div class="mini-lb-row${isMe ? " is-me" : ""}">
+        <span class="mini-lb-rank">${index + 1}</span>
+        <span class="member-avatar mini-lb-avatar" aria-hidden="true" style="background:${escapeHtml(member.color || "#355d91")}">${escapeHtml(getInitials(member.name))}</span>
+        <span class="mini-lb-name">${isMe ? "You" : escapeHtml(member.name)}</span>
+        <span class="mini-lb-points">${escapeHtml(formatPoints(pts))} ${pts === 1 ? "pt" : "pts"}</span>
+      </div>
+    `;
+  }
+
+  // Collapsed analytics: one toggle row reveals/hides the detail panels (insight,
+  // Top Card, Visual Breakdown, Weekly Progress, entries log). Persisted in state.
+  function renderDashboardAnalyticsToggle() {
+    const open = Boolean(state.dashboardAnalyticsOpen);
+    if (els.dashboardAnalytics) els.dashboardAnalytics.hidden = !open;
+    if (els.analyticsToggle) els.analyticsToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  function toggleDashboardAnalytics() {
+    state.dashboardAnalyticsOpen = !state.dashboardAnalyticsOpen;
+    saveState();
+    renderDashboardAnalyticsToggle();
   }
 
   function renderWeeklyChart(systemId) {
@@ -9292,6 +9349,7 @@
       communityLeaderboardPeriod: saved.communityLeaderboardPeriod || seed.communityLeaderboardPeriod,
       communityTrendMemberId: saved.communityTrendMemberId || seed.communityTrendMemberId,
       homeFeedFilter: ["all", "friends", "communities"].includes(saved.homeFeedFilter) ? saved.homeFeedFilter : seed.homeFeedFilter,
+      dashboardAnalyticsOpen: Boolean(saved.dashboardAnalyticsOpen),
       editingRuleId: saved.editingRuleId || "",
       systemSetupStep: clampSetupStep(saved.systemSetupStep),
       systemEditorOpen: Boolean(saved.systemEditorOpen),

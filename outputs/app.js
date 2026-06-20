@@ -301,6 +301,7 @@
   let dayRolloverTimer = null;
   // Positive signals (kudos / motivation) — in-app notifications state.
   let inboxSignals = [];
+  let notifPanelOpen = false; // header bell dropdown open state
   let unsubscribeInbox = null;
   let currentInboxUid = null;
   // The conversation thread currently open on screen, so realtime inserts can
@@ -780,6 +781,12 @@
       els.chatsUnreadBadge.textContent = badge > 9 ? "9+" : String(badge);
       els.chatsUnreadBadge.hidden = badge === 0;
     }
+    // Header bell shares the SAME total as the Chats tab badge, over the SAME data.
+    if (els.notifBellBadge) {
+      els.notifBellBadge.textContent = badge > 9 ? "9+" : String(badge);
+      els.notifBellBadge.hidden = badge === 0;
+    }
+    if (notifPanelOpen) renderNotifPanel(); // keep an open dropdown in sync with the data
     if (els.chatsMarkAllButton) els.chatsMarkAllButton.hidden = unread === 0;
     // The Today "Friends" button + the friends-view "Add friend" button both surface
     // the pending friend-request count (same data as the Chats friend-request badge).
@@ -789,6 +796,117 @@
     renderOwnerRequests(ready);
     renderFriendRequests(ready);
     renderChats(ready);
+  }
+
+  // ── Header notifications bell ──────────────────────────────────────────────
+  // A dropdown that re-surfaces the SAME actionable events as the Chats inbox
+  // (friend requests, community join requests, received kudos/cheers/messages).
+  // No parallel store — it reads incomingFriendRequests / ownerJoinRequests /
+  // inboxSignals and reuses the same accept/decline/mark-read/open actions.
+  function toggleNotifPanel() {
+    notifPanelOpen = !notifPanelOpen;
+    if (els.notifBellButton) els.notifBellButton.setAttribute("aria-expanded", notifPanelOpen ? "true" : "false");
+    if (els.notifPanel) els.notifPanel.hidden = !notifPanelOpen;
+    if (notifPanelOpen) {
+      renderNotifPanel();
+      document.addEventListener("click", handleNotifOutsideClick, true);
+      document.addEventListener("keydown", handleNotifEscape);
+    } else {
+      document.removeEventListener("click", handleNotifOutsideClick, true);
+      document.removeEventListener("keydown", handleNotifEscape);
+    }
+  }
+
+  function closeNotifPanel() {
+    if (!notifPanelOpen) return;
+    notifPanelOpen = false;
+    if (els.notifBellButton) els.notifBellButton.setAttribute("aria-expanded", "false");
+    if (els.notifPanel) els.notifPanel.hidden = true;
+    document.removeEventListener("click", handleNotifOutsideClick, true);
+    document.removeEventListener("keydown", handleNotifEscape);
+  }
+
+  function handleNotifOutsideClick(event) {
+    if (!els.notifPanel) return;
+    if (els.notifPanel.contains(event.target)) return;
+    if (els.notifBellButton && els.notifBellButton.contains(event.target)) return;
+    closeNotifPanel();
+  }
+
+  function handleNotifEscape(event) {
+    if (event.key === "Escape") closeNotifPanel();
+  }
+
+  function renderNotifPanel() {
+    if (!els.notifPanel) return;
+    if (!signalsReady()) {
+      els.notifPanel.innerHTML = `<div class="notif-empty">Sign in to see notifications.</div>`;
+      return;
+    }
+    const me = state.account && state.account.userId;
+    const received = inboxSignals
+      .filter((s) => s.to_user === me && !sessionHiddenPeers.has(String(s.from_user)))
+      .slice()
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, 8);
+    const unread = window.PointwellSignals.unreadCount(inboxSignals.filter((s) => s.to_user === me && !sessionHiddenPeers.has(String(s.from_user))));
+
+    let html = `<div class="notif-head"><strong>Notifications</strong>${unread ? `<button class="ghost-button small" type="button" data-notif-mark-all>Mark all read</button>` : ""}</div>`;
+    const sections = [];
+
+    if (incomingFriendRequests.length) {
+      sections.push(`<div class="notif-section"><span class="notif-section-label">Friend requests</span>` +
+        incomingFriendRequests.map((r) => {
+          const label = r.requester_name || r.requester_handle || "Someone";
+          const id = escapeHtml(String(r.request_id));
+          return `
+            <div class="notif-item">
+              <span class="member-avatar" aria-hidden="true">${escapeHtml(getInitials(label))}</span>
+              <div class="notif-item-main"><strong>${escapeHtml(label)}</strong><span>wants to connect</span></div>
+              <div class="notif-item-actions">
+                <button class="primary-button small" type="button" data-notif-friend-accept="${id}">Accept</button>
+                <button class="ghost-button small" type="button" data-notif-friend-decline="${id}">Decline</button>
+              </div>
+            </div>`;
+        }).join("") + `</div>`);
+    }
+
+    if (ownerJoinRequests.length) {
+      sections.push(`<div class="notif-section"><span class="notif-section-label">Community requests</span>` +
+        ownerJoinRequests.map((r) => {
+          const label = r.requester_name || r.requester_handle || "A member";
+          const id = escapeHtml(String(r.request_id));
+          const community = escapeHtml(r.community_name || "your community");
+          return `
+            <div class="notif-item">
+              <span class="member-avatar" aria-hidden="true">${escapeHtml(getInitials(label))}</span>
+              <div class="notif-item-main"><strong>${escapeHtml(label)}</strong><span>wants to join ${community}</span></div>
+              <div class="notif-item-actions">
+                <button class="primary-button small" type="button" data-notif-join-accept="${id}">Accept</button>
+                <button class="ghost-button small" type="button" data-notif-join-decline="${id}">Decline</button>
+              </div>
+            </div>`;
+        }).join("") + `</div>`);
+    }
+
+    if (received.length) {
+      sections.push(`<div class="notif-section"><span class="notif-section-label">Recent</span>` +
+        received.map((s) => {
+          const who = s.from_name || "A teammate";
+          const kind = s.type === "motivation" ? "sent you motivation" : (s.type === "text" ? "sent you a message" : "sent you kudos");
+          const when = escapeHtml(window.PointwellSignals.formatRelativeTime(s.created_at, Date.now()));
+          const peer = escapeHtml(String(s.from_user));
+          return `
+            <button class="notif-item notif-item-signal${s.read ? "" : " unread"}" type="button" data-notif-open="${peer}" data-notif-name="${escapeHtml(who)}">
+              <span class="member-avatar" aria-hidden="true">${escapeHtml(getInitials(who))}</span>
+              <div class="notif-item-main"><strong>${escapeHtml(who)}</strong><span>${kind} · ${when}</span></div>
+              ${s.read ? "" : '<span class="notif-dot" aria-hidden="true"></span>'}
+            </button>`;
+        }).join("") + `</div>`);
+    }
+
+    html += sections.length ? sections.join("") : `<div class="notif-empty">You're all caught up.</div>`;
+    els.notifPanel.innerHTML = html;
   }
 
   // Pending join requests for communities I own — action items (Accept / Decline),
@@ -1592,6 +1710,10 @@
       "dailyProgressLabel",
       "dailyTargetFill",
       "dailyStatusLabel",
+      "scoreNudge",
+      "notifBellButton",
+      "notifBellBadge",
+      "notifPanel",
       "dailyInsightCard",
       "dailyInsightText",
       "quickLogChips",
@@ -2092,6 +2214,31 @@
     });
     if (els.headerAvatarButton) els.headerAvatarButton.addEventListener("click", openProfile);
     if (els.onboardingScreen) els.onboardingScreen.addEventListener("click", handleOnboardingClick);
+    if (els.notifBellButton) els.notifBellButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleNotifPanel();
+    });
+    if (els.notifPanel) els.notifPanel.addEventListener("click", (event) => {
+      const t = event.target;
+      const friendAccept = t.closest && t.closest("[data-notif-friend-accept]");
+      const friendDecline = t.closest && t.closest("[data-notif-friend-decline]");
+      const joinAccept = t.closest && t.closest("[data-notif-join-accept]");
+      const joinDecline = t.closest && t.closest("[data-notif-join-decline]");
+      const markAll = t.closest && t.closest("[data-notif-mark-all]");
+      const open = t.closest && t.closest("[data-notif-open]");
+      if (friendAccept) respondToFriendRequest(friendAccept.dataset.notifFriendAccept, true);
+      else if (friendDecline) respondToFriendRequest(friendDecline.dataset.notifFriendDecline, false);
+      else if (joinAccept) respondToRequest(joinAccept.dataset.notifJoinAccept, true);
+      else if (joinDecline) respondToRequest(joinDecline.dataset.notifJoinDecline, false);
+      else if (markAll) markAllSignalsRead();
+      else if (open) {
+        closeNotifPanel();
+        openChatConversation(open.dataset.notifOpen, open.dataset.notifName, "");
+        state.activeView = "chats";
+        saveState();
+        render();
+      }
+    });
     if (els.chatsMarkAllButton) els.chatsMarkAllButton.addEventListener("click", markAllSignalsRead);
     if (els.chatsNewMessageButton) els.chatsNewMessageButton.addEventListener("click", () => toggleChatsPanel("new-message"));
     if (els.chatsAddFriendButton) els.chatsAddFriendButton.addEventListener("click", () => toggleChatsPanel("add-friend"));
@@ -5065,6 +5212,7 @@
     const summary = calculateDashboardSummary(system, values, context);
 
     renderDailyTargetProgress(summary.total, summary.target.total);
+    renderScoreNudge(context);
     renderDailyInsight(context, system, summary);
 
     // Action-first empty state: "empty" = no entries for today's context, off the
@@ -6255,6 +6403,29 @@
       ? (remaining > 0 ? `${formatPoints(remaining)} points left today` : "Daily point target reached")
       : "Add positive scoring rules to set a daily target";
     setWidth("#dailyTargetFill", percent);
+  }
+
+  // Subtle social nudge under the progress bar: the top OTHER member's points today
+  // in the community being logged to. Uses only the leaderboard standing already
+  // visible to members. Personal context (or no leader) → nothing.
+  function renderScoreNudge(context) {
+    if (!els.scoreNudge) return;
+    let text = "";
+    if (context && context.type === "community" && context.community && Array.isArray(context.community.members)) {
+      // Only when this community's leaderboard module is shown to members — never
+      // surface standings the owner has hidden (defaults to on when unset).
+      const modules = (context.community.analytics && context.community.analytics.modules) || {};
+      if (modules.leaderboard !== false) {
+        const me = state.account && state.account.userId;
+        const standings = communityStandings(context.community, state.communityLeaderboardPeriod || "weekly", "points");
+        const leader = standings
+          .filter((m) => m.id !== "me" && String(m.userId || "") !== String(me || "") && m.today > 0)
+          .sort((a, b) => b.today - a.today)[0];
+        if (leader) text = `${memberFirstName(leader)}’s already at ${formatPoints(leader.today)}`;
+      }
+    }
+    els.scoreNudge.textContent = text;
+    els.scoreNudge.hidden = !text;
   }
 
   function renderWeeklyChart(systemId) {

@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260620-activity">
+    <link rel="stylesheet" href="styles.css?v=20260620-bell">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -47,6 +47,13 @@
           <div>
             <p class="eyebrow">Pointwell</p>
             <h1>Reward systems</h1>
+          </div>
+          <div class="header-notif">
+            <button class="header-bell" type="button" id="notifBellButton" aria-label="Notifications" aria-haspopup="true" aria-expanded="false">
+              <svg class="bell-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+              <span class="notif-bell-badge" id="notifBellBadge" hidden>0</span>
+            </button>
+            <div class="notif-panel" id="notifPanel" role="dialog" aria-label="Notifications" hidden></div>
           </div>
           <button class="header-avatar" type="button" id="headerAvatarButton" aria-label="Open profile and settings" aria-haspopup="dialog">
             <span class="avatar" id="profileAvatar" aria-hidden="true">AR</span>
@@ -121,6 +128,7 @@
                   <div class="target-fill" id="dailyTargetFill"></div>
                 </div>
                 <span class="target-status" id="dailyStatusLabel">Set a goal to track progress</span>
+                <span class="score-nudge" id="scoreNudge" hidden></span>
               </div>
             </div>
             <div class="score-context">
@@ -1305,12 +1313,12 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="supabase-config.js?v=20260620-activity"></script>
-    <script src="auth-helpers.js?v=20260620-activity"></script>
-    <script src="scoring.js?v=20260620-activity"></script>
-    <script src="insight.js?v=20260620-activity"></script>
-    <script src="signals.js?v=20260620-activity"></script>
-    <script type="module" src="auth.js?v=20260620-activity"></script>
-    <script src="app.js?v=20260620-activity"></script>
+    <script src="supabase-config.js?v=20260620-bell"></script>
+    <script src="auth-helpers.js?v=20260620-bell"></script>
+    <script src="scoring.js?v=20260620-bell"></script>
+    <script src="insight.js?v=20260620-bell"></script>
+    <script src="signals.js?v=20260620-bell"></script>
+    <script type="module" src="auth.js?v=20260620-bell"></script>
+    <script src="app.js?v=20260620-bell"></script>
   </body>
 </html>

@@ -5807,71 +5807,7 @@ body.auth-locked {
   box-shadow: 0 0 0 2px var(--panel);
 }
 
-/* ── Notifications panel (floating inbox) ─────────────────────── */
-.notif-panel {
-  position: fixed;
-  left: 20px;
-  bottom: 84px;
-  z-index: 60;
-  width: min(340px, calc(100vw - 40px));
-  max-height: min(64vh, 520px);
-  display: flex;
-  flex-direction: column;
-  background: var(--surface);
-  border: 1px solid var(--line-strong);
-  border-radius: 14px;
-  box-shadow: var(--shadow);
-  overflow: hidden;
-  backdrop-filter: blur(8px);
-}
-.notif-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--line);
-}
-.notif-panel-head strong {
-  font-size: 0.95rem;
-  font-weight: 850;
-  color: var(--ink);
-}
-.notif-list {
-  overflow-y: auto;
-  padding: 6px;
-}
-.notif-item {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 11px 12px;
-  border-radius: 10px;
-}
-.notif-item + .notif-item {
-  border-top: 1px solid var(--line);
-}
-.notif-item.unread {
-  background: rgba(58, 214, 166, 0.06);
-}
-.notif-item-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.notif-item-body p {
-  margin: 0;
-  font-size: 0.86rem;
-  font-weight: 650;
-  color: var(--ink);
-  word-break: break-word;
-}
-.notif-item-meta {
-  font-size: 0.74rem;
-  color: var(--muted);
-}
+/* ── Notification dot (shared: chats rows + the header bell dropdown) ─── */
 .notif-dot {
   position: absolute;
   top: 14px;
@@ -5880,12 +5816,6 @@ body.auth-locked {
   height: 8px;
   border-radius: 999px;
   background: var(--accent);
-}
-.notif-empty {
-  padding: 22px 16px;
-  text-align: center;
-  font-size: 0.82rem;
-  color: var(--muted);
 }
 
 /* ── Chats inbox (unified conversations: DMs + kudos + motivation) ─ */
@@ -6089,15 +6019,6 @@ body.auth-locked {
   padding-top: 14px;
   border-top: 1px solid var(--line);
   align-items: flex-start;
-}
-
-@media (max-width: 720px) {
-  .notif-panel {
-    left: 12px;
-    right: 12px;
-    bottom: 16px;
-    width: auto;
-  }
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -6624,4 +6545,205 @@ body.auth-locked {
   font-weight: 850;
   color: var(--accent-strong);
   font-size: 0.9rem;
+}
+
+/* ── Header notifications bell + dropdown ─────────────────────────────── */
+.header-notif {
+  position: relative;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+.header-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.header-bell:hover {
+  border-color: var(--line-strong);
+}
+.header-bell[aria-expanded="true"] {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+.notif-bell-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 850;
+  line-height: 1;
+  border: 2px solid var(--panel);
+}
+.notif-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  left: auto;
+  bottom: auto;
+  z-index: 80; /* above the fixed mobile bottom nav (z-index 70) */
+  width: min(340px, calc(100vw - 32px));
+  max-height: min(70vh, 460px);
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.notif-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 6px 2px;
+}
+.notif-head strong {
+  font-size: 0.92rem;
+  font-weight: 850;
+  color: var(--ink);
+}
+.notif-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.notif-section-label {
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 0 6px;
+}
+.notif-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  text-align: left;
+}
+button.notif-item {
+  cursor: pointer;
+  color: var(--ink);
+}
+button.notif-item:hover {
+  border-color: var(--line-strong);
+}
+.notif-item.unread {
+  border-color: var(--accent);
+}
+.notif-item-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.notif-item-main strong {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notif-item-main span {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.notif-item-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.notif-empty {
+  padding: 18px 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+/* ── Social nudge in the score card ───────────────────────────────────── */
+.score-nudge {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--accent-strong);
+}
+
+/* ── Responsive bottom nav (mobile only) ──────────────────────────────────
+   Desktop sidebar is untouched. At narrow widths the existing nav-tabs become a
+   fixed bottom tab bar (icons + labels). Same destinations, just repositioned.
+   Appended last so it wins over the earlier tablet (max-width:1050px) rules. */
+@media (max-width: 640px) {
+  .nav-tabs {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 70;
+    display: flex;
+    gap: 0;
+    grid-template-columns: none;
+    margin: 0;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    background: var(--surface);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.4);
+  }
+  .nav-tab {
+    flex: 1 1 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-height: 52px;
+    padding: 6px 4px;
+  }
+  .nav-tab .tab-icon {
+    font-size: 1.15rem;
+  }
+  .nav-tab span:last-child {
+    display: block;
+    font-size: 0.66rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+  /* Clear the fixed bar so content/footers aren't hidden behind it. */
+  .workspace {
+    padding-bottom: 84px;
+  }
+  /* The bell dropdown can fill more width on a phone. */
+  .notif-panel {
+    width: min(340px, calc(100vw - 24px));
+  }
 }

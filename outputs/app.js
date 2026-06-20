@@ -4110,8 +4110,6 @@
       state.selectedCommunityId = state.communities[0]?.id || "";
     }
 
-    renderCommunityFeed();
-
     els.communityList.innerHTML = state.communities.length
       ? state.communities.map(renderCommunityCard).join("")
       : emptyState("No communities yet.");

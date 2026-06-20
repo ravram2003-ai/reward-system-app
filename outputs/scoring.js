@@ -377,7 +377,7 @@
   }
 
   function normalizeRuleSource(rule, label, unit) {
-    const supported = new Set(["manual", "apple-health", "google-health-connect", "chase", "plaid", "calculated"]);
+    const supported = new Set(["manual", "apple-health", "google-health-connect", "fitbit", "whoop", "chase", "plaid", "calculated"]);
     const savedSource = cleanText(rule.dataSource || rule.source || "");
     if (shouldStayManualSource(label, unit)) {
       return { dataSource: "manual", sourceMetric: "manual" };
@@ -396,6 +396,9 @@
 
   function inferRuleSource(label, unit) {
     const text = `${label || ""} ${unit || ""}`.toLowerCase();
+    if (text.includes("recovery")) return { dataSource: "whoop", sourceMetric: "recovery" };
+    if (text.includes("strain")) return { dataSource: "whoop", sourceMetric: "strain" };
+    if (text.includes("hrv") || text.includes("heart rate variability")) return { dataSource: "whoop", sourceMetric: "hrv" };
     if (text.includes("step")) return { dataSource: "apple-health", sourceMetric: "steps" };
     if (text.includes("sleep")) return { dataSource: "apple-health", sourceMetric: "sleep-hours" };
     if (text.includes("active calorie")) return { dataSource: "apple-health", sourceMetric: "active-calories" };

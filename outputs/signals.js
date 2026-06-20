@@ -613,7 +613,8 @@
       return { error: { message: "AI generation needs a connection." } };
     }
     try {
-      var res = await sb.functions.invoke("generate-rules", { body: inputs || {} });
+      // Deployed Edge Function slug (Supabase auto-named it "bright-api").
+      var res = await sb.functions.invoke("bright-api", { body: inputs || {} });
       if (res.error) return { error: res.error };
       var data = res.data || {};
       if (data.error) return { error: { message: String(data.error) } };

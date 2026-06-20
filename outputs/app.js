@@ -4213,19 +4213,30 @@
   // ── Blended activity feed (top of the Today/dashboard view) ─────────────────
   // Same source as renderCommunityFeed (community entries already in state), but
   // adds relationship tags (Friend / community) and filter chips. No new data.
-  const HOME_FEED_FILTERS = [
-    { id: "all", label: "All" },
-    { id: "friends", label: "Friends" },
-    { id: "communities", label: "Communities" },
-  ];
+  // The Activity tab set depends on the score context (which community I'm logging
+  // to, or personal). Community selected → [All, Friends] scoped to THAT community;
+  // personal → [Friends, Communities] across all my communities. The underlying
+  // data (state.communityEntries) is already limited to my communities by the
+  // community_entries RLS, so scoping/combining never widens what I can see.
+  function homeFeedTabsFor(context) {
+    return context.type === "community"
+      ? [{ id: "all", label: "All" }, { id: "friends", label: "Friends" }]
+      : [{ id: "friends", label: "Friends" }, { id: "communities", label: "Communities" }];
+  }
 
   function renderHomeFeed() {
     if (!els.homeFeedList) return;
-    if (!HOME_FEED_FILTERS.some((item) => item.id === state.homeFeedFilter)) {
-      state.homeFeedFilter = "all";
-    }
+    const context = getActiveScoreContext();
+    const inCommunity = context.type === "community" && !!context.community;
+    const tabs = homeFeedTabsFor(context);
+    // Pick the active tab valid for THIS context (default to the first tab).
+    let filter = state.homeFeedFilter;
+    if (!tabs.some((tab) => tab.id === filter)) filter = tabs[0].id;
 
+    // Community mode → ONLY the selected community's entries. Personal → all of mine.
+    const scopedCommunityId = inCommunity ? String(context.community.id) : "";
     const allItems = (state.communityEntries || [])
+      .filter((entry) => !scopedCommunityId || String(entry.communityId) === scopedCommunityId)
       .map((entry) => {
         const community = state.communities.find((item) => item.id === entry.communityId);
         if (!community) return null;
@@ -4244,18 +4255,13 @@
       .filter(Boolean)
       .sort((a, b) => String(b.when).localeCompare(String(a.when)));
 
-    const filter = state.homeFeedFilter;
+    // "friends" → my friends only; "all" (community) / "communities" (personal) → everyone.
     const items = allItems
-      .filter((item) => {
-        if (filter === "friends") return item.isFriend;
-        if (filter === "communities") return !item.isFriend;
-        return true;
-      })
+      .filter((item) => (filter === "friends" ? item.isFriend : true))
       .slice(0, 15);
 
-    // Chips always render so the user can switch filters.
     if (els.homeFeedChips) {
-      els.homeFeedChips.innerHTML = HOME_FEED_FILTERS.map((chip) => `
+      els.homeFeedChips.innerHTML = tabs.map((chip) => `
         <button class="home-feed-chip${chip.id === filter ? " active" : ""}" type="button" role="tab" aria-selected="${chip.id === filter}" data-home-feed-filter="${escapeHtml(chip.id)}">${escapeHtml(chip.label)}</button>
       `).join("");
     }
@@ -4263,12 +4269,12 @@
     let body;
     if (!state.communities.length) {
       body = emptyState("Join a community to see activity from others.");
+    } else if (inCommunity && !allItems.length) {
+      body = emptyState(`No activity in ${escapeHtml(context.community.name)} yet.`);
     } else if (!items.length) {
       body = filter === "friends"
         ? emptyState("No activity from friends yet — add friends or wait for them to log a day.")
-        : filter === "communities"
-          ? emptyState("No activity from community members yet.")
-          : emptyState("No check-ins yet — community activity will show up here.");
+        : emptyState("No check-ins yet — community activity will show up here.");
     } else {
       body = `<div class="home-feed-list-rows">${items.map(renderHomeFeedRow).join("")}</div>`;
     }

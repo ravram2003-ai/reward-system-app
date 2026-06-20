@@ -16,7 +16,7 @@
  * throws an unhandled rejection.
  */
 (function (root) {
-  var REAL_PROVIDERS = ["fitbit", "whoop"];
+  var REAL_PROVIDERS = ["google-health", "fitbit", "whoop"];
   var PENDING_KEY = "pointwell_wearable_pending";
   var CALLBACK_KEY = "pointwell_wearable_callback";
 

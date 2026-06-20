@@ -1,7 +1,7 @@
 // Pointwell — Wearables connector (Supabase Edge Function, Deno).
 //
-// The ONE secure place that holds the Fitbit/Whoop client secrets and OAuth tokens.
-// The static browser app never sees a token; it only calls these JSON actions:
+// The ONE secure place that holds the OAuth client secrets and user tokens. The
+// static browser app never sees a token; it only calls these JSON actions:
 //
 //   { action: "authorize",  provider, redirect_uri }  -> { url }          (start OAuth)
 //   { action: "callback",   code, state, redirect_uri} -> { provider }    (finish OAuth)
@@ -9,57 +9,69 @@
 //   { action: "status" }                               -> { connections:[…] }
 //   { action: "disconnect", provider }                 -> { disconnected }
 //
+// Providers:
+//   "google-health"  Google Health API (the replacement for the now-closed Fitbit
+//                    Web API) — this is how Fitbit data reaches the web app.
+//   "whoop"          WHOOP API v2.
+//
 // Every call must carry the signed-in user's Supabase JWT in the Authorization
 // header; the function resolves it to a user id and scopes all DB access to that
 // user. Tokens are read/written with the service-role key (RLS is bypassed); the
 // tables themselves are locked to client roles (see supabase/wearables.sql).
 //
 // Required function secrets (set with `supabase secrets set …`):
-//   FITBIT_CLIENT_ID            (required for Fitbit)
-//   FITBIT_CLIENT_SECRET        (optional — omit for a PKCE "Personal"/"Client" app)
-//   WHOOP_CLIENT_ID             (required for Whoop)
-//   WHOOP_CLIENT_SECRET         (required for Whoop)
-//   WEARABLE_ALLOWED_REDIRECTS  (optional CSV of allowed redirect URLs; sensible
-//                                localhost + *.github.io defaults are built in)
+//   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET   (from the Google Cloud OAuth client)
+//   WHOOP_CLIENT_ID  / WHOOP_CLIENT_SECRET    (optional — only if using Whoop)
+//   WEARABLE_ALLOWED_REDIRECTS                (optional CSV; localhost + *.github.io
+//                                              are allowed by default)
 // SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY are injected by the
 // platform automatically.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-type Provider = "fitbit" | "whoop";
+type Provider = "google-health" | "whoop";
 
 interface ProviderConfig {
+  envPrefix: string;             // GOOGLE / WHOOP → {PREFIX}_CLIENT_ID / _SECRET
   authorizeUrl: string;
   tokenUrl: string;
   scope: string;
-  usesPkce: boolean;
-  // client_secret placement at the token endpoint:
-  //  - "basic": HTTP Basic header  (Fitbit confidential apps)
-  //  - "body":  form fields         (Whoop)
-  //  - "none":  PKCE only, no secret (Fitbit Personal/Client apps)
-  secretStyle: "basic" | "body" | "none";
+  secretStyle: "body" | "basic"; // where the client_secret goes at the token endpoint
+  extraAuthParams?: Record<string, string>; // provider-specific authorize params
+  refreshScope?: string;         // scope value to resend on token refresh, if needed
 }
 
 const PROVIDERS: Record<Provider, ProviderConfig> = {
-  fitbit: {
-    authorizeUrl: "https://www.fitbit.com/oauth2/authorize",
-    tokenUrl: "https://api.fitbit.com/oauth2/token",
-    scope: "activity heartrate sleep profile",
-    usesPkce: true,
-    secretStyle: "basic", // downgraded to "none" automatically if no secret is set
+  "google-health": {
+    envPrefix: "GOOGLE",
+    authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+    tokenUrl: "https://oauth2.googleapis.com/token",
+    scope: [
+      "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly",
+      "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly",
+    ].join(" "),
+    secretStyle: "body",
+    // access_type=offline + prompt=consent are what make Google return a refresh_token.
+    extraAuthParams: { access_type: "offline", prompt: "consent", include_granted_scopes: "true" },
   },
   whoop: {
+    envPrefix: "WHOOP",
     authorizeUrl: "https://api.prod.whoop.com/oauth/oauth2/auth",
     tokenUrl: "https://api.prod.whoop.com/oauth/oauth2/token",
-    // `offline` is what makes Whoop return a refresh_token.
     scope: "read:recovery read:sleep read:cycles read:workout read:profile offline",
-    usesPkce: false,
     secretStyle: "body",
+    refreshScope: "offline",
   },
 };
 
+const GOOGLE_HEALTH_API = "https://health.googleapis.com/v4";
 const WHOOP_API = "https://api.prod.whoop.com/developer/v2";
-const FITBIT_API = "https://api.fitbit.com";
+
+function isProvider(p: string): p is Provider {
+  return p === "google-health" || p === "whoop";
+}
+function clientId(p: Provider): string { return env(`${PROVIDERS[p].envPrefix}_CLIENT_ID`); }
+function clientSecret(p: Provider): string { return env(`${PROVIDERS[p].envPrefix}_CLIENT_SECRET`); }
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -68,43 +80,32 @@ const CORS = {
 };
 
 function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS, "Content-Type": "application/json" },
-  });
+  return new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 }
 function fail(message: string, status = 400): Response {
   return json({ error: message }, status);
 }
-
 function env(name: string): string {
   return Deno.env.get(name) ?? "";
 }
 
-// ── small crypto helpers (PKCE + state) ──────────────────────────────────────
 function base64UrlEncode(bytes: Uint8Array): string {
   let bin = "";
   for (const b of bytes) bin += String.fromCharCode(b);
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
-function randomToken(byteLen = 32): string {
+function randomToken(byteLen = 24): string {
   const bytes = new Uint8Array(byteLen);
   crypto.getRandomValues(bytes);
   return base64UrlEncode(bytes);
-}
-async function pkceChallenge(verifier: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
-  return base64UrlEncode(new Uint8Array(digest));
 }
 
 // ── redirect allow-list (prevents the connector being used as an open redirect) ─
 function allowedRedirect(uri: string): boolean {
   if (!uri) return false;
-  const extra = env("WEARABLE_ALLOWED_REDIRECTS")
-    .split(",").map((s) => s.trim()).filter(Boolean);
+  const extra = env("WEARABLE_ALLOWED_REDIRECTS").split(",").map((s) => s.trim()).filter(Boolean);
   let host: URL;
   try { host = new URL(uri); } catch { return false; }
-  // Built-in: any localhost/127.0.0.1 port, and any *.github.io page.
   const isLocal = host.hostname === "127.0.0.1" || host.hostname === "localhost";
   const isPages = host.hostname.endsWith(".github.io");
   if ((isLocal || isPages) && (host.protocol === "http:" || host.protocol === "https:")) return true;
@@ -118,6 +119,20 @@ function num(v: unknown): number | null {
 function put(out: Record<string, number>, key: string, value: number | null) {
   if (value !== null && Number.isFinite(value)) out[key] = Math.round(value * 100) / 100;
 }
+// First finite number found anywhere inside a small object (used to read a single
+// aggregated value like {count_sum: 8500} without hard-coding every field spelling).
+function deepNum(obj: unknown, depth = 4): number | null {
+  if (obj == null || depth < 0) return null;
+  if (typeof obj === "number") return Number.isFinite(obj) ? obj : null;
+  if (typeof obj === "string") { const n = Number(obj); return Number.isFinite(n) ? n : null; }
+  if (typeof obj === "object") {
+    for (const v of Object.values(obj as Record<string, unknown>)) {
+      const n = deepNum(v, depth - 1);
+      if (n !== null) return n;
+    }
+  }
+  return null;
+}
 
 // ── token exchange / refresh ─────────────────────────────────────────────────
 interface Tokens {
@@ -130,16 +145,14 @@ interface Tokens {
 
 function tokenRequest(provider: Provider, params: URLSearchParams): Request {
   const cfg = PROVIDERS[provider];
-  const clientId = env(provider === "fitbit" ? "FITBIT_CLIENT_ID" : "WHOOP_CLIENT_ID");
-  const clientSecret = env(provider === "fitbit" ? "FITBIT_CLIENT_SECRET" : "WHOOP_CLIENT_SECRET");
+  const id = clientId(provider);
+  const secret = clientSecret(provider);
   const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded" };
-  params.set("client_id", clientId);
-
-  const style = cfg.secretStyle === "basic" && !clientSecret ? "none" : cfg.secretStyle;
-  if (style === "basic") {
-    headers["Authorization"] = "Basic " + btoa(`${clientId}:${clientSecret}`);
-  } else if (style === "body" && clientSecret) {
-    params.set("client_secret", clientSecret);
+  params.set("client_id", id);
+  if (cfg.secretStyle === "basic" && secret) {
+    headers["Authorization"] = "Basic " + btoa(`${id}:${secret}`);
+  } else if (secret) {
+    params.set("client_secret", secret); // "body" style (Google + Whoop)
   }
   return new Request(cfg.tokenUrl, { method: "POST", headers, body: params.toString() });
 }
@@ -147,12 +160,10 @@ function tokenRequest(provider: Provider, params: URLSearchParams): Request {
 async function parseTokens(resp: Response): Promise<Tokens> {
   const data = await resp.json();
   if (!resp.ok || !data.access_token) {
-    throw new Error(data.errors?.[0]?.message || data.error_description || data.error || `token request failed (${resp.status})`);
+    throw new Error(data.error_description || data.error || data.errors?.[0]?.message || `token request failed (${resp.status})`);
   }
   const expiresIn = num(data.expires_in);
-  const expiresAt = expiresIn !== null
-    ? new Date(Date.now() + (expiresIn - 60) * 1000).toISOString()
-    : null;
+  const expiresAt = expiresIn !== null ? new Date(Date.now() + (expiresIn - 60) * 1000).toISOString() : null;
   return {
     access_token: data.access_token,
     refresh_token: data.refresh_token ?? null,
@@ -162,12 +173,11 @@ async function parseTokens(resp: Response): Promise<Tokens> {
   };
 }
 
-async function exchangeCode(provider: Provider, code: string, verifier: string | null, redirectUri: string): Promise<Tokens> {
+async function exchangeCode(provider: Provider, code: string, redirectUri: string): Promise<Tokens> {
   const params = new URLSearchParams();
   params.set("grant_type", "authorization_code");
   params.set("code", code);
   params.set("redirect_uri", redirectUri);
-  if (verifier) params.set("code_verifier", verifier);
   return parseTokens(await fetch(tokenRequest(provider, params)));
 }
 
@@ -175,10 +185,10 @@ async function refreshTokens(provider: Provider, refreshToken: string): Promise<
   const params = new URLSearchParams();
   params.set("grant_type", "refresh_token");
   params.set("refresh_token", refreshToken);
-  if (provider === "whoop") params.set("scope", "offline");
+  const refreshScope = PROVIDERS[provider].refreshScope;
+  if (refreshScope) params.set("scope", refreshScope);
   const tokens = await parseTokens(await fetch(tokenRequest(provider, params)));
-  // Some providers omit a new refresh_token on refresh — keep the old one.
-  if (!tokens.refresh_token) tokens.refresh_token = refreshToken;
+  if (!tokens.refresh_token) tokens.refresh_token = refreshToken; // Google omits it on refresh
   return tokens;
 }
 
@@ -193,23 +203,74 @@ async function getJson(url: string, token: string): Promise<any | null> {
   }
 }
 
-async function fetchFitbit(token: string): Promise<Record<string, number>> {
-  const out: Record<string, number> = {};
-  // `today` resolves in the account's own timezone, so no server-side date math.
-  const activity = await getJson(`${FITBIT_API}/1/user/-/activities/date/today.json`, token);
-  if (activity?.summary) {
-    const s = activity.summary;
-    put(out, "steps", num(s.steps));
-    put(out, "active-calories", num(s.activityCalories ?? s.caloriesOut));
-    put(out, "active-minutes", (num(s.veryActiveMinutes) ?? 0) + (num(s.fairlyActiveMinutes) ?? 0));
-    const total = Array.isArray(s.distances) ? s.distances.find((d: any) => d.activity === "total") : null;
-    put(out, "distance-miles", total ? num(total.distance) : null);
+// Google Health API helpers -----------------------------------------------------
+// CivilDateTime at UTC midnight, `offset` days from now (used for dailyRollUp range).
+function civilDay(offset: number) {
+  const d = new Date(Date.now() + offset * 86400000);
+  return {
+    year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate(),
+    hours: 0, minutes: 0, seconds: 0, nanos: 0, timeZone: { id: "UTC" },
+  };
+}
+// "active-energy-burned" -> "activeEnergyBurned" (the per-point payload key)
+function camelKey(dataType: string): string {
+  return dataType.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+}
+async function googleRollup(dataType: string, token: string): Promise<any | null> {
+  const body = {
+    range: { start: civilDay(-1), end: civilDay(1) },
+    windowSizeDays: 1,
+    dataSourceFamily: "users/me/dataSourceFamilies/all-sources",
+  };
+  try {
+    const resp = await fetch(`${GOOGLE_HEALTH_API}/users/me/dataTypes/${dataType}/dataPoints:dailyRollUp`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
   }
-  const sleep = await getJson(`${FITBIT_API}/1.2/user/-/sleep/date/today.json`, token);
-  if (sleep?.summary) put(out, "sleep-hours", (num(sleep.summary.totalMinutesAsleep) ?? 0) / 60);
-  const heart = await getJson(`${FITBIT_API}/1/user/-/activities/heart/date/today/1d.json`, token);
-  const restingHr = heart?.["activities-heart"]?.[0]?.value?.restingHeartRate;
-  put(out, "resting-heart-rate", num(restingHr));
+}
+function googleList(dataType: string, token: string, pageSize = 10): Promise<any | null> {
+  return getJson(`${GOOGLE_HEALTH_API}/users/me/dataTypes/${dataType}/dataPoints?pageSize=${pageSize}`, token);
+}
+// Most recent rolled-up daily value for a data type (scans newest-last).
+function latestRollupValue(roll: any, dataType: string): number | null {
+  const pts = roll?.rollupDataPoints;
+  if (!Array.isArray(pts)) return null;
+  const key = camelKey(dataType);
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const v = deepNum(pts[i]?.[key]);
+    if (v !== null) return v;
+  }
+  return null;
+}
+// Most recent list data point that carries `key` (e.g. "sleep", "heartRate").
+function latestListPoint(list: any, key: string): any | null {
+  const pts = list?.dataPoints;
+  if (!Array.isArray(pts) || !pts.length) return null;
+  for (let i = pts.length - 1; i >= 0; i--) {
+    if (pts[i]?.[key]) return pts[i];
+  }
+  return pts[pts.length - 1];
+}
+
+async function fetchGoogleHealth(token: string): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  // Steps — daily total (rollup)
+  put(out, "steps", latestRollupValue(await googleRollup("steps", token), "steps"));
+  // Active calories — daily total (rollup)
+  put(out, "active-calories", latestRollupValue(await googleRollup("active-energy-burned", token), "active-energy-burned"));
+  // Sleep — most recent session
+  const sleepPt = latestListPoint(await googleList("sleep", token), "sleep");
+  const mins = num(sleepPt?.sleep?.summary?.minutesAsleep);
+  if (mins !== null && mins > 0) put(out, "sleep-hours", mins / 60);
+  // Resting heart rate — newest heart-rate sample (proxy)
+  const hrPt = latestListPoint(await googleList("heart-rate", token, 1), "heartRate");
+  put(out, "resting-heart-rate", num(hrPt?.heartRate?.beatsPerMinute));
   return out;
 }
 
@@ -237,13 +298,13 @@ async function fetchWhoop(token: string): Promise<Record<string, number>> {
   if (cScore) {
     put(out, "strain", num(cScore.strain));
     const kj = num(cScore.kilojoule);
-    put(out, "calories", kj !== null ? kj / 4.184 : null); // kJ → kcal
+    put(out, "calories", kj !== null ? kj / 4.184 : null);
   }
   return out;
 }
 
 function fetchMetrics(provider: Provider, token: string): Promise<Record<string, number>> {
-  return provider === "fitbit" ? fetchFitbit(token) : fetchWhoop(token);
+  return provider === "google-health" ? fetchGoogleHealth(token) : fetchWhoop(token);
 }
 
 // ── main handler ─────────────────────────────────────────────────────────────
@@ -256,8 +317,7 @@ Deno.serve(async (req) => {
   const anonKey = env("SUPABASE_ANON_KEY");
   if (!supabaseUrl || !serviceKey) return fail("Connector is missing Supabase configuration.", 500);
 
-  // Resolve the caller from their JWT. getUser() must be given the token
-  // explicitly — there is no local session on the server.
+  // Resolve the caller from their JWT (no server session — pass the token explicitly).
   const authHeader = req.headers.get("Authorization") || "";
   const jwt = authHeader.replace(/^Bearer\s+/i, "").trim();
   if (!jwt) return fail("Sign in to connect a device.", 401);
@@ -274,41 +334,29 @@ Deno.serve(async (req) => {
 
   try {
     if (action === "authorize") {
-      const provider = body.provider as Provider;
-      if (!PROVIDERS[provider]) return fail("Unknown provider.");
-      if (!env(provider === "fitbit" ? "FITBIT_CLIENT_ID" : "WHOOP_CLIENT_ID")) {
-        return fail(`${provider} is not configured on the server yet.`, 500);
-      }
+      const provider = String(body.provider || "");
+      if (!isProvider(provider)) return fail("Unknown provider.");
+      if (!clientId(provider)) return fail(`${provider} is not configured on the server yet.`, 500);
       const redirectUri = String(body.redirect_uri || "");
       if (!allowedRedirect(redirectUri)) return fail("Redirect URL is not allowed.");
 
       const cfg = PROVIDERS[provider];
       const state = randomToken(24);
-      let verifier: string | null = null;
-      let challenge: string | null = null;
-      if (cfg.usesPkce) {
-        verifier = randomToken(48);
-        challenge = await pkceChallenge(verifier);
-      }
 
-      // prune stale handshakes (older than 15 min) then record this one
       await db.from("wearable_oauth_states")
         .delete().lt("created_at", new Date(Date.now() - 15 * 60 * 1000).toISOString());
       const ins = await db.from("wearable_oauth_states").insert({
-        state, user_id: user.id, provider, code_verifier: verifier, redirect_uri: redirectUri,
+        state, user_id: user.id, provider, code_verifier: null, redirect_uri: redirectUri,
       });
       if (ins.error) return fail("Could not start the connection.", 500);
 
       const url = new URL(cfg.authorizeUrl);
       url.searchParams.set("response_type", "code");
-      url.searchParams.set("client_id", env(provider === "fitbit" ? "FITBIT_CLIENT_ID" : "WHOOP_CLIENT_ID"));
+      url.searchParams.set("client_id", clientId(provider));
       url.searchParams.set("redirect_uri", redirectUri);
       url.searchParams.set("scope", cfg.scope);
       url.searchParams.set("state", state);
-      if (challenge) {
-        url.searchParams.set("code_challenge", challenge);
-        url.searchParams.set("code_challenge_method", "S256");
-      }
+      for (const [k, v] of Object.entries(cfg.extraAuthParams || {})) url.searchParams.set(k, v);
       return json({ url: url.toString() });
     }
 
@@ -320,9 +368,10 @@ Deno.serve(async (req) => {
         .select("*").eq("state", state).eq("user_id", user.id).maybeSingle();
       if (stateRow.error || !stateRow.data) return fail("This connection link has expired. Please try again.");
       const provider = stateRow.data.provider as Provider;
+      if (!isProvider(provider)) return fail("Unknown provider.");
       const redirectUri = stateRow.data.redirect_uri || String(body.redirect_uri || "");
 
-      const tokens = await exchangeCode(provider, code, stateRow.data.code_verifier, redirectUri);
+      const tokens = await exchangeCode(provider, code, redirectUri);
       const up = await db.from("wearable_connections").upsert({
         user_id: user.id,
         provider,
@@ -344,9 +393,9 @@ Deno.serve(async (req) => {
       const providers: Record<string, unknown> = {};
       for (const conn of conns.data || []) {
         if (only && !only.includes(conn.provider)) continue;
+        if (!isProvider(conn.provider)) continue;
         const provider = conn.provider as Provider;
         let accessToken = conn.access_token as string;
-        // Refresh if the token is missing or within 60s of expiry.
         const expired = !accessToken || (conn.expires_at && Date.parse(conn.expires_at) <= Date.now() + 60000);
         if (expired) {
           if (!conn.refresh_token) { providers[provider] = { error: "reconnect" }; continue; }

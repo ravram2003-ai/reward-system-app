@@ -1,106 +1,72 @@
-# Wearables live sync (Fitbit + Whoop) — setup
+# Wearables live sync — deploy guide (Google Health API → Fitbit)
 
-This connects your **real** Fitbit and WHOOP data to Pointwell over the web — no App
-Store, no native app. It works for **your own account immediately** (developer mode);
-letting other people connect later needs Fitbit's/WHOOP's app review.
+Real **Fitbit** data reaches the web app through the **Google Health API** (Google's
+replacement for the now-closed Fitbit Web API). It works for **you + up to 100 test
+users you add by email** while the app stays in *Testing* mode — no App Store, no
+public verification. Letting *anyone* connect later needs Google verification + a
+paid health-data security assessment (a launch-stage step, not this).
 
-There are 4 one-time steps. Steps 1–2 give you the client IDs/secrets; steps 3–4
-put the secure connector on your Supabase project. Everything in the app code is
-already written — these steps just supply the credentials and deploy the connector.
+## ✅ Already done (Google Cloud Console)
 
-**Your two redirect URLs** (used in every step below):
+Set up under **jacobavram6@gmail.com** in project **`pointwell`**:
+- Google Health API **enabled**
+- OAuth consent screen: **External / Testing**, test user **jacobavram6@gmail.com**
+- OAuth **Web** client created
+  - **Client ID:** `807906791184-gvpp7jao35cbqvdm2slvtcco8aaj7n1f.apps.googleusercontent.com`
+  - **Redirect URI:** `https://ravram2003-ai.github.io/reward-system-app/wearable-callback.html`
+- Scopes (read-only): `googlehealth.activity_and_fitness.readonly`, `googlehealth.health_metrics_and_measurements.readonly`
 
-| Where | Redirect / Callback URL |
-|-------|--------------------------|
-| Local testing | `http://127.0.0.1:4173/wearable-callback.html` |
-| Live (GitHub Pages) | `https://ravram2003-ai.github.io/reward-system-app/wearable-callback.html` |
+## What's left — 3 steps
 
-Register **both** at each provider if the field allows multiple; otherwise register
-the one you're testing with and add the other when you go live.
+### 1. Get the Client Secret
+Google Cloud Console → **APIs & Services / Google Auth Platform → Clients** → click the
+Web client → copy the **Client Secret**. (Keep it private — it goes into Supabase, step 3.)
 
----
+### 2. Create the database tables
+Supabase dashboard → **SQL Editor** → paste & run
+[`supabase/wearables.sql`](./wearables.sql). Idempotent; creates two RLS-locked token
+tables only the connector can touch.
 
-## 1. Register a Fitbit app  → Client ID (+ secret)
-
-1. Go to <https://dev.fitbit.com/apps/new> (sign in with your Fitbit account).
-2. Fill in name/description/website (any valid values).
-3. **OAuth 2.0 Application Type:** `Personal` — this lets you read your own
-   intraday data right away.
-4. **Redirect URL / Callback URL:** paste the callback URL(s) from the table above.
-5. **Default Access Type:** `Read-Only`.
-6. Agree to terms and register.
-7. Copy the **OAuth 2.0 Client ID** and **Client Secret**.
-
-## 2. Register a WHOOP app  → Client ID + Client Secret
-
-1. Go to <https://developer.whoop.com/> and sign in (needs a WHOOP membership).
-2. Create a team if prompted, then **Create New App**.
-3. **Redirect URIs:** add the callback URL(s) from the table above.
-4. **Scopes:** enable `read:recovery`, `read:sleep`, `read:cycles`,
-   `read:workout`, `read:profile`, and `offline` (offline is required to keep the
-   sync working without re-logging in).
-5. Save, then copy the **Client ID** and **Client Secret**.
-
-## 3. Create the database tables
-
-In the Supabase dashboard → **SQL Editor**, paste and run the contents of
-[`supabase/wearables.sql`](./wearables.sql). It's idempotent (safe to re-run) and
-creates two RLS-locked tables that only the connector can touch.
-
-## 4. Deploy the connector (Edge Function) + set the secrets
-
-Install the [Supabase CLI](https://supabase.com/docs/guides/cli), then from the repo
-root:
+### 3. Deploy the connector + set secrets
+With the [Supabase CLI](https://supabase.com/docs/guides/cli), from the repo root:
 
 ```bash
 supabase login
 supabase link --project-ref ejoccpqbozgzixrejlhd
 
-# Store the credentials from steps 1–2 as function secrets (never in the repo):
 supabase secrets set \
-  FITBIT_CLIENT_ID=xxxx \
-  FITBIT_CLIENT_SECRET=xxxx \
-  WHOOP_CLIENT_ID=xxxx \
-  WHOOP_CLIENT_SECRET=xxxx
+  GOOGLE_CLIENT_ID=807906791184-gvpp7jao35cbqvdm2slvtcco8aaj7n1f.apps.googleusercontent.com \
+  GOOGLE_CLIENT_SECRET=<paste-the-secret-from-step-1>
 
-# Deploy the function:
 supabase functions deploy wearables
 ```
 
-`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are injected by
-the platform automatically — you do **not** set those.
+`SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` are injected
+automatically — don't set those.
 
-> The connector only allows redirects back to `localhost`, `127.0.0.1`, and
-> `*.github.io` by default. To allow another host, set
-> `WEARABLE_ALLOWED_REDIRECTS` (comma-separated) as an extra secret.
-
----
+> (Whoop is also supported by the same connector — set `WHOOP_CLIENT_ID` /
+> `WHOOP_CLIENT_SECRET` too if you ever want it.)
 
 ## Try it
 
-1. Run the app (`npm start`) or open the live Pages URL, and **sign in** (the
-   connector needs your account — it stores tokens per user).
-2. Go to **Profile → Integrations**, click **Connect** on Fitbit or Whoop.
-3. You'll be sent to Fitbit/WHOOP to approve read-only access, then bounced back.
-   The card flips to **Connected** and pulls your data.
-4. Add a rule whose **Data source** is Fitbit or Whoop and pick a **Synced metric**
-   (e.g. Fitbit → Steps, Whoop → Recovery %). Today's value fills in from your real
-   data, and the **Sync now** button on the integration card refreshes it.
-
-## How it stays secure
-
-- The browser never sees a token. It only calls the Edge Function, which holds the
-  secrets and does the OAuth exchange + all provider API calls server-side.
-- Tokens live in `wearable_connections`, an RLS-locked table with **no** client
-  policies — only the function's service-role connection can read/write it.
-- **Disconnect** deletes the stored tokens for that provider.
+1. Deploy the app (merge this branch to `main` and push → GitHub Pages rebuilds), then
+   open `https://ravram2003-ai.github.io/reward-system-app/` and **sign in**.
+2. **Profile → Integrations → Connect** on **Google Health (Fitbit)**.
+3. Approve on Google. You'll see a one-time **"Google hasn't verified this app"** notice
+   (expected in Testing mode) → **Advanced → Go to Pointwell (unsafe) → Continue**.
+4. Back in the app it flips to **Connected** and pulls your data. Add a rule with **Data
+   source = Google Health (Fitbit)** and a **Synced metric** (Steps, Sleep hours, Resting
+   heart rate, Active calories) to see today's real numbers. **Sync now** refreshes.
 
 ## Notes / limits
 
-- "Live" = your latest data **after your band syncs** to the Fitbit/WHOOP phone app
-  — it's current, not second-by-second.
-- In developer mode this works for **your** account. Public multi-user access needs
-  each provider's app-review process (a launch-time step).
-- WHOOP exposes recovery/sleep/strain/HRV; Fitbit exposes steps/sleep/resting
-  HR/calories/active minutes/distance. The rule "Synced metric" dropdown lists what
-  each device provides.
+- ⏱️ Google warns a brand-new OAuth client can take **5 minutes to a few hours** to take
+  effect — if the first connect errors, wait and retry.
+- "Live" = your latest data **after your band syncs** to Fitbit/Google — current, not
+  second-by-second.
+- The Google Health API is new; if a metric reads 0 after a successful connect, the data
+  may not have synced yet, or that data type's field mapping in
+  `supabase/functions/wearables/index.ts` (`fetchGoogleHealth`) may need a small tweak —
+  steps is the most reliable to verify first.
+- Security: the browser never sees a token. The Edge Function holds the secret and does
+  all OAuth + API calls; tokens live in the RLS-locked `wearable_connections` table.

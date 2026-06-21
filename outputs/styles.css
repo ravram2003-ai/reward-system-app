@@ -7193,3 +7193,66 @@ button.notif-item:hover {
   font-size: 0.76rem;
   white-space: nowrap;
 }
+
+/* ── Improve-this-system chat (AI draft review) ───────────────────────────── */
+.ai-chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+}
+.ai-chat-empty {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+.ai-chat-msg {
+  max-width: 85%;
+  padding: 7px 11px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.ai-chat-user {
+  align-self: flex-end;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 650;
+}
+.ai-chat-ai {
+  align-self: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+.ai-chat-pending {
+  color: var(--muted);
+  font-style: italic;
+}
+.ai-chat-form {
+  display: flex;
+  gap: 8px;
+}
+.ai-chat-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--field-bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.88rem;
+}
+.ai-chat-input::placeholder { color: var(--muted); }
+.ai-chat-input:focus {
+  outline: none;
+  border-color: rgba(58, 214, 166, 0.45);
+}
+.ai-chat-form .primary-button { flex: 0 0 auto; }

@@ -425,6 +425,44 @@
     }
   }
 
+  // Upload an entry photo to the private "entry-photos" bucket. `folder` sets the
+  // visibility path: "<community_id>/<user_id>" or "personal/<user_id>". Storage
+  // policies (not this code) enforce who can read it. Returns { error, path }.
+  async function uploadEntryPhoto(file, folder) {
+    var sb = getClient();
+    if (!sb || !sb.storage) return { error: { message: "Photo upload needs a connection." } };
+    if (!file) return { error: { message: "No photo selected." } };
+    if (!folder) return { error: { message: "Missing photo destination." } };
+    try {
+      var ext = "jpg";
+      if (file.name && file.name.indexOf(".") > -1) {
+        var raw = file.name.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (raw) ext = raw;
+      } else if (file.type && file.type.indexOf("/") > -1) {
+        ext = file.type.split("/").pop().replace(/[^a-z0-9]/g, "") || "jpg";
+      }
+      var path = String(folder).replace(/\/+$/, "") + "/" + Date.now() + "-" + Math.random().toString(36).slice(2, 8) + "." + ext;
+      var res = await sb.storage.from("entry-photos").upload(path, file, { contentType: file.type || "image/jpeg", upsert: false });
+      if (res.error) return { error: { message: res.error.message || "Photo upload failed." } };
+      return { error: null, path: path };
+    } catch (e) {
+      return { error: { message: "Couldn't upload the photo." } };
+    }
+  }
+
+  // Short-lived signed URL so a thumbnail can render. Returns "" if not permitted
+  // (the Storage read policy denies it) — callers must handle the empty string.
+  async function getEntryPhotoSignedUrl(path) {
+    var sb = getClient();
+    if (!sb || !sb.storage || !path) return "";
+    try {
+      var res = await sb.storage.from("entry-photos").createSignedUrl(path, 3600);
+      return (res && res.data && res.data.signedUrl) ? res.data.signedUrl : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
   // Every community the user belongs to, with its members (names via a definer
   // function, since profiles RLS is self-only) and the shared entries.
   async function fetchMyCommunities(userId) {
@@ -692,6 +730,8 @@
     getFriendsActiveToday: getFriendsActiveToday,
     generateRules: generateRules,
     upsertCommunityEntry: upsertCommunityEntry,
+    uploadEntryPhoto: uploadEntryPhoto,
+    getEntryPhotoSignedUrl: getEntryPhotoSignedUrl,
     fetchMyCommunities: fetchMyCommunities,
     isNudgeable: isNudgeable,
     subscribeInbox: subscribeInbox,

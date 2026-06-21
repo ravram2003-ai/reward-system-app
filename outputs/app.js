@@ -346,6 +346,10 @@
 
   let state = loadState();
   let addEntryDraft = { ruleId: "", amount: 0 };
+  // Optional message + photo for the next Add Entry. Both optional; reset after save.
+  let addEntryAttachment = { message: "", file: null, previewUrl: "" };
+  const ENTRY_PHOTO_MAX_BYTES = 5 * 1024 * 1024; // ~5 MB cap (protects free-tier storage)
+  const ENTRY_MESSAGE_MAX = 280;
   let topCardDraftBlocks = null;
   let weeklyChartDraftBlocks = null;
   let communityDraft = null;
@@ -2387,6 +2391,9 @@
     renderProfile();
     renderNotifications();
     pushMyBehindStatus();
+    // Load signed-URL thumbnails for any entry photos rendered this pass (the helper
+    // skips ones already loaded; Storage policy decides if each is actually viewable).
+    bindEntryPhotos(document);
   }
 
   function renderChrome() {
@@ -2584,6 +2591,7 @@
       showToast("Add a scoring rule first");
       return;
     }
+    resetAddEntryAttachment(); // each Add Entry starts with a clean message/photo
     state.activeView = "add-entry";
     saveState();
     render();
@@ -2935,7 +2943,7 @@
     return { date, total, values: communityValuesForMember(communityId, userId, date) };
   }
 
-  function addCommunityEntry(communityId, userId, rule, amount, source = "manual") {
+  function addCommunityEntry(communityId, userId, rule, amount, source = "manual", message = "", photoPath = "") {
     const dateKey = getTodayKey();
     state.communityEntries = state.communityEntries || [];
     state.communityEntries.push({
@@ -2949,6 +2957,8 @@
       date: dateKey,
       dateKey,
       timestamp: new Date().toISOString(),
+      message: message || "",
+      photoPath: photoPath || "",
       source
     });
   }
@@ -5403,6 +5413,49 @@
     Array.from(els.dailyInputList.querySelectorAll("[data-add-entry-button]")).forEach((button) => {
       button.addEventListener("click", () => addDailyEntryFromDraft());
     });
+    bindEntryAttachControls();
+  }
+
+  function bindEntryAttachControls() {
+    const root = els.dailyInputList;
+    if (!root) return;
+    const messageInput = root.querySelector("[data-entry-message]");
+    if (messageInput) {
+      messageInput.addEventListener("input", () => {
+        addEntryAttachment.message = messageInput.value.slice(0, ENTRY_MESSAGE_MAX);
+        const counter = root.querySelector("[data-entry-message-count]");
+        if (counter) counter.textContent = `${addEntryAttachment.message.length}/${ENTRY_MESSAGE_MAX}`;
+      });
+    }
+    const addBtn = root.querySelector("[data-entry-photo-add]");
+    if (addBtn) {
+      addBtn.addEventListener("click", () => {
+        const menu = root.querySelector("[data-entry-photo-menu]");
+        if (menu) menu.hidden = !menu.hidden;
+      });
+    }
+    Array.from(root.querySelectorAll("[data-entry-photo-pick]")).forEach((button) => {
+      button.addEventListener("click", () => {
+        const which = button.dataset.entryPhotoPick;
+        const input = root.querySelector(`[data-entry-photo-input="${which}"]`);
+        if (input) input.click();
+      });
+    });
+    Array.from(root.querySelectorAll("[data-entry-photo-input]")).forEach((input) => {
+      input.addEventListener("change", () => {
+        const file = input.files && input.files[0];
+        if (file) chooseEntryPhoto(file);
+      });
+    });
+    const removeBtn = root.querySelector("[data-entry-photo-remove]");
+    if (removeBtn) {
+      removeBtn.addEventListener("click", () => {
+        if (addEntryAttachment.previewUrl) { try { URL.revokeObjectURL(addEntryAttachment.previewUrl); } catch (e) { /* ignore */ } }
+        addEntryAttachment.file = null;
+        addEntryAttachment.previewUrl = "";
+        refreshAddEntryPanel();
+      });
+    }
   }
 
   function bindCommunityInputs() {
@@ -5468,8 +5521,102 @@
           </div>
         </div>
         ${renderAddEntryAmountControl(selectedRule, amount)}
+        ${renderEntryAttachControls()}
       </div>
     `;
+  }
+
+  // Optional message + photo attach control for the Add Entry panel. Both optional.
+  function renderEntryAttachControls() {
+    const msg = addEntryAttachment.message || "";
+    const photo = addEntryAttachment.previewUrl
+      ? `<div class="entry-photo-preview">
+           <img src="${escapeHtml(addEntryAttachment.previewUrl)}" alt="Attached photo preview">
+           <button type="button" class="entry-photo-remove" data-entry-photo-remove aria-label="Remove photo">×</button>
+         </div>`
+      : `<div class="entry-photo-attach">
+           <button type="button" class="entry-photo-add" data-entry-photo-add><span aria-hidden="true">+</span><span>Add photo</span></button>
+           <div class="entry-photo-menu" data-entry-photo-menu hidden>
+             <button type="button" data-entry-photo-pick="camera">Take photo</button>
+             <button type="button" data-entry-photo-pick="library">Choose from library</button>
+           </div>
+         </div>`;
+    return `
+      <div class="entry-attach">
+        <label class="entry-message-field">
+          <span>Add a note (optional)</span>
+          <textarea data-entry-message maxlength="${ENTRY_MESSAGE_MAX}" rows="2" placeholder="What happened? (optional)">${escapeHtml(msg)}</textarea>
+          <span class="entry-message-count" data-entry-message-count>${msg.length}/${ENTRY_MESSAGE_MAX}</span>
+        </label>
+        ${photo}
+        <input type="file" accept="image/*" capture="environment" data-entry-photo-input="camera" hidden>
+        <input type="file" accept="image/*" data-entry-photo-input="library" hidden>
+      </div>
+    `;
+  }
+
+  function resetAddEntryAttachment() {
+    if (addEntryAttachment.previewUrl) {
+      try { URL.revokeObjectURL(addEntryAttachment.previewUrl); } catch (e) { /* ignore */ }
+    }
+    addEntryAttachment = { message: "", file: null, previewUrl: "" };
+  }
+
+  // Re-render just the Add Entry panel (to reflect a photo preview add/remove) and
+  // re-bind its controls, without disturbing the rest of the view.
+  function refreshAddEntryPanel() {
+    const system = getActiveScoreContext().system;
+    if (!system || !els.dailyInputList) return;
+    els.dailyInputList.innerHTML = renderAddEntryPanel(system);
+    bindDailyInputs();
+  }
+
+  function chooseEntryPhoto(file) {
+    if (!file) return;
+    if (!/^image\//i.test(file.type || "")) {
+      showToast("That's not an image — choose a photo");
+      return;
+    }
+    if (file.size > ENTRY_PHOTO_MAX_BYTES) {
+      showToast("Photo is too big (max 5 MB) — pick a smaller one");
+      return;
+    }
+    if (addEntryAttachment.previewUrl) {
+      try { URL.revokeObjectURL(addEntryAttachment.previewUrl); } catch (e) { /* ignore */ }
+    }
+    addEntryAttachment.file = file;
+    addEntryAttachment.previewUrl = URL.createObjectURL(file);
+    refreshAddEntryPanel();
+  }
+
+  // ── Displaying an entry's optional message + photo ──────────────────────────
+  // The photo thumbnail loads a short-lived signed URL; Storage policy denies it
+  // (→ "") to viewers who can't see the entry, so visibility is enforced server-side.
+  function renderEntryAttachmentMarkup(entry) {
+    if (!entry) return "";
+    const message = entry.message ? String(entry.message) : "";
+    const path = entry.photoPath || entry.photo_path || "";
+    if (!message && !path) return "";
+    const msgHtml = message ? `<p class="entry-message">${escapeHtml(message)}</p>` : "";
+    const photoHtml = path
+      ? `<button type="button" class="entry-photo-thumb" data-entry-photo="${escapeHtml(path)}" aria-label="View attached photo"><img alt="Entry photo" loading="lazy"></button>`
+      : "";
+    return `<div class="entry-attachment">${msgHtml}${photoHtml}</div>`;
+  }
+
+  function bindEntryPhotos(root) {
+    if (!root || !window.PointwellSignals || typeof window.PointwellSignals.getEntryPhotoSignedUrl !== "function") return;
+    Array.from(root.querySelectorAll("[data-entry-photo]")).forEach((thumb) => {
+      if (thumb.dataset.photoBound === "1") return;
+      thumb.dataset.photoBound = "1";
+      const path = thumb.dataset.entryPhoto;
+      const img = thumb.querySelector("img");
+      Promise.resolve(window.PointwellSignals.getEntryPhotoSignedUrl(path)).then((url) => {
+        if (!url) { thumb.classList.add("is-unavailable"); if (img) img.alt = "Photo unavailable"; return; }
+        if (img) img.src = url;
+        thumb.addEventListener("click", () => { try { window.open(url, "_blank", "noopener"); } catch (e) { /* ignore */ } });
+      }).catch(() => { thumb.classList.add("is-unavailable"); });
+    });
   }
 
   function renderAddEntrySourceNotice(rule) {
@@ -5648,7 +5795,7 @@
     setText("[data-add-entry-button-label]", buttonLabel);
   }
 
-  function addDailyEntryFromDraft() {
+  async function addDailyEntryFromDraft() {
     const context = getActiveScoreContext();
     const system = context.system;
     if (!system) return;
@@ -5663,15 +5810,32 @@
       showToast("Choose an amount to add");
       return;
     }
+
+    // Optional message + photo. Both optional; logging with neither is unchanged.
+    const message = (addEntryAttachment.message || "").trim().slice(0, ENTRY_MESSAGE_MAX);
+    let photoPath = "";
+    if (addEntryAttachment.file) {
+      const uid = state.account && state.account.userId;
+      if (!signalsReady() || !uid || !window.PointwellSignals || typeof window.PointwellSignals.uploadEntryPhoto !== "function") {
+        showToast("Sign in to attach photos — saving the log without it");
+      } else {
+        const folder = context.type === "community" ? `${context.community.id}/${uid}` : `personal/${uid}`;
+        const up = await window.PointwellSignals.uploadEntryPhoto(addEntryAttachment.file, folder);
+        // Upload failure must not lose the log — save it without the photo.
+        if (up.error || !up.path) showToast("Couldn't upload the photo — saved the log without it");
+        else photoPath = up.path;
+      }
+    }
+
     if (context.type === "community") {
-      addCommunityEntry(context.community.id, "me", rule, amount, isRuleSynced(rule) ? "manual-adjustment" : "manual");
+      addCommunityEntry(context.community.id, "me", rule, amount, isRuleSynced(rule) ? "manual-adjustment" : "manual", message, photoPath);
       saveCommunitySummaryForMember(context.community, "me");
       // Persist to the shared DB just like the community check-in button does, so a
       // dashboard "Add Entry" survives navigation / reload / other members. Surface
       // the real error if the write is rejected instead of keeping it device-local.
       const dbCommunity = context.community;
       const dbRuleId = rule.id;
-      Promise.resolve(pushCommunityEntryToDb(dbCommunity, dbRuleId)).then((result) => {
+      Promise.resolve(pushCommunityEntryToDb(dbCommunity, dbRuleId, message, photoPath)).then((result) => {
         if (result && result.error) {
           showToast(communityDbError(result.error, "Logged here, but couldn't save it to the community"));
         }
@@ -5690,12 +5854,15 @@
         label: rule.label,
         unit: rule.unit,
         amount,
+        message,
+        photoPath,
         source: isRuleSynced(rule) ? "manual-adjustment" : "manual"
       });
       syncDraftInputsFromEntries(system);
       autoSaveToday(system);
     }
     addEntryDraft = { ruleId: rule.id, amount: suggestedEntryAmount(rule) };
+    resetAddEntryAttachment();
     state.activeView = "dashboard";
     saveState();
     render();
@@ -6882,13 +7049,15 @@
       ? `data-delete-community-entry="${escapeHtml(entry.id)}"`
       : `data-delete-quick-entry="${escapeHtml(entry.id)}"`;
     const sourceLabel = entrySourceLabel(entry, rule);
+    const attach = renderEntryAttachmentMarkup(entry);
     return `
-      <div class="entry-log-row quick-entry-row">
+      <div class="entry-log-row quick-entry-row${attach ? " has-attach" : ""}">
         <div class="entry-log-main">
           <strong>${escapeHtml(text)}</strong>
           <span>${escapeHtml(sourceLabel)}</span>
         </div>
         ${isReadOnly ? `<span class="tracking-pill">${escapeHtml(entry.source === "calculated" ? "Calculated" : "Synced")}</span>` : `<button class="ghost-button small" type="button" ${attr}>Delete</button>`}
+        ${attach}
       </div>
     `;
   }
@@ -7669,8 +7838,9 @@
       ? (window.PointwellSignals.formatRelativeTime(when, Date.now()) || "")
       : "";
     const relText = rel ? (rel === "just now" ? "just now" : `${rel} ago`) : "";
+    const attach = renderEntryAttachmentMarkup(entry);
     return `
-      <div class="entry-log-row member-entry-row">
+      <div class="entry-log-row member-entry-row${attach ? " has-attach" : ""}">
         <div class="entry-log-main">
           <strong>${escapeHtml(memberEntryText(entry, rule))}</strong>
           <span>${escapeHtml(entrySourceLabel(entry, rule))}</span>
@@ -7679,6 +7849,7 @@
           <span class="member-entry-points">${points >= 0 ? "+" : ""}${escapeHtml(formatPoints(points))} pts</span>
           ${relText ? `<span class="member-entry-time">${escapeHtml(relText)}</span>` : ""}
         </div>
+        ${attach}
       </div>
     `;
   }
@@ -9666,7 +9837,9 @@
       amount: numberOrDefault(entry.amount, 0),
       date: entry.entry_date,
       dateKey: entry.entry_date,
-      timestamp: entry.updated_at || ""
+      timestamp: entry.updated_at || "",
+      message: entry.message || "",
+      photoPath: entry.photo_path || ""
     };
   }
 
@@ -9686,19 +9859,25 @@
 
   // Persist a member's logged check-in for one rule/day to the shared table (the
   // per-rule daily TOTAL, to match the table's one-row-per-rule/day shape).
-  function pushCommunityEntryToDb(community, ruleId) {
+  function pushCommunityEntryToDb(community, ruleId, message = "", photoPath = "") {
     if (!communitiesAreShared() || !community || !ruleId) return Promise.resolve({ error: null });
     const today = getTodayKey();
     const total = getCommunityEntriesForMemberOnDate(community.id, "me", today)
       .filter((entry) => entry.ruleId === ruleId)
       .reduce((sum, entry) => sum + numberOrDefault(entry.amount, 0), 0);
-    return Promise.resolve(window.PointwellSignals.upsertCommunityEntry({
+    const payload = {
       community_id: community.id,
       user_id: state.account.userId,
       rule_id: ruleId,
       amount: total,
       entry_date: today
-    })).catch(() => ({ error: { message: "Couldn't reach the server." } }));
+    };
+    // Only send message/photo_path when set, so a plain add never nulls out an
+    // attachment already on today's aggregated row for this rule.
+    if (message) payload.message = message;
+    if (photoPath) payload.photo_path = photoPath;
+    return Promise.resolve(window.PointwellSignals.upsertCommunityEntry(payload))
+      .catch(() => ({ error: { message: "Couldn't reach the server." } }));
   }
 
   function runCommunityCodeSearch(query) {

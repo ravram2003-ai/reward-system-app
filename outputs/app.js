@@ -1823,6 +1823,14 @@
       "editSystemButton",
       "addEntryTitle",
       "addEntrySystemSelect",
+      "quickLogCapture",
+      "quickLogInput",
+      "quickLogMic",
+      "quickLogSubmit",
+      "quickLogSnapButton",
+      "quickLogMealInput",
+      "quickLogHint",
+      "quickLogDraft",
       "customizeTopCardSystemSelect",
       "customizeChartsSystemSelect",
       "openAddEntryButton",
@@ -2156,6 +2164,7 @@
     els.openAddEntryButton.addEventListener("click", openAddEntryPage);
     // The "+" FAB logs an entry directly (creating systems/communities lives in Build).
     if (els.createFab) els.createFab.addEventListener("click", openAddEntryPage);
+    bindQuickLogControls();
     els.backToDashboardButton.addEventListener("click", returnToDashboard);
     els.customizeTopCardButton.addEventListener("click", openCustomizeTopCardPage);
     els.cancelTopCardButton.addEventListener("click", cancelTopCardCustomization);
@@ -2688,11 +2697,13 @@
       return;
     }
     resetAddEntryAttachment(); // each Add Entry starts with a clean message/photo
+    resetQuickLog();           // ...and a clean quick-log box
     state.activeView = "add-entry";
     saveState();
     render();
     requestAnimationFrame(() => {
-      els.dailyInputList.querySelector("[data-add-entry-rule]")?.focus();
+      // The AI quick-log box is the primary path; focus it first, manual is the fallback.
+      (els.quickLogInput || els.dailyInputList.querySelector("[data-add-entry-rule]"))?.focus();
       window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     });
   }
@@ -6103,6 +6114,439 @@
     });
   }
 
+  // ── AI quick-log ─────────────────────────────────────────────────────────────
+  // Type or speak what you did → parse-log maps it to your rules → editable draft →
+  // confirm saves through the EXISTING add paths. AI output is ALWAYS a proposal.
+  let quickLogDraft = [];          // [{ _id, contextType, contextId, ruleId, isYesNo, amount, note, confidence, isPhotoEstimate? }]
+  let quickLogClarifications = []; // [{ _id, ruleHint, question, amount?, done?, options:[{contextType,contextId,contextName,ruleId,type}] }]
+  let quickLogBusy = false;
+  let quickLogRecognition = null;
+  let quickLogRecording = false;
+
+  function resetQuickLog() {
+    quickLogDraft = [];
+    quickLogClarifications = [];
+    quickLogBusy = false;
+    if (quickLogRecording) stopQuickLogMic();
+    if (els.quickLogInput) els.quickLogInput.value = "";
+    setQuickLogHint("");
+    renderQuickLogDraft();
+  }
+
+  function setQuickLogHint(text) {
+    if (els.quickLogHint) els.quickLogHint.textContent = text || "";
+  }
+
+  // Every rule the user can manually log, across their systems + joined communities.
+  function buildLoggableRuleCatalog() {
+    const catalog = [];
+    const pushRule = (rawRule, contextType, contextId, contextName) => {
+      const rule = scoring.normalizeRule(rawRule);
+      if (rule.simpleStyle === "penalty") return;                       // penalties aren't logged toward a goal
+      if (rule.dataSource === "calculated") return;                     // derived totals, not directly logged
+      const externalSynced = rule.dataSource && rule.dataSource !== "manual" && rule.dataSource !== "calculated";
+      if (externalSynced && rule.allowManualOverride === false) return; // manual logging is off for this rule
+      catalog.push({
+        id: rule.id,
+        label: rule.label,
+        unit: rule.unit,
+        type: rule.simpleStyle === "yesNo" ? "yesNo" : "number",
+        contextType: contextType,
+        contextId: contextId,
+        contextName: contextName,
+      });
+    };
+    (state.systems || []).forEach((system) => {
+      (system.rules || []).forEach((r) => pushRule(r, "personal", system.id, system.title || "Untitled system"));
+    });
+    (state.communities || []).forEach((community) => {
+      const sys = normalizeSystem(community.system || { rules: [] });
+      (sys.rules || []).forEach((r) => pushRule(r, "community", community.id, community.name || "Community"));
+    });
+    return catalog;
+  }
+
+  // Resolve a draft item back to its real rule object + context name (the draft only carries ids).
+  function resolveQuickLogRule(contextType, contextId, ruleId) {
+    if (contextType === "community") {
+      const community = (state.communities || []).find((c) => c.id === contextId);
+      if (!community) return null;
+      const sys = normalizeSystem(community.system || { rules: [] });
+      const rule = (sys.rules || []).map(scoring.normalizeRule).find((r) => r.id === ruleId);
+      return rule ? { rule: rule, contextName: community.name || "Community" } : null;
+    }
+    const system = (state.systems || []).find((s) => s.id === contextId);
+    if (!system) return null;
+    const rule = (system.rules || []).map(scoring.normalizeRule).find((r) => r.id === ruleId);
+    return rule ? { rule: rule, contextName: system.title || "System" } : null;
+  }
+
+  function normalizeQuickLogEntry(e) {
+    const resolved = resolveQuickLogRule(e.contextType, e.contextId, e.ruleId);
+    if (!resolved) return null;
+    const isYesNo = resolved.rule.simpleStyle === "yesNo";
+    return {
+      _id: makeId("qlog"),
+      contextType: e.contextType === "community" ? "community" : "personal",
+      contextId: e.contextId,
+      ruleId: e.ruleId,
+      isYesNo: isYesNo,
+      amount: isYesNo ? (e.done === false ? 0 : 1) : numberOrDefault(e.amount, 1),
+      note: typeof e.note === "string" ? e.note.slice(0, ENTRY_MESSAGE_MAX) : "",
+      confidence: numberOrDefault(e.confidence, 0.5),
+    };
+  }
+
+  async function runQuickLog() {
+    const text = els.quickLogInput ? els.quickLogInput.value.trim() : "";
+    if (!text) { setQuickLogHint("Type or say what you did first."); return; }
+    if (quickLogBusy) return;
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.parseLog !== "function") {
+      setQuickLogHint("Sign in to use AI quick log — or log manually below.");
+      return;
+    }
+    const catalog = buildLoggableRuleCatalog();
+    if (!catalog.length) { setQuickLogHint("Add a rule to a system or community first."); return; }
+    quickLogBusy = true;
+    setQuickLogHint("Reading your log…");
+    if (els.quickLogSubmit) els.quickLogSubmit.disabled = true;
+    try {
+      const res = await window.PointwellSignals.parseLog(text, catalog);
+      if (res.error) { setQuickLogHint((res.error && res.error.message) || "Quick log is unavailable right now."); return; }
+      quickLogDraft = (res.entries || []).map(normalizeQuickLogEntry).filter(Boolean);
+      quickLogClarifications = (res.clarifications || []).map((c, i) => Object.assign({}, c, { _id: "clar-" + i }));
+      if (!quickLogDraft.length && !quickLogClarifications.length) {
+        setQuickLogHint("Couldn't match that to a rule. Try naming the metric, or log manually below.");
+      } else {
+        setQuickLogHint("");
+      }
+      renderQuickLogDraft();
+    } catch (e) {
+      setQuickLogHint("Quick log failed — try again or log manually below.");
+    } finally {
+      quickLogBusy = false;
+      if (els.quickLogSubmit) els.quickLogSubmit.disabled = false;
+    }
+  }
+
+  function renderQuickLogDraft() {
+    const mount = els.quickLogDraft;
+    if (!mount) return;
+    if (!quickLogDraft.length && !quickLogClarifications.length) {
+      mount.hidden = true;
+      mount.innerHTML = "";
+      return;
+    }
+    mount.hidden = false;
+    const catalog = buildLoggableRuleCatalog();
+    const rows = quickLogDraft.map((entry) => renderQuickLogRow(entry, catalog)).filter(Boolean).join("");
+    const clars = quickLogClarifications.map(renderQuickLogClarification).join("");
+    const count = quickLogDraft.length;
+    mount.innerHTML = `
+      <div class="ai-draft-card quick-log-draft-card">
+        <div class="panel-heading">
+          <h3>Review &amp; confirm</h3>
+          <span>${count ? escapeHtml(plural(count, "entry")) : "Resolve the question below"}</span>
+        </div>
+        ${clars ? `<div class="ai-improve-panel quick-log-clarify">${clars}</div>` : ""}
+        ${rows ? `<div class="quick-log-rows">${rows}</div>` : ""}
+        <div class="quick-log-draft-actions">
+          <button type="button" class="ghost-button small" data-quick-log-discard>Discard</button>
+          <button type="button" class="primary-button" data-quick-log-confirm${count ? "" : " disabled"}>${count ? "Confirm " + escapeHtml(plural(count, "entry")) : "Confirm"}</button>
+        </div>
+      </div>`;
+  }
+
+  function renderQuickLogRow(entry, catalog) {
+    const resolved = resolveQuickLogRule(entry.contextType, entry.contextId, entry.ruleId);
+    if (!resolved) return "";
+    const rule = resolved.rule;
+    const label = escapeHtml(rule.label);
+    const points = scoring.calculateRule(rule, entry.amount).totalPoints;
+    const opts = catalog.filter((c) => c.label === rule.label);
+    const contextControl = opts.length > 1
+      ? `<select class="quick-log-context" data-quick-log-context="${escapeHtml(entry._id)}" aria-label="Where to log ${label}">
+           ${opts.map((o) => `<option value="${escapeHtml(o.contextId + "|" + o.id)}"${o.contextId === entry.contextId && o.id === entry.ruleId ? " selected" : ""}>${escapeHtml(o.contextName)}</option>`).join("")}
+         </select>`
+      : `<span class="quick-log-context-name">${escapeHtml(resolved.contextName)}</span>`;
+    const amountControl = entry.isYesNo
+      ? `<button type="button" class="quick-log-done${entry.amount > 0 ? " is-on" : ""}" data-quick-log-toggle="${escapeHtml(entry._id)}" aria-pressed="${entry.amount > 0 ? "true" : "false"}">${entry.amount > 0 ? "Done ✓" : "Mark done"}</button>`
+      : `<input type="number" class="quick-log-amount" data-quick-log-amount="${escapeHtml(entry._id)}" value="${escapeHtml(String(entry.amount))}" min="0" step="any" inputmode="decimal" aria-label="Amount for ${label}"><span class="quick-log-unit">${escapeHtml(rule.unit || "")}</span>`;
+    const estimateTag = entry.isPhotoEstimate ? `<span class="quick-log-estimate-tag">AI estimate</span>` : "";
+    return `
+      <div class="quick-log-row-item" data-quick-log-id="${escapeHtml(entry._id)}">
+        <div class="quick-log-row-main">
+          <div class="quick-log-row-title"><strong>${label}</strong>${estimateTag}</div>
+          <div class="quick-log-row-controls">${amountControl}</div>
+          <div class="quick-log-row-context">${contextControl}</div>
+        </div>
+        <span class="point-pill ${points < 0 ? "negative" : "positive"}">${points >= 0 ? "+" : ""}${escapeHtml(formatPoints(points))} pts</span>
+        <button type="button" class="quick-log-remove" data-quick-log-remove="${escapeHtml(entry._id)}" aria-label="Remove ${label}">✕</button>
+      </div>`;
+  }
+
+  function renderQuickLogClarification(c) {
+    const chips = (c.options || []).map((o) =>
+      `<button type="button" class="signal-preset-chip quick-log-clar-chip" data-quick-log-clar="${escapeHtml(c._id + "::" + o.contextId + "|" + o.ruleId)}">${escapeHtml(o.contextName)}</button>`
+    ).join("");
+    return `
+      <div class="quick-log-clar-item">
+        <span class="quick-log-clar-q">${escapeHtml(c.question)}</span>
+        <div class="signal-presets quick-log-clar-chips">${chips}</div>
+      </div>`;
+  }
+
+  function quickLogEntryById(id) {
+    return quickLogDraft.find((e) => e._id === id) || null;
+  }
+
+  // Delegated on the static #quickLogDraft container (bound once; survives re-renders).
+  function onQuickLogDraftClick(event) {
+    const removeBtn = event.target.closest("[data-quick-log-remove]");
+    if (removeBtn) {
+      quickLogDraft = quickLogDraft.filter((e) => e._id !== removeBtn.dataset.quickLogRemove);
+      renderQuickLogDraft();
+      return;
+    }
+    const toggleBtn = event.target.closest("[data-quick-log-toggle]");
+    if (toggleBtn) {
+      const entry = quickLogEntryById(toggleBtn.dataset.quickLogToggle);
+      if (entry) { entry.amount = entry.amount > 0 ? 0 : 1; renderQuickLogDraft(); }
+      return;
+    }
+    const clarChip = event.target.closest("[data-quick-log-clar]");
+    if (clarChip) { resolveQuickLogClarification(clarChip.dataset.quickLogClar); return; }
+    if (event.target.closest("[data-quick-log-discard]")) { resetQuickLog(); return; }
+    if (event.target.closest("[data-quick-log-confirm]")) { confirmQuickLog(); return; }
+  }
+
+  function onQuickLogDraftInput(event) {
+    const amountInput = event.target.closest("[data-quick-log-amount]");
+    if (!amountInput) return;
+    const entry = quickLogEntryById(amountInput.dataset.quickLogAmount);
+    if (!entry) return;
+    entry.amount = Math.max(0, numberOrDefault(amountInput.value, 0));
+    // Refresh just the points pill (no full re-render → the amount input keeps focus).
+    const row = amountInput.closest("[data-quick-log-id]");
+    const pill = row && row.querySelector(".point-pill");
+    const resolved = resolveQuickLogRule(entry.contextType, entry.contextId, entry.ruleId);
+    if (pill && resolved) {
+      const points = scoring.calculateRule(resolved.rule, entry.amount).totalPoints;
+      pill.textContent = `${points >= 0 ? "+" : ""}${formatPoints(points)} pts`;
+      pill.classList.toggle("negative", points < 0);
+      pill.classList.toggle("positive", points >= 0);
+    }
+  }
+
+  function onQuickLogDraftChange(event) {
+    const contextSelect = event.target.closest("[data-quick-log-context]");
+    if (!contextSelect) return;
+    const entry = quickLogEntryById(contextSelect.dataset.quickLogContext);
+    if (!entry) return;
+    const parts = String(contextSelect.value).split("|");
+    const match = buildLoggableRuleCatalog().find((c) => c.contextId === parts[0] && c.id === parts[1]);
+    if (match) {
+      entry.contextType = match.contextType;
+      entry.contextId = parts[0];
+      entry.ruleId = parts[1];
+      // The new context's rule may be a different type — refresh so the row's control
+      // (toggle vs number) and points pill match it.
+      entry.isYesNo = match.type === "yesNo";
+      if (entry.isYesNo) entry.amount = 1;
+      else if (!(entry.amount > 0)) entry.amount = 1;
+    }
+    renderQuickLogDraft();
+  }
+
+  function resolveQuickLogClarification(token) {
+    const sep = token.indexOf("::");
+    if (sep === -1) return;
+    const clarId = token.slice(0, sep);
+    const idPart = token.slice(sep + 2).split("|");
+    const clar = quickLogClarifications.find((c) => c._id === clarId);
+    if (clar) {
+      const option = (clar.options || []).find((o) => o.contextId === idPart[0] && o.ruleId === idPart[1]);
+      if (option) {
+        const entry = normalizeQuickLogEntry({
+          contextType: option.contextType, contextId: idPart[0], ruleId: idPart[1],
+          amount: clar.amount, done: clar.done,
+        });
+        // Don't double-add a rule that's already in the draft (avoids same-day double-count).
+        if (entry && !quickLogDraft.some((d) => d.contextId === idPart[0] && d.ruleId === idPart[1])) {
+          quickLogDraft.push(entry);
+        }
+      }
+    }
+    quickLogClarifications = quickLogClarifications.filter((c) => c._id !== clarId);
+    renderQuickLogDraft();
+  }
+
+  // Persist one quick-log amount to a PERSONAL system (durable per-entry + daily total).
+  // autoSaveToday reads todayValuesForSystem directly, so it doesn't touch the active
+  // draft cache; that's re-synced once after the whole batch in confirmQuickLog.
+  function addQuickLogPersonalEntry(system, rule, amount, note) {
+    state.quickEntries = state.quickEntries || [];
+    state.quickEntries.push({
+      id: makeId("quick"),
+      date: getTodayKey(),
+      dateKey: getTodayKey(),
+      createdAt: new Date().toISOString(),
+      systemId: system.id,
+      rewardSystemId: system.id,
+      ruleId: rule.id,
+      label: rule.label,
+      unit: rule.unit,
+      amount: amount,
+      message: note,
+      photoPath: "",
+      source: isRuleSynced(rule) ? "manual-adjustment" : "manual",
+    });
+    autoSaveToday(system);
+  }
+
+  function confirmQuickLog() {
+    if (!quickLogDraft.length) return;
+    const items = quickLogDraft.slice();
+    let saved = 0;
+    let failed = 0;
+    const dbPushes = [];
+    items.forEach((entry) => {
+      const resolved = resolveQuickLogRule(entry.contextType, entry.contextId, entry.ruleId);
+      if (!resolved) { failed += 1; return; }
+      const rule = resolved.rule;
+      const amount = normalizeAddEntryAmount(entry.amount, rule);
+      if (amount <= 0) { failed += 1; return; } // skip empties — a number left at 0 OR a yes/no toggled "not done"
+      const note = (entry.note || "").slice(0, ENTRY_MESSAGE_MAX);
+      try {
+        if (entry.contextType === "community") {
+          const community = state.communities.find((c) => c.id === entry.contextId);
+          if (!community) { failed += 1; return; }
+          addCommunityEntry(community.id, "me", rule, amount, isRuleSynced(rule) ? "manual-adjustment" : "manual", note, "");
+          saveCommunitySummaryForMember(community, "me");
+          dbPushes.push(Promise.resolve(pushCommunityEntryToDb(community, rule.id, note, "")).catch(() => ({ error: { message: "push failed" } })));
+        } else {
+          const system = state.systems.find((s) => s.id === entry.contextId);
+          if (!system) { failed += 1; return; }
+          addQuickLogPersonalEntry(system, rule, amount, note);
+        }
+        saved += 1;
+      } catch (e) {
+        failed += 1;
+      }
+    });
+    // Re-sync the active personal system's draft cache so the manual panel reflects the logs.
+    const activeCtx = getActiveScoreContext();
+    if (activeCtx.type === "personal" && activeCtx.system) syncDraftInputsFromEntries(activeCtx.system);
+    if (dbPushes.length) {
+      Promise.all(dbPushes).then((results) => {
+        if (results.some((r) => r && r.error)) showToast("Logged here, but a community save didn't sync");
+      }).catch(() => {});
+    }
+    resetQuickLog();
+    saveState();
+    render();
+    if (saved && failed) showToast(`Logged ${saved}, ${failed} skipped`);
+    else if (saved) showToast(`Logged ${plural(saved, "entry")}`);
+    else showToast("Nothing to log");
+  }
+
+  // Voice capture — gracefully hidden when SpeechRecognition is unavailable (text-only).
+  function setupQuickLogMic() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR || !els.quickLogMic) return;
+    els.quickLogMic.hidden = false;
+    els.quickLogMic.addEventListener("click", () => {
+      if (quickLogRecording) { stopQuickLogMic(); return; }
+      try {
+        quickLogRecognition = new SR();
+        quickLogRecognition.lang = "en-US";
+        quickLogRecognition.interimResults = true;
+        quickLogRecognition.continuous = false;
+        quickLogRecognition.onresult = (event) => {
+          let transcript = "";
+          for (let i = 0; i < event.results.length; i++) transcript += event.results[i][0].transcript;
+          if (els.quickLogInput) els.quickLogInput.value = transcript.trim();
+        };
+        quickLogRecognition.onend = () => setQuickLogRecording(false);
+        quickLogRecognition.onerror = () => setQuickLogRecording(false);
+        quickLogRecognition.start();
+        setQuickLogRecording(true);
+      } catch (e) {
+        setQuickLogRecording(false);
+      }
+    });
+  }
+
+  function setQuickLogRecording(on) {
+    quickLogRecording = on;
+    if (els.quickLogMic) {
+      els.quickLogMic.classList.toggle("is-recording", on);
+      els.quickLogMic.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+    if (on) setQuickLogHint("Listening… speak now, then tap Log it.");
+    else if (els.quickLogHint && String(els.quickLogHint.textContent).indexOf("Listening") === 0) setQuickLogHint("");
+  }
+
+  function stopQuickLogMic() {
+    if (quickLogRecognition) { try { quickLogRecognition.stop(); } catch (e) { /* ignore */ } }
+    setQuickLogRecording(false);
+  }
+
+  // ── PHASE 2 (scaffold): "Snap a meal" → photo → AI calorie/protein estimate ────
+  // The multimodal vision call is NOT wired yet. We do NOT fabricate numbers: surface a
+  // draft for the nutrition rule(s) with blank, clearly-labeled "AI estimate" fields for
+  // the user to fill, and TODO the model call.
+  function startMealEstimate(file) {
+    if (!file) return;
+    // TODO(phase-2): upload `file` to a multimodal model (a parse-log-style edge fn) and
+    // pre-fill amounts from { calories, protein } with confidence — kept labeled AI
+    // ESTIMATE and editable before Confirm. Until then we never invent the numbers.
+    const nutrition = buildLoggableRuleCatalog().filter((c) => /calorie|protein|nutrition|food|meal|macro|carb|fat/i.test(`${c.label} ${c.unit}`));
+    if (!nutrition.length) { setQuickLogHint("Add a calories/protein rule first to use Snap a meal."); return; }
+    nutrition.slice(0, 3).forEach((c) => {
+      const resolved = resolveQuickLogRule(c.contextType, c.contextId, c.id);
+      if (!resolved) return;
+      quickLogDraft.push({
+        _id: makeId("qlog"),
+        contextType: c.contextType,
+        contextId: c.contextId,
+        ruleId: c.id,
+        isYesNo: resolved.rule.simpleStyle === "yesNo",
+        amount: 0,
+        note: "",
+        confidence: 0,
+        isPhotoEstimate: true,
+      });
+    });
+    setQuickLogHint("Photo estimates aren't wired up yet — enter this meal's values, then Confirm.");
+    renderQuickLogDraft();
+  }
+
+  function bindQuickLogControls() {
+    if (els.quickLogSubmit) els.quickLogSubmit.addEventListener("click", runQuickLog);
+    if (els.quickLogInput) {
+      els.quickLogInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") { event.preventDefault(); runQuickLog(); }
+      });
+    }
+    if (els.quickLogDraft) {
+      els.quickLogDraft.addEventListener("click", onQuickLogDraftClick);
+      els.quickLogDraft.addEventListener("input", onQuickLogDraftInput);
+      els.quickLogDraft.addEventListener("change", onQuickLogDraftChange);
+    }
+    if (els.quickLogSnapButton) {
+      els.quickLogSnapButton.addEventListener("click", () => { if (els.quickLogMealInput) els.quickLogMealInput.click(); });
+    }
+    if (els.quickLogMealInput) {
+      els.quickLogMealInput.addEventListener("change", () => {
+        const file = els.quickLogMealInput.files && els.quickLogMealInput.files[0];
+        els.quickLogMealInput.value = "";
+        if (file) startMealEstimate(file);
+      });
+    }
+    setupQuickLogMic();
+  }
+
   function renderAddEntryPanel(system) {
     const rules = system.rules.map(scoring.normalizeRule);
     if (!rules.length) return emptyState("Add a scoring rule before adding entries.");
@@ -6136,7 +6580,7 @@
           <div class="add-entry-progress-card">
             <span class="entry-preview-label">Current progress</span>
             <strong data-add-current-line>${escapeHtml(formatAddEntryProgressLine(selectedRule, currentTotal))}</strong>
-            <span data-add-current-percent>${escapeHtml(formatPercent(currentPercent))} complete</span>
+            <span data-add-current-percent>${escapeHtml(formatPercent(displayCompletionPercent(currentPercent)))} complete</span>
             <div class="mini-progress-track" aria-hidden="true">
               <div class="mini-progress-fill${currentPercent > 100 ? " over-goal" : ""}" data-add-current-fill style="width:${Math.min(currentPercent, 100)}%"></div>
             </div>
@@ -6144,7 +6588,7 @@
           <div class="add-entry-progress-card preview">
             <span class="entry-preview-label">After adding</span>
             <strong data-add-preview-line>${escapeHtml(formatAddEntryProgressLine(selectedRule, previewTotal))}</strong>
-            <span data-add-preview-percent>${escapeHtml(formatPercent(previewPercent))} complete</span>
+            <span data-add-preview-percent>${escapeHtml(formatPercent(displayCompletionPercent(previewPercent)))} complete</span>
             <div class="mini-progress-track" aria-hidden="true">
               <div class="mini-progress-fill${previewPercent > 100 ? " over-goal" : ""}" data-add-preview-fill style="width:${Math.min(previewPercent, 100)}%"></div>
             </div>
@@ -6414,9 +6858,9 @@
     const currentPercent = progressPercent(currentTotal, goal);
     const previewPercent = progressPercent(previewTotal, goal);
     setText("[data-add-current-line]", formatAddEntryProgressLine(rule, currentTotal));
-    setText("[data-add-current-percent]", `${formatPercent(currentPercent)} complete`);
+    setText("[data-add-current-percent]", `${formatPercent(displayCompletionPercent(currentPercent))} complete`);
     setText("[data-add-preview-line]", formatAddEntryProgressLine(rule, previewTotal));
-    setText("[data-add-preview-percent]", `${formatPercent(previewPercent)} complete`);
+    setText("[data-add-preview-percent]", `${formatPercent(displayCompletionPercent(previewPercent))} complete`);
     setWidth("[data-add-current-fill]", currentPercent);
     setWidth("[data-add-preview-fill]", previewPercent);
     const buttonLabel = rule.inputMethod === "toggle"
@@ -11059,6 +11503,13 @@
     const target = Math.abs(numberOrDefault(goal, 0));
     if (target <= 0) return 0;
     return Math.max(0, numberOrDefault(value, 0) / target * 100);
+  }
+
+  // Completion % shown in the Add Entry "X% complete" labels never exceeds 100 — a
+  // yes/no "done" rule logged a few times would otherwise read "400% complete". The
+  // progress bar keeps its own over-goal cue; only the displayed % text is capped.
+  function displayCompletionPercent(percent) {
+    return Math.min(100, Math.max(0, numberOrDefault(percent, 0)));
   }
 
   function progressText(rule, value) {

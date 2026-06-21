@@ -1735,7 +1735,6 @@
       "profileAvatar",
       "headerAvatarButton",
       "todayLabel",
-      "resetDemoButton",
       "dashboardView",
       "addEntryView",
       "customizeTopCardView",
@@ -1749,7 +1748,6 @@
       "findCommunitiesView",
       "profileView",
       "scoreContextSelect",
-      "viewLeaderboardButton",
       "openCommunityButton",
       "addEntryTitle",
       "addEntrySystemSelect",
@@ -2148,6 +2146,8 @@
     els.saveEntryButton.addEventListener("click", saveDailyEntry);
     if (els.analyticsToggle) els.analyticsToggle.addEventListener("click", toggleDashboardAnalytics);
     if (els.miniLeaderboard) els.miniLeaderboard.addEventListener("click", (event) => {
+      const person = event.target.closest && event.target.closest("[data-open-profile]");
+      if (person) { openFriendActivity(person.dataset.openProfile, person.dataset.profileName); return; }
       if (event.target.closest && event.target.closest("[data-open-full-leaderboard]")) viewCommunityLeaderboardFromScore();
     });
 
@@ -2222,7 +2222,6 @@
         }
       });
     }
-    els.viewLeaderboardButton.addEventListener("click", viewCommunityLeaderboardFromScore);
     els.openCommunityButton.addEventListener("click", openCommunityFromScore);
     els.backToCommunitiesButton.addEventListener("click", returnToCommunities);
     els.communitySettingsButton.addEventListener("click", openCommunitySettings);
@@ -2358,13 +2357,6 @@
     if (els.chatsBackButton) els.chatsBackButton.addEventListener("click", () => {
       if (els.chatsLayout) els.chatsLayout.classList.remove("has-active");
       activeThread = null; // leaving the open thread → stop live-refreshing it
-    });
-    els.resetDemoButton.addEventListener("click", () => {
-      localStorage.removeItem(storageKey);
-      state = structuredClone(seedState);
-      saveState();
-      render();
-      showToast("Demo data reset");
     });
   }
 
@@ -2961,7 +2953,6 @@
     els.addEntryTitle.textContent = inCommunityMode ? `Add Entry for ${context.community.name}` : "Add Entry";
     // Community actions now live next to the switcher (the lower banner is gone),
     // shown only under a community context.
-    els.viewLeaderboardButton.hidden = !inCommunityMode;
     els.openCommunityButton.hidden = !inCommunityMode;
     if (!system) {
       els.dailyInputList.innerHTML = emptyState("Create a reward system to start scoring days.");
@@ -4532,11 +4523,22 @@
           <button class="secondary-button small community-feed-cheer" type="button" data-feed-member="${escapeHtml(item.member.id)}" data-feed-community="${escapeHtml(item.community.id)}">Cheer</button>
           <button class="ghost-button small community-feed-message" type="button" data-feed-message="${escapeHtml(item.member.userId || "")}" data-feed-name="${escapeHtml(item.member.name)}" data-feed-community="${escapeHtml(item.community.id)}">Message</button>
         </div>`;
+    // Tap the avatar or name → that person's today's activity (existing friend-activity
+    // view; DB enforces visibility). No account id → not tappable.
+    const personId = item.member.userId || "";
+    const profileAttrs = `data-open-profile="${escapeHtml(personId)}" data-profile-name="${escapeHtml(item.member.name)}"`;
+    const avatarInner = `<span class="member-avatar" aria-hidden="true" style="background:${escapeHtml(item.member.color || "#355d91")}">${escapeHtml(getInitials(item.member.name))}</span>`;
+    const avatar = personId
+      ? `<button class="feed-person-avatar" type="button" ${profileAttrs}>${avatarInner}</button>`
+      : avatarInner;
+    const name = personId
+      ? `<button class="feed-person-name" type="button" ${profileAttrs}>${first}</button>`
+      : first;
     return `
       <div class="community-feed-row">
-        <div class="member-avatar" aria-hidden="true" style="background:${escapeHtml(item.member.color || "#355d91")}">${escapeHtml(getInitials(item.member.name))}</div>
+        ${avatar}
         <div class="community-feed-main">
-          <strong>${first} <span class="community-feed-log">${log} · ${escapeHtml(formatPoints(points))} pts</span></strong>
+          <strong>${name} <span class="community-feed-log">${log} · ${escapeHtml(formatPoints(points))} pts</span></strong>
           ${tags}
           <span class="community-feed-meta">${relText}</span>
         </div>
@@ -4573,6 +4575,11 @@
         state.activeView = "chats";
         saveState();
         render();
+      });
+    });
+    Array.from(els.homeFeedList.querySelectorAll("[data-open-profile]")).forEach((button) => {
+      button.addEventListener("click", () => {
+        openFriendActivity(button.dataset.openProfile, button.dataset.profileName);
       });
     });
   }
@@ -6845,11 +6852,19 @@
   function renderMiniLeaderboardRow(member, index) {
     const isMe = member.id === "me";
     const pts = numberOrDefault(member.today, 0);
+    const personId = member.userId || "";
+    const personInner = `
+        <span class="member-avatar mini-lb-avatar" aria-hidden="true" style="background:${escapeHtml(member.color || "#355d91")}">${escapeHtml(getInitials(member.name))}</span>
+        <span class="mini-lb-name">${isMe ? "You" : escapeHtml(member.name)}</span>`;
+    // Tap a person → their today's activity (existing friend-activity view; DB enforces
+    // visibility). No account id (e.g. local demo member) → not tappable.
+    const person = personId
+      ? `<button class="mini-lb-person" type="button" data-open-profile="${escapeHtml(personId)}" data-profile-name="${escapeHtml(member.name)}">${personInner}</button>`
+      : `<span class="mini-lb-person mini-lb-person-static">${personInner}</span>`;
     return `
       <div class="mini-lb-row${isMe ? " is-me" : ""}">
         <span class="mini-lb-rank">${index + 1}</span>
-        <span class="member-avatar mini-lb-avatar" aria-hidden="true" style="background:${escapeHtml(member.color || "#355d91")}">${escapeHtml(getInitials(member.name))}</span>
-        <span class="mini-lb-name">${isMe ? "You" : escapeHtml(member.name)}</span>
+        ${person}
         <span class="mini-lb-points">${escapeHtml(formatPoints(pts))} ${pts === 1 ? "pt" : "pts"}</span>
       </div>
     `;

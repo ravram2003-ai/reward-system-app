@@ -7140,3 +7140,47 @@ button.notif-item:hover {
   font-size: 0.82rem;
   white-space: nowrap;
 }
+
+/* ── Tappable people → existing friend-activity view ──────────────────────── */
+/* Standings row: avatar + name become one button that fills the row's middle. */
+.mini-lb-person {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.mini-lb-person-static {
+  cursor: default;
+}
+.mini-lb-person:hover .mini-lb-name {
+  text-decoration: underline;
+}
+/* Activity row: avatar + first name become buttons. */
+.feed-person-avatar {
+  flex: 0 0 auto;
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  line-height: 0;
+  cursor: pointer;
+}
+.feed-person-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.feed-person-name:hover {
+  text-decoration: underline;
+}

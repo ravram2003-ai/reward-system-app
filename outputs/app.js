@@ -1761,6 +1761,7 @@
       "scoreHeroContext",
       "scoreHeroBarFill",
       "openCommunityButton",
+      "editSystemButton",
       "addEntryTitle",
       "addEntrySystemSelect",
       "customizeTopCardSystemSelect",
@@ -2219,7 +2220,7 @@
 
     els.discoverFilter?.addEventListener("change", renderDiscover);
 
-    els.newCommunityButton.addEventListener("click", openCreateCommunity);
+    if (els.newCommunityButton) els.newCommunityButton.addEventListener("click", openCreateCommunity);
     if (els.findCommunitiesButton) els.findCommunitiesButton.addEventListener("click", openFindCommunities);
     if (els.communitySearchInput) {
       // Live-filter the joined community cards by name as the user types.
@@ -2240,6 +2241,7 @@
       });
     }
     els.openCommunityButton.addEventListener("click", openCommunityFromScore);
+    els.editSystemButton.addEventListener("click", editSystemFromScore);
     els.backToCommunitiesButton.addEventListener("click", returnToCommunities);
     els.communitySettingsButton.addEventListener("click", openCommunitySettings);
     els.backFromCommunitySettingsButton.addEventListener("click", returnToCommunityDetail);
@@ -2546,6 +2548,21 @@
     saveState();
     render();
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }
+
+  // Personal-context counterpart to openCommunityFromScore: jump straight to the
+  // Build editor for the system currently selected in the score switcher.
+  function editSystemFromScore() {
+    const context = getActiveScoreContext();
+    if (context.type === "community" || !context.system) return;
+    state.activeView = "systems";
+    state.selectedSystemId = context.system.id;
+    state.editingRuleId = "";
+    state.systemSetupStep = 0;
+    state.systemEditorOpen = true;
+    saveState();
+    render();
+    openSelectedSystemEditor();
   }
 
   function viewCommunityLeaderboardFromScore() {
@@ -3048,6 +3065,8 @@
     // Community actions now live next to the switcher (the lower banner is gone),
     // shown only under a community context.
     els.openCommunityButton.hidden = !inCommunityMode;
+    // Personal contexts get an "Edit System" shortcut where a community shows "Open Community".
+    els.editSystemButton.hidden = inCommunityMode || !system;
     if (!system) {
       els.dailyInputList.innerHTML = emptyState("Create a reward system to start scoring days.");
       els.ruleProgressList.innerHTML = emptyState("Create a reward system to see today's breakdown.");

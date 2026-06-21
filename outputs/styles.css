@@ -344,6 +344,7 @@ h3 {
   display: none;
   width: min(1180px, 100%);
   margin: 0 auto;
+  scroll-margin-top: 90px; /* clear the fixed top header when a view scrolls into view */
 }
 
 .view.is-visible {
@@ -541,7 +542,7 @@ label > span {
 }
 
 .target-meter {
-  width: min(680px, 100%);
+  width: 100%;
   display: grid;
   gap: 10px;
 }
@@ -787,10 +788,6 @@ label > span {
 
 #systemsView .view-header {
   margin-bottom: 12px;
-}
-
-#systemsView.is-visible {
-  margin-top: -14px;
 }
 
 #systemsView:not(.is-editing-system) .systems-layout {
@@ -3727,7 +3724,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .target-meter {
-  max-width: 620px;
+  max-width: 100%; /* span the full score-band width — track reaches the card edge */
 }
 
 .target-track {
@@ -6760,7 +6757,7 @@ button.notif-item:hover {
      Authoritative here (last @media(max-width:1050px) rule) so it wins over the
      earlier .workspace padding declarations in this range. */
   .workspace {
-    padding-top: 78px;
+    padding-top: 92px;
     padding-bottom: 84px;
   }
   /* The bell dropdown can fill more width on a phone. */

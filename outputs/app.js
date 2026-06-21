@@ -222,6 +222,9 @@
       privacy: "public",
       dailyTarget: 8,
       accent: "#355d91",
+      // Uploaded profile picture (public URL from the "avatars" bucket). "" = use the
+      // initials avatar. Mirrored to the server (profiles.avatar_url).
+      avatarUrl: "",
       // Opt-in for the "motivation when behind" signal. Default OFF; mirrored to
       // the server (profiles.allow_motivation_when_behind), which is what RLS reads.
       allowMotivation: false
@@ -349,6 +352,11 @@
   // Optional message + photo for the next Add Entry. Both optional; reset after save.
   let addEntryAttachment = { message: "", file: null, previewUrl: "" };
   const ENTRY_PHOTO_MAX_BYTES = 5 * 1024 * 1024; // ~5 MB cap (protects free-tier storage)
+  // Pending profile-picture change on the Profile page: a chosen-but-unsaved file +
+  // local preview, or a flag to clear the saved picture. Applied on "Save profile".
+  let profileAvatarDraft = { file: null, previewUrl: "", remove: false };
+  // Guards the async profile save so a double-click can't upload the avatar twice.
+  let profileSaving = false;
   const ENTRY_MESSAGE_MAX = 280;
   let topCardDraftBlocks = null;
   let weeklyChartDraftBlocks = null;
@@ -747,6 +755,8 @@
       // Reflect server truth for the searchable handle + visibility choice.
       if (flags.handle) state.profile.handle = cleanHandle(flags.handle);
       if (flags.visibility === "public" || flags.visibility === "private") state.profile.privacy = flags.visibility;
+      // Server truth for the uploaded profile picture (so it shows on every device).
+      state.profile.avatarUrl = flags.avatar_url || "";
       // Brand-new account that hasn't finished first-run onboarding → show it now.
       // Existing accounts were backfilled onboarding_completed=true (search-onboarding.sql),
       // so they're never re-onboarded. A failed/null fetch is treated as completed.
@@ -785,6 +795,37 @@
     renderNotifications();
   }
 
+  // Peer profile cards (name/handle/avatar) for Chats, which is built straight from
+  // the signals table and has no definer to read avatars from. Seeded from friends +
+  // request senders (who already carry avatars and are re-seeded fresh on every inbox
+  // poll) and filled lazily via get_profile_cards for cold-message peers; used to
+  // upgrade chat & notification rows to photos. Lazily-resolved (non-friend) cards are
+  // pinned for the session — a peer who changes their picture mid-session refreshes on
+  // the next full reload, which is plenty for avatars.
+  const profileCardCache = new Map(); // peerId -> { id, display_name, handle, avatar_url }
+
+  function peerAvatarUrl(peerId) {
+    const card = profileCardCache.get(String(peerId));
+    return card && card.avatar_url ? card.avatar_url : "";
+  }
+
+  async function ensureProfileCards(ids) {
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.getProfileCards !== "function") return;
+    const missing = [];
+    (ids || []).forEach((raw) => {
+      const id = String(raw || "");
+      // Reserve the id immediately (placeholder) so overlapping calls don't refetch.
+      if (id && !profileCardCache.has(id)) { profileCardCache.set(id, {}); missing.push(id); }
+    });
+    if (!missing.length) return;
+    try {
+      const cards = await window.PointwellSignals.getProfileCards(missing);
+      let any = false;
+      (cards || []).forEach((c) => { if (c && c.id) { profileCardCache.set(String(c.id), c); any = true; } });
+      if (any) { renderNotifications(); renderChats(signalsReady()); }
+    } catch (e) { /* ignore */ }
+  }
+
   async function refreshInbox() {
     if (!signalsReady()) {
       inboxSignals = []; ownerJoinRequests = []; friends = new Set(); incomingFriendRequests = []; friendsDetailed = [];
@@ -807,7 +848,23 @@
     // Names from friends/requests help the inbox label conversations I started.
     friendRows.forEach((f) => { if (f.display_name) rememberPeerName(String(f.user_id), f.display_name); });
     incomingFriendRequests = Array.isArray(out[3]) ? out[3] : [];
+    // Seed the chat peer-card cache from rows that already carry avatars (friends +
+    // request senders); the rest (cold-message peers) resolve lazily below.
+    friendRows.forEach((f) => { if (f.user_id) profileCardCache.set(String(f.user_id), f); });
+    incomingFriendRequests.forEach((r) => {
+      if (r.requester_user) profileCardCache.set(String(r.requester_user), {
+        id: r.requester_user, display_name: r.requester_name, handle: r.requester_handle, avatar_url: r.requester_avatar_url
+      });
+    });
     renderNotifications();
+    const peerIds = [];
+    inboxSignals.forEach((s) => {
+      [s.from_user, s.to_user].forEach((u) => {
+        const id = String(u || "");
+        if (id && id !== String(state.account.userId) && peerIds.indexOf(id) === -1) peerIds.push(id);
+      });
+    });
+    ensureProfileCards(peerIds);
   }
 
   function handleInboxChange(payload) {
@@ -930,7 +987,7 @@
           const id = escapeHtml(String(r.request_id));
           return `
             <div class="notif-item">
-              <span class="member-avatar" aria-hidden="true">${escapeHtml(getInitials(label))}</span>
+              ${renderAvatar({ name: label, avatarUrl: r.requester_avatar_url })}
               <div class="notif-item-main"><strong>${escapeHtml(label)}</strong><span>wants to connect</span></div>
               <div class="notif-item-actions">
                 <button class="primary-button small" type="button" data-notif-friend-accept="${id}">Accept</button>
@@ -948,7 +1005,7 @@
           const community = escapeHtml(r.community_name || "your community");
           return `
             <div class="notif-item">
-              <span class="member-avatar" aria-hidden="true">${escapeHtml(getInitials(label))}</span>
+              ${renderAvatar({ name: label, avatarUrl: r.requester_avatar_url })}
               <div class="notif-item-main"><strong>${escapeHtml(label)}</strong><span>wants to join ${community}</span></div>
               <div class="notif-item-actions">
                 <button class="primary-button small" type="button" data-notif-join-accept="${id}">Accept</button>
@@ -967,7 +1024,7 @@
           const peer = escapeHtml(String(s.from_user));
           return `
             <button class="notif-item notif-item-signal${s.read ? "" : " unread"}" type="button" data-notif-open="${peer}" data-notif-name="${escapeHtml(who)}">
-              <span class="member-avatar" aria-hidden="true">${escapeHtml(getInitials(who))}</span>
+              ${renderAvatar({ name: who, avatarUrl: peerAvatarUrl(s.from_user) })}
               <div class="notif-item-main"><strong>${escapeHtml(who)}</strong><span>${kind} · ${when}</span></div>
               ${s.read ? "" : '<span class="notif-dot" aria-hidden="true"></span>'}
             </button>`;
@@ -996,13 +1053,12 @@
   function renderJoinRequestItem(req) {
     const label = req.requester_name || req.requester_handle || "A member";
     const who = escapeHtml(label);
-    const initials = escapeHtml(getInitials(label));
     const community = escapeHtml(req.community_name || "your community");
     const when = escapeHtml(window.PointwellSignals.formatRelativeTime(req.created_at, Date.now()));
     const id = escapeHtml(String(req.request_id));
     return `
       <div class="join-request-item" data-request-id="${id}">
-        <span class="member-avatar" aria-hidden="true">${initials}</span>
+        ${renderAvatar({ name: label, avatarUrl: req.requester_avatar_url })}
         <div class="join-request-main">
           <strong>${who}</strong>
           <span>wants to join ${community} &middot; ${when}</span>
@@ -1075,7 +1131,7 @@
         // we're friends OR I've sent any text back, it graduates to the Main inbox.
         // Kudos/motivation-only conversations never qualify (no incoming text).
         const isRequest = !isFriend && group.hasIncomingText && !group.hasOutgoingText;
-        return { ...group, name: group.name || rememberedPeerName(group.peerId), isFriend, isRequest };
+        return { ...group, name: group.name || rememberedPeerName(group.peerId), isFriend, isRequest, avatarUrl: peerAvatarUrl(group.peerId) };
       })
       .sort((a, b) => new Date(b.latest.created_at) - new Date(a.latest.created_at));
   }
@@ -1115,14 +1171,13 @@
 
   function renderMessageRequestRow(group) {
     const who = escapeHtml(group.name);
-    const initials = escapeHtml(getInitials(group.name));
     const when = escapeHtml(window.PointwellSignals.formatRelativeTime(group.latest.created_at, Date.now()));
     const preview = escapeHtml(group.latest.body || "");
     const peer = escapeHtml(String(group.peerId));
     return `
       <div class="message-request-item${group.unread ? " unread" : ""}">
         <button class="message-request-open" type="button" data-msgreq-open="${peer}" data-msgreq-name="${who}" data-community-id="${escapeHtml(group.communityId || "")}">
-          <span class="member-avatar" aria-hidden="true">${initials}</span>
+          ${renderAvatar({ name: group.name, avatarUrl: group.avatarUrl })}
           <span class="chat-row-main">
             <span class="chat-row-top"><strong>${who}</strong><span class="chat-row-time">${when}</span></span>
             <span class="chat-row-preview"><span class="chat-row-preview-text">${preview}</span></span>
@@ -1140,7 +1195,6 @@
   function renderChatRow(group) {
     const me = state.account && state.account.userId;
     const who = escapeHtml(group.name);
-    const initials = escapeHtml(getInitials(group.name));
     const when = escapeHtml(window.PointwellSignals.formatRelativeTime(group.latest.created_at, Date.now()));
     const labels = { kudos: "Kudos", motivation: "Motivation" };
     const type = group.latest.type;
@@ -1149,7 +1203,7 @@
     const preview = escapeHtml((mine ? "You: " : "") + (group.latest.body || ""));
     return `
       <button class="chat-row${group.unread ? " unread" : ""}" type="button" data-peer-id="${escapeHtml(group.peerId)}" data-peer-name="${who}" data-community-id="${escapeHtml(group.communityId || "")}">
-        <span class="member-avatar" aria-hidden="true">${initials}</span>
+        ${renderAvatar({ name: group.name, avatarUrl: group.avatarUrl })}
         <span class="chat-row-main">
           <span class="chat-row-top"><strong>${who}</strong><span class="chat-row-time">${when}</span></span>
           <span class="chat-row-preview">${pill}<span class="chat-row-preview-text">${preview}</span></span>
@@ -1207,13 +1261,12 @@
   function renderFriendRequestItem(req) {
     const label = req.requester_name || req.requester_handle || "Someone";
     const who = escapeHtml(label);
-    const initials = escapeHtml(getInitials(label));
     const handle = escapeHtml(cleanHandle(req.requester_handle || "") || "");
     const when = escapeHtml(window.PointwellSignals.formatRelativeTime(req.created_at, Date.now()));
     const id = escapeHtml(String(req.request_id));
     return `
       <div class="join-request-item" data-friend-request-id="${id}">
-        <span class="member-avatar" aria-hidden="true">${initials}</span>
+        ${renderAvatar({ name: label, avatarUrl: req.requester_avatar_url })}
         <div class="join-request-main">
           <strong>${who}</strong>
           <span>wants to connect${handle ? " &middot; " + handle : ""} &middot; ${when}</span>
@@ -1360,7 +1413,6 @@
   function renderChatsPersonRow(person, mode) {
     const name = escapeHtml(person.display_name || "Member");
     const handle = escapeHtml(cleanHandle(person.handle || "") || "@member");
-    const initials = escapeHtml(getInitials(person.display_name || "Member"));
     const id = escapeHtml(String(person.id));
     let action;
     if (mode === "message") {
@@ -1376,7 +1428,7 @@
     }
     return `
       <div class="chats-person-row">
-        <span class="member-avatar" aria-hidden="true">${initials}</span>
+        ${renderAvatar({ name: person.display_name || "Member", avatarUrl: person.avatar_url })}
         <div class="chats-person-main"><strong>${name}</strong><span>${handle}</span></div>
         ${action}
       </div>
@@ -2002,6 +2054,11 @@
       "profilePrivacyInput",
       "dailyTargetInput",
       "largeAvatar",
+      "profileAvatarEditButton",
+      "profileAvatarMenu",
+      "profileAvatarRemoveButton",
+      "profileAvatarCameraInput",
+      "profileAvatarLibraryInput",
       "publicPreviewStatus",
       "publicPreview",
       "integrationList",
@@ -2309,6 +2366,7 @@
     });
 
     els.saveProfileButton.addEventListener("click", saveProfile);
+    bindProfileAvatarControls();
     if (els.profileSignOutButton) els.profileSignOutButton.addEventListener("click", () => {
       Promise.resolve(window.PointwellAuth && window.PointwellAuth.signOut && window.PointwellAuth.signOut()).catch(() => {});
     });
@@ -2413,9 +2471,9 @@
       view.classList.toggle("is-visible", name === state.activeView);
     });
 
-    const initials = getInitials(state.profile.name);
-    if (els.profileAvatar) els.profileAvatar.textContent = initials;
-    if (els.largeAvatar) els.largeAvatar.textContent = initials;
+    const myAvatar = state.profile.avatarUrl || "";
+    paintAvatarNode(els.profileAvatar, state.profile.name, myAvatar);
+    paintAvatarNode(els.largeAvatar, state.profile.name, myAvatar);
     if (els.headerAvatarButton) els.headerAvatarButton.classList.toggle("is-active", state.activeView === "profile");
     els.todayLabel.textContent = formatDate(todayIso);
   }
@@ -2678,11 +2736,10 @@
     const label = f.display_name || "Friend";
     const name = escapeHtml(label);
     const handle = escapeHtml(cleanHandle(f.handle || "") || "@member");
-    const initials = escapeHtml(getInitials(label));
     const active = friendsActiveTodayIds.has(String(f.user_id));
     return `
       <button class="friend-row" type="button" data-friend-open="${id}" data-friend-name="${name}">
-        <span class="member-avatar" aria-hidden="true">${initials}</span>
+        ${renderAvatar({ name: label, avatarUrl: f.avatar_url })}
         <span class="friend-row-main">
           <span class="friend-row-top"><strong>${name}</strong>${active ? '<span class="friend-active-dot" title="Active today" aria-label="Active today"></span>' : ""}</span>
           <span class="friend-row-handle">${handle}</span>
@@ -2696,7 +2753,12 @@
   // this just fetches and renders (empty result → clean "no shared activity" state).
   function openFriendActivity(friendId, name) {
     if (!friendId) return;
-    viewedFriend = { id: String(friendId), name: name || rememberedPeerName(friendId) || "Friend" };
+    const friendRow = (friendsDetailed || []).find((f) => String(f.user_id) === String(friendId));
+    viewedFriend = {
+      id: String(friendId),
+      name: name || rememberedPeerName(friendId) || "Friend",
+      avatarUrl: (friendRow && friendRow.avatar_url) || peerAvatarUrl(friendId)
+    };
     friendActivityRows = [];
     friendActivityLoading = true;
     state.activeView = "friend-activity";
@@ -2719,7 +2781,7 @@
     if (!els.friendActivityBody) return;
     const name = viewedFriend ? viewedFriend.name : "Friend";
     if (els.friendActivityTitle) els.friendActivityTitle.textContent = name;
-    if (els.friendActivityAvatar) els.friendActivityAvatar.textContent = getInitials(name);
+    paintAvatarNode(els.friendActivityAvatar, name, viewedFriend && viewedFriend.avatarUrl);
     if (els.friendActivitySubtitle) {
       els.friendActivitySubtitle.textContent = friendActivityLoading
         ? "Loading today’s activity…"
@@ -3481,11 +3543,10 @@
   function renderPersonResult(person) {
     const name = escapeHtml(person.display_name || "Member");
     const handle = escapeHtml(cleanHandle(person.handle || "") || "@member");
-    const initials = escapeHtml(getInitials(person.display_name || "Member"));
     return `
       <article class="build-result-card person-result-card">
         <div class="person-result-identity">
-          <span class="member-avatar" aria-hidden="true">${initials}</span>
+          ${renderAvatar({ name: person.display_name || "Member", avatarUrl: person.avatar_url })}
           <div class="build-result-main">
             <strong>${name}</strong>
             <span>${handle}</span>
@@ -3501,13 +3562,12 @@
   function renderPersonDetail(person) {
     const name = escapeHtml(person.display_name || "Member");
     const handle = escapeHtml(cleanHandle(person.handle || "") || "@member");
-    const initials = escapeHtml(getInitials(person.display_name || "Member"));
     return `
       <section class="build-profile-detail person-detail">
         <div class="build-profile-header">
           <button class="ghost-button small" type="button" data-build-back-results>Back</button>
           <div class="person-detail-identity">
-            <span class="large-avatar person-detail-avatar" aria-hidden="true">${initials}</span>
+            ${renderAvatar({ className: "large-avatar person-detail-avatar", name: person.display_name || "Member", avatarUrl: person.avatar_url })}
             <div>
               <h3>${name}</h3>
               <span>${handle}</span>
@@ -3523,7 +3583,7 @@
   // (kudos / motivation / message + thread) work unchanged. id is a real uuid (not
   // "me") and userId is set, so the member is fully signalable.
   function personToMember(person) {
-    return { id: String(person.id), userId: String(person.id), name: person.display_name || "Member", handle: person.handle || "" };
+    return { id: String(person.id), userId: String(person.id), name: person.display_name || "Member", handle: person.handle || "", avatarUrl: person.avatar_url || "" };
   }
   function personCommunity() {
     return { id: null, members: [] };
@@ -4752,7 +4812,7 @@
         </div>`;
     return `
       <div class="community-feed-row">
-        <div class="member-avatar" aria-hidden="true" style="background:${escapeHtml(item.member.color || "#355d91")}">${escapeHtml(getInitials(item.member.name))}</div>
+        ${renderAvatar({ name: item.member.name, color: item.member.color || "#355d91", avatarUrl: item.member.avatarUrl })}
         <div class="community-feed-main">
           <strong>${first} <span class="community-feed-log">${log} · ${escapeHtml(formatPoints(points))} pts</span></strong>
           <span class="community-feed-meta">${escapeHtml(item.community.name)}${relText ? " · " + relText : ""}</span>
@@ -4930,7 +4990,7 @@
             return `
               <div class="cc-under-row">
                 <div class="member-left">
-                  <div class="member-avatar" aria-hidden="true" style="background:${escapeHtml(item.color)}">${getInitials(item.name)}</div>
+                  ${renderAvatar({ name: item.name, color: item.color, avatarUrl: item.avatarUrl })}
                   <div class="member-main">
                     <strong>${escapeHtml(item.name)}</strong>
                     <span>${escapeHtml(formatPoints(item.today))} of ${escapeHtml(formatPoints(item.target))} today</span>
@@ -5111,12 +5171,89 @@
     runCommunityCodeSearch(state.communitySearchQuery || ""); // refresh the action to "Requested"
   }
 
+  // ── Profile picture upload control ──────────────────────────────────────────
+  // Mirrors the entry-photo picker: tap the avatar's camera badge → Take photo /
+  // Choose from library → local preview → applied on "Save profile" (uploadAvatar).
+  function bindProfileAvatarControls() {
+    if (els.profileAvatarEditButton) {
+      els.profileAvatarEditButton.addEventListener("click", () => {
+        const menu = els.profileAvatarMenu;
+        if (!menu) return;
+        menu.hidden = !menu.hidden;
+        els.profileAvatarEditButton.setAttribute("aria-expanded", menu.hidden ? "false" : "true");
+      });
+    }
+    [["camera", els.profileAvatarCameraInput], ["library", els.profileAvatarLibraryInput]].forEach((pair) => {
+      const which = pair[0];
+      const input = pair[1];
+      const pick = els.profileAvatarMenu && els.profileAvatarMenu.querySelector(`[data-avatar-pick="${which}"]`);
+      if (pick && input) pick.addEventListener("click", () => input.click());
+      if (input) {
+        input.addEventListener("change", () => {
+          const file = input.files && input.files[0];
+          if (file) chooseProfileAvatar(file);
+          input.value = ""; // allow re-picking the same file
+        });
+      }
+    });
+    if (els.profileAvatarRemoveButton) {
+      els.profileAvatarRemoveButton.addEventListener("click", removeProfileAvatar);
+    }
+  }
+
+  function closeProfileAvatarMenu() {
+    if (els.profileAvatarMenu) els.profileAvatarMenu.hidden = true;
+    if (els.profileAvatarEditButton) els.profileAvatarEditButton.setAttribute("aria-expanded", "false");
+  }
+
+  function chooseProfileAvatar(file) {
+    if (!file) return;
+    if (!/^image\//i.test(file.type || "")) {
+      showToast("That's not an image — choose a photo");
+      return;
+    }
+    if (file.size > ENTRY_PHOTO_MAX_BYTES) {
+      showToast("Photo is too big (max 5 MB) — pick a smaller one");
+      return;
+    }
+    if (profileAvatarDraft.previewUrl) { try { URL.revokeObjectURL(profileAvatarDraft.previewUrl); } catch (e) { /* ignore */ } }
+    profileAvatarDraft.file = file;
+    profileAvatarDraft.previewUrl = URL.createObjectURL(file);
+    profileAvatarDraft.remove = false;
+    closeProfileAvatarMenu();
+    refreshProfileAvatar();
+  }
+
+  function removeProfileAvatar() {
+    if (profileAvatarDraft.previewUrl) { try { URL.revokeObjectURL(profileAvatarDraft.previewUrl); } catch (e) { /* ignore */ } }
+    profileAvatarDraft.file = null;
+    profileAvatarDraft.previewUrl = "";
+    // Only worth a server clear if there's actually a saved picture.
+    profileAvatarDraft.remove = !!state.profile.avatarUrl;
+    closeProfileAvatarMenu();
+    refreshProfileAvatar();
+  }
+
+  function resetProfileAvatarDraft() {
+    if (profileAvatarDraft.previewUrl) { try { URL.revokeObjectURL(profileAvatarDraft.previewUrl); } catch (e) { /* ignore */ } }
+    profileAvatarDraft = { file: null, previewUrl: "", remove: false };
+  }
+
+  // Reflect the pending/preview state on the large profile avatar + the Remove button.
+  function refreshProfileAvatar() {
+    const previewUrl = profileAvatarDraft.previewUrl
+      || (profileAvatarDraft.remove ? "" : (state.profile.avatarUrl || ""));
+    paintAvatarNode(els.largeAvatar, state.profile.name, previewUrl);
+    if (els.profileAvatarRemoveButton) els.profileAvatarRemoveButton.hidden = !previewUrl;
+  }
+
   function renderProfile() {
     els.profileNameInput.value = state.profile.name;
     els.profileHandleInput.value = state.profile.handle.replace(/^@/, "");
     els.profilePrivacyInput.value = state.profile.privacy;
     els.dailyTargetInput.value = state.profile.dailyTarget;
     if (els.allowMotivationInput) els.allowMotivationInput.checked = state.profile.allowMotivation === true;
+    refreshProfileAvatar();
 
     const publicSystems = state.profile.privacy === "public"
       ? state.systems.filter((system) => system.visibility === "public")
@@ -7217,7 +7354,7 @@
     return `
       <button class="mini-lb-row mini-lb-row-button${isMe ? " is-me" : ""}" type="button" data-community-member-id="${escapeHtml(member.id)}">
         <span class="mini-lb-rank">${index + 1}</span>
-        <span class="member-avatar mini-lb-avatar" aria-hidden="true" style="background:${escapeHtml(member.color || "#355d91")}">${escapeHtml(getInitials(member.name))}</span>
+        ${renderAvatar({ className: "member-avatar mini-lb-avatar", name: member.name, color: member.color || "#355d91", avatarUrl: member.avatarUrl })}
         <span class="mini-lb-name">${isMe ? "You" : escapeHtml(member.name)}</span>
         <span class="mini-lb-points">${escapeHtml(formatPoints(pts))} ${pts === 1 ? "pt" : "pts"}</span>
         <span class="mini-lb-chevron" aria-hidden="true">›</span>
@@ -7426,7 +7563,7 @@
     const shown = members.slice(0, total <= 3 ? 3 : 2);
     const extra = Math.max(total - shown.length, 0);
     const avatars = shown
-      .map((member) => `<span class="member-avatar community-cluster-avatar" aria-hidden="true" style="background:${escapeHtml(member.color || "#355d91")}">${escapeHtml(getInitials(member.name))}</span>`)
+      .map((member) => renderAvatar({ className: "member-avatar community-cluster-avatar", name: member.name, color: member.color || "#355d91", avatarUrl: member.avatarUrl }))
       .join("");
     const more = extra > 0
       ? `<span class="member-avatar community-cluster-avatar community-cluster-more" aria-hidden="true">+${extra}</span>`
@@ -7513,7 +7650,7 @@
     return `
       <button class="member-row leaderboard-button${isSelected ? " active" : ""}" type="button" data-community-member-id="${escapeHtml(memberStanding.id)}" aria-pressed="${isSelected ? "true" : "false"}">
         <div class="member-left">
-          <div class="member-avatar" aria-hidden="true" style="background:${escapeHtml(memberStanding.color)}">${getInitials(memberStanding.name)}</div>
+          ${renderAvatar({ name: memberStanding.name, color: memberStanding.color, avatarUrl: memberStanding.avatarUrl })}
           <div class="member-main">
             <strong>${index + 1}. ${escapeHtml(memberStanding.name)}</strong>
             <span>${escapeHtml(memberStanding.handle)}</span>
@@ -7569,7 +7706,7 @@
         <section class="score-band member-score-band" aria-label="Community Daily Point Total">
           <div class="score-summary">
             <div class="member-dashboard-profile">
-              <div class="member-avatar" aria-hidden="true" style="background:${escapeHtml(memberItem.color)}">${getInitials(memberItem.name)}</div>
+              ${renderAvatar({ name: memberItem.name, color: memberItem.color, avatarUrl: memberItem.avatarUrl })}
               <div>
                 <span class="score-label">Daily Point Total</span>
                 <strong>${escapeHtml(memberItem.name)}</strong>
@@ -9368,22 +9505,52 @@
     });
   }
 
-  function saveProfile() {
+  async function saveProfile() {
+    if (profileSaving) return; // ignore double-clicks while an avatar upload is in flight
+    profileSaving = true;
+    if (els.saveProfileButton) els.saveProfileButton.disabled = true;
+    try {
     const name = els.profileNameInput.value.trim() || "Avery Rivera";
     const handle = cleanHandle(els.profileHandleInput.value.trim() || "avery");
     state.profile.name = name;
     state.profile.handle = handle;
     state.profile.privacy = els.profilePrivacyInput.value;
     state.profile.dailyTarget = numberOrDefault(els.dailyTargetInput.value, 8);
+
     // Persist the searchable basics + visibility to the DB (RLS allows self-update).
     // This is what makes you findable by your chosen name/handle and applies your
     // public/private choice server-side — and fixes edits being lost on reload.
+    const profilePatch = {
+      display_name: name,
+      handle: handle,
+      visibility: state.profile.privacy === "private" ? "private" : "public"
+    };
+    // Resolve a pending profile-picture change BEFORE persisting so the picture and
+    // the rest of the profile save together — never half-saved. An upload failure
+    // keeps the existing picture and warns, but still saves everything else.
+    let avatarChanged = false;
+    if (profileAvatarDraft.file) {
+      const uid = state.account && state.account.userId;
+      if (!signalsReady() || !uid || !window.PointwellSignals || typeof window.PointwellSignals.uploadAvatar !== "function") {
+        showToast("Sign in to set a profile picture");
+      } else {
+        const up = await window.PointwellSignals.uploadAvatar(profileAvatarDraft.file, uid);
+        if (up.error || !up.url) {
+          showToast(up.error && up.error.message ? up.error.message : "Couldn't upload the picture — kept your current one");
+        } else {
+          state.profile.avatarUrl = up.url;
+          profilePatch.avatar_url = up.url;
+          avatarChanged = true;
+        }
+      }
+    } else if (profileAvatarDraft.remove && state.profile.avatarUrl) {
+      state.profile.avatarUrl = "";
+      profilePatch.avatar_url = null;
+      avatarChanged = true;
+    }
+
     if (signalsReady()) {
-      Promise.resolve(window.PointwellSignals.updateProfile(state.account.userId, {
-        display_name: name,
-        handle: handle,
-        visibility: state.profile.privacy === "private" ? "private" : "public"
-      })).catch(() => {});
+      Promise.resolve(window.PointwellSignals.updateProfile(state.account.userId, profilePatch)).catch(() => {});
     }
     if (els.allowMotivationInput) {
       state.profile.allowMotivation = els.allowMotivationInput.checked;
@@ -9402,11 +9569,18 @@
       if (me) {
         me.name = name;
         me.handle = handle;
+        // Keep my own avatar in sync across community standings immediately.
+        if (avatarChanged) me.avatarUrl = state.profile.avatarUrl;
       }
     });
+    resetProfileAvatarDraft();
     saveState();
     render();
     showToast("Profile saved");
+    } finally {
+      profileSaving = false;
+      if (els.saveProfileButton) els.saveProfileButton.disabled = false;
+    }
   }
 
   function collectDraftValues(system, values) {
@@ -9830,7 +10004,10 @@
         userId: m.user_id,
         name: isMe ? state.profile.name : (m.display_name || "Member"),
         handle: cleanHandle(m.handle || ""),
-        color: isMe ? (state.profile.accent || "#355d91") : memberColorFor(m.user_id)
+        color: isMe ? (state.profile.accent || "#355d91") : memberColorFor(m.user_id),
+        // Uploaded picture (from get_community_members). "me" uses my own so it shows
+        // in standings immediately; falls back to the initials avatar when empty.
+        avatarUrl: isMe ? (state.profile.avatarUrl || "") : (m.avatar_url || "")
       };
     });
     const ownerIsMe = row.owner_user === myId;
@@ -10530,6 +10707,37 @@
       .slice(0, 2)
       .map((part) => part[0].toUpperCase())
       .join("");
+  }
+
+  // Shared avatar renderer. Returns an <img> (the avatar element itself) when the
+  // person has an uploaded picture, else the existing initials circle. When avatarUrl
+  // is empty the output is byte-identical to the old initials markup, so swapping this
+  // into a render site changes nothing until a photo actually exists. `className` is
+  // the full class string for the site (e.g. "member-avatar mini-lb-avatar", "avatar",
+  // "large-avatar person-detail-avatar"); `color` preserves the inline background used
+  // by community/leaderboard rows; `useNameColor` reproduces the hashed avatarColor().
+  function renderAvatar(opts) {
+    const o = opts || {};
+    const cls = escapeHtml(o.className || "member-avatar");
+    const url = o.avatarUrl ? String(o.avatarUrl) : "";
+    if (url) {
+      return `<img class="${cls}" src="${escapeHtml(url)}" alt="" aria-hidden="true" loading="lazy">`;
+    }
+    const bg = o.color || (o.useNameColor ? avatarColor(o.name) : "");
+    const style = bg ? ` style="background:${escapeHtml(bg)}"` : "";
+    return `<span class="${cls}" aria-hidden="true"${style}>${escapeHtml(getInitials(o.name))}</span>`;
+  }
+
+  // Paint a PERSISTENT avatar node (the header, profile-editor and friend-activity
+  // avatars are long-lived DOM nodes we update in place rather than re-render). Shows
+  // an inner <img> when a picture is set, else falls back to the initials text.
+  function paintAvatarNode(el, name, avatarUrl) {
+    if (!el) return;
+    if (avatarUrl) {
+      el.innerHTML = `<img class="avatar-img" src="${escapeHtml(String(avatarUrl))}" alt="" loading="lazy">`;
+    } else {
+      el.textContent = getInitials(name);
+    }
   }
 
   function avatarColor(name) {

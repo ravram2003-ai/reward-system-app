@@ -181,7 +181,7 @@
     try {
       var res = await sb
         .from("profiles")
-        .select("allow_motivation_when_behind, handle, visibility, onboarding_completed")
+        .select("allow_motivation_when_behind, handle, visibility, onboarding_completed, avatar_url")
         .eq("id", userId)
         .maybeSingle();
       return res.error ? null : (res.data || null);
@@ -200,6 +200,10 @@
     if (typeof fields.display_name === "string") patch.display_name = fields.display_name;
     if (typeof fields.handle === "string") patch.handle = fields.handle;
     if (fields.visibility === "public" || fields.visibility === "private") patch.visibility = fields.visibility;
+    // avatar_url is set when present; pass null/"" to clear it back to the initials avatar.
+    if (Object.prototype.hasOwnProperty.call(fields, "avatar_url")) {
+      patch.avatar_url = fields.avatar_url ? String(fields.avatar_url) : null;
+    }
     if (!Object.keys(patch).length) return { error: null };
     try {
       var res = await sb.from("profiles").update(patch).eq("id", userId);
@@ -460,6 +464,50 @@
       return (res && res.data && res.data.signedUrl) ? res.data.signedUrl : "";
     } catch (e) {
       return "";
+    }
+  }
+
+  // Upload a profile avatar to the PUBLIC "avatars" bucket under "<uid>/...". Unlike
+  // entry photos (private + short-lived signed URLs), avatars are public-read so the
+  // returned public URL renders for ANYONE who can see the profile, everywhere.
+  // Returns { error, path, url }.
+  async function uploadAvatar(file, uid) {
+    var sb = getClient();
+    if (!sb || !sb.storage) return { error: { message: "Photo upload needs a connection." } };
+    if (!file) return { error: { message: "No photo selected." } };
+    if (!uid) return { error: { message: "Sign in to set a profile picture." } };
+    try {
+      var ext = "jpg";
+      if (file.name && file.name.indexOf(".") > -1) {
+        var raw = file.name.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (raw) ext = raw;
+      } else if (file.type && file.type.indexOf("/") > -1) {
+        ext = file.type.split("/").pop().replace(/[^a-z0-9]/g, "") || "jpg";
+      }
+      var path = String(uid).replace(/\/+$/, "") + "/" + Date.now() + "-" + Math.random().toString(36).slice(2, 8) + "." + ext;
+      var res = await sb.storage.from("avatars").upload(path, file, { contentType: file.type || "image/jpeg", upsert: false });
+      if (res.error) return { error: { message: res.error.message || "Photo upload failed." } };
+      var pub = sb.storage.from("avatars").getPublicUrl(path);
+      var url = (pub && pub.data && pub.data.publicUrl) ? pub.data.publicUrl : "";
+      return { error: null, path: path, url: url };
+    } catch (e) {
+      return { error: { message: "Couldn't upload the photo." } };
+    }
+  }
+
+  // Resolve { id, display_name, handle, avatar_url } cards for a set of peer ids the
+  // caller is already allowed to see (public / friends / existing thread). Used to
+  // show peer avatars + names in Chats, which is built from the signals table and has
+  // no other definer to read from. Returns [] on any error.
+  async function getProfileCards(ids) {
+    var sb = getClient();
+    var list = Array.isArray(ids) ? ids.filter(function (x) { return x && UUID_RE.test(String(x)); }) : [];
+    if (!sb || !list.length) return [];
+    try {
+      var res = await sb.rpc("get_profile_cards", { uids: list });
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
     }
   }
 
@@ -732,6 +780,8 @@
     upsertCommunityEntry: upsertCommunityEntry,
     uploadEntryPhoto: uploadEntryPhoto,
     getEntryPhotoSignedUrl: getEntryPhotoSignedUrl,
+    uploadAvatar: uploadAvatar,
+    getProfileCards: getProfileCards,
     fetchMyCommunities: fetchMyCommunities,
     isNudgeable: isNudgeable,
     subscribeInbox: subscribeInbox,

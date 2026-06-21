@@ -7470,3 +7470,82 @@ button.notif-item:hover {
 }
 .entry-photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .entry-photo-thumb.is-unavailable { opacity: 0.5; cursor: default; }
+
+/* ── Profile pictures ──────────────────────────────────────────────────────── */
+/* An uploaded avatar fills any avatar circle/rounded-square edge-to-edge; the
+   initials span stays the fallback whenever no <img> is rendered. Two forms:
+   (a) the <img> IS the avatar (template render sites carry the avatar class), and
+   (b) an inner <img class="avatar-img"> inside a persistent avatar node. */
+img.avatar,
+img.large-avatar,
+img.member-avatar {
+  object-fit: cover;
+}
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  display: block;
+}
+
+/* Avatar upload control on the Profile page (mirrors the entry-photo picker). */
+.profile-avatar-attach {
+  position: relative;
+  display: inline-block;
+}
+.profile-avatar-edit {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--soft);
+  color: var(--ink);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.profile-avatar-edit:hover {
+  border-color: rgba(58, 214, 166, 0.45);
+}
+.profile-avatar-edit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.profile-avatar-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  min-width: 184px;
+}
+.profile-avatar-menu button {
+  text-align: left;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.profile-avatar-menu button:hover {
+  background: var(--soft);
+}
+.profile-avatar-menu [data-avatar-remove] {
+  color: var(--warm);
+}

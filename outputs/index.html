@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260621-layout">
+    <link rel="stylesheet" href="styles.css?v=20260621-avatars">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -1259,7 +1259,19 @@
           </div>
 
           <section class="profile-editor" aria-label="Profile editor">
-            <div class="large-avatar" id="largeAvatar" aria-hidden="true">AR</div>
+            <div class="profile-avatar-attach">
+              <div class="large-avatar" id="largeAvatar" aria-hidden="true">AR</div>
+              <button class="profile-avatar-edit" type="button" id="profileAvatarEditButton" aria-haspopup="true" aria-expanded="false" aria-label="Change profile picture">
+                <span aria-hidden="true">📷</span>
+              </button>
+              <div class="profile-avatar-menu" id="profileAvatarMenu" role="menu" hidden>
+                <button type="button" role="menuitem" data-avatar-pick="camera">Take photo</button>
+                <button type="button" role="menuitem" data-avatar-pick="library">Choose from library</button>
+                <button type="button" role="menuitem" id="profileAvatarRemoveButton" data-avatar-remove hidden>Remove photo</button>
+              </div>
+              <input type="file" accept="image/*" capture="user" id="profileAvatarCameraInput" hidden>
+              <input type="file" accept="image/*" id="profileAvatarLibraryInput" hidden>
+            </div>
             <form class="profile-form" id="profileForm">
               <label>
                 <span>Display name</span>
@@ -1320,13 +1332,13 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="supabase-config.js?v=20260621-layout"></script>
-    <script src="auth-helpers.js?v=20260621-layout"></script>
-    <script src="scoring.js?v=20260621-layout"></script>
-    <script src="insight.js?v=20260621-layout"></script>
-    <script src="signals.js?v=20260621-layout"></script>
-    <script src="wearables.js?v=20260621-layout"></script>
-    <script type="module" src="auth.js?v=20260621-layout"></script>
-    <script src="app.js?v=20260621-layout"></script>
+    <script src="supabase-config.js?v=20260621-avatars"></script>
+    <script src="auth-helpers.js?v=20260621-avatars"></script>
+    <script src="scoring.js?v=20260621-avatars"></script>
+    <script src="insight.js?v=20260621-avatars"></script>
+    <script src="signals.js?v=20260621-avatars"></script>
+    <script src="wearables.js?v=20260621-avatars"></script>
+    <script type="module" src="auth.js?v=20260621-avatars"></script>
+    <script src="app.js?v=20260621-avatars"></script>
   </body>
 </html>

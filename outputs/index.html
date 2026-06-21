@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260621-avatars">
+    <link rel="stylesheet" href="styles.css?v=20260621-feedtab">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -65,13 +65,17 @@
             <span class="tab-icon" aria-hidden="true">⌂</span>
             <span>Today</span>
           </button>
+          <button class="nav-tab" type="button" data-view="feed" aria-label="Feed">
+            <span class="tab-icon" aria-hidden="true">☰</span>
+            <span>Feed</span>
+          </button>
           <button class="nav-tab" type="button" data-view="communities" aria-label="Communities">
             <span class="tab-icon" aria-hidden="true">◧</span>
             <span>Communities</span>
           </button>
-          <button class="nav-tab" type="button" data-view="systems" aria-label="Build &amp; Edit">
+          <button class="nav-tab" type="button" data-view="systems" aria-label="Build and Edit">
             <span class="tab-icon" aria-hidden="true">◎</span>
-            <span>Build &amp; Edit</span>
+            <span>Build</span>
           </button>
           <button class="nav-tab" type="button" data-view="chats" aria-label="Chats">
             <span class="tab-icon" aria-hidden="true">✉</span>
@@ -746,6 +750,16 @@
           <div class="discover-grid" id="discoverGrid"></div>
         </section>
 
+        <section class="view" id="feedView" aria-labelledby="feedTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Activity</p>
+              <h2 id="feedTitle">Feed</h2>
+            </div>
+          </div>
+          <section class="community-feed" id="communityFeed" aria-label="Recent activity" hidden></section>
+        </section>
+
         <section class="view" id="communitiesView" aria-labelledby="communitiesTitle">
           <div class="view-header">
             <div>
@@ -1328,17 +1342,21 @@
           </section>
         </section>
       </main>
+
+      <button class="fab-add" id="createFab" type="button" aria-label="Log an entry">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="supabase-config.js?v=20260621-avatars"></script>
-    <script src="auth-helpers.js?v=20260621-avatars"></script>
-    <script src="scoring.js?v=20260621-avatars"></script>
-    <script src="insight.js?v=20260621-avatars"></script>
-    <script src="signals.js?v=20260621-avatars"></script>
-    <script src="wearables.js?v=20260621-avatars"></script>
-    <script type="module" src="auth.js?v=20260621-avatars"></script>
-    <script src="app.js?v=20260621-avatars"></script>
+    <script src="supabase-config.js?v=20260621-feedtab"></script>
+    <script src="auth-helpers.js?v=20260621-feedtab"></script>
+    <script src="scoring.js?v=20260621-feedtab"></script>
+    <script src="insight.js?v=20260621-feedtab"></script>
+    <script src="signals.js?v=20260621-feedtab"></script>
+    <script src="wearables.js?v=20260621-feedtab"></script>
+    <script type="module" src="auth.js?v=20260621-feedtab"></script>
+    <script src="app.js?v=20260621-feedtab"></script>
   </body>
 </html>

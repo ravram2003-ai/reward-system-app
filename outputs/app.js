@@ -240,6 +240,7 @@
     communityLeaderboardPeriod: "",
     communityTrendMemberId: "",
     dashboardAnalyticsOpen: false,
+    inactiveCommunitiesOpen: false,
     scoreContext: "personal",
     buildMode: "home",
     buildSearchQuery: "",
@@ -903,22 +904,26 @@
     const requestCount = ready ? ownerJoinRequests.length : 0;
     const friendReqCount = ready ? incomingFriendRequests.length : 0;
     const badge = unread + requestCount + friendReqCount; // tab badge: messages + join requests + friend requests
-    if (els.chatsUnreadBadge) {
-      els.chatsUnreadBadge.textContent = badge > 9 ? "9+" : String(badge);
-      els.chatsUnreadBadge.hidden = badge === 0;
-    }
-    // Header bell shares the SAME total as the Chats tab badge, over the SAME data.
+    // Header cluster badges, each its own live count: Alerts bell = all notifications
+    // (messages + join + friend requests), Friends = pending friend requests, Chats =
+    // unread messages.
+    const fmt = (n) => (n > 9 ? "9+" : String(n));
     if (els.notifBellBadge) {
-      els.notifBellBadge.textContent = badge > 9 ? "9+" : String(badge);
+      els.notifBellBadge.textContent = fmt(badge);
       els.notifBellBadge.hidden = badge === 0;
+    }
+    if (els.headerChatsBadge) {
+      els.headerChatsBadge.textContent = fmt(unread);
+      els.headerChatsBadge.hidden = unread === 0;
+    }
+    if (els.headerFriendsBadge) {
+      els.headerFriendsBadge.textContent = fmt(friendReqCount);
+      els.headerFriendsBadge.hidden = friendReqCount === 0;
     }
     if (notifPanelOpen) renderNotifPanel(); // keep an open dropdown in sync with the data
     if (els.chatsMarkAllButton) els.chatsMarkAllButton.hidden = unread === 0;
-    // The Today "Friends" button + the friends-view "Add friend" button both surface
-    // the pending friend-request count (same data as the Chats friend-request badge).
-    const friendBadgeText = friendReqCount > 9 ? "9+" : String(friendReqCount);
-    if (els.friendsReqBadge) { els.friendsReqBadge.textContent = friendBadgeText; els.friendsReqBadge.hidden = friendReqCount === 0; }
-    if (els.friendsAddBadge) { els.friendsAddBadge.textContent = friendBadgeText; els.friendsAddBadge.hidden = friendReqCount === 0; }
+    // The friends-view "Add friend" button also surfaces the pending friend-request count.
+    if (els.friendsAddBadge) { els.friendsAddBadge.textContent = fmt(friendReqCount); els.friendsAddBadge.hidden = friendReqCount === 0; }
     renderOwnerRequests(ready);
     renderFriendRequests(ready);
     renderChats(ready);
@@ -1965,6 +1970,7 @@
       "backToCommunitiesButton",
       "inviteButton",
       "communitySettingsButton",
+      "communityDangerZone",
       "inviteOptions",
       "copyInviteLinkButton",
       "copyInviteCodeButton",
@@ -2072,7 +2078,6 @@
       "chatsThreadMount",
       "chatsBackButton",
       "chatsMarkAllButton",
-      "chatsUnreadBadge",
       "chatsLayout",
       "chatsNewMessageButton",
       "chatsAddFriendButton",
@@ -2085,8 +2090,10 @@
       "chatsAddFriendResults",
       "chatsFriendRequests",
       "chatsMessageRequests",
-      "openFriendsButton",
-      "friendsReqBadge",
+      "headerFriendsButton",
+      "headerFriendsBadge",
+      "headerChatsButton",
+      "headerChatsBadge",
       "friendsView",
       "backFromFriendsButton",
       "friendsAddButton",
@@ -2141,7 +2148,6 @@
         if (state.activeView === "systems" && !state.systemEditorOpen) {
           scrollSystemsListToTop();
         }
-        if (state.activeView === "chats") refreshInbox();
         // Feed + Communities both read community data; refresh it on open.
         if (state.activeView === "communities" || state.activeView === "feed") loadCommunitiesFromDb();
       });
@@ -2311,7 +2317,8 @@
     els.backFromCommunitySettingsButton.addEventListener("click", returnToCommunityDetail);
     els.backFromMemberActivityButton.addEventListener("click", returnToCommunityDetail);
     els.backFromFindCommunitiesButton.addEventListener("click", returnToCommunities);
-    if (els.openFriendsButton) els.openFriendsButton.addEventListener("click", openFriends);
+    if (els.headerFriendsButton) els.headerFriendsButton.addEventListener("click", openFriends);
+    if (els.headerChatsButton) els.headerChatsButton.addEventListener("click", openChats);
     if (els.backFromFriendsButton) els.backFromFriendsButton.addEventListener("click", returnToDashboard);
     if (els.friendsAddButton) els.friendsAddButton.addEventListener("click", openAddFriendFromFriends);
     if (els.backFromFriendActivityButton) els.backFromFriendActivityButton.addEventListener("click", returnToFriends);
@@ -2470,7 +2477,7 @@
     if (!els.views[state.activeView]) state.activeView = "dashboard";
     els.tabs.forEach((tab) => {
       const isActive = tab.dataset.view === state.activeView
-        || ((state.activeView === "add-entry" || state.activeView === "customize-top-card" || state.activeView === "customize-charts" || state.activeView === "friends" || state.activeView === "friend-activity") && tab.dataset.view === "dashboard")
+        || ((state.activeView === "add-entry" || state.activeView === "customize-top-card" || state.activeView === "customize-charts") && tab.dataset.view === "dashboard")
         || ((state.activeView === "create-community" || state.activeView === "community-detail" || state.activeView === "community-settings" || state.activeView === "community-member-activity" || state.activeView === "find-communities") && tab.dataset.view === "communities");
       tab.classList.toggle("active", isActive);
       tab.setAttribute("aria-current", isActive ? "page" : "false");
@@ -2483,6 +2490,8 @@
     paintAvatarNode(els.profileAvatar, state.profile.name, myAvatar);
     paintAvatarNode(els.largeAvatar, state.profile.name, myAvatar);
     if (els.headerAvatarButton) els.headerAvatarButton.classList.toggle("is-active", state.activeView === "profile");
+    if (els.headerFriendsButton) els.headerFriendsButton.classList.toggle("is-active", state.activeView === "friends" || state.activeView === "friend-activity");
+    if (els.headerChatsButton) els.headerChatsButton.classList.toggle("is-active", state.activeView === "chats");
     els.todayLabel.textContent = formatDate(todayIso);
   }
 
@@ -2567,6 +2576,7 @@
   // Open a community from the Build list → its detail view, or its settings editor.
   function openBuildCommunity(communityId, where) {
     if (!state.communities.some((item) => item.id === communityId)) return;
+    leaveConfirmOpen = false; // start the Settings danger zone un-confirmed on every fresh entry
     state.selectedCommunityId = communityId;
     state.activeView = where === "settings" ? "community-settings" : "community-detail";
     saveState();
@@ -2600,6 +2610,7 @@
 
   function openCommunitySettings() {
     if (!getSelectedCommunity()) return;
+    leaveConfirmOpen = false; // always start the danger zone un-confirmed
     state.activeView = "community-settings";
     saveState();
     render();
@@ -2695,6 +2706,15 @@
 
   // ── Friends view + a friend's today activity ───────────────────────────────
   // Open the friends list (reached from the Today top-left "Friends" button).
+  // Open the Chats view from the header Chats icon (Chats is no longer a nav tab).
+  function openChats() {
+    state.activeView = "chats";
+    saveState();
+    render();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    if (signalsReady()) refreshInbox();
+  }
+
   function openFriends() {
     state.activeView = "friends";
     saveState();
@@ -4745,10 +4765,16 @@
         html += `<div class="community-grid">${active.map(renderCommunityCard).join("")}</div>`;
       }
       if (inactive.length) {
+        // Dormant communities are collapsed behind a tappable header by default; the
+        // open/closed choice persists in state.inactiveCommunitiesOpen.
+        const open = !!state.inactiveCommunitiesOpen;
         html += `
           <div class="community-inactive">
-            <p class="community-inactive-heading">Inactive</p>
-            <div class="community-inactive-list">${inactive.map(renderCommunityInactiveRow).join("")}</div>
+            <button type="button" class="community-inactive-toggle" data-toggle-inactive aria-expanded="${open ? "true" : "false"}">
+              <span class="community-inactive-label">Inactive (${inactive.length})</span>
+              <span class="community-inactive-caret" aria-hidden="true">${open ? "▴" : "▾"}</span>
+            </button>
+            <div class="community-inactive-list"${open ? "" : " hidden"}>${inactive.map(renderCommunityInactiveRow).join("")}</div>
           </div>`;
       }
       els.communityList.innerHTML = html;
@@ -4764,6 +4790,15 @@
         window.scrollTo({ top: 0, left: 0, behavior: "auto" });
       });
     });
+
+    const inactiveToggle = els.communityList.querySelector("[data-toggle-inactive]");
+    if (inactiveToggle) {
+      inactiveToggle.addEventListener("click", () => {
+        state.inactiveCommunitiesOpen = !state.inactiveCommunitiesOpen;
+        saveState();
+        renderCommunities();
+      });
+    }
 
     renderCommunityDetail();
   }
@@ -5369,6 +5404,9 @@
     }
   }
 
+  // Two-step confirm flag for the community Settings "Leave community" danger action.
+  let leaveConfirmOpen = false;
+
   function renderCommunitySettings() {
     const community = getSelectedCommunity();
     if (!community) {
@@ -5409,6 +5447,91 @@
     els.ccMetricInput.value = analytics.metric;
     [els.ccModuleLeaderboard, els.ccModuleGroupTrends, els.ccModuleIndividualTrends, els.ccModuleUnderperforming, els.ccDefaultPeriodInput, els.ccMetricInput].forEach((input) => {
       input.disabled = !canEdit;
+    });
+    renderCommunityDangerZone(community);
+  }
+
+  // A community backed by the shared DB (real uuid id while signed in) vs a
+  // demo/local-only one (synthetic id or offline) — drives whether Leave hits the server.
+  function isServerBackedCommunity(community) {
+    return !!community && communitiesAreShared() &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(community.id || ""));
+  }
+
+  function removeCommunityFromState(communityId) {
+    state.communities = (state.communities || []).filter((community) => community.id !== communityId);
+    state.communityEntries = (state.communityEntries || []).filter((entry) => entry.communityId !== communityId);
+    if (state.selectedCommunityId === communityId) {
+      state.selectedCommunityId = state.communities[0] ? state.communities[0].id : "";
+    }
+  }
+
+  // Danger zone in the community Settings screen: a "Leave community" action with a
+  // confirm step. Owners of a real community can't leave (no delete-community policy);
+  // members delete their own membership row; demo/local communities just drop locally.
+  function renderCommunityDangerZone(community) {
+    const zone = els.communityDangerZone;
+    if (!zone) return;
+    if (!community) { zone.hidden = true; zone.innerHTML = ""; return; }
+    zone.hidden = false;
+    const name = escapeHtml(community.name || "this community");
+    const ownerLocked = isCommunityAdmin(community) && isServerBackedCommunity(community);
+    if (ownerLocked) {
+      zone.innerHTML = `
+        <h3 class="community-danger-title">Danger zone</h3>
+        <button class="danger-button" type="button" disabled>Leave community</button>
+        <p class="community-danger-note">You own this community; transferring or deleting isn't available yet.</p>`;
+      return;
+    }
+    if (leaveConfirmOpen) {
+      zone.innerHTML = `
+        <h3 class="community-danger-title">Danger zone</h3>
+        <p class="community-danger-confirm">Leave ${name}?</p>
+        <div class="community-danger-actions">
+          <button class="danger-button" type="button" data-leave-confirm>Leave</button>
+          <button class="ghost-button small" type="button" data-leave-cancel>Cancel</button>
+        </div>`;
+    } else {
+      zone.innerHTML = `
+        <h3 class="community-danger-title">Danger zone</h3>
+        <button class="danger-button" type="button" data-leave-start>Leave community</button>`;
+    }
+    const startBtn = zone.querySelector("[data-leave-start]");
+    if (startBtn) startBtn.addEventListener("click", () => { leaveConfirmOpen = true; renderCommunityDangerZone(community); });
+    const cancelBtn = zone.querySelector("[data-leave-cancel]");
+    if (cancelBtn) cancelBtn.addEventListener("click", () => { leaveConfirmOpen = false; renderCommunityDangerZone(community); });
+    const confirmBtn = zone.querySelector("[data-leave-confirm]");
+    if (confirmBtn) confirmBtn.addEventListener("click", () => leaveCommunityConfirmed(community));
+  }
+
+  function leaveCommunityConfirmed(community) {
+    if (!community) return;
+    if (isCommunityAdmin(community) && isServerBackedCommunity(community)) return; // owner: not allowed
+    leaveConfirmOpen = false;
+    const name = community.name || "this community";
+    const finishLocally = () => {
+      removeCommunityFromState(community.id);
+      state.activeView = "communities";
+      saveState();
+      render();
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      showToast(`Left ${name}`);
+    };
+    // Demo/local-only (owner or member, not server-backed): just drop local state.
+    if (!isServerBackedCommunity(community)) { finishLocally(); return; }
+    // Real membership: delete my own community_members row first; only touch local
+    // state on success so an error never leaves a half-updated list.
+    const uid = state.account && state.account.userId;
+    Promise.resolve(window.PointwellSignals.leaveCommunity(community.id, uid)).then((res) => {
+      if (res && res.error) {
+        showToast(communityDbError(res.error, "Couldn't leave the community"));
+        renderCommunityDangerZone(community); // restore the Leave button; state untouched
+        return;
+      }
+      finishLocally();
+    }).catch(() => {
+      showToast("Couldn't leave the community");
+      renderCommunityDangerZone(community);
     });
   }
 
@@ -10709,6 +10832,7 @@
       communityLeaderboardPeriod: saved.communityLeaderboardPeriod || seed.communityLeaderboardPeriod,
       communityTrendMemberId: saved.communityTrendMemberId || seed.communityTrendMemberId,
       dashboardAnalyticsOpen: Boolean(saved.dashboardAnalyticsOpen),
+      inactiveCommunitiesOpen: Boolean(saved.inactiveCommunitiesOpen),
       editingRuleId: saved.editingRuleId || "",
       systemSetupStep: clampSetupStep(saved.systemSetupStep),
       systemEditorOpen: Boolean(saved.systemEditorOpen),

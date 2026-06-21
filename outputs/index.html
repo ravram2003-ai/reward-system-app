@@ -69,9 +69,9 @@
             <span class="tab-icon" aria-hidden="true">◧</span>
             <span>Communities</span>
           </button>
-          <button class="nav-tab" type="button" data-view="systems" aria-label="Build">
+          <button class="nav-tab" type="button" data-view="systems" aria-label="Build &amp; Edit">
             <span class="tab-icon" aria-hidden="true">◎</span>
-            <span>Build</span>
+            <span>Build &amp; Edit</span>
           </button>
           <button class="nav-tab" type="button" data-view="chats" aria-label="Chats">
             <span class="tab-icon" aria-hidden="true">✉</span>
@@ -282,27 +282,49 @@
           <div class="view-header">
             <div>
               <p class="eyebrow">Builder</p>
-              <h2 id="systemsTitle">Build a Reward System</h2>
+              <h2 id="systemsTitle">Build a Reward System or Community</h2>
               <p class="view-subtitle">Choose how you want to start.</p>
             </div>
           </div>
 
           <section class="build-start-panel" id="buildStartPanel" aria-label="Build options">
-            <button class="build-option-card" type="button" data-build-mode="search">
+            <button class="build-option-card" type="button" data-build-start="search">
               <span class="build-option-icon" aria-hidden="true">&#8981;</span>
               <strong>Search Public Systems</strong>
-              <span>Find public profiles and reward systems you can copy or customize.</span>
+              <span>Find public profiles, reward systems, and communities you can copy or join.</span>
             </button>
-            <button class="build-option-card" type="button" data-build-mode="ai">
+            <button class="build-option-card" type="button" data-build-start="ai">
               <span class="build-option-icon" aria-hidden="true">&#10022;</span>
               <strong>Generate with AI</strong>
               <span>Tell the app your goals and get a suggested reward system.</span>
             </button>
-            <button class="build-option-card" type="button" data-build-mode="scratch">
+            <button class="build-option-card" type="button" data-build-start="scratch">
               <span class="build-option-icon" aria-hidden="true">+</span>
               <strong>Start From Scratch</strong>
               <span>Build your own reward system manually with custom rules.</span>
             </button>
+          </section>
+
+          <section class="build-audience-panel" id="buildAudiencePanel" aria-label="Who is this for" hidden>
+            <div class="panel-heading">
+              <div>
+                <h3 id="buildAudienceTitle">Who's this for?</h3>
+                <span>A community is a reward system you invite people into.</span>
+              </div>
+              <button class="ghost-button small" type="button" data-build-mode="home">Back</button>
+            </div>
+            <div class="build-audience-options">
+              <button class="build-option-card" type="button" data-build-audience="personal">
+                <span class="build-option-icon" aria-hidden="true">&#9679;</span>
+                <strong>Personal system (just me)</strong>
+                <span>A reward system you track on your own.</span>
+              </button>
+              <button class="build-option-card" type="button" data-build-audience="community">
+                <span class="build-option-icon" aria-hidden="true">&#9783;</span>
+                <strong>Community (invite others)</strong>
+                <span>The same reward system, shared with people you invite.</span>
+              </button>
+            </div>
           </section>
 
           <section class="build-panel" id="buildSearchPanel" aria-labelledby="buildSearchTitle" hidden>
@@ -692,6 +714,13 @@
               </div>
             </section>
           </div>
+
+          <section class="build-communities-wrap" id="buildCommunitiesWrap" aria-labelledby="buildCommunitiesTitle">
+            <div class="system-list-heading">
+              <h3 id="buildCommunitiesTitle">Your Communities</h3>
+            </div>
+            <div class="system-list" id="buildCommunityList"></div>
+          </section>
         </section>
 
         <section class="view" id="discoverView" aria-labelledby="discoverTitle" hidden>

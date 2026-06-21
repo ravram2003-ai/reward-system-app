@@ -405,6 +405,8 @@
   let friendActivityRows = [];     // [{ community_id, community_name, rule_id, amount, entry_date }]
   let friendActivityLoading = false;
   let aiGenerating = false;         // guards the async "Generate with AI" calls
+  let pendingBuildMode = "";        // a start card was picked; awaiting the personal/community choice
+  let buildCommunityResults = [];   // public communities matching the build search
   let aiRefining = false;           // guards the async "Improve this system" chat calls
   let aiImproveOpen = false;        // keep the improve/chat panel open across re-renders
   let aiChatFocusWanted = false;    // restore chat-input focus after a send (input is disabled mid-refine)
@@ -1804,6 +1806,9 @@
       "todaySavedLabel",
       "newSystemButton",
       "buildStartPanel",
+      "buildAudiencePanel",
+      "buildCommunitiesWrap",
+      "buildCommunityList",
       "buildSearchPanel",
       "buildPublicSearchInput",
       "buildPublicSearchResults",
@@ -2153,10 +2158,18 @@
     Array.from(document.querySelectorAll("[data-build-mode]")).forEach((button) => {
       button.addEventListener("click", () => setBuildMode(button.dataset.buildMode));
     });
+    // Start cards now lead to a personal/community choice before the flow begins.
+    Array.from(document.querySelectorAll("[data-build-start]")).forEach((button) => {
+      button.addEventListener("click", () => chooseBuildStart(button.dataset.buildStart));
+    });
+    Array.from(document.querySelectorAll("[data-build-audience]")).forEach((button) => {
+      button.addEventListener("click", () => startBuildForAudience(button.dataset.buildAudience));
+    });
     els.buildPublicSearchInput.addEventListener("input", (event) => {
       state.buildSearchQuery = event.target.value;
       state.buildViewedProfileId = ""; // a new query leaves any open profile view
       runPeopleSearch(event.target.value);
+      runBuildCommunitySearch(event.target.value);
       renderBuildSearchResults();
     });
     els.buildAiForm.addEventListener("submit", generateAiDraftSystem);
@@ -2419,6 +2432,69 @@
     state.buildMode = "home";
     state.buildViewedProfileId = "";
     state.buildViewedPublicId = "";
+    pendingBuildMode = "";
+  }
+
+  // Public-community results for the Build search — reuses the existing community
+  // name search (PointwellSignals.searchCommunities) with a local fallback.
+  function runBuildCommunitySearch(rawQuery) {
+    const q = String(rawQuery || "").trim();
+    if (q.length < 2) {
+      buildCommunityResults = [];
+      if (state.buildMode === "search") renderBuildSearchResults();
+      return;
+    }
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.searchCommunities !== "function") {
+      buildCommunityResults = getVisiblePublicCommunities(q);
+      if (state.buildMode === "search") renderBuildSearchResults();
+      return;
+    }
+    Promise.resolve(window.PointwellSignals.searchCommunities(q)).catch(() => []).then((rows) => {
+      buildCommunityResults = Array.isArray(rows) ? rows : [];
+      if (state.buildMode === "search") renderBuildSearchResults();
+    });
+  }
+
+  // "Your Communities" list on the Build & Edit home — communities I own or belong to.
+  function renderBuildCommunities() {
+    if (!els.buildCommunityList) return;
+    const communities = Array.isArray(state.communities) ? state.communities : [];
+    els.buildCommunityList.innerHTML = communities.length
+      ? communities.map(renderBuildCommunityCard).join("")
+      : emptyState("No communities yet. Start one above, or turn a system into a community with Invite people.");
+    Array.from(els.buildCommunityList.querySelectorAll("[data-open-community-id]")).forEach((button) => {
+      button.addEventListener("click", () => openBuildCommunity(button.dataset.openCommunityId, "detail"));
+    });
+    Array.from(els.buildCommunityList.querySelectorAll("[data-edit-community-id]")).forEach((button) => {
+      button.addEventListener("click", () => openBuildCommunity(button.dataset.editCommunityId, "settings"));
+    });
+  }
+
+  function renderBuildCommunityCard(community) {
+    const visibility = communityVisibility(community);
+    return `
+      <article class="system-card" data-community-id="${escapeHtml(community.id)}">
+        <div class="system-card-main">
+          <strong>${escapeHtml(community.name)}</strong>
+          <span class="system-meta">${escapeHtml(visibilityLabel(visibility))} · ${plural(getCommunityMemberCount(community), "member")}</span>
+        </div>
+        <div class="system-card-actions">
+          <span class="visibility-pill ${visibility === "request_to_join" ? "request" : escapeHtml(visibility)}">${escapeHtml(visibilityLabel(visibility))}</span>
+          <button class="secondary-button small" type="button" data-edit-community-id="${escapeHtml(community.id)}">Edit</button>
+          <button class="ghost-button small" type="button" data-open-community-id="${escapeHtml(community.id)}">Open</button>
+        </div>
+      </article>
+    `;
+  }
+
+  // Open a community from the Build list → its detail view, or its settings editor.
+  function openBuildCommunity(communityId, where) {
+    if (!state.communities.some((item) => item.id === communityId)) return;
+    state.selectedCommunityId = communityId;
+    state.activeView = where === "settings" ? "community-settings" : "community-detail";
+    saveState();
+    render();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }
 
   function openFindCommunities() {
@@ -3019,14 +3095,19 @@
   function renderSystems() {
     const isEditorOpen = Boolean(state.systemEditorOpen);
     const isBuildSubpage = !isEditorOpen && (state.buildMode === "search" || state.buildMode === "ai");
+    const choosingAudience = !isEditorOpen && !isBuildSubpage && Boolean(pendingBuildMode);
     els.systemsView.classList.toggle("is-editing-system", isEditorOpen);
-    els.systemsView.classList.toggle("is-build-subpage", isBuildSubpage);
-    els.buildStartPanel.hidden = isEditorOpen || isBuildSubpage;
+    els.systemsView.classList.toggle("is-build-subpage", isBuildSubpage || choosingAudience);
+    els.buildStartPanel.hidden = isEditorOpen || isBuildSubpage || choosingAudience;
+    if (els.buildAudiencePanel) els.buildAudiencePanel.hidden = !choosingAudience;
     els.buildSearchPanel.hidden = isEditorOpen || state.buildMode !== "search";
     els.buildAiPanel.hidden = isEditorOpen || state.buildMode !== "ai";
     els.buildPublicSearchInput.value = state.buildSearchQuery || "";
     renderBuildSearchResults();
     renderAiDraftReview();
+    // "Your Communities" shows on the build home only (hidden in the editor/subpages).
+    if (els.buildCommunitiesWrap) els.buildCommunitiesWrap.hidden = isEditorOpen || isBuildSubpage || choosingAudience;
+    renderBuildCommunities();
 
     if (!state.selectedSystemId || !state.systems.some((system) => system.id === state.selectedSystemId)) {
       state.selectedSystemId = state.systems[0]?.id || "";
@@ -3169,6 +3250,7 @@
   }
 
   function setBuildMode(mode) {
+    pendingBuildMode = ""; // leaving the audience choice
     if (mode === "scratch") {
       createSystem();
       return;
@@ -3189,8 +3271,40 @@
     if (state.buildMode === "search") {
       els.buildPublicSearchInput.focus();
       runPeopleSearch(state.buildSearchQuery); // refresh real people for any persisted query
+      runBuildCommunitySearch(state.buildSearchQuery); // and public communities
     }
     if (state.buildMode === "ai") els.aiGoalsInput.focus();
+  }
+
+  // Step 1 of every start card: pick personal vs community before the flow begins.
+  function chooseBuildStart(mode) {
+    if (mode !== "search" && mode !== "ai" && mode !== "scratch") return;
+    pendingBuildMode = mode;
+    renderSystems();
+    requestAnimationFrame(() => els.buildAudiencePanel?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+  }
+
+  // Route the chosen start card into the existing personal OR community flow.
+  function startBuildForAudience(audience) {
+    const mode = pendingBuildMode;
+    if (!mode) return;
+    if (audience === "community") {
+      // Communities require an account (they live server-side).
+      if (!signalsReady()) {
+        pendingBuildMode = "";
+        renderSystems();
+        showToast("Sign in to create a community");
+        showAuthScreen();
+        return;
+      }
+      pendingBuildMode = "";
+      if (mode === "search") { setBuildMode("search"); return; } // search finds public communities too
+      openCreateCommunity();
+      setCommunityDraftMethod(mode === "ai" ? "ai" : "scratch");
+      return;
+    }
+    // Personal → the existing personal-system flows.
+    setBuildMode(mode);
   }
 
   function openBuildOptions() {
@@ -3259,10 +3373,20 @@
         </div>
         ${visibleSystems.length ? visibleSystems.map(renderBuildPublicResult).join("") : emptyState("No public reward systems match that search.")}
       </section>
+      <section class="build-result-section" aria-label="Communities">
+        <div class="build-result-section-heading">
+          <h3>Communities</h3>
+          <span>${plural(buildCommunityResults.length, "result")}</span>
+        </div>
+        ${buildCommunityResults.length ? buildCommunityResults.map(renderFindCommunityResult).join("") : emptyState("Search by name to find public communities to join.")}
+      </section>
     `;
 
     Array.from(els.buildPublicSearchResults.querySelectorAll("[data-build-copy-public-id]")).forEach((button) => {
       button.addEventListener("click", () => copyPublicSystem(button.dataset.buildCopyPublicId, systems));
+    });
+    Array.from(els.buildPublicSearchResults.querySelectorAll("[data-join-community-id]")).forEach((button) => {
+      button.addEventListener("click", () => joinCommunityById(button.dataset.joinCommunityId));
     });
     Array.from(els.buildPublicSearchResults.querySelectorAll("[data-build-view-person-id]")).forEach((button) => {
       button.addEventListener("click", () => {
@@ -6958,7 +7082,7 @@
         <div class="system-card-actions">
           <span class="visibility-pill ${escapeHtml(system.visibility)}">${capitalize(system.visibility)}</span>
           <button class="secondary-button small" type="button" data-edit-system-id="${escapeHtml(system.id)}">Edit</button>
-          <button class="ghost-button small" type="button" data-turn-community-id="${escapeHtml(system.id)}">Turn into Community</button>
+          <button class="ghost-button small" type="button" data-turn-community-id="${escapeHtml(system.id)}">Invite people</button>
           <button class="danger-button small" type="button" data-delete-system-id="${escapeHtml(system.id)}">Delete</button>
         </div>
       </article>
@@ -7529,6 +7653,8 @@
       showToast("Keep at least one system");
       return;
     }
+    // Confirm — deleting a system also removes its logged entries.
+    if (typeof confirm === "function" && !confirm(`Delete "${selected.title || "this reward system"}"? This can't be undone.`)) return;
     state.systems = state.systems.filter((system) => system.id !== selected.id);
     state.entries = state.entries.filter((entry) => entrySystemId(entry) !== selected.id);
     state.quickEntries = (state.quickEntries || []).filter((entry) => entrySystemId(entry) !== selected.id);

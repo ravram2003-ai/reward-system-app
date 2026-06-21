@@ -7256,3 +7256,20 @@ button.notif-item:hover {
   border-color: rgba(58, 214, 166, 0.45);
 }
 .ai-chat-form .primary-button { flex: 0 0 auto; }
+
+/* ── Build & Edit: personal/community choice + Your Communities list ───────── */
+.build-audience-panel {
+  margin-bottom: 14px;
+}
+.build-audience-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.build-communities-wrap {
+  margin-top: 20px;
+}
+@media (max-width: 560px) {
+  .build-audience-options { grid-template-columns: 1fr; }
+}

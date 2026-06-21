@@ -6868,6 +6868,127 @@ button.notif-item:hover {
 }
 .score-strip-add { white-space: nowrap; }
 
+/* ── Today polish: full-width Add entry bar + hero score card ──────────────── */
+.add-entry-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 16px;
+  padding: 15px 18px;
+  border: 0;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--accent), #2bb392);
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 850;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: 0 8px 22px rgba(58, 214, 166, 0.22);
+}
+.add-entry-bar:hover { filter: brightness(1.05); }
+.add-entry-bar:active { transform: translateY(1px); }
+.add-entry-bar-plus { font-size: 1.25rem; line-height: 1; font-weight: 800; }
+
+/* Heading row: community switcher as a pill on the right */
+.score-context-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 6px 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+}
+.score-context-pill #scoreContextSelect {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 800;
+  font-size: 0.9rem;
+  padding: 2px 20px 2px 2px;
+  cursor: pointer;
+  max-width: 46vw;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2393a09a' stroke-width='3'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 2px center;
+}
+.score-context-pill #scoreContextSelect:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 999px;
+}
+
+/* Hero score card — the centerpiece */
+.score-hero {
+  margin-bottom: 16px;
+  padding: 18px 18px 16px;
+  border: 1px solid rgba(58, 214, 166, 0.22);
+  border-radius: 16px;
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(58, 214, 166, 0.10), transparent 55%),
+    var(--surface);
+  box-shadow: var(--shadow-card);
+}
+.score-hero-top { display: flex; align-items: center; gap: 18px; }
+.score-hero-ring { width: 84px; height: 84px; }
+.score-hero-ring .score-ring-bg,
+.score-hero-ring .score-ring-fill { stroke-width: 3.5; }
+.score-hero-ring #liveScore.score-ring-label { font-size: 1.15rem; }
+.score-hero-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.score-hero-context {
+  font-size: 1.02rem;
+  font-weight: 850;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.score-hero-status { color: var(--muted); font-size: 0.9rem; font-weight: 600; }
+.score-hero-nudge {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+.score-hero-bar {
+  margin-top: 16px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--soft);
+  overflow: hidden;
+}
+.score-hero-bar-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+  transition: width 0.4s ease;
+}
+
+/* Standings polish: the "You" row stands out with a soft green border */
+.mini-lb-row.is-me,
+.mini-lb-row.is-me:hover {
+  border: 1px solid rgba(58, 214, 166, 0.34);
+  padding: 7px 9px; /* offset the 1px border so rows stay vertically aligned */
+}
+
 /* ── Dashboard mini leaderboard ────────────────────────────────────────── */
 .mini-leaderboard {
   padding: 14px 16px;

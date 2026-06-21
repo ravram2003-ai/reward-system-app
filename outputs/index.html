@@ -90,7 +90,11 @@
 
       <main class="workspace">
         <section class="view is-visible" id="dashboardView" aria-labelledby="dashboardTitle">
-          <div class="view-header">
+          <button class="add-entry-bar" type="button" id="openAddEntryButton">
+            <span class="add-entry-bar-plus" aria-hidden="true">+</span><span>Add entry</span>
+          </button>
+
+          <div class="view-header score-header">
             <div>
               <button class="ghost-button small dashboard-friends-button" type="button" id="openFriendsButton">
                 <span aria-hidden="true">◍</span><span>Friends</span>
@@ -100,6 +104,9 @@
               <h2 id="dashboardTitle">Score today</h2>
             </div>
             <div class="header-actions">
+              <div class="score-context-pill">
+                <select id="scoreContextSelect" aria-label="Score context"></select>
+              </div>
               <button class="ghost-button" type="button" id="openCommunityButton" hidden>Open Community</button>
               <button class="primary-button" type="button" id="saveEntryButton">
                 <span aria-hidden="true">✓</span>
@@ -108,27 +115,24 @@
             </div>
           </div>
 
-          <section class="score-strip" aria-label="Today's score">
-            <div class="score-ring" aria-hidden="true">
-              <svg class="score-ring-svg" viewBox="0 0 44 44">
-                <circle class="score-ring-bg" cx="22" cy="22" r="19"></circle>
-                <circle class="score-ring-fill" id="scoreRingFill" cx="22" cy="22" r="19" pathLength="100"></circle>
-              </svg>
-              <strong class="score-ring-label" id="liveScore">0/0</strong>
-            </div>
-            <div class="score-strip-main">
-              <div class="score-strip-context">
-                <span class="score-strip-prefix">Today ·</span>
-                <select id="scoreContextSelect" aria-label="Score context"></select>
+          <section class="score-hero" aria-label="Today's score">
+            <div class="score-hero-top">
+              <div class="score-ring score-hero-ring" aria-hidden="true">
+                <svg class="score-ring-svg" viewBox="0 0 44 44">
+                  <circle class="score-ring-bg" cx="22" cy="22" r="19"></circle>
+                  <circle class="score-ring-fill" id="scoreRingFill" cx="22" cy="22" r="19" pathLength="100"></circle>
+                </svg>
+                <strong class="score-ring-label" id="liveScore">0/0</strong>
               </div>
-              <span class="score-strip-status" id="dailyStatusLabel">Set a goal to track progress</span>
-              <span class="score-nudge" id="scoreNudge" hidden></span>
+              <div class="score-hero-main">
+                <span class="score-hero-context" id="scoreHeroContext"></span>
+                <span class="score-hero-status" id="dailyStatusLabel">Set a goal to track progress</span>
+                <span class="score-nudge score-hero-nudge" id="scoreNudge" hidden></span>
+                <button class="secondary-button small" type="button" id="syncSampleButton">Sync sample data</button>
+              </div>
             </div>
-            <div class="score-strip-actions">
-              <button class="secondary-button small" type="button" id="syncSampleButton">Sync sample data</button>
-              <button class="primary-button score-strip-add" type="button" id="openAddEntryButton">
-                <span aria-hidden="true">+</span><span>Add entry</span>
-              </button>
+            <div class="score-hero-bar" aria-hidden="true">
+              <div class="score-hero-bar-fill" id="scoreHeroBarFill"></div>
             </div>
           </section>
 

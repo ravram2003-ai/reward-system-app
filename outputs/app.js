@@ -1758,6 +1758,8 @@
       "findCommunitiesView",
       "profileView",
       "scoreContextSelect",
+      "scoreHeroContext",
+      "scoreHeroBarFill",
       "openCommunityButton",
       "addEntryTitle",
       "addEntrySystemSelect",
@@ -3055,6 +3057,8 @@
       els.weeklyChartList.innerHTML = emptyState("Create a reward system to see weekly progress.");
       els.liveScore.textContent = "0/0";
       if (els.scoreRingFill) els.scoreRingFill.style.strokeDashoffset = "100";
+      if (els.scoreHeroBarFill) els.scoreHeroBarFill.style.width = "0%";
+      if (els.scoreHeroContext) els.scoreHeroContext.textContent = "Today";
       if (els.miniLeaderboard) els.miniLeaderboard.hidden = true;
       els.dailyStatusLabel.textContent = "Create a reward system to start.";
       if (els.dailyInsightText) els.dailyInsightText.textContent = "Create a reward system to start your daily insight.";
@@ -5932,6 +5936,7 @@
     const context = getActiveScoreContext();
     const system = context.system;
     if (!system) return false;
+    if (els.scoreHeroContext) els.scoreHeroContext.textContent = context.label || "Today";
     const values = collectDraftValues(system, valuesForScoreContext(context));
     const summary = calculateDashboardSummary(system, values, context);
 
@@ -7123,7 +7128,9 @@
     // Compact strip: ring center shows points/target ("1/3"); the SVG arc fills by
     // percent; the status line reads "1 of 3 points · 2 to go".
     els.liveScore.textContent = `${formatPoints(total)}/${formatPoints(target)}`;
-    if (els.scoreRingFill) els.scoreRingFill.style.strokeDashoffset = String(100 - Math.min(Math.max(percent, 0), 100));
+    const clampedPercent = Math.min(Math.max(percent, 0), 100);
+    if (els.scoreRingFill) els.scoreRingFill.style.strokeDashoffset = String(100 - clampedPercent);
+    if (els.scoreHeroBarFill) els.scoreHeroBarFill.style.width = `${clampedPercent}%`;
     els.dailyStatusLabel.textContent = target > 0
       ? (remaining > 0
           ? `${formatPoints(total)} of ${formatPoints(target)} points · ${formatPoints(remaining)} to go`

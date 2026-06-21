@@ -111,6 +111,7 @@ textarea:focus-visible {
 
 .brand-block {
   gap: 12px;
+  flex-wrap: wrap;   /* on the narrow desktop sidebar the icon cluster drops to its own row instead of overflowing */
 }
 
 .brand-mark {
@@ -259,24 +260,6 @@ h3 {
   text-align: left;
 }
 
-.nav-badge {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: var(--danger);
-  color: #fff;
-  font-size: 0.64rem;
-  font-weight: 850;
-  line-height: 1;
-  box-shadow: 0 0 0 2px var(--panel);
-}
 
 .header-avatar {
   margin-left: auto;
@@ -6374,12 +6357,6 @@ body.auth-locked {
 }
 
 /* ── Today: Friends button (top-left of the dashboard header) ──────────── */
-.dashboard-friends-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 10px;
-}
 
 /* ── Friends view: list + activity ────────────────────────────────────── */
 .friends-toolbar {
@@ -6506,6 +6483,36 @@ body.auth-locked {
   color: var(--accent-strong);
   font-size: 0.9rem;
 }
+
+/* ── Header utility cluster: Alerts (bell) · Friends · Chats · avatar ──── */
+.header-cluster {
+  margin-left: auto;     /* push the whole cluster to the far right of the header */
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.header-cluster .header-notif,
+.header-cluster .header-avatar {
+  margin-left: 0;        /* the cluster handles the push-right; no per-item auto margins */
+}
+.header-icon-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.header-icon-btn:hover { border-color: var(--line-strong); }
+.header-icon-btn.is-active { border-color: var(--accent); color: var(--accent-strong); }
+.header-icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ── Header notifications bell + dropdown ─────────────────────────────── */
 .header-notif {
@@ -7183,13 +7190,71 @@ button.notif-item:hover {
 .community-inactive {
   margin-top: 20px;
 }
-.community-inactive-heading {
+.community-inactive-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
   margin: 0 0 9px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+  color: var(--muted);
+  font: inherit;
   font-size: 0.72rem;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   font-weight: 800;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.community-inactive-toggle:hover { border-color: var(--line-strong); color: var(--ink); }
+.community-inactive-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.community-inactive-caret {
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+/* ── Leave community (Settings danger zone) ─────────────────────────────── */
+.community-danger-zone {
+  margin-top: 22px;
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  border: 1px solid var(--danger);
+  border-radius: 12px;
+  background: var(--danger-soft);
+}
+.community-danger-title {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: var(--danger);
+}
+.community-danger-note {
+  margin: 0;
+  font-size: 0.85rem;
   color: var(--muted);
+}
+.community-danger-confirm {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 750;
+  color: var(--ink);
+}
+.community-danger-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.danger-button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .community-inactive-list {
   display: grid;

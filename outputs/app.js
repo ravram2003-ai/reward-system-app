@@ -7399,6 +7399,8 @@
 
         ${renderMemberSignalActions(community, memberItem)}
 
+        ${renderMemberDaySchedule(entries, community)}
+
         <section class="top-card-panel" aria-labelledby="memberGoalCompletionTitle">
           <div class="panel-heading tight">
             <div>
@@ -7446,6 +7448,120 @@
       </div>
     `;
     bindMemberSignalActions(community, memberItem);
+  }
+
+  // ── Today's Schedule: each of the member's logged entries placed on a
+  // time-of-day grid (vertical position = when it was logged, in the viewer's
+  // local time; color = which rule). Durations aren't tracked, so each entry is
+  // a fixed-size marker; entries logged close together split into side-by-side
+  // columns like a calendar day view. Ported from the standings day-view mockup.
+  var DAY_SCHEDULE_PALETTE = ["#fa4d56", "#ff832b", "#a56eff", "#4589ff", "#ee5396", "#08bdba", "#33b1ff", "#d2a106", "#3ddbd9", "#6fdc8c", "#ff7eb6", "#82cfff"];
+  function dayScheduleColor(key) {
+    var s = String(key || ""), h = 0;
+    for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return DAY_SCHEDULE_PALETTE[h % DAY_SCHEDULE_PALETTE.length];
+  }
+  function dayScheduleClock(min) {
+    var h = Math.floor(min / 60), m = Math.round(min % 60);
+    return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+  }
+  function renderMemberDaySchedule(entries, community) {
+    var HOUR_PX = 40, PX_PER_MIN = HOUR_PX / 60, NOMINAL = 38, MIN_BLOCK = 24;
+    var rules = ((community.system && community.system.rules) || []).map(scoring.normalizeRule);
+    var ruleById = new Map(rules.map(function (r) { return [r.id, r]; }));
+    var marks = [];
+    (entries || []).forEach(function (entry) {
+      if (!entry || !entry.timestamp) return;
+      var d = new Date(entry.timestamp);
+      if (isNaN(d.getTime())) return;
+      var start = d.getHours() * 60 + d.getMinutes();
+      var rule = ruleById.get(entry.ruleId);
+      var pts = rule ? numberOrDefault(scoring.calculateRule(rule, numberOrDefault(entry.amount, 0)).totalPoints, 0) : 0;
+      var label = (rule && rule.label) || entry.label || "Entry";
+      marks.push({
+        key: entry.ruleId || label, label: label, pts: pts,
+        s: start, e: Math.min(1440, start + NOMINAL),
+        color: dayScheduleColor(entry.ruleId || label)
+      });
+    });
+    marks.sort(function (a, b) { return a.s - b.s || b.e - a.e; });
+
+    // No timestamped activity → compact empty card instead of a tall blank grid.
+    if (!marks.length) {
+      return '\n      <section class="section-band member-schedule-panel" aria-labelledby="memberScheduleTitle">'
+        + '\n        <div class="panel-heading tight"><div>'
+        + '\n          <h3 id="memberScheduleTitle">Today’s Schedule</h3>'
+        + '\n          <span>your local time</span>'
+        + '\n        </div></div>'
+        + '\n        <div class="empty-mini">No activities logged today yet.</div>'
+        + '\n      </section>\n    ';
+    }
+
+    // Focus the grid on the part of the day with activity (±1h), min 8h tall.
+    var winStart = 6 * 60, winEnd = 22 * 60;
+    if (marks.length) {
+      var minS = Math.min.apply(null, marks.map(function (m) { return m.s; }));
+      var maxE = Math.max.apply(null, marks.map(function (m) { return m.e; }));
+      winStart = Math.max(0, Math.floor(minS / 60) * 60 - 60);
+      winEnd = Math.min(1440, Math.ceil(maxE / 60) * 60 + 60);
+    }
+    if (winEnd - winStart < 8 * 60) winEnd = Math.min(1440, winStart + 8 * 60);
+
+    // Column-pack overlapping markers within each cluster.
+    var clusters = [], cur = [], cEnd = -Infinity;
+    marks.forEach(function (x) {
+      if (cur.length && x.s >= cEnd) { clusters.push(cur); cur = []; cEnd = -Infinity; }
+      cur.push(x); cEnd = Math.max(cEnd, x.e);
+    });
+    if (cur.length) clusters.push(cur);
+    clusters.forEach(function (cl) {
+      var colEnd = [];
+      cl.forEach(function (x) {
+        var c = colEnd.findIndex(function (end) { return end <= x.s; });
+        if (c === -1) { c = colEnd.length; colEnd.push(x.e); } else colEnd[c] = x.e;
+        x.col = c;
+      });
+      cl.forEach(function (x) { x.cols = colEnd.length; });
+    });
+
+    var trackH = Math.round((winEnd - winStart) * PX_PER_MIN);
+    var hours = "";
+    for (var h = Math.ceil(winStart / 60); h <= Math.floor(winEnd / 60); h++) {
+      hours += '<div class="ds-hour" style="top:' + Math.round((h * 60 - winStart) * PX_PER_MIN) + 'px">' + String(h).padStart(2, "0") + ':00</div>';
+    }
+    var blocks = marks.map(function (m) {
+      var top = Math.round((m.s - winStart) * PX_PER_MIN);
+      var bh = Math.max(Math.round((m.e - m.s) * PX_PER_MIN), MIN_BLOCK);
+      var leftPct = (m.col / m.cols) * 100, widthPct = (1 / m.cols) * 100;
+      var ptsText = (m.pts >= 0 ? "+" : "") + formatPoints(m.pts);
+      var aria = m.label + " " + ptsText + " at " + dayScheduleClock(m.s);
+      return '<div class="ds-block" style="--c:' + m.color + ';top:' + top + 'px;height:' + bh + 'px;left:calc(' + leftPct + '% + 2px);width:calc(' + widthPct + '% - 4px)" title="' + escapeHtml(aria) + '" aria-label="' + escapeHtml(aria) + '">'
+        + '<span class="ds-bl">' + escapeHtml(m.label) + ' ' + escapeHtml(ptsText) + '</span>'
+        + '<span class="ds-bt">' + dayScheduleClock(m.s) + '</span></div>';
+    }).join("");
+
+    var seen = {};
+    var legend = marks.filter(function (m) { if (seen[m.key]) return false; seen[m.key] = 1; return true; })
+      .map(function (m) { return '<span class="ds-lg"><span class="ds-sw" style="background:' + m.color + '"></span>' + escapeHtml(m.label) + '</span>'; }).join("");
+
+    var now = new Date();
+    var nowMin = now.getHours() * 60 + now.getMinutes();
+    var nowLine = (nowMin >= winStart && nowMin <= winEnd)
+      ? '<div class="ds-now" style="top:' + Math.round((nowMin - winStart) * PX_PER_MIN) + 'px"><span class="ds-now-lab">' + dayScheduleClock(nowMin) + '</span></div>'
+      : "";
+    var body = marks.length ? '<div class="ds-events">' + blocks + '</div>' : '<div class="ds-empty">No activities logged today yet</div>';
+
+    return '\n      <section class="section-band member-schedule-panel" aria-labelledby="memberScheduleTitle">'
+      + '\n        <div class="panel-heading tight"><div>'
+      + '\n          <h3 id="memberScheduleTitle">Today’s Schedule</h3>'
+      + '\n          <span>' + escapeHtml(plural(marks.length, "activity")) + ' · your local time</span>'
+      + '\n        </div></div>'
+      + (legend ? '\n        <div class="ds-legend">' + legend + '</div>' : "")
+      + '\n        <div class="ds-cal" style="--ds-hour:' + HOUR_PX + 'px">'
+      + '\n          <div class="ds-hours">' + hours + '</div>'
+      + '\n          <div class="ds-track" style="height:' + trackH + 'px">' + nowLine + body + '</div>'
+      + '\n        </div>'
+      + '\n      </section>\n    ';
   }
 
   function calculateMemberCommunitySummary(community, values) {

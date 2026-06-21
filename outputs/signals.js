@@ -795,6 +795,33 @@
     }
   }
 
+  // Natural-language "quick log": send the user's text + their loggable rule catalog
+  // to the parse-log Edge Function; get back validated draft entries + clarifications.
+  // Mirrors generateRules — sb.functions.invoke handles URL/apikey/JWT. Returns a
+  // structured { error, entries, clarifications } and never throws.
+  async function parseLog(text, rules) {
+    var sb = getClient();
+    if (!sb || !sb.functions || typeof sb.functions.invoke !== "function") {
+      return { error: { message: "Quick log needs a connection." } };
+    }
+    try {
+      // Deployed Edge Function slug — must match how parse-log is deployed in Supabase.
+      var res = await sb.functions.invoke("parse-log", {
+        body: { text: String(text || ""), rules: Array.isArray(rules) ? rules : [] }
+      });
+      if (res.error) return { error: res.error };
+      var data = res.data || {};
+      if (data.error) return { error: { message: String(data.error) } };
+      return {
+        error: null,
+        entries: Array.isArray(data.entries) ? data.entries : [],
+        clarifications: Array.isArray(data.clarifications) ? data.clarifications : []
+      };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the AI service." } };
+    }
+  }
+
   // Today's community activity for a friend, gated server-side by friendship +
   // their visibility + our shared communities. forDate = the viewer's local today key.
   // Returns [{ community_id, community_name, rule_id, amount, entry_date }].
@@ -859,6 +886,7 @@
     getFriendTodayActivity: getFriendTodayActivity,
     getFriendsActiveToday: getFriendsActiveToday,
     generateRules: generateRules,
+    parseLog: parseLog,
     upsertCommunityEntry: upsertCommunityEntry,
     uploadEntryPhoto: uploadEntryPhoto,
     getEntryPhotoSignedUrl: getEntryPhotoSignedUrl,

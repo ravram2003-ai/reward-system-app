@@ -423,11 +423,22 @@
   let aiRefining = false;           // guards the async "Improve this system" chat calls
   let aiImproveOpen = false;        // keep the improve/chat panel open across re-renders
   let aiChatFocusWanted = false;    // restore chat-input focus after a send (input is disabled mid-refine)
-  // First-run onboarding overlay state.
+  // First-run onboarding overlay state — the guided, AI-personalized 3-screen flow.
   let onboardingActive = false;
-  let onboardingStep = 1;
-  let onboardingFocus = "";
+  let onboardingStep = 1;               // 1 explain · 2 get-to-know-you · 3 AI picks
   let onboardingShownThisSession = false;
+  let onboardingInterests = [];         // chosen interests [{ key, label, custom }]
+  let onboardingLevel = "start";        // start | building | hard → AI strictness
+  let onboardingStay = [];              // ["solo","friends","community"]
+  let onboardingDetail = "";            // optional free-text "Anything specific?"
+  let onboardingDraft = null;           // generated AI system (app-shape draft)
+  let onboardingGenerating = false;     // AI generation in flight
+  let onboardingMatchesLoading = false; // community search in flight
+  let onboardingPublicMatches = [];     // public systems matching the interests
+  let onboardingCommunityMatches = [];  // public communities matching the interests
+  let onboardingCopiedIds = [];         // public-system ids copied this run
+  let onboardingJoinedIds = [];         // community ids joined this run
+  let onboardingAddedSystemId = "";     // the AI system id once Added
 
   document.addEventListener("DOMContentLoaded", init);
 
@@ -539,35 +550,42 @@
 
   // ── First-run onboarding ───────────────────────────────────────────────────
   // Shown ONLY to brand-new accounts (profiles.onboarding_completed = false, gated
-  // server-side; existing accounts were backfilled true). Four calm screens, one
-  // concept each, a visible "Skip for now" everywhere, every choice a tap. No fake
-  // users or demo members appear. The payoff drops the user into a real, pre-filled
-  // starter reward system built through the normal creation path.
-  const ONBOARDING_FOCI = [
-    { key: "fitness", label: "Fitness", icon: "🏋", blurb: "Move, train, and rest.",
-      system: { title: "Fitness baseline", category: "Fitness", rules: [
-        { label: "Workout", unit: "session", simpleStyle: "yesNo", yesNoPoints: 3 },
-        { label: "10,000 steps", unit: "steps", simpleStyle: "goal", dailyTarget: 10000, goalPoints: 2, inputMethod: "number", inputMax: 30000, inputStep: 500 },
-        { label: "Sleep 8h", unit: "hours", simpleStyle: "goal", dailyTarget: 8, goalPoints: 1, inputMethod: "number", inputMax: 12, inputStep: 0.5 }
-      ] } },
-    { key: "study", label: "Study", icon: "📚", blurb: "Focus and learn.",
-      system: { title: "Study sprint", category: "Study", rules: [
-        { label: "Deep work 2h", unit: "session", simpleStyle: "yesNo", yesNoPoints: 3 },
-        { label: "Read 30 min", unit: "session", simpleStyle: "yesNo", yesNoPoints: 2 },
-        { label: "Review notes", unit: "session", simpleStyle: "yesNo", yesNoPoints: 1 }
-      ] } },
-    { key: "habits", label: "Habits", icon: "✦", blurb: "Small daily wins.",
-      system: { title: "Daily habits", category: "Habits", rules: [
-        { label: "Wake by 7am", unit: "day", simpleStyle: "yesNo", yesNoPoints: 1 },
-        { label: "Meditate 10 min", unit: "session", simpleStyle: "yesNo", yesNoPoints: 2 },
-        { label: "Plan tomorrow", unit: "day", simpleStyle: "yesNo", yesNoPoints: 1 }
-      ] } },
-    { key: "money", label: "Money", icon: "$", blurb: "Spend with intent.",
-      system: { title: "Money habits", category: "Finance", rules: [
-        { label: "Logged spending", unit: "day", simpleStyle: "yesNo", yesNoPoints: 1 },
-        { label: "No impulse buy", unit: "day", simpleStyle: "yesNo", yesNoPoints: 2 },
-        { label: "Saved today", unit: "day", simpleStyle: "yesNo", yesNoPoints: 1 }
-      ] } }
+  // server-side; existing accounts were backfilled true). Three calm screens, every
+  // choice a tap, a visible "Skip for now" everywhere. Screen 3 turns the answers
+  // into a real AI-personalized reward system (generate-rules) plus public systems
+  // to copy and communities to join — nothing auto-saves except marking onboarding
+  // complete; the user still taps Add / Copy / Join.
+  const ONBOARDING_INTEREST_GROUPS = [
+    { label: "Popular", items: [
+      { key: "fitness", label: "Fitness" },
+      { key: "running", label: "Running" },
+      { key: "study", label: "Study" },
+      { key: "sleep", label: "Sleep" },
+      { key: "nutrition", label: "Nutrition" },
+      { key: "habits", label: "Habits" },
+      { key: "money", label: "Money" },
+      { key: "mindfulness", label: "Mindfulness" }
+    ] },
+    { label: "Skills & niche", items: [
+      { key: "chess", label: "Chess" },
+      { key: "language", label: "Language" },
+      { key: "instrument", label: "Instrument" },
+      { key: "coding", label: "Coding" },
+      { key: "reading", label: "Reading" },
+      { key: "speaking", label: "Public speaking" },
+      { key: "art", label: "Art" },
+      { key: "gaming", label: "Gaming skill" }
+    ] }
+  ];
+  const ONBOARDING_LEVELS = [
+    { key: "start", label: "Just starting", strictness: "lenient" },
+    { key: "building", label: "Building a routine", strictness: "balanced" },
+    { key: "hard", label: "Going hard", strictness: "strict" }
+  ];
+  const ONBOARDING_STAY = [
+    { key: "solo", label: "Solo" },
+    { key: "friends", label: "With friends" },
+    { key: "community", label: "In a community" }
   ];
 
   function maybeStartOnboarding() {
@@ -589,7 +607,7 @@
     onboardingShownThisSession = true;
     onboardingActive = true;
     onboardingStep = 1;
-    onboardingFocus = "";
+    resetOnboardingAnswers();
     els.onboardingScreen.hidden = false;
     document.body.classList.add("onboarding-locked");
     renderOnboarding();
@@ -600,82 +618,233 @@
     els.onboardingBody.innerHTML = onboardingScreenMarkup();
   }
 
-  function starterRulePoints(rule) {
-    const pts = rule.yesNoPoints != null ? rule.yesNoPoints : (rule.goalPoints != null ? rule.goalPoints : 1);
-    return "+" + pts;
+  function resetOnboardingAnswers() {
+    onboardingInterests = [];
+    onboardingLevel = "start";
+    onboardingStay = [];
+    onboardingDetail = "";
+    onboardingDraft = null;
+    onboardingGenerating = false;
+    onboardingMatchesLoading = false;
+    onboardingPublicMatches = [];
+    onboardingCommunityMatches = [];
+    onboardingCopiedIds = [];
+    onboardingJoinedIds = [];
+    onboardingAddedSystemId = "";
+  }
+
+  function onboardingLevelStrictness() {
+    const level = ONBOARDING_LEVELS.find((item) => item.key === onboardingLevel);
+    return level ? level.strictness : "balanced";
+  }
+
+  // Map the screen-2 answers (interests incl. niche/custom, level, free-text) onto
+  // the generate-rules input contract. The interest words go into BOTH goals and
+  // categories so the offline fallback's keyword detector can fire on them too.
+  function buildOnboardingAiInputs() {
+    const interestsJoined = onboardingInterests.map((item) => item.label).join(", ");
+    const detail = String(onboardingDetail || "").trim();
+    const goals = [detail, interestsJoined].filter(Boolean).join(" — ");
+    return {
+      goals: goals,
+      rewards: "",
+      penalties: "",
+      categories: interestsJoined,
+      strictness: onboardingLevelStrictness(),
+      targets: detail,
+      adjust: "",
+      kind: "personal"
+    };
   }
 
   function onboardingScreenMarkup() {
     const skip = `<button class="ghost-button small onboard-skip" type="button" data-onboard="skip">Skip for now</button>`;
-    if (onboardingStep === 2) {
-      return `
-        <div class="onboard-screen onboard-fork">
-          <p class="eyebrow">Choose a starting point</p>
-          <h2>How do you want to begin?</h2>
-          <div class="onboard-cards">
-            <button class="onboard-card onboard-card-primary" type="button" data-onboard="fork-build">
-              <span class="onboard-card-icon" aria-hidden="true">◎</span>
-              <strong>Build my own</strong>
-              <span>Start a personal reward system — it works on your own, right away.</span>
-            </button>
-            <button class="onboard-card" type="button" data-onboard="fork-community">
-              <span class="onboard-card-icon" aria-hidden="true">◧</span>
-              <strong>Join a community</strong>
-              <span>Do it together with others. You can always start one later.</span>
-            </button>
-          </div>
-          ${skip}
-        </div>`;
-    }
-    if (onboardingStep === 3) {
-      return `
-        <div class="onboard-screen onboard-focus">
-          <p class="eyebrow">One tap</p>
-          <h2>What do you want to focus on?</h2>
-          <div class="onboard-focus-grid">
-            ${ONBOARDING_FOCI.map((focus) => `
-              <button class="onboard-focus-card" type="button" data-onboard="focus" data-focus="${escapeHtml(focus.key)}">
-                <span class="onboard-card-icon" aria-hidden="true">${focus.icon}</span>
-                <strong>${escapeHtml(focus.label)}</strong>
-                <span>${escapeHtml(focus.blurb)}</span>
-              </button>`).join("")}
-          </div>
-          ${skip}
-        </div>`;
-    }
-    if (onboardingStep === 4) {
-      const focus = ONBOARDING_FOCI.find((item) => item.key === onboardingFocus) || ONBOARDING_FOCI[0];
-      return `
-        <div class="onboard-screen onboard-payoff">
-          <p class="eyebrow">${escapeHtml(focus.label)} · your starter system</p>
-          <h2>${escapeHtml(focus.system.title)}</h2>
-          <p class="onboard-sub">Pre-filled and ready. Start now, or tweak the rules anytime.</p>
-          <ul class="onboard-rule-list">
-            ${focus.system.rules.map((rule) => `
-              <li>
-                <span>${escapeHtml(rule.label)}</span>
-                <span class="onboard-rule-points">${escapeHtml(starterRulePoints(rule))}</span>
-              </li>`).join("")}
-          </ul>
-          <div class="onboard-actions">
-            <button class="primary-button" type="button" data-onboard="start" data-focus="${escapeHtml(focus.key)}">Start tracking</button>
-            ${skip}
-          </div>
-        </div>`;
-    }
-    // Step 1 — welcome.
+    if (onboardingStep === 2) return onboardingInterestsMarkup(skip);
+    if (onboardingStep === 3) return onboardingPicksMarkup(skip);
+    return onboardingExplainMarkup(skip);
+  }
+
+  // Screen 1 — explain the loop in four calm lines.
+  function onboardingExplainMarkup(skip) {
+    const points = [
+      "Build a reward system for your goals",
+      "Log your check-in each day",
+      "Stay accountable — your community sees who shows up",
+      "Get motivated — cheer, compete, and rise up the leaderboard"
+    ];
     return `
-      <div class="onboard-screen onboard-welcome">
+      <div class="onboard-screen onboard-explain">
         <div class="onboard-brand">
           <div class="brand-mark" aria-hidden="true">P</div>
           <p class="eyebrow">Welcome to Pointwell</p>
         </div>
-        <h2>Track what matters to you and earn points for showing up.</h2>
+        <h2>Turn your goals into points.</h2>
+        <p class="onboard-sub">Build a system, show up daily, and watch the points add up.</p>
+        <ol class="onboard-explain-list">
+          ${points.map((text, index) => `
+            <li>
+              <span class="onboard-explain-num" aria-hidden="true">${index + 1}</span>
+              <span>${escapeHtml(text)}</span>
+            </li>`).join("")}
+        </ol>
         <div class="onboard-actions">
-          <button class="primary-button" type="button" data-onboard="continue">Get started</button>
+          <button class="primary-button" type="button" data-onboard="to-interests">Get started</button>
           ${skip}
         </div>
       </div>`;
+  }
+
+  function onboardingInterestChipMarkup(item) {
+    const selected = onboardingInterests.some((entry) => entry.key === item.key);
+    return `<button class="signal-preset-chip onboard-chip${selected ? " is-selected" : ""}" type="button" data-onboard="interest" data-interest="${escapeHtml(item.key)}" data-label="${escapeHtml(item.label)}" aria-pressed="${selected ? "true" : "false"}">${escapeHtml(item.label)}</button>`;
+  }
+
+  function onboardingCustomChipMarkup(item) {
+    return `<button class="signal-preset-chip onboard-chip is-selected onboard-chip-custom" type="button" data-onboard="interest-remove" data-interest="${escapeHtml(item.key)}" aria-pressed="true" aria-label="Remove ${escapeHtml(item.label)}">${escapeHtml(item.label)}<span class="onboard-chip-x" aria-hidden="true">×</span></button>`;
+  }
+
+  // Screen 2 — get to know you: interests (incl. add-your-own), level, stay-on-track,
+  // and an optional free-text note. Every choice is a tap; nothing is required.
+  function onboardingInterestsMarkup(skip) {
+    const customItems = onboardingInterests.filter((item) => item.custom);
+    return `
+      <div class="onboard-screen onboard-interests onboard-scroll">
+        <p class="eyebrow">A few quick taps</p>
+        <h2>What do you want to work on?</h2>
+        <p class="onboard-sub">Pick anything that fits — you can change this later.</p>
+        ${ONBOARDING_INTEREST_GROUPS.map((group) => `
+          <div class="onboard-chip-group">
+            <p class="onboard-group-label">${escapeHtml(group.label)}</p>
+            <div class="signal-presets">${group.items.map(onboardingInterestChipMarkup).join("")}</div>
+          </div>`).join("")}
+        <div class="onboard-chip-group">
+          <p class="onboard-group-label">Add your own</p>
+          ${customItems.length ? `<div class="signal-presets">${customItems.map(onboardingCustomChipMarkup).join("")}</div>` : ""}
+          <div class="onboard-add-row">
+            <input type="text" id="onboardInterestInput" class="onboard-add-input" placeholder="e.g. Bouldering" autocomplete="off" data-onboard-field="custom">
+            <button class="secondary-button small" type="button" data-onboard="interest-add">Add</button>
+          </div>
+        </div>
+        <div class="onboard-chip-group">
+          <p class="onboard-group-label">Where are you at?</p>
+          <div class="segmented" role="group" aria-label="Your current level">
+            ${ONBOARDING_LEVELS.map((level) => `
+              <button class="segmented-button${onboardingLevel === level.key ? " active" : ""}" type="button" data-onboard="level" data-level="${escapeHtml(level.key)}" aria-pressed="${onboardingLevel === level.key ? "true" : "false"}">${escapeHtml(level.label)}</button>`).join("")}
+          </div>
+        </div>
+        <div class="onboard-chip-group">
+          <p class="onboard-group-label">How do you like to stay on track?</p>
+          <div class="signal-presets">
+            ${ONBOARDING_STAY.map((item) => {
+              const selected = onboardingStay.includes(item.key);
+              return `<button class="signal-preset-chip onboard-chip${selected ? " is-selected" : ""}" type="button" data-onboard="stay" data-stay="${escapeHtml(item.key)}" aria-pressed="${selected ? "true" : "false"}">${escapeHtml(item.label)}</button>`;
+            }).join("")}
+          </div>
+        </div>
+        <label class="onboard-field">
+          <span class="onboard-group-label">Anything specific? (optional)</span>
+          <textarea id="onboardDetailInput" rows="2" placeholder="e.g. training for a half marathon" data-onboard-field="detail">${escapeHtml(onboardingDetail)}</textarea>
+        </label>
+        <div class="onboard-actions">
+          <button class="primary-button" type="button" data-onboard="build-suggestions">Build my suggestions</button>
+          ${skip}
+        </div>
+      </div>`;
+  }
+
+  // Screen 3 — AI picks for you: a tailored personal system, public systems to copy,
+  // and communities to join. Empty sections stay calm instead of blank.
+  function onboardingPicksMarkup(skip) {
+    return `
+      <div class="onboard-screen onboard-system onboard-scroll">
+        <p class="eyebrow">Made for you</p>
+        <h2>AI picks for you</h2>
+        <section class="onboard-section">
+          <p class="onboard-group-label">Your personal system</p>
+          ${onboardingAiSystemSection()}
+        </section>
+        <section class="onboard-section">
+          <p class="onboard-group-label">Public systems you can copy</p>
+          ${onboardingPublicMatches.length
+            ? `<div class="onboard-result-list">${onboardingPublicMatches.map(onboardingPublicSystemRow).join("")}</div>`
+            : `<p class="empty-state onboard-empty">Nothing here yet — you're early.</p>`}
+        </section>
+        <section class="onboard-section">
+          <p class="onboard-group-label">Communities to join</p>
+          ${onboardingMatchesLoading
+            ? `<p class="onboard-sub">Looking for communities…</p>`
+            : onboardingCommunityMatches.length
+              ? `<div class="onboard-result-list">${onboardingCommunityMatches.map(onboardingCommunityRow).join("")}</div>`
+              : `<p class="empty-state onboard-empty">Nothing here yet — you're early.</p>`}
+        </section>
+        <div class="onboard-actions">
+          <button class="primary-button" type="button" data-onboard="done">Done — go to my day</button>
+          ${skip}
+        </div>
+      </div>`;
+  }
+
+  function onboardingAiSystemSection() {
+    if (onboardingGenerating) {
+      return `
+        <div class="onboard-system-card onboard-system-loading">
+          <div class="onboard-spinner" aria-hidden="true"></div>
+          <p class="onboard-sub">Building a system from your answers…</p>
+        </div>`;
+    }
+    if (!onboardingDraft) {
+      return `<p class="empty-state onboard-empty">We couldn't build one just now — you can create a system anytime from Build.</p>`;
+    }
+    const draft = onboardingDraft;
+    const added = onboardingAddedSystemId && state.systems.some((item) => item.id === onboardingAddedSystemId);
+    const rules = (draft.rules || []).slice(0, 6)
+      .map((rule) => `<li><span>${escapeHtml(ruleSentence(rule))}</span></li>`).join("");
+    return `
+      <div class="onboard-system-card">
+        <div class="onboard-system-head">
+          <strong>${escapeHtml(draft.title || "Your reward system")}</strong>
+          <span class="onboard-tag">Generated from your answers</span>
+        </div>
+        ${draft.category ? `<p class="onboard-sub">${escapeHtml(draft.category)}</p>` : ""}
+        <ul class="onboard-rule-list onboard-rule-list-plain">${rules}</ul>
+        ${added
+          ? `<button class="secondary-button" type="button" disabled>Added ✓</button>`
+          : `<button class="primary-button" type="button" data-onboard="add-system">Add this system</button>`}
+      </div>`;
+  }
+
+  function onboardingPublicSystemRow(system) {
+    const copied = onboardingCopiedIds.includes(system.id);
+    return `
+      <article class="build-result-card">
+        <div class="build-result-main">
+          <strong>${escapeHtml(system.title)}</strong>
+          <span>${escapeHtml(system.category || "General wellness")} &middot; ${plural((system.rules || []).length, "rule")}</span>
+          <p>${escapeHtml(system.description || "Public reward system you can copy and customize.")}</p>
+        </div>
+        <div class="build-result-actions">
+          ${copied
+            ? `<button class="secondary-button small" type="button" disabled>Copied ✓</button>`
+            : `<button class="secondary-button small" type="button" data-onboard="copy-system" data-system="${escapeHtml(system.id)}">Copy</button>`}
+        </div>
+      </article>`;
+  }
+
+  function onboardingCommunityRow(row) {
+    const id = String(row.id);
+    const joined = onboardingJoinedIds.includes(id) || isCommunityJoined(row.id);
+    const count = Number(row.member_count) || 0;
+    return `
+      <article class="find-community-card">
+        <div class="find-community-main">
+          <strong>${escapeHtml(row.name || "Community")}</strong>
+          <span class="community-meta">${escapeHtml(row.category || "Community")} &middot; ${plural(count, "member")}</span>
+          ${row.description ? `<p>${escapeHtml(row.description)}</p>` : ""}
+        </div>
+        ${joined
+          ? `<button class="secondary-button small" type="button" disabled>Joined ✓</button>`
+          : `<button class="primary-button small" type="button" data-onboard="join-community" data-community="${escapeHtml(id)}">Join</button>`}
+      </article>`;
   }
 
   function handleOnboardingClick(event) {
@@ -683,39 +852,199 @@
     if (!target) return;
     const action = target.dataset.onboard;
     if (action === "skip") { finishOnboarding(); return; }
-    if (action === "continue") { onboardingStep = 2; renderOnboarding(); return; }
-    if (action === "fork-build") { onboardingStep = 3; renderOnboarding(); return; }
-    if (action === "fork-community") { finishOnboarding({ landing: "communities" }); return; }
-    if (action === "focus") { onboardingFocus = target.dataset.focus || ""; onboardingStep = 4; renderOnboarding(); return; }
-    if (action === "start") { startStarterSystem(target.dataset.focus || onboardingFocus); return; }
+    if (action === "to-interests") { onboardingStep = 2; renderOnboarding(); return; }
+    if (action === "interest") { toggleOnboardingInterest(target.dataset.interest, target.dataset.label); return; }
+    if (action === "interest-remove") { removeOnboardingInterest(target.dataset.interest); return; }
+    if (action === "interest-add") { addCustomOnboardingInterest(); return; }
+    if (action === "level") { syncOnboardingFields(); onboardingLevel = target.dataset.level || "start"; renderOnboarding(); return; }
+    if (action === "stay") { toggleOnboardingStay(target.dataset.stay); return; }
+    if (action === "build-suggestions") { startOnboardingSuggestions(); return; }
+    if (action === "add-system") { onboardingAddAiSystem(); return; }
+    if (action === "copy-system") { onboardingCopyPublicSystem(target.dataset.system); return; }
+    if (action === "join-community") { onboardingJoinCommunity(target.dataset.community); return; }
+    if (action === "done") { state.activeView = "dashboard"; finishOnboarding(); return; }
   }
 
-  // Build the chosen starter system through the normal model (scoring.normalizeRule),
-  // make it the active tracker, and land the user on the dashboard holding it.
-  function startStarterSystem(focusKey) {
-    const focus = ONBOARDING_FOCI.find((item) => item.key === focusKey) || ONBOARDING_FOCI[0];
-    const tpl = focus.system;
-    const system = {
-      id: makeId("system"),
-      ownerId: "me",
-      ownerName: state.profile.name,
-      title: tpl.title,
-      category: tpl.category,
-      visibility: "private",
-      description: "Your starter " + focus.label.toLowerCase() + " system — edit the rules anytime.",
-      rules: tpl.rules.map((rule) => scoring.normalizeRule(Object.assign({ category: tpl.category }, rule))),
-      calculatedTotals: []
-    };
+  // Pressing Enter in the "add your own" field adds it as a removable interest chip.
+  function handleOnboardingKeydown(event) {
+    const field = event.target.closest && event.target.closest('[data-onboard-field="custom"]');
+    if (!field || event.key !== "Enter") return;
+    event.preventDefault();
+    addCustomOnboardingInterest();
+  }
+
+  // Persist the free-text answer before any re-render (innerHTML replace) wipes it.
+  function syncOnboardingFields() {
+    if (!els.onboardingBody) return;
+    const detail = els.onboardingBody.querySelector('[data-onboard-field="detail"]');
+    if (detail) onboardingDetail = detail.value;
+  }
+
+  function toggleOnboardingInterest(key, label) {
+    if (!key) return;
+    syncOnboardingFields();
+    const index = onboardingInterests.findIndex((item) => item.key === key);
+    if (index >= 0) onboardingInterests.splice(index, 1);
+    else onboardingInterests.push({ key: key, label: label || key, custom: false });
+    renderOnboarding();
+  }
+
+  function removeOnboardingInterest(key) {
+    syncOnboardingFields();
+    onboardingInterests = onboardingInterests.filter((item) => item.key !== key);
+    renderOnboarding();
+  }
+
+  function addCustomOnboardingInterest() {
+    syncOnboardingFields();
+    const field = els.onboardingBody && els.onboardingBody.querySelector('[data-onboard-field="custom"]');
+    const label = field ? String(field.value || "").trim().slice(0, 40) : "";
+    if (!label) { if (field) field.focus(); return; }
+    const key = "custom:" + label.toLowerCase();
+    if (!onboardingInterests.some((item) => item.key === key)) {
+      onboardingInterests.push({ key: key, label: label, custom: true });
+    }
+    renderOnboarding();
+    const next = els.onboardingBody && els.onboardingBody.querySelector('[data-onboard-field="custom"]');
+    if (next) next.focus();
+  }
+
+  function toggleOnboardingStay(key) {
+    if (!key) return;
+    syncOnboardingFields();
+    if (onboardingStay.includes(key)) onboardingStay = onboardingStay.filter((item) => item !== key);
+    else onboardingStay = onboardingStay.concat(key);
+    renderOnboarding();
+  }
+
+  // Move to screen 3 and kick off generation + matching. Public systems match
+  // synchronously; the AI system and communities resolve asynchronously and patch
+  // the screen in as they land.
+  function startOnboardingSuggestions() {
+    syncOnboardingFields();
+    onboardingStep = 3;
+    onboardingDraft = null;
+    onboardingGenerating = true;
+    onboardingPublicMatches = matchOnboardingPublicSystems();
+    onboardingCommunityMatches = [];
+    onboardingMatchesLoading = communitiesAreShared() && onboardingInterests.length > 0;
+    renderOnboarding();
+    runOnboardingSuggestions();
+  }
+
+  async function runOnboardingSuggestions() {
+    if (onboardingMatchesLoading) {
+      Promise.resolve(matchOnboardingCommunities())
+        .then((rows) => { onboardingCommunityMatches = rows; })
+        .catch(() => { onboardingCommunityMatches = []; })
+        .then(() => {
+          onboardingMatchesLoading = false;
+          if (onboardingActive && onboardingStep === 3) renderOnboarding();
+        });
+    }
+    try {
+      onboardingDraft = await aiGenerateDraft(buildOnboardingAiInputs(), blankAiAdjustments(), "personal");
+    } catch (error) {
+      onboardingDraft = null;
+    } finally {
+      onboardingGenerating = false;
+      if (onboardingActive && onboardingStep === 3) renderOnboarding();
+    }
+  }
+
+  // Public systems matching the chosen interests, reusing the Build search pool
+  // (getBuildPublicSystems + matchesSystemSearch). Deduped, capped at three.
+  function matchOnboardingPublicSystems() {
+    const pool = getBuildPublicSystems();
+    const seen = new Set();
+    const out = [];
+    onboardingInterests.forEach((interest) => {
+      const query = String(interest.label || "").toLowerCase();
+      if (!query) return;
+      pool.forEach((system) => {
+        if (seen.has(system.id) || !matchesSystemSearch(system, query)) return;
+        seen.add(system.id);
+        out.push(system);
+      });
+    });
+    return out.slice(0, 3);
+  }
+
+  // Public communities matching the interests via search_communities. Public-tier,
+  // not already-joined, deduped, capped at three.
+  async function matchOnboardingCommunities() {
+    if (!communitiesAreShared() || !window.PointwellSignals || typeof window.PointwellSignals.searchCommunities !== "function") return [];
+    const queries = onboardingInterests
+      .map((interest) => String(interest.label || "").trim())
+      .filter((query) => query.length >= 2)
+      .slice(0, 4);
+    if (!queries.length) return [];
+    const lists = await Promise.all(queries.map((query) =>
+      Promise.resolve(window.PointwellSignals.searchCommunities(query)).catch(() => [])));
+    const seen = new Set();
+    const out = [];
+    lists.forEach((rows) => (Array.isArray(rows) ? rows : []).forEach((row) => {
+      if (!row || row.visibility !== "public") return;
+      if (row.is_member || isCommunityJoined(row.id)) return;
+      const id = String(row.id);
+      if (seen.has(id)) return;
+      seen.add(id);
+      out.push(row);
+    }));
+    return out.slice(0, 3);
+  }
+
+  // "Add" the AI system through the normal creation path (mirrors startStarterSystem):
+  // clone into a fresh private system, make it the active tracker, mark it added.
+  // Stays in onboarding so the user can also Copy/Join before tapping Done.
+  function onboardingAddAiSystem() {
+    if (!onboardingDraft) return;
+    const source = normalizeSystem(onboardingDraft);
+    const system = cloneSystem(source, onboardingDraft.title || "Your reward system");
+    system.aiDomain = source.aiDomain || "ai";
     state.systems.unshift(system);
     state.selectedSystemId = system.id;
     state.trackerSystemId = system.id;
     state.systemEditorOpen = false;
     state.buildMode = "home";
     state.activeView = "dashboard";
-    finishOnboarding({ skipRender: true });
+    onboardingAddedSystemId = system.id;
     saveState();
-    render();
-    showToast("Your starter system is ready");
+    showToast("Added to your systems");
+    renderOnboarding();
+  }
+
+  // Copy a matched public system into the user's systems WITHOUT leaving onboarding
+  // (the core of copyPublicSystem, minus its view/editor navigation).
+  function onboardingCopyPublicSystem(id) {
+    const source = (onboardingPublicMatches || []).find((system) => system.id === id);
+    if (!source) return;
+    const copy = cloneSystem(source, `${source.title} remix`);
+    copy.ownerId = "me";
+    copy.ownerName = state.profile.name;
+    copy.visibility = "private";
+    state.systems.unshift(copy);
+    state.selectedSystemId = copy.id;
+    state.trackerSystemId = copy.id;
+    state.activeView = "dashboard";
+    if (!onboardingCopiedIds.includes(id)) onboardingCopiedIds.push(id);
+    saveState();
+    showToast("Copied into your systems");
+    renderOnboarding();
+  }
+
+  // Join a matched community WITHOUT leaving onboarding — uses the low-level join
+  // signal (not joinCommunityById, which navigates to the community detail view).
+  async function onboardingJoinCommunity(id) {
+    const communityId = String(id || "");
+    if (!communityId || !communitiesAreShared() || onboardingJoinedIds.includes(communityId)) return;
+    const res = await window.PointwellSignals.joinCommunity(communityId, state.account.userId, "member");
+    if (res && res.error) { showToast(communityDbError(res.error, "Couldn't join that community")); return; }
+    onboardingJoinedIds.push(communityId);
+    if (onboardingActive && onboardingStep === 3) renderOnboarding();
+    // Resync state.communities in the background so the joined community is present
+    // when the user lands; render() runs behind the overlay, so it's invisible here.
+    Promise.resolve(loadCommunitiesFromDb()).catch(() => {});
   }
 
   function finishOnboarding(opts) {
@@ -2386,6 +2715,7 @@
     });
     if (els.headerAvatarButton) els.headerAvatarButton.addEventListener("click", openProfile);
     if (els.onboardingScreen) els.onboardingScreen.addEventListener("click", handleOnboardingClick);
+    if (els.onboardingScreen) els.onboardingScreen.addEventListener("keydown", handleOnboardingKeydown);
     if (els.notifBellButton) els.notifBellButton.addEventListener("click", (event) => {
       event.stopPropagation();
       toggleNotifPanel();

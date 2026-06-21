@@ -210,9 +210,31 @@
             </div>
           </div>
 
+          <section class="tool-panel quick-log-panel" id="quickLogCapture" aria-labelledby="quickLogTitle">
+            <div class="panel-heading">
+              <div>
+                <h3 id="quickLogTitle">Quick log <span class="quick-log-ai-tag">AI</span></h3>
+                <span>Type or say what you did — we'll map it to your rules</span>
+              </div>
+            </div>
+            <div class="quick-log-row">
+              <input type="text" id="quickLogInput" class="quick-log-input" placeholder="e.g. ran 5 miles, hit my protein, lifted with the boys" autocomplete="off" aria-label="Describe what you did">
+              <button type="button" class="mic-button" id="quickLogMic" aria-label="Speak your log" aria-pressed="false" hidden>
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="M12 19v4"/></svg>
+              </button>
+              <button type="button" class="primary-button" id="quickLogSubmit">Log it</button>
+            </div>
+            <div class="quick-log-secondary">
+              <button type="button" class="ghost-button small" id="quickLogSnapButton"><span aria-hidden="true">📷</span> Snap a meal</button>
+              <span class="quick-log-hint" id="quickLogHint"></span>
+            </div>
+            <input type="file" accept="image/*" capture="environment" id="quickLogMealInput" hidden>
+            <div class="quick-log-draft" id="quickLogDraft" hidden></div>
+          </section>
+
           <section class="tool-panel add-entry-panel" aria-labelledby="inputsTitle">
             <div class="panel-heading">
-              <h3 id="inputsTitle">Choose what you did</h3>
+              <h3 id="inputsTitle">Or choose manually</h3>
               <span>Preview before saving</span>
             </div>
             <div class="input-stack" id="dailyInputList"></div>

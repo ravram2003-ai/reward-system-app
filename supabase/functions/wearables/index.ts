@@ -207,10 +207,9 @@ async function getJson(url: string, token: string): Promise<any | null> {
 // CivilDateTime at UTC midnight, `offset` days from now (used for dailyRollUp range).
 function civilDay(offset: number) {
   const d = new Date(Date.now() + offset * 86400000);
-  return {
-    year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate(),
-    hours: 0, minutes: 0, seconds: 0, nanos: 0, timeZone: { id: "UTC" },
-  };
+  // dailyRollUp's CivilDateTime = a plain civil DATE with a STRING timeZone.
+  // (The earlier {id:"UTC"} object + time fields made the request 400 → empty.)
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate(), timeZone: "UTC" };
 }
 // "active-energy-burned" -> "activeEnergyBurned" (the per-point payload key)
 function camelKey(dataType: string): string {
@@ -218,8 +217,9 @@ function camelKey(dataType: string): string {
 }
 async function googleRollup(dataType: string, token: string): Promise<any | null> {
   const body = {
-    range: { start: civilDay(-1), end: civilDay(1) },
+    range: { start: civilDay(-2), end: civilDay(1) },
     windowSizeDays: 1,
+    pageSize: 100,
     dataSourceFamily: "users/me/dataSourceFamilies/all-sources",
   };
   try {
@@ -237,16 +237,20 @@ async function googleRollup(dataType: string, token: string): Promise<any | null
 function googleList(dataType: string, token: string, pageSize = 10): Promise<any | null> {
   return getJson(`${GOOGLE_HEALTH_API}/users/me/dataTypes/${dataType}/dataPoints?pageSize=${pageSize}`, token);
 }
-// Most recent rolled-up daily value for a data type (scans newest-last).
+// Value from the most recent civil day that has data (robust to result ordering).
 function latestRollupValue(roll: any, dataType: string): number | null {
   const pts = roll?.rollupDataPoints;
-  if (!Array.isArray(pts)) return null;
+  if (!Array.isArray(pts) || !pts.length) return null;
   const key = camelKey(dataType);
-  for (let i = pts.length - 1; i >= 0; i--) {
-    const v = deepNum(pts[i]?.[key]);
-    if (v !== null) return v;
+  let best: number | null = null, bestDay = -1;
+  for (const p of pts) {
+    const v = deepNum(p?.[key]);
+    if (v === null) continue;
+    const c = p.civilStartTime || {};
+    const day = (num(c.year) ?? 0) * 10000 + (num(c.month) ?? 0) * 100 + (num(c.day) ?? 0);
+    if (day >= bestDay) { bestDay = day; best = v; }
   }
-  return null;
+  return best;
 }
 // Most recent list data point that carries `key` (e.g. "sleep", "heartRate").
 function latestListPoint(list: any, key: string): any | null {

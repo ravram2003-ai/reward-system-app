@@ -6968,3 +6968,175 @@ button.notif-item:hover {
   flex-direction: column;
   gap: 18px;
 }
+
+/* ── Communities tab: discovery-first restyle ─────────────────────────────── */
+/* Search header (replaces the old bottom New / Find buttons). */
+.community-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.community-search-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--field-bg);
+}
+.community-search-field:focus-within {
+  border-color: rgba(58, 214, 166, 0.45);
+}
+.community-search-icon {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 1rem;
+}
+#communitySearchInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 11px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+}
+#communitySearchInput::placeholder { color: var(--muted); }
+#communitySearchInput:focus { outline: none; }
+.community-new-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* Drop the outer panel frame — cards sit directly on the view; keep the grid. */
+#communitiesView .community-list {
+  display: block;
+  padding: 0;
+  margin-bottom: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.community-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+  align-content: start;
+}
+
+/* Active community card: vertical stack — name + pill, meta, social, score. */
+.community-card {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 9px;
+}
+.community-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.community-card-name {
+  font-size: 1.02rem;
+  font-weight: 850;
+  line-height: 1.2;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.community-card-social {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.community-cluster {
+  display: flex;
+  align-items: center;
+}
+.community-cluster .community-cluster-avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 0.68rem;
+  border: 2px solid var(--surface);
+  margin-left: -8px;
+}
+.community-cluster .community-cluster-avatar:first-child {
+  margin-left: 0;
+}
+.community-cluster-more {
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+}
+.community-card-activity {
+  font-size: 0.8rem;
+  font-weight: 760;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.community-card-activity.is-live {
+  color: var(--accent-strong);
+}
+/* Demote the score line (was bright green + heavy). */
+.community-card .community-score-line {
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+/* Inactive (dormant) communities — compact rows under a subtle heading. */
+.community-inactive {
+  margin-top: 20px;
+}
+.community-inactive-heading {
+  margin: 0 0 9px;
+  font-size: 0.72rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: var(--muted);
+}
+.community-inactive-list {
+  display: grid;
+  gap: 8px;
+}
+.community-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+}
+.community-row:hover {
+  border-color: rgba(58, 214, 166, 0.28);
+}
+.community-row-name {
+  font-weight: 800;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.community-row-meta {
+  color: var(--muted);
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+.community-row-status {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}

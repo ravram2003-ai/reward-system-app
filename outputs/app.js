@@ -376,6 +376,7 @@
   // join code captured from a ?join= invite link before sign-in resolves.
   let communityCodeResult = null; // null | "notfound" | { id, name, category, description, member_count }
   let communitySearchResults = []; // name-search matches (public + request_to_join)
+  let communityListFilter = "";    // Communities header search: live filter of joined communities
   let ownerJoinRequests = [];      // pending join requests for communities I own
   let pendingJoinCode = "";
   // Friends system (friends.sql). `friends` = userIds of my accepted friends;
@@ -1887,6 +1888,8 @@
       "discoverGrid",
       "newCommunityButton",
       "findCommunitiesButton",
+      "communitySearchInput",
+      "communitySearchForm",
       "communityList",
       "communityFeed",
       "homeFeedPanel",
@@ -2200,7 +2203,25 @@
     els.discoverFilter?.addEventListener("change", renderDiscover);
 
     els.newCommunityButton.addEventListener("click", openCreateCommunity);
-    els.findCommunitiesButton.addEventListener("click", openFindCommunities);
+    if (els.findCommunitiesButton) els.findCommunitiesButton.addEventListener("click", openFindCommunities);
+    if (els.communitySearchInput) {
+      // Live-filter the joined community cards by name as the user types.
+      els.communitySearchInput.addEventListener("input", (event) => {
+        communityListFilter = event.target.value || "";
+        renderCommunities();
+      });
+    }
+    if (els.communitySearchForm) {
+      // Submitting routes the query to the existing community name search (discovery).
+      els.communitySearchForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const query = (els.communitySearchInput.value || "").trim();
+        if (query.length >= 2) {
+          openFindCommunities();
+          runCommunityCodeSearch(query);
+        }
+      });
+    }
     els.viewLeaderboardButton.addEventListener("click", viewCommunityLeaderboardFromScore);
     els.openCommunityButton.addEventListener("click", openCommunityFromScore);
     els.backToCommunitiesButton.addEventListener("click", returnToCommunities);
@@ -4296,9 +4317,33 @@
       state.selectedCommunityId = state.communities[0]?.id || "";
     }
 
-    els.communityList.innerHTML = state.communities.length
-      ? state.communities.map(renderCommunityCard).join("")
-      : emptyState("No communities yet.");
+    const filter = communityListFilter.trim().toLowerCase();
+    const matches = filter
+      ? state.communities.filter((community) => communitySearchText(community).includes(filter))
+      : state.communities.slice();
+
+    if (!state.communities.length) {
+      els.communityList.innerHTML = emptyState("No communities yet.");
+    } else if (!matches.length) {
+      els.communityList.innerHTML = emptyState("No communities match your search.");
+    } else {
+      // Active = has members active today (or a real-sized group); dormant ones drop
+      // under a subtle INACTIVE heading as compact rows.
+      const active = matches.filter((community) => !communityIsDormant(community));
+      const inactive = matches.filter((community) => communityIsDormant(community));
+      let html = "";
+      if (active.length) {
+        html += `<div class="community-grid">${active.map(renderCommunityCard).join("")}</div>`;
+      }
+      if (inactive.length) {
+        html += `
+          <div class="community-inactive">
+            <p class="community-inactive-heading">Inactive</p>
+            <div class="community-inactive-list">${inactive.map(renderCommunityInactiveRow).join("")}</div>
+          </div>`;
+      }
+      els.communityList.innerHTML = html;
+    }
 
     Array.from(els.communityList.querySelectorAll("[data-community-id]")).forEach((button) => {
       button.addEventListener("click", () => {
@@ -6985,17 +7030,62 @@
   function renderCommunityCard(community) {
     const visibility = communityVisibility(community);
     const myScore = communityTotalForMember(community, "me", todayIso);
+    const activeToday = communityActiveTodayCount(community);
+    const category = community.category || communityDescriptionLine(community);
     return `
       <button class="community-card" type="button" data-community-id="${escapeHtml(community.id)}">
-        <div class="community-card-main">
-          <strong>${escapeHtml(community.name)}</strong>
-          <span class="community-card-description">${escapeHtml(communityDescriptionLine(community))}</span>
-          <span class="community-meta">${plural(getCommunityMemberCount(community), "member")} · ${escapeHtml(visibilityLabel(visibility))}</span>
-          <span class="community-score-line">My score today: ${escapeHtml(formatPoints(myScore))} points</span>
+        <div class="community-card-top">
+          <strong class="community-card-name">${escapeHtml(community.name)}</strong>
+          <span class="visibility-pill ${visibility === "request_to_join" ? "request" : escapeHtml(visibility)}">${escapeHtml(visibilityLabel(visibility))}</span>
         </div>
-        <span class="visibility-pill ${visibility === "request_to_join" ? "request" : escapeHtml(visibility)}">${escapeHtml(visibilityLabel(visibility))}</span>
+        <span class="community-meta">${plural(getCommunityMemberCount(community), "member")} · ${escapeHtml(category)}</span>
+        <div class="community-card-social">
+          ${renderCommunityAvatarCluster(community)}
+          <span class="community-card-activity${activeToday > 0 ? " is-live" : ""}">${activeToday > 0 ? `● ${activeToday} active today` : "No activity today"}</span>
+        </div>
+        <span class="community-score-line">Your score today: ${escapeHtml(formatPoints(myScore))}</span>
       </button>
     `;
+  }
+
+  // Stacked initials-avatars (reuses .member-avatar) + a "+N" chip when there are
+  // more members than we show. Derived entirely from the local member list.
+  function renderCommunityAvatarCluster(community) {
+    const members = Array.isArray(community.members) ? community.members : [];
+    const total = getCommunityMemberCount(community);
+    const shown = members.slice(0, total <= 3 ? 3 : 2);
+    const extra = Math.max(total - shown.length, 0);
+    const avatars = shown
+      .map((member) => `<span class="member-avatar community-cluster-avatar" aria-hidden="true" style="background:${escapeHtml(member.color || "#355d91")}">${escapeHtml(getInitials(member.name))}</span>`)
+      .join("");
+    const more = extra > 0
+      ? `<span class="member-avatar community-cluster-avatar community-cluster-more" aria-hidden="true">+${extra}</span>`
+      : "";
+    return `<div class="community-cluster">${avatars}${more}</div>`;
+  }
+
+  // Dormant communities render as compact rows: "<name>  <N> members · <visibility>  No activity".
+  function renderCommunityInactiveRow(community) {
+    const visibility = communityVisibility(community);
+    return `
+      <button class="community-row" type="button" data-community-id="${escapeHtml(community.id)}">
+        <span class="community-row-name">${escapeHtml(community.name)}</span>
+        <span class="community-row-meta">${plural(getCommunityMemberCount(community), "member")} · ${escapeHtml(visibilityLabel(visibility))}</span>
+        <span class="community-row-status">No activity</span>
+      </button>
+    `;
+  }
+
+  // How many members logged points today — drives the "● N active today" cue.
+  function communityActiveTodayCount(community) {
+    const members = Array.isArray(community.members) ? community.members : [];
+    return members.reduce((count, member) => count + (communityTotalForMember(community, member.id, todayIso) > 0 ? 1 : 0), 0);
+  }
+
+  // Dormant = nobody active today AND a tiny membership (1–2). Matches the reference,
+  // where small no-activity communities sit under the INACTIVE heading.
+  function communityIsDormant(community) {
+    return communityActiveTodayCount(community) === 0 && getCommunityMemberCount(community) <= 2;
   }
 
   function communityDescriptionLine(community) {

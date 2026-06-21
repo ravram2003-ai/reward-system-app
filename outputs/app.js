@@ -963,6 +963,7 @@
     if (event.key === "Escape") closeNotifPanel();
   }
 
+
   function renderNotifPanel() {
     if (!els.notifPanel) return;
     if (!signalsReady()) {
@@ -1803,6 +1804,7 @@
       "customizeChartsView",
       "systemsView",
       "discoverView",
+      "feedView",
       "communitiesView",
       "communityDetailView",
       "communitySettingsView",
@@ -1819,6 +1821,7 @@
       "customizeTopCardSystemSelect",
       "customizeChartsSystemSelect",
       "openAddEntryButton",
+      "createFab",
       "backToDashboardButton",
       "cancelTopCardButton",
       "saveTopCardButton",
@@ -2110,6 +2113,7 @@
       "customize-top-card": els.customizeTopCardView,
       "customize-charts": els.customizeChartsView,
       systems: els.systemsView,
+      feed: els.feedView,
       communities: els.communitiesView,
       "create-community": els.createCommunityView,
       "community-detail": els.communityDetailView,
@@ -2138,11 +2142,14 @@
           scrollSystemsListToTop();
         }
         if (state.activeView === "chats") refreshInbox();
-        if (state.activeView === "communities") loadCommunitiesFromDb();
+        // Feed + Communities both read community data; refresh it on open.
+        if (state.activeView === "communities" || state.activeView === "feed") loadCommunitiesFromDb();
       });
     });
 
     els.openAddEntryButton.addEventListener("click", openAddEntryPage);
+    // The "+" FAB logs an entry directly (creating systems/communities lives in Build).
+    if (els.createFab) els.createFab.addEventListener("click", openAddEntryPage);
     els.backToDashboardButton.addEventListener("click", returnToDashboard);
     els.customizeTopCardButton.addEventListener("click", openCustomizeTopCardPage);
     els.cancelTopCardButton.addEventListener("click", cancelTopCardCustomization);
@@ -2443,6 +2450,7 @@
     renderDashboard();
     renderSystems();
     renderDiscover();
+    renderCommunityFeed();
     renderCommunities();
     renderCreateCommunity();
     renderCommunitySettings();
@@ -4760,12 +4768,52 @@
     renderCommunityDetail();
   }
 
-  // ── Recent activity feed (top of Communities view) ──────────────────────────
-  // ONE chronological list of recent check-ins across all joined communities,
-  // built from the community entries already in state — no new tables/queries.
+  // ── Recent activity feed (the Feed tab) — Instagram-style posts ─────────────
+  // Chronological community check-ins, built from the entries already in state. Each
+  // post is one member's per-rule day (community_entries.id). Likes + comments are
+  // server truth (feed-social.sql) cached per entry id and fetched lazily.
+  const feedSocialCache = new Map();   // entryId -> { like_count, comment_count, liked_by_me, last_comment_name, last_comment_body }
+  const feedCommentsCache = new Map(); // entryId -> [ comment rows ]
+  const feedCommentsOpen = new Set();  // entryIds whose full thread is expanded
+  const feedSocialFetched = new Set(); // entryIds already requested (prevents refetch loops)
+  let feedItems = [];
+
+  // A real DB id (uuid) means likes/comments can attach; a just-logged local entry
+  // (makeId("community-entry")) cannot until the next loadCommunitiesFromDb().
+  function isDbEntryId(id) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id || ""));
+  }
+
+  function feedSocialFor(entryId) {
+    return feedSocialCache.get(String(entryId)) || { like_count: 0, comment_count: 0, liked_by_me: false, last_comment_name: "", last_comment_body: "" };
+  }
+
+  // Preserve any half-typed comment drafts (+ which one is focused) across a feed
+  // rebuild so an unrelated re-render never wipes what someone is typing.
+  function captureFeedDrafts(root) {
+    const drafts = {};
+    if (!root) return drafts;
+    Array.from(root.querySelectorAll("[data-feed-comment-input]")).forEach((input) => {
+      if (input.value) drafts[input.dataset.feedCommentInput] = { value: input.value, focused: document.activeElement === input };
+    });
+    return drafts;
+  }
+
+  function restoreFeedDrafts(root, drafts) {
+    if (!root || !drafts) return;
+    Object.keys(drafts).forEach((entryId) => {
+      const input = root.querySelector(`[data-feed-comment-input="${entryId}"]`);
+      if (!input) return;
+      input.value = drafts[entryId].value;
+      const post = input.parentElement && input.parentElement.querySelector(".ig-comment-post");
+      if (post) post.disabled = !input.value.trim();
+      if (drafts[entryId].focused) { input.focus(); const n = input.value.length; try { input.setSelectionRange(n, n); } catch (e) { /* ignore */ } }
+    });
+  }
+
   function renderCommunityFeed() {
     if (!els.communityFeed) return;
-    const items = (state.communityEntries || [])
+    feedItems = (state.communityEntries || [])
       .map((entry) => {
         const community = state.communities.find((item) => item.id === entry.communityId);
         if (!community) return null;
@@ -4780,66 +4828,365 @@
 
     // Hide entirely when there's nothing to show (no joined communities at all);
     // show a friendly empty state when you have communities but no logs yet.
-    if (!items.length && !state.communities.length) {
+    if (!feedItems.length && !state.communities.length) {
       els.communityFeed.hidden = true;
       els.communityFeed.innerHTML = "";
       return;
     }
+    const drafts = captureFeedDrafts(els.communityFeed);
     els.communityFeed.hidden = false;
     els.communityFeed.innerHTML = `
       <div class="panel-heading">
         <h3>Recent activity</h3>
-        ${items.length ? `<span>${plural(items.length, "update")}</span>` : ""}
+        ${feedItems.length ? `<span>${plural(feedItems.length, "update")}</span>` : ""}
       </div>
-      ${items.length
-        ? `<div class="community-feed-list">${items.map(renderCommunityFeedRow).join("")}</div>`
+      ${feedItems.length
+        ? `<div class="community-feed-list">${feedItems.map(renderFeedPost).join("")}</div>`
         : emptyState("No check-ins yet — log a community day and it'll show up here.")}
     `;
-    bindCommunityFeedActions();
+    bindEntryPhotos(els.communityFeed);
+    bindFeedDelegation();
+    restoreFeedDrafts(els.communityFeed, drafts);
+    fetchFeedSocial();
   }
 
-  function renderCommunityFeedRow(item) {
-    const isMe = item.entry.userId === "me";
-    const first = escapeHtml(memberFirstName(item.member));
-    const points = item.rule ? scoring.calculateRule(item.rule, item.entry.amount).totalPoints : 0;
-    const log = escapeHtml(entryLogText(item.entry, item.rule));
+  // Pull like/comment counts (+ liked_by_me + latest-comment preview) for the visible
+  // posts in one call; re-render once when they arrive. The fetched-set guards against
+  // a refetch loop (the re-render re-enters here with every id already requested).
+  function fetchFeedSocial() {
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.getEntriesSocial !== "function") return;
+    const missing = feedItems
+      .map((item) => item.entry.id)
+      .filter((id) => isDbEntryId(id) && !feedSocialFetched.has(String(id)));
+    if (!missing.length) return;
+    missing.forEach((id) => feedSocialFetched.add(String(id)));
+    Promise.resolve(window.PointwellSignals.getEntriesSocial(missing)).then((rows) => {
+      let any = false;
+      (rows || []).forEach((r) => {
+        if (r && r.entry_id) {
+          feedSocialCache.set(String(r.entry_id), {
+            like_count: Number(r.like_count) || 0,
+            comment_count: Number(r.comment_count) || 0,
+            liked_by_me: !!r.liked_by_me,
+            last_comment_name: r.last_comment_name || "",
+            last_comment_body: r.last_comment_body || ""
+          });
+          any = true;
+        }
+      });
+      if (any) renderCommunityFeed();
+    }).catch(() => {});
+  }
+
+  const FEED_HEART_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>`;
+  const FEED_COMMENT_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg>`;
+
+  function renderFeedPost(item) {
+    const entry = item.entry;
+    const entryId = String(entry.id);
+    const isMe = entry.userId === "me";
+    const name = escapeHtml(item.member.name || "Member");
+    const points = item.rule ? scoring.calculateRule(item.rule, entry.amount).totalPoints : 0;
+    const summary = escapeHtml(entryLogText(entry, item.rule)) + " · " + escapeHtml(formatPoints(points)) + " pts";
     const rel = window.PointwellSignals.formatRelativeTime(item.when, Date.now()) || "";
-    const relText = escapeHtml(rel === "just now" || !rel ? (rel || "") : rel + " ago");
-    const actions = isMe ? "" : `
-        <div class="community-feed-actions">
-          <button class="secondary-button small community-feed-cheer" type="button" data-feed-member="${escapeHtml(item.member.id)}" data-feed-community="${escapeHtml(item.community.id)}">Cheer</button>
-          <button class="ghost-button small community-feed-message" type="button" data-feed-message="${escapeHtml(item.member.userId || "")}" data-feed-name="${escapeHtml(item.member.name)}" data-feed-community="${escapeHtml(item.community.id)}">Message</button>
+    const relText = rel === "just now" || !rel ? (rel || "") : rel + " ago";
+    const sub = escapeHtml(item.community.name) + (relText ? " · " + escapeHtml(relText) : "");
+    const goal = item.rule ? goalAmountForRule(item.rule) : 0;
+    const milestone = goal > 0 && numberOrDefault(entry.amount, 0) >= goal;
+    const canSocial = signalsReady() && isDbEntryId(entry.id);
+    const social = feedSocialFor(entryId);
+
+    const photoPath = entry.photoPath || entry.photo_path || "";
+    const photoHtml = photoPath
+      ? `<div class="ig-photo" data-entry-photo="${escapeHtml(photoPath)}" role="img" aria-label="Post photo"><img alt="" loading="lazy"></div>`
+      : "";
+
+    const menuHtml = isMe ? "" : `
+        <div class="ig-menu-wrap" data-feed-menu-wrap>
+          <button class="ig-menu" type="button" data-feed-menu aria-haspopup="true" aria-expanded="false" aria-label="More options">⋯</button>
+          <div class="ig-menu-pop" hidden>
+            <button type="button" data-feed-menu-msg>Message ${escapeHtml(memberFirstName(item.member))}</button>
+          </div>
         </div>`;
+
+    const likeBtn = canSocial
+      ? `<button class="ig-action-btn${social.liked_by_me ? " is-liked" : ""}" type="button" data-feed-like="${escapeHtml(entryId)}" aria-pressed="${social.liked_by_me ? "true" : "false"}" aria-label="${social.liked_by_me ? "Unlike" : "Like"}">${FEED_HEART_SVG}</button>`
+      : "";
+    const commentBtn = canSocial
+      ? `<button class="ig-action-btn" type="button" data-feed-comment-focus="${escapeHtml(entryId)}" aria-label="Comment">${FEED_COMMENT_SVG}</button>`
+      : "";
+    const cheerBtn = !isMe
+      ? `<button class="ig-action-cheer" type="button" data-feed-cheer data-feed-member="${escapeHtml(item.member.id)}" data-feed-community="${escapeHtml(item.community.id)}" aria-label="Cheer ${escapeHtml(memberFirstName(item.member))}"><span aria-hidden="true">★</span> Cheer</button>`
+      : "";
+
+    const likeCountHtml = (canSocial && social.like_count > 0)
+      ? `<div class="ig-likes">${plural(social.like_count, "like")}</div>`
+      : "";
+    const message = entry.message ? String(entry.message) : "";
+    const captionHtml = message
+      ? `<div class="ig-caption"><span class="ig-name">${name}</span>${escapeHtml(message)}</div>`
+      : "";
+    const commentsHtml = renderFeedComments(item, canSocial, social);
+    const inputHtml = canSocial ? renderFeedCommentInput(entryId) : "";
+
     return `
-      <div class="community-feed-row">
-        ${renderAvatar({ name: item.member.name, color: item.member.color || "#355d91", avatarUrl: item.member.avatarUrl })}
-        <div class="community-feed-main">
-          <strong>${first} <span class="community-feed-log">${log} · ${escapeHtml(formatPoints(points))} pts</span></strong>
-          <span class="community-feed-meta">${escapeHtml(item.community.name)}${relText ? " · " + relText : ""}</span>
+      <article class="ig-card${milestone ? " is-milestone" : ""}" data-feed-entry="${escapeHtml(entryId)}">
+        <div class="ig-card-header">
+          ${renderAvatar({ name: item.member.name, color: item.member.color || "#355d91", avatarUrl: item.member.avatarUrl })}
+          <div class="ig-head-main">
+            <span class="ig-head-name">${name}</span>
+            <span class="ig-head-sub">${sub}</span>
+          </div>
+          ${milestone ? `<span class="ig-milestone-badge">Goal</span>` : ""}
+          ${menuHtml}
         </div>
-        ${actions}
+        ${photoHtml}
+        <div class="ig-actions">
+          ${likeBtn}
+          ${commentBtn}
+          ${cheerBtn}
+          <span class="ig-summary">${summary}</span>
+        </div>
+        ${likeCountHtml}
+        ${captionHtml}
+        ${commentsHtml}
+        ${inputHtml}
+      </article>
+    `;
+  }
+
+  function renderFeedComments(item, canSocial, social) {
+    if (!canSocial) return "";
+    const entryId = String(item.entry.id);
+    const count = social.comment_count || 0;
+    if (!count) return "";
+    if (feedCommentsOpen.has(entryId)) {
+      const rows = feedCommentsCache.get(entryId);
+      if (!rows) return `<div class="ig-comments"><div class="ig-comment">Loading…</div></div>`;
+      const list = rows.map((c) => `<div class="ig-comment"><span class="ig-name">${escapeHtml(c.display_name || "Member")}</span>${escapeHtml(c.body || "")}</div>`).join("");
+      return `<div class="ig-comments">${list}</div>`;
+    }
+    // Collapsed: a "View all" link (when >1) + the most-recent comment preview.
+    const more = count > 1 ? `<button class="ig-comments-more" type="button" data-feed-expand="${escapeHtml(entryId)}">View all ${count} comments</button>` : "";
+    const last = social.last_comment_body
+      ? `<div class="ig-comment"><span class="ig-name">${escapeHtml(social.last_comment_name || "Member")}</span>${escapeHtml(social.last_comment_body)}</div>`
+      : "";
+    return (more || last) ? `<div class="ig-comments">${more}${last}</div>` : "";
+  }
+
+  function renderFeedCommentInput(entryId) {
+    return `
+      <div class="ig-comment-input">
+        ${renderAvatar({ name: state.profile.name, color: state.profile.accent || "#355d91", avatarUrl: state.profile.avatarUrl })}
+        <form data-feed-comment-form="${escapeHtml(entryId)}">
+          <input type="text" data-feed-comment-input="${escapeHtml(entryId)}" placeholder="Add a comment…" maxlength="2000" autocomplete="off" aria-label="Add a comment">
+          <button type="submit" class="ig-comment-post" disabled>Post</button>
+        </form>
       </div>
     `;
   }
 
-  function bindCommunityFeedActions() {
-    Array.from(els.communityFeed.querySelectorAll("[data-feed-member]")).forEach((button) => {
-      button.addEventListener("click", () => {
-        const community = state.communities.find((item) => item.id === button.dataset.feedCommunity);
-        const member = community && (community.members || []).find((item) => item.id === button.dataset.feedMember);
-        if (community && member) {
-          sendChosenSignal(community, member, "kudos", window.PointwellSignals.presetsForType("kudos")[0], null).catch(() => {});
+  // One delegated set of listeners on the feed container (bound once) — survives the
+  // innerHTML re-renders and avoids per-card rebinding.
+  function bindFeedDelegation() {
+    const root = els.communityFeed;
+    if (!root || root.dataset.feedBound === "1") return;
+    root.dataset.feedBound = "1";
+    root.addEventListener("click", onFeedClick);
+    root.addEventListener("input", onFeedInput);
+    root.addEventListener("submit", onFeedSubmit);
+  }
+
+  function feedItemById(entryId) {
+    return feedItems.find((item) => String(item.entry.id) === String(entryId)) || null;
+  }
+
+  // Re-render a single feed card in place so other cards' comment inputs keep their
+  // text/focus; preserves an already-loaded photo to avoid a re-fetch flash.
+  function replaceFeedCard(entryId) {
+    if (!els.communityFeed) return;
+    const card = els.communityFeed.querySelector(`[data-feed-entry="${entryId}"]`);
+    const item = feedItemById(entryId);
+    if (!card || !item) { renderCommunityFeed(); return; }
+    // Preserve this card's half-typed comment (+ focus) and its already-loaded photo.
+    const oldInput = card.querySelector("[data-feed-comment-input]");
+    const draftVal = oldInput ? oldInput.value : "";
+    const draftFocused = oldInput && document.activeElement === oldInput;
+    const oldImg = card.querySelector(".ig-photo img");
+    const oldSrc = oldImg && oldImg.src ? oldImg.src : "";
+    const tmp = document.createElement("div");
+    tmp.innerHTML = renderFeedPost(item);
+    const fresh = tmp.firstElementChild;
+    if (!fresh) return;
+    card.replaceWith(fresh);
+    const newPhoto = fresh.querySelector(".ig-photo");
+    const newImg = fresh.querySelector(".ig-photo img");
+    if (oldSrc && newImg) {
+      newImg.src = oldSrc;
+      if (newPhoto) {
+        newPhoto.dataset.photoBound = "1";
+        // Re-attach the open-in-new-tab affordance (we skipped bindEntryPhotos' re-fetch).
+        newPhoto.addEventListener("click", () => { try { window.open(oldSrc, "_blank", "noopener"); } catch (e) { /* ignore */ } });
+      }
+    } else {
+      bindEntryPhotos(els.communityFeed);
+    }
+    const newInput = fresh.querySelector("[data-feed-comment-input]");
+    if (newInput && draftVal) {
+      newInput.value = draftVal;
+      const post = newInput.parentElement && newInput.parentElement.querySelector(".ig-comment-post");
+      if (post) post.disabled = !draftVal.trim();
+      if (draftFocused) { newInput.focus(); const n = draftVal.length; try { newInput.setSelectionRange(n, n); } catch (e) { /* ignore */ } }
+    }
+  }
+
+  function onFeedClick(event) {
+    // Close any open "⋯" menu unless the click is on a menu toggle or inside a menu.
+    if (els.communityFeed && !event.target.closest("[data-feed-menu]") && !event.target.closest(".ig-menu-pop")) {
+      Array.from(els.communityFeed.querySelectorAll(".ig-menu-pop")).forEach((p) => { p.hidden = true; });
+    }
+    const likeBtn = event.target.closest("[data-feed-like]");
+    if (likeBtn) { toggleFeedLike(likeBtn.dataset.feedLike); return; }
+    const commentBtn = event.target.closest("[data-feed-comment-focus]");
+    if (commentBtn) { focusFeedComment(commentBtn.dataset.feedCommentFocus); return; }
+    const cheerBtn = event.target.closest("[data-feed-cheer]");
+    if (cheerBtn) { cheerFromFeed(cheerBtn.dataset.feedCommunity, cheerBtn.dataset.feedMember); return; }
+    const expandBtn = event.target.closest("[data-feed-expand]");
+    if (expandBtn) { expandFeedComments(expandBtn.dataset.feedExpand); return; }
+    const menuBtn = event.target.closest("[data-feed-menu]");
+    if (menuBtn) { toggleFeedMenu(menuBtn); return; }
+    const msgBtn = event.target.closest("[data-feed-menu-msg]");
+    if (msgBtn) { messageFromFeed(msgBtn); return; }
+  }
+
+  function onFeedInput(event) {
+    const input = event.target.closest("[data-feed-comment-input]");
+    if (!input) return;
+    const post = input.parentElement && input.parentElement.querySelector(".ig-comment-post");
+    if (post) post.disabled = !input.value.trim();
+  }
+
+  function onFeedSubmit(event) {
+    const form = event.target.closest("[data-feed-comment-form]");
+    if (!form) return;
+    event.preventDefault();
+    const input = form.querySelector("[data-feed-comment-input]");
+    const body = input ? input.value.trim() : "";
+    if (body) postFeedComment(form.dataset.feedCommentForm, body);
+  }
+
+  function toggleFeedLike(entryId) {
+    if (!signalsReady()) { showToast("Sign in to like posts"); return; }
+    if (!isDbEntryId(entryId)) return;
+    const before = feedSocialFor(entryId);
+    const wasLiked = before.liked_by_me;
+    const next = { ...before, liked_by_me: !wasLiked, like_count: Math.max(0, (before.like_count || 0) + (wasLiked ? -1 : 1)) };
+    feedSocialCache.set(String(entryId), next);
+    updateFeedLikeUi(entryId, next);
+    const fn = wasLiked ? window.PointwellSignals.unlikeEntry : window.PointwellSignals.likeEntry;
+    Promise.resolve(fn(entryId, state.account.userId)).then((res) => {
+      if (res && res.error) {
+        feedSocialCache.set(String(entryId), before); // revert to server truth
+        updateFeedLikeUi(entryId, before);
+        showToast("Couldn't update like");
+      }
+    }).catch(() => { feedSocialCache.set(String(entryId), before); updateFeedLikeUi(entryId, before); });
+  }
+
+  // Surgical like-button + count update (no full card re-render → no photo re-fetch,
+  // no other comment inputs disturbed).
+  function updateFeedLikeUi(entryId, social) {
+    const card = els.communityFeed && els.communityFeed.querySelector(`[data-feed-entry="${entryId}"]`);
+    if (!card) return;
+    const btn = card.querySelector("[data-feed-like]");
+    if (btn) {
+      btn.classList.toggle("is-liked", !!social.liked_by_me);
+      btn.setAttribute("aria-pressed", social.liked_by_me ? "true" : "false");
+      btn.setAttribute("aria-label", social.liked_by_me ? "Unlike" : "Like");
+    }
+    let likesEl = card.querySelector(".ig-likes");
+    if (social.like_count > 0) {
+      const text = plural(social.like_count, "like");
+      if (likesEl) likesEl.textContent = text;
+      else {
+        const actions = card.querySelector(".ig-actions");
+        if (actions) {
+          const d = document.createElement("div");
+          d.className = "ig-likes";
+          d.textContent = text;
+          actions.insertAdjacentElement("afterend", d);
         }
-      });
-    });
-    Array.from(els.communityFeed.querySelectorAll("[data-feed-message]")).forEach((button) => {
-      button.addEventListener("click", () => {
-        openChatConversation(button.dataset.feedMessage, button.dataset.feedName, button.dataset.feedCommunity);
-        state.activeView = "chats";
-        saveState();
-        render();
-      });
-    });
+      }
+    } else if (likesEl) {
+      likesEl.remove();
+    }
+  }
+
+  function focusFeedComment(entryId) {
+    const card = els.communityFeed && els.communityFeed.querySelector(`[data-feed-entry="${entryId}"]`);
+    const input = card && card.querySelector("[data-feed-comment-input]");
+    if (input) input.focus();
+  }
+
+  function cheerFromFeed(communityId, memberId) {
+    const community = state.communities.find((item) => item.id === communityId);
+    const member = community && (community.members || []).find((item) => item.id === memberId);
+    if (community && member) {
+      sendChosenSignal(community, member, "kudos", window.PointwellSignals.presetsForType("kudos")[0], null).catch(() => {});
+    }
+  }
+
+  function expandFeedComments(entryId) {
+    feedCommentsOpen.add(String(entryId));
+    replaceFeedCard(entryId);
+    if (!window.PointwellSignals || typeof window.PointwellSignals.getEntryComments !== "function") return;
+    Promise.resolve(window.PointwellSignals.getEntryComments(entryId)).then((rows) => {
+      feedCommentsCache.set(String(entryId), Array.isArray(rows) ? rows : []);
+      replaceFeedCard(entryId);
+    }).catch(() => {});
+  }
+
+  function postFeedComment(entryId, body) {
+    if (!signalsReady()) { showToast("Sign in to comment"); return; }
+    if (!isDbEntryId(entryId)) return;
+    // Clear the live input now so the card rebuild starts the comment box empty
+    // (the draft-preservation in replaceFeedCard must not restore the sent text).
+    const liveCard = els.communityFeed && els.communityFeed.querySelector(`[data-feed-entry="${entryId}"]`);
+    const liveInput = liveCard && liveCard.querySelector("[data-feed-comment-input]");
+    if (liveInput) liveInput.value = "";
+    Promise.resolve(window.PointwellSignals.addEntryComment(entryId, state.account.userId, body)).then((res) => {
+      if (!res || res.error) { showToast((res && res.error && res.error.message) || "Couldn't post comment"); return; }
+      const before = feedSocialFor(entryId);
+      const myName = state.profile.name;
+      feedSocialCache.set(String(entryId), { ...before, comment_count: (before.comment_count || 0) + 1, last_comment_name: myName, last_comment_body: body });
+      if (feedCommentsOpen.has(String(entryId))) {
+        const rows = feedCommentsCache.get(String(entryId)) || [];
+        const c = res.comment || {};
+        rows.push({ id: c.id, user_id: state.account.userId, body: body, created_at: c.created_at || new Date().toISOString(), display_name: myName, handle: state.profile.handle, avatar_url: state.profile.avatarUrl });
+        feedCommentsCache.set(String(entryId), rows);
+      }
+      replaceFeedCard(entryId);
+    }).catch(() => showToast("Couldn't post comment"));
+  }
+
+  function toggleFeedMenu(menuBtn) {
+    const wrap = menuBtn.closest("[data-feed-menu-wrap]");
+    const pop = wrap && wrap.querySelector(".ig-menu-pop");
+    if (!pop) return;
+    const willOpen = pop.hidden;
+    Array.from(els.communityFeed.querySelectorAll(".ig-menu-pop")).forEach((p) => { p.hidden = true; });
+    pop.hidden = !willOpen;
+    menuBtn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+  }
+
+  function messageFromFeed(msgBtn) {
+    const card = msgBtn.closest("[data-feed-entry]");
+    const item = card && feedItemById(card.dataset.feedEntry);
+    if (!item) return;
+    openChatConversation(item.member.userId, item.member.name, item.community.id);
+    state.activeView = "chats";
+    saveState();
+    render();
   }
 
   function renderCommunityDetail() {

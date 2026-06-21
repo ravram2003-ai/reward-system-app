@@ -511,6 +511,88 @@
     }
   }
 
+  // ── Feed social: likes + comments on community feed entries (feed-social.sql) ──
+  // Writes go straight to the RLS-guarded tables (a user may only like/comment on an
+  // entry they can see, only as themselves); reads use definer RPCs (counts + author
+  // identity, since profiles RLS is self-only). entryId must be a real DB uuid.
+
+  // Like an entry I can see. Idempotent at the DB (primary key (entry_id,user_id)).
+  async function likeEntry(entryId, userId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(entryId)) || !userId) return { error: { message: "Couldn't like that." } };
+    try {
+      var res = await sb.from("entry_likes").insert({ entry_id: entryId, user_id: userId });
+      // A duplicate (already liked) is not a real failure for a toggle.
+      if (res.error && !/duplicate|unique/i.test(res.error.message || "")) return { error: res.error };
+      return { error: null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  async function unlikeEntry(entryId, userId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(entryId)) || !userId) return { error: { message: "Couldn't unlike that." } };
+    try {
+      var res = await sb.from("entry_likes").delete().eq("entry_id", entryId).eq("user_id", userId);
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // Batch social state for the visible feed: like/comment counts, liked_by_me, and a
+  // preview of the most-recent comment. Returns [] on any error.
+  async function getEntriesSocial(entryIds) {
+    var sb = getClient();
+    var list = Array.isArray(entryIds) ? entryIds.filter(function (x) { return x && UUID_RE.test(String(x)); }) : [];
+    if (!sb || !list.length) return [];
+    try {
+      var res = await sb.rpc("get_entries_social", { eids: list });
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Post a comment on an entry I can see. Returns { error, comment }.
+  async function addEntryComment(entryId, userId, body) {
+    var sb = getClient();
+    var text = String(body || "").trim().slice(0, 2000);
+    if (!sb || !UUID_RE.test(String(entryId)) || !userId) return { error: { message: "Couldn't post that." } };
+    if (!text) return { error: { message: "Write a comment first." } };
+    try {
+      var res = await sb.from("entry_comments").insert({ entry_id: entryId, user_id: userId, body: text }).select().single();
+      if (res.error) return { error: res.error };
+      return { error: null, comment: res.data || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // Full comment thread for one entry, with each author's name/handle/avatar.
+  async function getEntryComments(entryId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(entryId))) return [];
+    try {
+      var res = await sb.rpc("get_entry_comments", { eid: entryId });
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async function deleteEntryComment(commentId, userId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(commentId)) || !userId) return { error: { message: "Couldn't delete that." } };
+    try {
+      var res = await sb.from("entry_comments").delete().eq("id", commentId).eq("user_id", userId);
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
   // Every community the user belongs to, with its members (names via a definer
   // function, since profiles RLS is self-only) and the shared entries.
   async function fetchMyCommunities(userId) {
@@ -782,6 +864,12 @@
     getEntryPhotoSignedUrl: getEntryPhotoSignedUrl,
     uploadAvatar: uploadAvatar,
     getProfileCards: getProfileCards,
+    likeEntry: likeEntry,
+    unlikeEntry: unlikeEntry,
+    getEntriesSocial: getEntriesSocial,
+    addEntryComment: addEntryComment,
+    getEntryComments: getEntryComments,
+    deleteEntryComment: deleteEntryComment,
     fetchMyCommunities: fetchMyCommunities,
     isNudgeable: isNudgeable,
     subscribeInbox: subscribeInbox,

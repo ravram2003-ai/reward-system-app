@@ -2560,7 +2560,8 @@ label small {
   margin-bottom: 16px;
 }
 
-/* Recent activity feed (top of Communities view) */
+/* Recent activity feed container (the Feed tab). The IG-style post + feed-list
+   rules live in the "Instagram-style feed post" block lower in this file. */
 .community-feed {
   display: grid;
   gap: 10px;
@@ -2569,55 +2570,6 @@ label small {
   border-radius: var(--radius);
   background: var(--surface);
   margin-bottom: 16px;
-}
-.community-feed-list {
-  display: grid;
-  gap: 8px;
-}
-.community-feed-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-}
-.community-feed-main {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-.community-feed-main strong {
-  font-size: 0.92rem;
-  font-weight: 750;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.community-feed-log {
-  color: var(--muted);
-  font-weight: 650;
-}
-.community-feed-meta {
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-.community-feed-actions {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-@media (max-width: 560px) {
-  .community-feed-row {
-    flex-wrap: wrap;
-  }
-  .community-feed-actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
 }
 
 /* Blended home activity feed (Today view) */
@@ -4578,6 +4530,8 @@ body {
   /* Local helper tokens */
   --field-bg: #21282a;       /* inputs */
   --accent-ink: #04130f;     /* dark text that sits ON bright accent */
+  --like: #ff4d6d;           /* liked-heart red on dark feed cards */
+  --like-soft: rgba(255, 77, 109, 0.14);
 }
 
 /* ── Canvas ───────────────────────────────────────────────────── */
@@ -7549,3 +7503,217 @@ img.member-avatar {
 .profile-avatar-menu [data-avatar-remove] {
   color: var(--warm);
 }
+
+/* ── "+" Log-entry FAB ─────────────────────────────────────────────────────── */
+.fab-add {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  z-index: 80;
+  width: 56px;
+  height: 56px;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--accent-ink);
+  background: linear-gradient(135deg, var(--accent), #2bb392);
+  box-shadow: 0 10px 26px rgba(58, 214, 166, 0.34);
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+.fab-add svg { stroke: currentColor; }
+.fab-add:hover { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(58, 214, 166, 0.42); }
+.fab-add:active { transform: translateY(0); }
+.fab-add:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 3px; }
+/* No FAB over the sign-in / onboarding screens. */
+body.auth-locked .fab-add,
+body.onboarding-locked .fab-add { display: none; }
+/* On narrow screens the FAB must clear the fixed bottom nav (z-index 70, ~84px tall). */
+@media (max-width: 1050px) {
+  .fab-add { bottom: calc(94px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* ── Instagram-style feed post ─────────────────────────────────────────────── */
+/* A centered, IG-width column so posts (and their photos) stay readable on wide
+   desktop cards; full-width on narrow screens. */
+.community-feed-list { display: grid; gap: 16px; max-width: 500px; margin-left: auto; margin-right: auto; }
+.ig-card {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;                 /* clips the full-bleed photo to the rounded card */
+}
+.ig-card.is-milestone {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft), var(--shadow-card);
+}
+.ig-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+}
+.ig-card-header .member-avatar { flex: 0 0 auto; }
+.ig-head-main { display: grid; gap: 1px; min-width: 0; flex: 1 1 auto; }
+.ig-head-name { font-weight: 750; font-size: 0.9rem; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ig-head-sub { color: var(--muted); font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ig-milestone-badge {
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  background: var(--accent);
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+.ig-menu {
+  flex: 0 0 auto;
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.ig-menu:hover { color: var(--ink); background: rgba(255, 255, 255, 0.05); }
+.ig-menu-wrap { position: relative; flex: 0 0 auto; margin-left: auto; }
+.ig-menu-wrap .ig-menu { margin-left: 0; }
+.ig-menu-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.ig-menu-pop button {
+  text-align: left;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+.ig-menu-pop button:hover { background: var(--soft); }
+
+.ig-photo {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: var(--soft);
+  overflow: hidden;
+  cursor: pointer;
+}
+.ig-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ig-photo.is-unavailable { display: none; }   /* hide the placeholder if the signed URL is denied */
+
+.ig-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 10px 2px;
+}
+.ig-action-btn {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 7px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--ink);
+  cursor: pointer;
+  border-radius: 8px;
+}
+.ig-action-btn svg { width: 24px; height: 24px; stroke: currentColor; fill: none; stroke-width: 1.8; display: block; }
+.ig-action-btn:hover { color: var(--accent-strong); }
+.ig-action-btn.is-liked { color: var(--like); }
+.ig-action-btn.is-liked svg { fill: currentColor; stroke: currentColor; }
+.ig-action-cheer {
+  margin-left: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 750;
+  color: var(--accent-strong);
+  background: none;
+  border: 0;
+  padding: 7px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.ig-action-cheer:hover { background: var(--accent-soft); }
+.ig-summary {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.ig-likes { padding: 2px 14px; font-weight: 750; color: var(--ink); font-size: 0.86rem; }
+.ig-caption { padding: 2px 14px; color: var(--ink); font-size: 0.88rem; line-height: 1.4; overflow-wrap: anywhere; }
+.ig-caption .ig-name { font-weight: 750; margin-right: 6px; }
+.ig-comments { padding: 2px 14px; display: grid; gap: 4px; }
+.ig-comment { font-size: 0.86rem; color: var(--ink); line-height: 1.35; overflow-wrap: anywhere; }
+.ig-comment .ig-name { font-weight: 750; margin-right: 6px; }
+.ig-comments-more {
+  justify-self: start;
+  color: var(--muted);
+  font-size: 0.82rem;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  cursor: pointer;
+}
+.ig-comments-more:hover { color: var(--ink); }
+.ig-comment-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 14px;
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+}
+.ig-comment-input .member-avatar { flex: 0 0 auto; width: 28px; height: 28px; font-size: 0.66rem; }
+.ig-comment-input form { flex: 1 1 auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ig-comment-input input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0;
+}
+.ig-comment-input input::placeholder { color: var(--muted); }
+.ig-comment-post {
+  flex: 0 0 auto;
+  background: none;
+  border: 0;
+  color: var(--accent-strong);
+  font: inherit;
+  font-weight: 800;
+  font-size: 0.86rem;
+  cursor: pointer;
+  padding: 4px 2px;
+}
+.ig-comment-post:disabled { opacity: 0.45; cursor: default; }

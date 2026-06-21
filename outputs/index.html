@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260620-wear">
+    <link rel="stylesheet" href="styles.css?v=20260620-comm">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -746,18 +746,18 @@
             </div>
           </div>
 
-          <section class="community-list" id="communityList" aria-label="Joined communities"></section>
-
-          <div class="community-actions">
-            <button class="secondary-button" type="button" id="newCommunityButton">
+          <form class="community-search-bar" id="communitySearchForm" role="search">
+            <div class="community-search-field">
+              <span class="community-search-icon" aria-hidden="true">⌕</span>
+              <input id="communitySearchInput" type="search" autocomplete="off" placeholder="Search communities by name…" aria-label="Search communities by name">
+            </div>
+            <button class="secondary-button community-new-button" type="button" id="newCommunityButton">
               <span aria-hidden="true">＋</span>
-              <span>New Community</span>
+              <span>New</span>
             </button>
-            <button class="primary-button" type="button" id="findCommunitiesButton">
-              <span aria-hidden="true">+</span>
-              <span>Find New Communities</span>
-            </button>
-          </div>
+          </form>
+
+          <section class="community-list" id="communityList" aria-label="Joined communities"></section>
         </section>
 
         <section class="view" id="createCommunityView" aria-labelledby="createCommunityTitle">
@@ -1316,13 +1316,13 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="supabase-config.js?v=20260620-wear"></script>
-    <script src="auth-helpers.js?v=20260620-wear"></script>
-    <script src="scoring.js?v=20260620-wear"></script>
-    <script src="insight.js?v=20260620-wear"></script>
-    <script src="signals.js?v=20260620-wear"></script>
-    <script src="wearables.js?v=20260620-wear"></script>
-    <script type="module" src="auth.js?v=20260620-wear"></script>
-    <script src="app.js?v=20260620-wear"></script>
+    <script src="supabase-config.js?v=20260620-comm"></script>
+    <script src="auth-helpers.js?v=20260620-comm"></script>
+    <script src="scoring.js?v=20260620-comm"></script>
+    <script src="insight.js?v=20260620-comm"></script>
+    <script src="signals.js?v=20260620-comm"></script>
+    <script src="wearables.js?v=20260620-comm"></script>
+    <script type="module" src="auth.js?v=20260620-comm"></script>
+    <script src="app.js?v=20260620-comm"></script>
   </body>
 </html>

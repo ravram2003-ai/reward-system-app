@@ -134,6 +134,43 @@ function deepNum(obj: unknown, depth = 4): number | null {
   return null;
 }
 
+// Keys that hold timestamps, not metric values — skip them when scanning a point
+// for "the number" so we never mistake a year/month/day for the measurement.
+const TIME_KEYS = new Set([
+  "year", "month", "day", "hours", "minutes", "seconds", "nanos",
+  "civilStartTime", "civilEndTime", "startTime", "endTime", "time", "timeZone",
+  "createTime", "updateTime", "modifyTime",
+]);
+// First finite number found anywhere inside `obj`, ignoring timestamp-ish keys.
+function deepNumExcluding(obj: unknown, depth = 5): number | null {
+  if (obj == null || depth < 0) return null;
+  if (typeof obj === "number") return Number.isFinite(obj) ? obj : null;
+  if (typeof obj === "string") { const n = Number(obj); return Number.isFinite(n) ? n : null; }
+  if (typeof obj === "object") {
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      if (TIME_KEYS.has(k)) continue;
+      const n = deepNumExcluding(v, depth - 1);
+      if (n !== null) return n;
+    }
+  }
+  return null;
+}
+// Find a number stored under a specific key name, anywhere in a nested object.
+function findNumberByKey(obj: unknown, name: string, depth = 6): number | null {
+  if (obj == null || depth < 0 || typeof obj !== "object") return null;
+  for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+    if (k === name) {
+      const direct = num(v);
+      if (direct !== null) return direct;
+      const dug = deepNum(v);
+      if (dug !== null) return dug;
+    }
+    const nested = findNumberByKey(v, name, depth - 1);
+    if (nested !== null) return nested;
+  }
+  return null;
+}
+
 // ── token exchange / refresh ─────────────────────────────────────────────────
 interface Tokens {
   access_token: string;
@@ -228,9 +265,16 @@ async function googleRollup(dataType: string, token: string): Promise<any | null
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(body),
     });
-    if (!resp.ok) return null;
-    return await resp.json();
-  } catch {
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      console.log(`[wearables] rollup ${dataType} HTTP ${resp.status}: ${errText.slice(0, 300)}`);
+      return null;
+    }
+    const json = await resp.json();
+    console.log(`[wearables] rollup ${dataType} ok: ${JSON.stringify(json).slice(0, 700)}`);
+    return json;
+  } catch (e) {
+    console.log(`[wearables] rollup ${dataType} threw: ${e}`);
     return null;
   }
 }
@@ -239,27 +283,42 @@ function googleList(dataType: string, token: string, pageSize = 10): Promise<any
 }
 // Value from the most recent civil day that has data (robust to result ordering).
 function latestRollupValue(roll: any, dataType: string): number | null {
-  const pts = roll?.rollupDataPoints;
+  // Accept either documented array name.
+  const pts = roll?.rollupDataPoints || roll?.dataPoints;
   if (!Array.isArray(pts) || !pts.length) return null;
   const key = camelKey(dataType);
   let best: number | null = null, bestDay = -1;
   for (const p of pts) {
-    const v = deepNum(p?.[key]);
+    // Prefer the field named after the data type; if Google nests/renames it,
+    // fall back to the only non-timestamp number in the point.
+    let v = deepNum(p?.[key]);
+    if (v === null) v = deepNumExcluding(p);
     if (v === null) continue;
-    const c = p.civilStartTime || {};
+    const c = p.civilStartTime || p.startTime || {};
     const day = (num(c.year) ?? 0) * 10000 + (num(c.month) ?? 0) * 100 + (num(c.day) ?? 0);
     if (day >= bestDay) { bestDay = day; best = v; }
   }
   return best;
 }
-// Most recent list data point that carries `key` (e.g. "sleep", "heartRate").
+// Sortable timestamp for a data point (handles ISO strings and civil-time objects).
+function pointTime(p: any): number {
+  const t = p?.endTime || p?.startTime || p?.civilEndTime || p?.civilStartTime;
+  if (!t) return 0;
+  if (typeof t === "string") { const d = Date.parse(t); return Number.isFinite(d) ? d : 0; }
+  const y = num(t.year) ?? 0, mo = num(t.month) ?? 1, d = num(t.day) ?? 1;
+  const h = num(t.hours) ?? 0, mi = num(t.minutes) ?? 0, s = num(t.seconds) ?? 0;
+  return Date.UTC(y, mo - 1, d, h, mi, s);
+}
+// Most recent list data point that carries `key` (e.g. "sleep", "heartRate"),
+// chosen by timestamp so it's robust to ascending/descending result ordering.
 function latestListPoint(list: any, key: string): any | null {
   const pts = list?.dataPoints;
   if (!Array.isArray(pts) || !pts.length) return null;
-  for (let i = pts.length - 1; i >= 0; i--) {
-    if (pts[i]?.[key]) return pts[i];
-  }
-  return pts[pts.length - 1];
+  const withKey = pts.filter((p: any) => p?.[key]);
+  const pool = withKey.length ? withKey : pts;
+  let best = pool[0], bestT = pointTime(pool[0]);
+  for (const p of pool) { const t = pointTime(p); if (t >= bestT) { bestT = t; best = p; } }
+  return best;
 }
 
 async function fetchGoogleHealth(token: string): Promise<Record<string, number>> {
@@ -268,13 +327,22 @@ async function fetchGoogleHealth(token: string): Promise<Record<string, number>>
   put(out, "steps", latestRollupValue(await googleRollup("steps", token), "steps"));
   // Active calories — daily total (rollup)
   put(out, "active-calories", latestRollupValue(await googleRollup("active-energy-burned", token), "active-energy-burned"));
-  // Sleep — most recent session
-  const sleepPt = latestListPoint(await googleList("sleep", token), "sleep");
-  const mins = num(sleepPt?.sleep?.summary?.minutesAsleep);
+  // Sleep — most recent session. Try the documented path, then fall back to finding
+  // minutesAsleep anywhere in the point (Google has shifted this shape before).
+  const sleepRaw = await googleList("sleep", token, 20);
+  console.log(`[wearables] sleep raw: ${JSON.stringify(sleepRaw).slice(0, 700)}`);
+  const sleepPt = latestListPoint(sleepRaw, "sleep");
+  let mins = num(sleepPt?.sleep?.summary?.minutesAsleep);
+  if (mins === null) mins = findNumberByKey(sleepPt, "minutesAsleep");
   if (mins !== null && mins > 0) put(out, "sleep-hours", mins / 60);
-  // Resting heart rate — newest heart-rate sample (proxy)
-  const hrPt = latestListPoint(await googleList("heart-rate", token, 1), "heartRate");
-  put(out, "resting-heart-rate", num(hrPt?.heartRate?.beatsPerMinute));
+  // Resting heart rate — newest heart-rate sample (proxy).
+  const hrRaw = await googleList("heart-rate", token, 1);
+  console.log(`[wearables] heart-rate raw: ${JSON.stringify(hrRaw).slice(0, 400)}`);
+  const hrPt = latestListPoint(hrRaw, "heartRate");
+  let bpm = num(hrPt?.heartRate?.beatsPerMinute);
+  if (bpm === null) bpm = findNumberByKey(hrPt, "beatsPerMinute");
+  put(out, "resting-heart-rate", bpm);
+  console.log(`[wearables] google-health parsed: ${JSON.stringify(out)}`);
   return out;
 }
 

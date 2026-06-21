@@ -2978,7 +2978,7 @@ label small {
 }
 
 .member-entry-row {
-  justify-content: flex-start;
+  justify-content: space-between;
 }
 
 .member-weekly-day {
@@ -6901,10 +6901,26 @@ button.notif-item:hover {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 8px 10px;
+  border: 0;
   border-radius: 10px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
-.mini-lb-row.is-me { background: var(--accent-soft); }
+.mini-lb-row:hover { background: rgba(255, 255, 255, 0.045); }
+.mini-lb-row.is-me,
+.mini-lb-row.is-me:hover { background: var(--accent-soft); }
+.mini-lb-chevron {
+  flex: 0 0 auto;
+  margin-left: 2px;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+.mini-lb-row:hover .mini-lb-chevron { color: var(--accent-strong); }
 .mini-lb-rank {
   flex: 0 0 auto;
   width: 16px;
@@ -7141,46 +7157,39 @@ button.notif-item:hover {
   white-space: nowrap;
 }
 
-/* ── Tappable people → existing friend-activity view ──────────────────────── */
-/* Standings row: avatar + name become one button that fills the row's middle. */
-.mini-lb-person {
-  flex: 1 1 auto;
-  min-width: 0;
+/* ── Member breakdown: rank pill + timestamped entry rows ─────────────────── */
+.member-score-line {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
 }
-.mini-lb-person-static {
-  cursor: default;
-}
-.mini-lb-person:hover .mini-lb-name {
-  text-decoration: underline;
-}
-/* Activity row: avatar + first name become buttons. */
-.feed-person-avatar {
-  flex: 0 0 auto;
+.member-rank-pill {
   display: inline-flex;
-  padding: 0;
-  border: 0;
-  background: none;
-  line-height: 0;
-  cursor: pointer;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
 }
-.feed-person-name {
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
+.member-entry-meta {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
 }
-.feed-person-name:hover {
-  text-decoration: underline;
+.member-entry-points {
+  color: var(--accent-strong);
+  font-weight: 800;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.member-entry-time {
+  color: var(--muted);
+  font-size: 0.76rem;
+  white-space: nowrap;
 }

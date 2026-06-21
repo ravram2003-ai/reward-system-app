@@ -236,7 +236,6 @@
     selectedCommunityMemberId: "",
     communityLeaderboardPeriod: "",
     communityTrendMemberId: "",
-    homeFeedFilter: "all",
     dashboardAnalyticsOpen: false,
     scoreContext: "personal",
     buildMode: "home",
@@ -1890,9 +1889,6 @@
       "communitySearchForm",
       "communityList",
       "communityFeed",
-      "homeFeedPanel",
-      "homeFeedChips",
-      "homeFeedList",
       "communityDetailTitle",
       "communityMeta",
       "communityDescription",
@@ -2146,9 +2142,9 @@
     els.saveEntryButton.addEventListener("click", saveDailyEntry);
     if (els.analyticsToggle) els.analyticsToggle.addEventListener("click", toggleDashboardAnalytics);
     if (els.miniLeaderboard) els.miniLeaderboard.addEventListener("click", (event) => {
-      const person = event.target.closest && event.target.closest("[data-open-profile]");
-      if (person) { openFriendActivity(person.dataset.openProfile, person.dataset.profileName); return; }
-      if (event.target.closest && event.target.closest("[data-open-full-leaderboard]")) viewCommunityLeaderboardFromScore();
+      if (event.target.closest && event.target.closest("[data-open-full-leaderboard]")) { viewCommunityLeaderboardFromScore(); return; }
+      const row = event.target.closest && event.target.closest("[data-community-member-id]");
+      if (row) openStandingsMember(row.dataset.communityMemberId);
     });
 
     els.newSystemButton?.addEventListener("click", openBuildOptions);
@@ -2489,6 +2485,15 @@
     saveState();
     render();
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }
+
+  // Home Standings row tapped → open that member's breakdown in the score-context
+  // community. Only ever this one shared community's data, so visibility is preserved.
+  function openStandingsMember(memberId) {
+    const context = getActiveScoreContext();
+    if (context.type !== "community" || !context.community) return;
+    state.selectedCommunityId = context.community.id;
+    openCommunityMemberActivity(memberId);
   }
 
   function openAddEntryPage() {
@@ -2920,7 +2925,6 @@
 
   function renderDashboard() {
     refreshToday();
-    renderHomeFeed();
     if (!state.trackerSystemId || !state.systems.some((system) => system.id === state.trackerSystemId)) {
       state.trackerSystemId = state.systems[0]?.id || "";
     }
@@ -4428,158 +4432,6 @@
         state.activeView = "chats";
         saveState();
         render();
-      });
-    });
-  }
-
-  // ── Blended activity feed (top of the Today/dashboard view) ─────────────────
-  // Same source as renderCommunityFeed (community entries already in state), but
-  // adds relationship tags (Friend / community) and filter chips. No new data.
-  // The Activity tab set depends on the score context (which community I'm logging
-  // to, or personal). Community selected → [All, Friends] scoped to THAT community;
-  // personal → [Friends, Communities] across all my communities. The underlying
-  // data (state.communityEntries) is already limited to my communities by the
-  // community_entries RLS, so scoping/combining never widens what I can see.
-  function homeFeedTabsFor(context) {
-    return context.type === "community"
-      ? [{ id: "all", label: "All" }, { id: "friends", label: "Friends" }]
-      : [{ id: "friends", label: "Friends" }, { id: "communities", label: "Communities" }];
-  }
-
-  function renderHomeFeed() {
-    if (!els.homeFeedList) return;
-    const context = getActiveScoreContext();
-    const inCommunity = context.type === "community" && !!context.community;
-    const tabs = homeFeedTabsFor(context);
-    // Pick the active tab valid for THIS context (default to the first tab).
-    let filter = state.homeFeedFilter;
-    if (!tabs.some((tab) => tab.id === filter)) filter = tabs[0].id;
-
-    // Community mode → ONLY the selected community's entries. Personal → all of mine.
-    const scopedCommunityId = inCommunity ? String(context.community.id) : "";
-    const allItems = (state.communityEntries || [])
-      .filter((entry) => !scopedCommunityId || String(entry.communityId) === scopedCommunityId)
-      .map((entry) => {
-        const community = state.communities.find((item) => item.id === entry.communityId);
-        if (!community) return null;
-        const member = (community.members || []).find((item) => item.id === entry.userId);
-        if (!member) return null;
-        const rule = (community.system.rules || []).map(scoring.normalizeRule).find((item) => item.id === entry.ruleId);
-        return {
-          entry: entry,
-          community: community,
-          member: member,
-          rule: rule,
-          when: entry.timestamp || entry.dateKey || entry.date || "",
-          isFriend: friends.has(String(member.userId)),
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => String(b.when).localeCompare(String(a.when)));
-
-    // "friends" → my friends only; "all" (community) / "communities" (personal) → everyone.
-    const items = allItems
-      .filter((item) => (filter === "friends" ? item.isFriend : true))
-      .slice(0, 15);
-
-    if (els.homeFeedChips) {
-      els.homeFeedChips.innerHTML = tabs.map((chip) => `
-        <button class="home-feed-chip${chip.id === filter ? " active" : ""}" type="button" role="tab" aria-selected="${chip.id === filter}" data-home-feed-filter="${escapeHtml(chip.id)}">${escapeHtml(chip.label)}</button>
-      `).join("");
-    }
-
-    let body;
-    if (!state.communities.length) {
-      body = emptyState("Join a community to see activity from others.");
-    } else if (inCommunity && !allItems.length) {
-      body = emptyState(`No activity in ${escapeHtml(context.community.name)} yet.`);
-    } else if (!items.length) {
-      body = filter === "friends"
-        ? emptyState("No activity from friends yet — add friends or wait for them to log a day.")
-        : emptyState("No check-ins yet — community activity will show up here.");
-    } else {
-      body = `<div class="home-feed-list-rows">${items.map(renderHomeFeedRow).join("")}</div>`;
-    }
-    els.homeFeedList.innerHTML = body;
-
-    bindHomeFeedChips();
-    bindHomeFeedActions();
-  }
-
-  function renderHomeFeedRow(item) {
-    const isMe = item.entry.userId === "me";
-    const first = escapeHtml(memberFirstName(item.member));
-    const points = item.rule ? scoring.calculateRule(item.rule, item.entry.amount).totalPoints : 0;
-    const log = escapeHtml(entryLogText(item.entry, item.rule));
-    const rel = window.PointwellSignals.formatRelativeTime(item.when, Date.now()) || "";
-    const relText = escapeHtml(rel === "just now" || !rel ? (rel || "") : rel + " ago");
-    const tags = `
-        <div class="feed-tags">
-          ${item.isFriend ? `<span class="feed-tag feed-tag-friend">Friend</span>` : ""}
-          <span class="feed-tag feed-tag-community">${escapeHtml(item.community.name)}</span>
-        </div>`;
-    const actions = isMe ? "" : `
-        <div class="community-feed-actions">
-          <button class="secondary-button small community-feed-cheer" type="button" data-feed-member="${escapeHtml(item.member.id)}" data-feed-community="${escapeHtml(item.community.id)}">Cheer</button>
-          <button class="ghost-button small community-feed-message" type="button" data-feed-message="${escapeHtml(item.member.userId || "")}" data-feed-name="${escapeHtml(item.member.name)}" data-feed-community="${escapeHtml(item.community.id)}">Message</button>
-        </div>`;
-    // Tap the avatar or name → that person's today's activity (existing friend-activity
-    // view; DB enforces visibility). No account id → not tappable.
-    const personId = item.member.userId || "";
-    const profileAttrs = `data-open-profile="${escapeHtml(personId)}" data-profile-name="${escapeHtml(item.member.name)}"`;
-    const avatarInner = `<span class="member-avatar" aria-hidden="true" style="background:${escapeHtml(item.member.color || "#355d91")}">${escapeHtml(getInitials(item.member.name))}</span>`;
-    const avatar = personId
-      ? `<button class="feed-person-avatar" type="button" ${profileAttrs}>${avatarInner}</button>`
-      : avatarInner;
-    const name = personId
-      ? `<button class="feed-person-name" type="button" ${profileAttrs}>${first}</button>`
-      : first;
-    return `
-      <div class="community-feed-row">
-        ${avatar}
-        <div class="community-feed-main">
-          <strong>${name} <span class="community-feed-log">${log} · ${escapeHtml(formatPoints(points))} pts</span></strong>
-          ${tags}
-          <span class="community-feed-meta">${relText}</span>
-        </div>
-        ${actions}
-      </div>
-    `;
-  }
-
-  function bindHomeFeedChips() {
-    if (!els.homeFeedChips) return;
-    Array.from(els.homeFeedChips.querySelectorAll("[data-home-feed-filter]")).forEach((button) => {
-      button.addEventListener("click", () => {
-        state.homeFeedFilter = button.dataset.homeFeedFilter;
-        saveState();
-        renderHomeFeed();
-      });
-    });
-  }
-
-  function bindHomeFeedActions() {
-    if (!els.homeFeedList) return;
-    Array.from(els.homeFeedList.querySelectorAll("[data-feed-member]")).forEach((button) => {
-      button.addEventListener("click", () => {
-        const community = state.communities.find((item) => item.id === button.dataset.feedCommunity);
-        const member = community && (community.members || []).find((item) => item.id === button.dataset.feedMember);
-        if (community && member) {
-          sendChosenSignal(community, member, "kudos", window.PointwellSignals.presetsForType("kudos")[0], null).catch(() => {});
-        }
-      });
-    });
-    Array.from(els.homeFeedList.querySelectorAll("[data-feed-message]")).forEach((button) => {
-      button.addEventListener("click", () => {
-        openChatConversation(button.dataset.feedMessage, button.dataset.feedName, button.dataset.feedCommunity);
-        state.activeView = "chats";
-        saveState();
-        render();
-      });
-    });
-    Array.from(els.homeFeedList.querySelectorAll("[data-open-profile]")).forEach((button) => {
-      button.addEventListener("click", () => {
-        openFriendActivity(button.dataset.openProfile, button.dataset.profileName);
       });
     });
   }
@@ -6852,21 +6704,16 @@
   function renderMiniLeaderboardRow(member, index) {
     const isMe = member.id === "me";
     const pts = numberOrDefault(member.today, 0);
-    const personId = member.userId || "";
-    const personInner = `
-        <span class="member-avatar mini-lb-avatar" aria-hidden="true" style="background:${escapeHtml(member.color || "#355d91")}">${escapeHtml(getInitials(member.name))}</span>
-        <span class="mini-lb-name">${isMe ? "You" : escapeHtml(member.name)}</span>`;
-    // Tap a person → their today's activity (existing friend-activity view; DB enforces
-    // visibility). No account id (e.g. local demo member) → not tappable.
-    const person = personId
-      ? `<button class="mini-lb-person" type="button" data-open-profile="${escapeHtml(personId)}" data-profile-name="${escapeHtml(member.name)}">${personInner}</button>`
-      : `<span class="mini-lb-person mini-lb-person-static">${personInner}</span>`;
+    // Whole row is a button → that member's breakdown in this community (existing
+    // community-member view; scoped to a shared community, so visibility is preserved).
     return `
-      <div class="mini-lb-row${isMe ? " is-me" : ""}">
+      <button class="mini-lb-row mini-lb-row-button${isMe ? " is-me" : ""}" type="button" data-community-member-id="${escapeHtml(member.id)}">
         <span class="mini-lb-rank">${index + 1}</span>
-        ${person}
+        <span class="member-avatar mini-lb-avatar" aria-hidden="true" style="background:${escapeHtml(member.color || "#355d91")}">${escapeHtml(getInitials(member.name))}</span>
+        <span class="mini-lb-name">${isMe ? "You" : escapeHtml(member.name)}</span>
         <span class="mini-lb-points">${escapeHtml(formatPoints(pts))} ${pts === 1 ? "pt" : "pts"}</span>
-      </div>
+        <span class="mini-lb-chevron" aria-hidden="true">›</span>
+      </button>
     `;
   }
 
@@ -7194,12 +7041,19 @@
     }
     const values = collectDraftValues(community.system, communityValuesForMember(community.id, memberItem.id, todayIso));
     const summary = calculateMemberCommunitySummary(community, values);
+    // Newest entry first (timestamps shown per row below).
     const entries = [
       ...syncedEntriesForContext({ type: "community", community }, community.system, { userId: memberItem.id }),
       ...getCommunityEntriesForMemberOnDate(community.id, memberItem.id, todayIso)
-    ];
+    ].sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
     const target = calculateTargetSummary(community.system).total;
     const percent = progressPercent(summary.total, target);
+    // This member's rank today within the community standings (sorted by today's points).
+    const standings = communityStandings(community, COMMUNITY_PERIODS[0].id, "points")
+      .slice()
+      .sort((a, b) => b.today - a.today);
+    const rank = standings.findIndex((item) => item.id === memberItem.id) + 1;
+    const memberCount = standings.length;
     els.memberActivityTitle.textContent = `${memberItem.name.split(" ")[0]}'s Activity`;
     els.memberActivityTotal.textContent = community.name;
     els.memberActivityPanel.innerHTML = `
@@ -7213,7 +7067,10 @@
                 <strong>${escapeHtml(memberItem.name)}</strong>
               </div>
             </div>
-            <strong class="member-daily-score">${escapeHtml(formatPoints(summary.total))} / ${escapeHtml(formatPoints(target))} points</strong>
+            <div class="member-score-line">
+              <strong class="member-daily-score">${escapeHtml(formatPoints(summary.total))} / ${escapeHtml(formatPoints(target))} points</strong>
+              ${rank ? `<span class="member-rank-pill">Rank #${rank} of ${memberCount}</span>` : ""}
+            </div>
             <div class="target-meter" aria-label="Daily point target progress">
               <div class="target-meter-meta">
                 <span>${escapeHtml(formatPercent(percent))} complete</span>
@@ -7377,11 +7234,21 @@
 
   function renderMemberEntryLogRow(entry, community) {
     const rule = community.system.rules.map(scoring.normalizeRule).find((item) => item.id === entry.ruleId);
+    const points = rule ? scoring.calculateRule(rule, entry.amount).totalPoints : 0;
+    const when = entry.timestamp || entry.dateKey || entry.date || "";
+    const rel = (window.PointwellSignals && typeof window.PointwellSignals.formatRelativeTime === "function")
+      ? (window.PointwellSignals.formatRelativeTime(when, Date.now()) || "")
+      : "";
+    const relText = rel ? (rel === "just now" ? "just now" : `${rel} ago`) : "";
     return `
       <div class="entry-log-row member-entry-row">
         <div class="entry-log-main">
           <strong>${escapeHtml(memberEntryText(entry, rule))}</strong>
           <span>${escapeHtml(entrySourceLabel(entry, rule))}</span>
+        </div>
+        <div class="member-entry-meta">
+          <span class="member-entry-points">${points >= 0 ? "+" : ""}${escapeHtml(formatPoints(points))} pts</span>
+          ${relText ? `<span class="member-entry-time">${escapeHtml(relText)}</span>` : ""}
         </div>
       </div>
     `;
@@ -9681,7 +9548,6 @@
       selectedCommunityMemberId: saved.selectedCommunityMemberId || seed.selectedCommunityMemberId,
       communityLeaderboardPeriod: saved.communityLeaderboardPeriod || seed.communityLeaderboardPeriod,
       communityTrendMemberId: saved.communityTrendMemberId || seed.communityTrendMemberId,
-      homeFeedFilter: ["all", "friends", "communities"].includes(saved.homeFeedFilter) ? saved.homeFeedFilter : seed.homeFeedFilter,
       dashboardAnalyticsOpen: Boolean(saved.dashboardAnalyticsOpen),
       editingRuleId: saved.editingRuleId || "",
       systemSetupStep: clampSetupStep(saved.systemSetupStep),

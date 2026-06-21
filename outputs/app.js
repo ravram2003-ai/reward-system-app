@@ -407,6 +407,7 @@
   let aiGenerating = false;         // guards the async "Generate with AI" calls
   let aiRefining = false;           // guards the async "Improve this system" chat calls
   let aiImproveOpen = false;        // keep the improve/chat panel open across re-renders
+  let aiChatFocusWanted = false;    // restore chat-input focus after a send (input is disabled mid-refine)
   // First-run onboarding overlay state.
   let onboardingActive = false;
   let onboardingStep = 1;
@@ -4130,6 +4131,9 @@
         saveState();
         renderSystems();
         await applyAiImprovement(presetKind);
+        // The local regenerate replaced the visible draft but not the raw system, so
+        // drop the raw — the next refine derives `current` from the current draft.
+        state.aiDraftRawSystem = null;
         return;
       }
       pushAiChat("ai", "Connect your account to refine with the AI — your system is unchanged.");
@@ -4257,8 +4261,8 @@
             <span class="eyebrow">Or tell the AI what to change</span>
             <div class="ai-chat-log" id="aiChatLog">${renderAiChatMessages()}</div>
             <form class="ai-chat-form" id="aiChatForm">
-              <input class="ai-chat-input" id="aiChatInput" type="text" autocomplete="off" placeholder="e.g. raise protein to 180g and add a stretching rule"${aiRefining ? " disabled" : ""}>
-              <button class="primary-button small" type="submit"${aiRefining ? " disabled" : ""}>Send</button>
+              <input class="ai-chat-input" id="aiChatInput" type="text" autocomplete="off" placeholder="e.g. raise protein to 180g and add a stretching rule"${(aiRefining || aiGenerating) ? " disabled" : ""}>
+              <button class="primary-button small" type="submit"${(aiRefining || aiGenerating) ? " disabled" : ""}>Send</button>
             </form>
           </div>
         </div>
@@ -4294,7 +4298,12 @@
         event.preventDefault();
         const input = document.getElementById("aiChatInput");
         const text = input ? input.value.trim() : "";
-        if (text) { input.value = ""; refineAiDraft(text); }
+        if (!text) return;
+        // Guard BEFORE clearing so a submit during a busy window never loses the text.
+        if (aiRefining || aiGenerating) { showToast("Hang on — still working on the last change."); return; }
+        input.value = "";
+        aiChatFocusWanted = true; // re-focus after the refine completes (input is disabled mid-flight)
+        refineAiDraft(text);
       });
     }
     // Restore any in-progress chat text + focus (a background render can rebuild this
@@ -4302,7 +4311,7 @@
     const chatInputEl = document.getElementById("aiChatInput");
     if (chatInputEl && !aiRefining) {
       if (prevChatValue) chatInputEl.value = prevChatValue;
-      if (prevChatFocused) chatInputEl.focus();
+      if (prevChatFocused || aiChatFocusWanted) { chatInputEl.focus(); aiChatFocusWanted = false; }
     }
     const chatLog = document.getElementById("aiChatLog");
     if (chatLog) chatLog.scrollTop = chatLog.scrollHeight;

@@ -256,6 +256,8 @@
     aiDraftSystem: null,
     aiDraftInputs: null,
     aiDraftAdjustments: null,
+    aiDraftRawSystem: null,   // last AI-shape system (refine source of truth)
+    aiDraftChat: [],          // improve-this-system conversation: [{ role, text }]
     aiLearning: { saved: {}, feedback: [], deletedRuleLabels: {}, likedRuleLabels: {} },
     systemSetupStep: 0,
     systemEditorOpen: false,
@@ -403,6 +405,8 @@
   let friendActivityRows = [];     // [{ community_id, community_name, rule_id, amount, entry_date }]
   let friendActivityLoading = false;
   let aiGenerating = false;         // guards the async "Generate with AI" calls
+  let aiRefining = false;           // guards the async "Improve this system" chat calls
+  let aiImproveOpen = false;        // keep the improve/chat panel open across re-renders
   // First-run onboarding overlay state.
   let onboardingActive = false;
   let onboardingStep = 1;
@@ -1806,9 +1810,6 @@
       "buildAiForm",
       "aiGoalsInput",
       "aiRewardHabitsInput",
-      "aiPenaltyHabitsInput",
-      "aiCategoriesInput",
-      "aiStrictnessInput",
       "aiTargetsInput",
       "aiDraftReview",
       "systemList",
@@ -3175,6 +3176,9 @@
     state.aiDraftSystem = null;
     state.aiDraftInputs = null;
     state.aiDraftAdjustments = null;
+    state.aiDraftRawSystem = null;
+    state.aiDraftChat = [];
+    aiImproveOpen = false;
     if (state.buildMode === "home") {
       state.buildViewedProfileId = "";
       state.buildViewedPublicId = "";
@@ -3413,6 +3417,9 @@
     try {
       state.aiDraftInputs = inputs;
       state.aiDraftAdjustments = blankAiAdjustments();
+      state.aiDraftRawSystem = null;
+      state.aiDraftChat = [];   // fresh draft → fresh improve conversation
+      aiImproveOpen = false;
       state.aiDraftSystem = await aiGenerateDraft(inputs, state.aiDraftAdjustments, "personal");
       state.buildMode = "ai";
       saveState();
@@ -3424,12 +3431,15 @@
   }
 
   function readAiFormInputs() {
+    // Form was simplified to 3 fields. The removed inputs get sensible defaults so
+    // the Edge Function contract is unchanged: balanced strictness, no penalties,
+    // and an empty category (the generator infers it from the goals server-side).
     return {
       goals: els.aiGoalsInput.value.trim(),
       rewards: els.aiRewardHabitsInput.value.trim(),
-      penalties: els.aiPenaltyHabitsInput.value.trim(),
-      categories: els.aiCategoriesInput.value.trim(),
-      strictness: els.aiStrictnessInput.value,
+      penalties: "",
+      categories: "",
+      strictness: "balanced",
       targets: els.aiTargetsInput.value.trim()
     };
   }
@@ -3468,6 +3478,8 @@
         kind: kind || "personal"
       });
       if (!res.error && res.system) {
+        // Keep the raw AI-shape system so "Improve this system" can refine from it.
+        state.aiDraftRawSystem = res.system;
         return buildAiDraftFromAiSystem(res.system, inputs, adjustments);
       }
       const reason = res.error && res.error.message ? res.error.message : "AI is unavailable right now.";
@@ -4012,6 +4024,143 @@
     showToast("Draft updated");
   }
 
+  // ── Conversational "Improve this system" ────────────────────────────────────
+  // Preset chips feed the SAME refine path as the free-text chat, via a canned line.
+  const AI_PRESET_INSTRUCTIONS = {
+    stricter: "Make the whole system stricter: raise the daily targets and point thresholds, and add a sensible penalty rule if there isn't one.",
+    easier: "Make the system easier: lower the daily targets and make points easier to earn.",
+    specific: "Make every rule more specific and measurable, with concrete numeric targets.",
+    "more-rules": "Add two more useful rules that fit these goals.",
+    "remove-penalties": "Remove all penalty rules (any rule with negative points).",
+    consistency: "Shift the focus toward daily consistency and streak-friendly habits.",
+    outcomes: "Shift the focus toward outcome-based goals and add a stretch bonus rule."
+  };
+  const AI_PRESET_LABELS = {
+    stricter: "Make it stricter", easier: "Make it easier", specific: "More specific",
+    "more-rules": "Add more rules", "remove-penalties": "Remove penalties",
+    consistency: "Focus on consistency", outcomes: "Focus on outcomes"
+  };
+  function cannedInstructionForPreset(kind) {
+    return AI_PRESET_INSTRUCTIONS[kind] || "";
+  }
+
+  function pushAiChat(role, text) {
+    state.aiDraftChat = Array.isArray(state.aiDraftChat) ? state.aiDraftChat : [];
+    state.aiDraftChat.push({ role: role === "user" ? "user" : "ai", text: String(text || "") });
+  }
+
+  function refineConfirmation(system) {
+    const note = system && typeof system.explanation === "string" ? system.explanation.trim() : "";
+    const count = system && Array.isArray(system.rules) ? system.rules.length : 0;
+    return note ? `Done — ${note}` : `Done — updated to ${plural(count, "rule")}.`;
+  }
+
+  // Reject anything that isn't the exact shape with sane values, so we NEVER apply
+  // broken AI data to the draft.
+  function validateAiSystem(system) {
+    if (!system || typeof system !== "object") return false;
+    if (!Array.isArray(system.rules) || system.rules.length === 0 || system.rules.length > 24) return false;
+    const styles = ["goal", "every", "yesNo"];
+    return system.rules.every((rule) => {
+      if (!rule || typeof rule !== "object") return false;
+      if (typeof rule.label !== "string" || !rule.label.trim()) return false;
+      const points = Number(rule.points);
+      if (!Number.isFinite(points) || Math.abs(points) > 50) return false;
+      const goal = Number(rule.goal);
+      if (!Number.isFinite(goal) || goal < 0 || goal > 1e7) return false;
+      if (rule.every !== undefined && rule.every !== null && rule.every !== "") {
+        const every = Number(rule.every);
+        if (!Number.isFinite(every) || every < 0 || every > 1e7) return false;
+      }
+      if (rule.style !== undefined && rule.style !== null && rule.style !== "" && !styles.includes(String(rule.style))) return false;
+      return true;
+    });
+  }
+
+  // Convert the app-shape draft back to the simple AI shape (fallback refine source
+  // if no raw system was stored, e.g. after an offline starter template).
+  function aiShapeRuleFromAppRule(ruleInput) {
+    const r = scoring.normalizeRule(ruleInput);
+    let style = "goal";
+    let goal = numberOrDefault(r.dailyTarget, 0);
+    let every = 0;
+    let points = numberOrDefault(r.goalPoints, 1);
+    let tier = "core";
+    if (r.simpleStyle === "yesNo") { style = "yesNo"; goal = 0; points = numberOrDefault(r.yesNoPoints, r.goalPoints); }
+    else if (r.simpleStyle === "every") { style = "every"; every = numberOrDefault(r.everyAmount, 1); points = numberOrDefault(r.everyPoints, 1); }
+    else if (r.simpleStyle === "both") { style = "every"; every = numberOrDefault(r.everyAmount, 1); points = numberOrDefault(r.everyPoints, r.goalPoints); }
+    else if (r.simpleStyle === "penalty") { style = "goal"; goal = numberOrDefault(r.minimumRequired, r.dailyTarget); points = -Math.abs(numberOrDefault(r.penaltyPoints, 1)); tier = "penalty"; }
+    if (numberOrDefault(points, 0) < 0) tier = "penalty";
+    return { label: r.label, category: r.category, unit: r.unit, style: style, goal: goal, every: every, points: points, tier: tier };
+  }
+  function appSystemToAiShape(appSystem) {
+    const s = normalizeSystem(appSystem || {});
+    return {
+      title: s.title || "",
+      category: s.category || "",
+      description: s.description || "",
+      explanation: s.aiExplanation || "",
+      rules: (s.rules || []).map(aiShapeRuleFromAppRule)
+    };
+  }
+
+  function renderAiChatMessages() {
+    const chat = Array.isArray(state.aiDraftChat) ? state.aiDraftChat : [];
+    const rows = chat.map((m) => `<div class="ai-chat-msg ai-chat-${m.role === "user" ? "user" : "ai"}">${escapeHtml(m.text)}</div>`);
+    if (aiRefining) rows.push(`<div class="ai-chat-msg ai-chat-ai ai-chat-pending">Thinking…</div>`);
+    if (!rows.length) return `<div class="ai-chat-empty">Tell the AI what to change — e.g. “raise protein to 180g and add a stretching rule”.</div>`;
+    return rows.join("");
+  }
+
+  // Refine the current draft from a typed instruction (or a preset's canned line) via
+  // the SAME Edge Function. Validates before applying; on any failure the previous
+  // draft is kept and a clean message is shown — never apply broken data or crash.
+  async function refineAiDraft(instruction, presetKind) {
+    if (!state.aiDraftSystem) return;
+    const text = String(instruction || "").trim();
+    if (!text) return;
+    if (aiRefining || aiGenerating) { showToast("Hang on — still working on the last change."); return; }
+    aiImproveOpen = true;
+    pushAiChat("user", presetKind ? (AI_PRESET_LABELS[presetKind] || text) : text);
+
+    // Offline: presets fall back to the local adjustment regenerate; free-text needs the API.
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.generateRules !== "function") {
+      if (presetKind && AI_IMPROVEMENTS[presetKind]) {
+        pushAiChat("ai", "Applied that preset offline.");
+        saveState();
+        renderSystems();
+        await applyAiImprovement(presetKind);
+        return;
+      }
+      pushAiChat("ai", "Connect your account to refine with the AI — your system is unchanged.");
+      saveState();
+      renderSystems();
+      return;
+    }
+
+    aiRefining = true;
+    saveState();
+    renderSystems(); // shows the user message + a "Thinking…" line
+    try {
+      const current = state.aiDraftRawSystem || appSystemToAiShape(state.aiDraftSystem);
+      const history = (state.aiDraftChat || []).slice(-8).map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: m.text }));
+      const res = await window.PointwellSignals.generateRules({ mode: "refine", current: current, instruction: text, history: history });
+      if (res.error || !res.system || !validateAiSystem(res.system)) {
+        pushAiChat("ai", "Couldn't apply that — the AI response wasn't valid, so nothing changed. Try rephrasing.");
+      } else {
+        state.aiDraftRawSystem = res.system;
+        state.aiDraftSystem = buildAiDraftFromAiSystem(res.system, state.aiDraftInputs || readAiFormInputs(), state.aiDraftAdjustments || blankAiAdjustments());
+        pushAiChat("ai", refineConfirmation(res.system));
+      }
+    } catch (e) {
+      pushAiChat("ai", "Something went wrong reaching the AI — your system is unchanged.");
+    } finally {
+      aiRefining = false;
+      saveState();
+      renderSystems();
+    }
+  }
+
   async function recordAiFeedback(type) {
     if (!state.aiDraftSystem) return;
     const learning = ensureAiLearning();
@@ -4049,9 +4198,6 @@
         const restore = (el, value) => { if (el && document.activeElement !== el) el.value = value || ""; };
         restore(els.aiGoalsInput, saved.goals);
         restore(els.aiRewardHabitsInput, saved.rewards);
-        restore(els.aiPenaltyHabitsInput, saved.penalties);
-        restore(els.aiCategoriesInput, saved.categories);
-        restore(els.aiStrictnessInput, saved.strictness);
         restore(els.aiTargetsInput, saved.targets);
       }
       return;
@@ -4075,6 +4221,10 @@
       { kind: "consistency", label: "Focus on consistency" },
       { kind: "outcomes", label: "Focus on outcomes" }
     ];
+    // Preserve any in-progress chat text/focus across this rebuild (restored after).
+    const prevChatEl = document.getElementById("aiChatInput");
+    const prevChatValue = prevChatEl ? prevChatEl.value : "";
+    const prevChatFocused = !!prevChatEl && document.activeElement === prevChatEl;
     els.aiDraftReview.innerHTML = `
       <div class="ai-draft-card">
         <div class="panel-heading tight">
@@ -4098,12 +4248,18 @@
           </div>
         </div>
         <div class="ai-improve">
-          <button class="secondary-button small" type="button" id="aiImproveToggle">Improve this system</button>
-          <div class="ai-improve-panel" id="aiImprovePanel" hidden>
-            <span class="eyebrow">What should change?</span>
+          <button class="secondary-button small" type="button" id="aiImproveToggle" aria-expanded="${aiImproveOpen ? "true" : "false"}">Improve this system</button>
+          <div class="ai-improve-panel" id="aiImprovePanel"${aiImproveOpen ? "" : " hidden"}>
+            <span class="eyebrow">Quick changes</span>
             <div class="ai-feedback-row">
               ${improveButtons.map((item) => `<button class="ghost-button small" type="button" data-ai-improve="${item.kind}">${escapeHtml(item.label)}</button>`).join("")}
             </div>
+            <span class="eyebrow">Or tell the AI what to change</span>
+            <div class="ai-chat-log" id="aiChatLog">${renderAiChatMessages()}</div>
+            <form class="ai-chat-form" id="aiChatForm">
+              <input class="ai-chat-input" id="aiChatInput" type="text" autocomplete="off" placeholder="e.g. raise protein to 180g and add a stretching rule"${aiRefining ? " disabled" : ""}>
+              <button class="primary-button small" type="submit"${aiRefining ? " disabled" : ""}>Send</button>
+            </form>
           </div>
         </div>
         <p class="review-note">Use this system to open the full setup editor and customize every rule.</p>
@@ -4112,20 +4268,44 @@
     document.getElementById("useAiDraftButton")?.addEventListener("click", useAiDraftSystem);
     document.getElementById("editAiPromptButton")?.addEventListener("click", () => {
       state.aiDraftSystem = null;
+      state.aiDraftRawSystem = null;
+      state.aiDraftChat = [];
+      aiImproveOpen = false;
       saveState();
       renderSystems();
       requestAnimationFrame(() => els.aiGoalsInput?.focus());
     });
     document.getElementById("aiImproveToggle")?.addEventListener("click", () => {
+      aiImproveOpen = !aiImproveOpen;
       const panel = document.getElementById("aiImprovePanel");
-      if (panel) panel.hidden = !panel.hidden;
+      if (panel) panel.hidden = !aiImproveOpen;
+      if (aiImproveOpen) requestAnimationFrame(() => document.getElementById("aiChatInput")?.focus());
     });
     Array.from(els.aiDraftReview.querySelectorAll("[data-ai-feedback]")).forEach((button) => {
       button.addEventListener("click", () => recordAiFeedback(button.dataset.aiFeedback));
     });
+    // Preset chips and the free-text chat feed the SAME refine path.
     Array.from(els.aiDraftReview.querySelectorAll("[data-ai-improve]")).forEach((button) => {
-      button.addEventListener("click", () => applyAiImprovement(button.dataset.aiImprove));
+      button.addEventListener("click", () => refineAiDraft(cannedInstructionForPreset(button.dataset.aiImprove), button.dataset.aiImprove));
     });
+    const chatForm = document.getElementById("aiChatForm");
+    if (chatForm) {
+      chatForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const input = document.getElementById("aiChatInput");
+        const text = input ? input.value.trim() : "";
+        if (text) { input.value = ""; refineAiDraft(text); }
+      });
+    }
+    // Restore any in-progress chat text + focus (a background render can rebuild this
+    // panel), and keep the log scrolled to the newest message.
+    const chatInputEl = document.getElementById("aiChatInput");
+    if (chatInputEl && !aiRefining) {
+      if (prevChatValue) chatInputEl.value = prevChatValue;
+      if (prevChatFocused) chatInputEl.focus();
+    }
+    const chatLog = document.getElementById("aiChatLog");
+    if (chatLog) chatLog.scrollTop = chatLog.scrollHeight;
   }
 
   function useAiDraftSystem() {

@@ -54,6 +54,23 @@ OUTPUT: Respond with ONLY a single minified JSON object, no prose, no markdown c
 - "description": one sentence on what it rewards.
 - "explanation": 1–2 sentences on why these rules, for the review screen.`;
 
+// Refine mode — the user is editing an EXISTING system via a chat instruction.
+const REFINE_SYSTEM_PROMPT = `You are editing an existing Pointwell reward system based on the user's instruction.
+
+You receive the CURRENT system as JSON plus an instruction describing a change (e.g. "raise protein to 180g", "add a stretching rule", "make it stricter"). Apply ONLY what the instruction asks. Keep every other rule and field exactly as-is — preserve the labels, units, points, and tiers of rules the instruction does not mention. Do not drop rules unless asked to.
+
+Each rule keeps this shape:
+- "label", "category", "unit" (what is measured).
+- "style": "goal" (hit a daily target once), "every" (points per increment), or "yesNo" (did it / didn't, goal 0).
+- "goal": numeric daily target (0 for yesNo). "every": increment for "every" style (0 otherwise).
+- "points": small number 0.5–3; NEGATIVE for a penalty rule.
+- "tier": "core" | "extra" | "bonus" | "penalty".
+
+OUTPUT: Respond with ONLY a single minified JSON object — the FULL updated system — in this EXACT shape, no prose, no markdown code fences:
+{"title":string,"category":string,"description":string,"explanation":string,"rules":[{"label":string,"category":string,"unit":string,"style":"goal"|"every"|"yesNo","goal":number,"every":number,"points":number,"tier":"core"|"extra"|"bonus"|"penalty"}]}
+- Keep "title"/"category" unless the instruction changes the focus.
+- "explanation": ONE short sentence stating what you just changed.`;
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -79,6 +96,21 @@ function buildUserMessage(input: Record<string, unknown>): string {
     lines.unshift("This system is for a COMMUNITY of people working toward a shared goal — keep rules fair and broadly applicable.");
   }
   return lines.join("\n");
+}
+
+// Build the user turn for a refine request: current system + recent chat + instruction.
+function buildRefineMessage(input: Record<string, unknown>): string {
+  let currentJson = "{}";
+  try { currentJson = JSON.stringify(input.current ?? {}).slice(0, 6000); } catch { currentJson = "{}"; }
+  const instruction = String(input.instruction ?? "").trim().slice(0, 600) || "(no change requested)";
+  const history = Array.isArray(input.history) ? (input.history as any[]).slice(-6) : [];
+  const histText = history
+    .map((m) => `${String(m?.role) === "user" ? "User" : "Assistant"}: ${String(m?.text ?? "").slice(0, 300)}`)
+    .join("\n");
+  const lines = [`Current system (JSON):\n${currentJson}`];
+  if (histText) lines.push(`Recent conversation:\n${histText}`);
+  lines.push(`Apply this change and return the FULL updated system as JSON:\n${instruction}`);
+  return lines.join("\n\n");
 }
 
 // Defensive: pull the JSON object out of the model's text even if it wrapped it in
@@ -122,6 +154,12 @@ Deno.serve(async (req: Request) => {
     input = {};
   }
 
+  // Two modes, ONE function/path/key: "refine" edits an existing system from a chat
+  // instruction; anything else generates a fresh system from the form inputs.
+  const isRefine = String(input.mode ?? "") === "refine";
+  const systemPrompt = isRefine ? REFINE_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const userContent = isRefine ? buildRefineMessage(input) : buildUserMessage(input);
+
   try {
     const resp = await fetch(ANTHROPIC_URL, {
       method: "POST",
@@ -133,8 +171,8 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 1500,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: "user", content: buildUserMessage(input) }],
+        system: systemPrompt,
+        messages: [{ role: "user", content: userContent }],
       }),
     });
 

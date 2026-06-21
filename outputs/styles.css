@@ -7193,3 +7193,32 @@ button.notif-item:hover {
   font-size: 0.76rem;
   white-space: nowrap;
 }
+
+/* ── Today's Schedule timeline (member activity day view) ───────────────── */
+.member-schedule-panel .ds-legend{
+  display:flex;flex-wrap:wrap;gap:7px 16px;padding:10px 14px;margin:2px 0 14px;
+  border:1px solid var(--line);border-radius:12px;background:var(--panel,var(--surface));
+}
+.member-schedule-panel .ds-lg{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12.5px;font-weight:700}
+.member-schedule-panel .ds-sw{width:11px;height:11px;border-radius:3px;flex:0 0 auto}
+.member-schedule-panel .ds-cal{position:relative;padding-left:52px;margin-top:4px}
+.member-schedule-panel .ds-hours{position:absolute;left:0;top:0;width:46px}
+.member-schedule-panel .ds-hour{position:absolute;right:8px;transform:translateY(-50%);font:600 11px/1 ui-monospace,Menlo,monospace;color:var(--muted)}
+.member-schedule-panel .ds-track{position:relative;border-radius:12px;border:1px solid var(--line);overflow:hidden;
+  background:
+    repeating-linear-gradient(to bottom,var(--line) 0 1px,transparent 1px var(--ds-hour,40px)),
+    repeating-linear-gradient(to bottom,var(--line-strong) 0 1px,transparent 1px calc(var(--ds-hour,40px) * 6)),
+    var(--panel,var(--surface));
+}
+.member-schedule-panel .ds-events{position:absolute;inset:0 10px 0 8px}
+.member-schedule-panel .ds-block{position:absolute;box-sizing:border-box;border-radius:7px;overflow:hidden;
+  display:flex;align-items:center;gap:7px;padding:1px 9px;color:var(--c);
+  background:color-mix(in srgb,var(--c) 20%,transparent);border-left:3px solid var(--c);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--c) 34%,transparent);transition:background .12s}
+.member-schedule-panel .ds-block:hover{background:color-mix(in srgb,var(--c) 30%,transparent)}
+.member-schedule-panel .ds-bl{font-weight:700;font-size:12px;line-height:1.2;color:var(--ink);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.member-schedule-panel .ds-bt{font:600 10.5px/1.2 ui-monospace,Menlo,monospace;color:var(--ink);opacity:.85;flex:0 0 auto;margin-left:auto}
+.member-schedule-panel .ds-now{position:absolute;left:-52px;right:0;height:0;border-top:2px solid var(--accent);z-index:6;pointer-events:none}
+.member-schedule-panel .ds-now::before{content:'';position:absolute;left:46px;top:-4px;width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.member-schedule-panel .ds-now-lab{position:absolute;left:3px;top:-7px;font:700 10px ui-monospace,Menlo,monospace;color:var(--accent);background:var(--surface);padding:0 2px}
+.member-schedule-panel .ds-empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-weight:700;font-size:13px}

@@ -8387,6 +8387,16 @@ body.onboarding-locked .fab-add { display: none; }
 
 .profile-section { display: grid; gap: 10px; }
 .profile-section-title { font-size: 0.95rem; font-weight: 850; color: var(--ink); margin: 0; }
+
+/* "Today in <community>" section folded into the profile from a leaderboard tap */
+.profile-today-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.profile-today-kudos { flex: 0 0 auto; }
+.profile-today-strip { margin-bottom: 0; } /* it's one item in the section's grid gap */
+.profile-today-ring-label { font-size: 0.74rem; font-weight: 850; color: var(--ink); }
+.profile-today-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.profile-today-meta > strong { font-size: 0.9rem; font-weight: 850; color: var(--ink); }
+/* Over-goal rule label (e.g. "+4 · 300% of goal") — warm accent, matches the over-goal bar */
+.rule-progress-percent.over-goal { color: var(--warm); }
 .profile-posts-section .profile-section-title { font-size: 1.05rem; }
 
 .profile-suggest-list { display: grid; gap: 8px; }

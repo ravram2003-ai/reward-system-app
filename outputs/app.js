@@ -354,6 +354,7 @@
 
   let state = loadState();
   let addEntryDraft = { ruleId: "", amount: 0 };
+  let aiPrefilledComposer = false; // AI Quick Log mapped one entry → composer is pre-filled
   // Optional message + photo for the next Add Entry. Both optional; reset after save.
   let addEntryAttachment = { message: "", file: null, previewUrl: "" };
   const ENTRY_PHOTO_MAX_BYTES = 5 * 1024 * 1024; // ~5 MB cap (protects free-tier storage)
@@ -3576,6 +3577,7 @@
     }
     resetAddEntryAttachment(); // each Add Entry starts with a clean message/photo
     resetQuickLog();           // ...and a clean quick-log box
+    aiPrefilledComposer = false; // a fresh manual open is not AI-prefilled
     state.activeView = "add-entry";
     saveState();
     render();
@@ -7613,6 +7615,40 @@
     };
   }
 
+  // Single mapped entry → drop it into the existing manual composer (rule + amount) in
+  // the entry's own context, so the user adds an optional note/photo and taps the same
+  // "Post" button. Reuses the composer + add-entry/save path entirely — no parallel post
+  // mechanism. Returns false (without side effects) if the rule can't be resolved, so the
+  // caller falls back to the review-list card.
+  function prefillComposerFromQuickLog(entry) {
+    const resolved = resolveQuickLogRule(entry.contextType, entry.contextId, entry.ruleId);
+    if (!resolved) return false;
+    // Switch the composer to the entry's system/community (mirrors the score-context switch).
+    if (entry.contextType === "community") {
+      state.scoreContext = "community:" + entry.contextId;
+      state.selectedCommunityId = entry.contextId;
+    } else {
+      state.scoreContext = "personal";
+      state.trackerSystemId = entry.contextId;
+    }
+    state.draftInputs = {};
+    // Pre-fill the manual draft (renderAddEntryPanel re-normalizes the amount for the rule).
+    addEntryDraft = { ruleId: entry.ruleId, amount: entry.amount };
+    aiPrefilledComposer = true;
+    // Clear the capture box + any draft so the single-entry review card never shows.
+    quickLogDraft = [];
+    quickLogClarifications = [];
+    if (els.quickLogInput) els.quickLogInput.value = "";
+    setQuickLogHint("");
+    renderQuickLogDraft();
+    saveState();
+    render(); // re-renders the add-entry view: composer pre-filled (rule+amount) + AI note
+    requestAnimationFrame(() => {
+      if (els.dailyInputList && els.dailyInputList.scrollIntoView) els.dailyInputList.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    return true;
+  }
+
   async function runQuickLog() {
     const text = els.quickLogInput ? els.quickLogInput.value.trim() : "";
     if (!text) { setQuickLogHint("Type or say what you did first."); return; }
@@ -7633,10 +7669,15 @@
       quickLogClarifications = (res.clarifications || []).map((c, i) => Object.assign({}, c, { _id: "clar-" + i }));
       if (!quickLogDraft.length && !quickLogClarifications.length) {
         setQuickLogHint("Couldn't match that to a rule. Try naming the metric, or log manually below.");
+        renderQuickLogDraft();
+      } else if (quickLogDraft.length === 1 && !quickLogClarifications.length && prefillComposerFromQuickLog(quickLogDraft[0])) {
+        // Exactly one mapped entry → drop it into the single composer (rule + amount),
+        // where the user adds an optional note/photo and taps Post. No confirm card.
       } else {
+        // Multiple entries (or an unresolved clarification) → keep the review list.
         setQuickLogHint("");
+        renderQuickLogDraft();
       }
-      renderQuickLogDraft();
     } catch (e) {
       setQuickLogHint("Quick log failed — try again or log manually below.");
     } finally {
@@ -7987,6 +8028,7 @@
 
     return `
       <div class="add-entry-card" data-add-entry-card>
+        ${aiPrefilledComposer ? `<p class="add-entry-ai-note"><span aria-hidden="true">✨</span> AI filled this in — review, add a photo/caption, and post.</p>` : ""}
         <label class="wide-entry-field">
           <span>Metric/rule</span>
           <select data-add-entry-rule aria-label="Choose metric to add">${options}</select>
@@ -8247,6 +8289,7 @@
     const system = getActiveScoreContext().system;
     const rule = system?.rules.map(scoring.normalizeRule).find((item) => item.id === ruleId);
     if (!system || !rule) return;
+    aiPrefilledComposer = false; // user picked a different rule → drop the AI-filled note
     addEntryDraft = { ruleId, amount: suggestedEntryAmount(rule) };
     els.dailyInputList.innerHTML = renderAddEntryPanel(system);
     bindDailyInputs();
@@ -8355,6 +8398,7 @@
     }
     addEntryDraft = { ruleId: rule.id, amount: suggestedEntryAmount(rule) };
     resetAddEntryAttachment();
+    aiPrefilledComposer = false;
     state.activeView = "dashboard";
     saveState();
     render();

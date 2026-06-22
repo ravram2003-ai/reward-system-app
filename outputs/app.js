@@ -6759,9 +6759,19 @@
     }
     profileOverviewLoading = true;
     renderProfilePage();
-    let row = null;
-    try { row = await window.PointwellSignals.getProfileOverview(id); } catch (e) { row = null; }
+    let row = null, counts = null;
+    try {
+      const out = await Promise.all([
+        Promise.resolve(window.PointwellSignals.getProfileOverview(id)).catch(() => null),
+        (typeof window.PointwellSignals.getFollowCounts === "function"
+          ? Promise.resolve(window.PointwellSignals.getFollowCounts(id)).catch(() => null)
+          : Promise.resolve(null))
+      ]);
+      row = out[0]; counts = out[1];
+    } catch (e) { row = null; }
     if (String(state.profileUserId) !== String(id)) return; // navigated away mid-fetch
+    // Attach follower/following counts to the profile row so the hero can show them.
+    if (row && counts) { row.follower_count = counts.follower_count; row.following_count = counts.following_count; }
     profileOverviewLoading = false;
     profileOverview = row;
     if (state.activeView === "profile-page") renderProfilePage();
@@ -6790,6 +6800,7 @@
         <div class="profile-hero-main">
           <h2 class="profile-hero-name">${name}</h2>
           <span class="profile-hero-handle">${handle}</span>
+          ${renderProfileCounts(o)}
           <span class="profile-hero-sub">${shortLine}</span>
         </div>
         ${canView ? `<div class="profile-hero-actions">${profileRelationshipButton(o)}${profileMessageButton(name)}</div>` : ""}
@@ -6814,6 +6825,23 @@
 
   function profileMessageButton(name) {
     return `<button class="secondary-button small" type="button" data-profile-message aria-label="Message ${name}"><span aria-hidden="true">✉</span> Message</button>`;
+  }
+
+  // Compact follower/following counts under the name/@handle — shown on public AND
+  // private profiles (safe even when the feed is locked). Hidden until counts load.
+  function renderProfileCounts(o) {
+    if (!o || o.follower_count == null) return "";
+    const followers = Number(o.follower_count) || 0;
+    const following = Number(o.following_count) || 0;
+    const fw = followers === 1 ? "follower" : "followers";
+    return `<span class="profile-hero-counts">${escapeHtml(formatFollowCount(followers))} ${fw} · ${escapeHtml(formatFollowCount(following))} following</span>`;
+  }
+
+  // 128 → "128", 1200 → "1.2k", 12000 → "12k".
+  function formatFollowCount(n) {
+    const v = Math.max(0, Number(n) || 0);
+    if (v < 1000) return String(v);
+    return Number((v / 1000).toFixed(1)) + "k";
   }
 
   // Header relationship button: public → instant Follow/Following (follows table);
@@ -6973,12 +7001,19 @@
 
   function profileFollow(id) {
     if (!signalsReady()) { showToast("Sign in to follow"); return; }
-    if (profileOverview) profileOverview.is_following = true;
+    if (profileOverview) {
+      profileOverview.is_following = true;
+      // Following this profile adds the viewer to its followers — reflect it at once.
+      if (profileOverview.follower_count != null) profileOverview.follower_count = Number(profileOverview.follower_count) + 1;
+    }
     renderProfilePage();
     Promise.resolve(window.PointwellSignals.followUser(id)).then((r) => { if (r && r.error) { showToast("Couldn't follow"); loadProfileOverview(id); } }).catch(() => loadProfileOverview(id));
   }
   function profileUnfollow(id) {
-    if (profileOverview) profileOverview.is_following = false;
+    if (profileOverview) {
+      profileOverview.is_following = false;
+      if (profileOverview.follower_count != null) profileOverview.follower_count = Math.max(0, Number(profileOverview.follower_count) - 1);
+    }
     renderProfilePage();
     Promise.resolve(window.PointwellSignals.unfollowUser(id)).then((r) => { if (r && r.error) loadProfileOverview(id); }).catch(() => loadProfileOverview(id));
   }
@@ -7895,6 +7930,9 @@
         </div>
         ${renderAddEntryAmountControl(selectedRule, amount)}
         ${renderEntryAttachControls()}
+        <button class="primary-button add-entry-submit" type="button" data-add-entry-button>
+          <span data-add-entry-button-label>${escapeHtml(addEntryButtonLabel(selectedRule, amount))}</span>
+        </button>
       </div>
     `;
   }
@@ -8015,7 +8053,6 @@
   }
 
   function renderAddEntryAmountControl(rule, amount) {
-    const adjustmentLabel = isRuleSynced(rule) ? "adjustment" : "";
     if (rule.inputMethod === "toggle") {
       const checked = Number(amount) > 0;
       return `
@@ -8024,10 +8061,6 @@
             <input data-add-entry-toggle type="checkbox" aria-label="${escapeHtml(rule.label)} completed"${checked ? " checked" : ""}>
             <span>Completed today</span>
           </label>
-          <button class="primary-button" type="button" data-add-entry-button>
-            <span aria-hidden="true">+</span>
-            <span data-add-entry-button-label>${checked ? `Add ${escapeHtml(rule.label)}${adjustmentLabel ? ` ${adjustmentLabel}` : ""}` : "Choose completion"}</span>
-          </button>
         </div>
       `;
     }
@@ -8046,12 +8079,19 @@
             </div>
           </div>
         </label>
-        <button class="primary-button" type="button" data-add-entry-button>
-          <span aria-hidden="true">+</span>
-          <span data-add-entry-button-label>Add ${escapeHtml(formatValue(safeAmount))} ${escapeHtml(rule.unit)} ${escapeHtml(rule.label)}${adjustmentLabel ? ` ${adjustmentLabel}` : ""}</span>
-        </button>
       </div>
     `;
+  }
+
+  // The submit button's label — "Post <rule>" (toggle) or "Post <value> <unit> <rule>"
+  // (amount), with an "adjustment" suffix for synced rules; "Choose completion" until a
+  // toggle rule is checked. Shared by the initial render and the live preview update.
+  function addEntryButtonLabel(rule, amount) {
+    const adj = isRuleSynced(rule) ? " adjustment" : "";
+    if (rule.inputMethod === "toggle") {
+      return Number(amount) > 0 ? `Post ${rule.label}${adj}` : "Choose completion";
+    }
+    return `Post ${formatValue(amount)} ${rule.unit} ${rule.label}${adj}`;
   }
 
   function renderInputRow(item, scope = "personal") {
@@ -8162,10 +8202,7 @@
     setText("[data-add-preview-percent]", `${formatPercent(displayCompletionPercent(previewPercent))} complete`);
     setWidth("[data-add-current-fill]", currentPercent);
     setWidth("[data-add-preview-fill]", previewPercent);
-    const buttonLabel = rule.inputMethod === "toggle"
-      ? (amount > 0 ? `Add ${rule.label}${isRuleSynced(rule) ? " adjustment" : ""}` : "Choose completion")
-      : `Add ${formatValue(amount)} ${rule.unit} ${rule.label}${isRuleSynced(rule) ? " adjustment" : ""}`;
-    setText("[data-add-entry-button-label]", buttonLabel);
+    setText("[data-add-entry-button-label]", addEntryButtonLabel(rule, amount));
   }
 
   async function addDailyEntryFromDraft() {

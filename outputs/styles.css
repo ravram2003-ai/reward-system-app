@@ -8372,6 +8372,7 @@ body.onboarding-locked .fab-add { display: none; }
 .profile-hero-main { display: grid; gap: 2px; min-width: 0; flex: 1 1 auto; }
 .profile-hero-name { font-size: 1.3rem; font-weight: 850; color: var(--ink); }
 .profile-hero-handle { color: var(--muted); font-size: 0.9rem; }
+.profile-hero-counts { color: var(--muted); font-size: 0.84rem; font-weight: 700; margin-top: 2px; }
 .profile-hero-sub { color: var(--accent-strong); font-size: 0.82rem; font-weight: 700; margin-top: 2px; }
 .profile-hero-actions { display: flex; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; }
 .profile-rel-status { font-size: 0.84rem; font-weight: 750; color: var(--muted); align-self: center; }

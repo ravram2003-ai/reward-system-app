@@ -793,6 +793,21 @@
     }
   }
 
+  // Follower / following counts for any profile (SECURITY DEFINER — follows RLS is
+  // participant-only). Returns { follower_count, following_count } or null on failure.
+  async function getFollowCounts(targetId) {
+    var sb = getClient();
+    if (!sb || !targetId) return null;
+    try {
+      var res = await sb.rpc("get_follow_counts", { target: targetId });
+      if (res.error) return null;
+      var rows = res.data || [];
+      return rows.length ? rows[0] : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   // Create a PENDING request to join a request_to_join community. A duplicate
   // (already pending) is treated as success. DB RLS enforces the real rules.
   async function requestToJoin(communityId, userId) {
@@ -1097,7 +1112,8 @@
     discoverFeed: discoverFeed,
     followUser: followUser,
     unfollowUser: unfollowUser,
-    getProfileOverview: getProfileOverview
+    getProfileOverview: getProfileOverview,
+    getFollowCounts: getFollowCounts
   };
 
   if (typeof module !== "undefined" && module.exports) {

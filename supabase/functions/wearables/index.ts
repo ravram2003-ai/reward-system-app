@@ -241,69 +241,12 @@ async function getJson(url: string, token: string): Promise<any | null> {
 }
 
 // Google Health API helpers -----------------------------------------------------
-// CivilDateTime at UTC midnight, `offset` days from now (used for dailyRollUp range).
-function civilDay(offset: number) {
-  const d = new Date(Date.now() + offset * 86400000);
-  // dailyRollUp's CivilDateTime = { date: google.type.Date, time?: TimeOfDay }. year/
-  // month/day live UNDER `date` (not at the top level), and there is NO timeZone field.
-  // Sending them flat caused: 400 "Unknown name 'year'/'month'/'day' at range.start".
-  // Omitting `time` defaults to midnight — exactly the day boundary the range wants.
-  return { date: { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() } };
-}
 // "active-energy-burned" -> "activeEnergyBurned" (the per-point payload key)
 function camelKey(dataType: string): string {
   return dataType.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 }
-async function googleRollup(dataType: string, token: string): Promise<any | null> {
-  // The roll-up range must be exactly ONE aggregation window (range span == windowSizeDays)
-  // and its start must align to a window boundary — otherwise Google returns
-  // 400 INVALID_ROLLUP_QUERY_DURATION. So: today only — start today 00:00, end tomorrow 00:00 exclusive.
-  const body = {
-    range: { start: civilDay(0), end: civilDay(1) },
-    windowSizeDays: 1,
-    pageSize: 100,
-    dataSourceFamily: "users/me/dataSourceFamilies/all-sources",
-  };
-  try {
-    const resp = await fetch(`${GOOGLE_HEALTH_API}/users/me/dataTypes/${dataType}/dataPoints:dailyRollUp`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => "");
-      console.log(`[wearables] rollup ${dataType} HTTP ${resp.status}: ${errText.slice(0, 300)}`);
-      return null;
-    }
-    const json = await resp.json();
-    console.log(`[wearables] rollup ${dataType} HTTP ${resp.status} ok: ${JSON.stringify(json).slice(0, 700)}`);
-    return json;
-  } catch (e) {
-    console.log(`[wearables] rollup ${dataType} threw: ${e}`);
-    return null;
-  }
-}
 function googleList(dataType: string, token: string, pageSize = 10): Promise<any | null> {
   return getJson(`${GOOGLE_HEALTH_API}/users/me/dataTypes/${dataType}/dataPoints?pageSize=${pageSize}`, token);
-}
-// Value from the most recent civil day that has data (robust to result ordering).
-function latestRollupValue(roll: any, dataType: string): number | null {
-  // Accept either documented array name.
-  const pts = roll?.rollupDataPoints || roll?.dataPoints;
-  if (!Array.isArray(pts) || !pts.length) return null;
-  const key = camelKey(dataType);
-  let best: number | null = null, bestDay = -1;
-  for (const p of pts) {
-    // Prefer the field named after the data type; if Google nests/renames it,
-    // fall back to the only non-timestamp number in the point.
-    let v = deepNum(p?.[key]);
-    if (v === null) v = deepNumExcluding(p);
-    if (v === null) continue;
-    const c = p.civilStartTime || p.startTime || {};
-    const day = (num(c.year) ?? 0) * 10000 + (num(c.month) ?? 0) * 100 + (num(c.day) ?? 0);
-    if (day >= bestDay) { bestDay = day; best = v; }
-  }
-  return best;
 }
 // Sortable timestamp for a data point (handles ISO strings and civil-time objects).
 function pointTime(p: any): number {

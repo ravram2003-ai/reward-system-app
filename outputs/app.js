@@ -6531,6 +6531,7 @@
       els.communityDescriptionInput.value = "";
       els.communityVisibilityInput.value = "private";
       els.communityRules.innerHTML = "";
+      els.communityRules.dataset.ruleSig = "";
       return;
     }
 
@@ -6539,18 +6540,30 @@
     els.communitySettingsTitle.textContent = canEdit ? "Edit Rules" : "View Rules";
     els.communitySettingsMode.textContent = canEdit ? "Community Rules" : "Read-only rules";
     els.communityRulesHint.textContent = canEdit ? "Edit Rules" : "View Rules";
-    els.communityNameInput.value = community.name || "";
-    els.communityDescriptionInput.value = community.description || "";
-    els.communityVisibilityInput.value = communityVisibility(community);
+    // These are live form inputs holding possibly-unsaved edits. render() runs from many
+    // background events (e.g. a wearable sync finishing after sign-in), so never overwrite an
+    // input the user is currently focused in — that would wipe their edit before they save.
+    if (document.activeElement !== els.communityNameInput) els.communityNameInput.value = community.name || "";
+    if (document.activeElement !== els.communityDescriptionInput) els.communityDescriptionInput.value = community.description || "";
+    if (document.activeElement !== els.communityVisibilityInput) els.communityVisibilityInput.value = communityVisibility(community);
     [els.communityNameInput, els.communityDescriptionInput, els.communityVisibilityInput].forEach((input) => {
       input.disabled = !canEdit;
     });
     els.saveCommunitySettingsButton.hidden = !canEdit;
     els.addCommunityRuleButton.hidden = !canEdit;
-    els.communityRules.innerHTML = community.system.rules.length
-      ? community.system.rules.map((item) => canEdit ? renderCommunityRuleEditor(item) : renderRuleRow(item, "community")).join("")
-      : emptyState(canEdit ? "Add a community rule to define scoring." : "No community rules yet.");
-    bindCommunityRuleEditors();
+    // The rule editor is an uncontrolled form (its data-source/metric dropdowns hold unsaved
+    // state in the DOM). Only rebuild it when the community/mode/rule-set actually changes —
+    // otherwise a background render() would reset an in-progress dropdown change to its saved
+    // value, and "Save Changes" would then read the reset value. Add/Delete/community-switch
+    // change the signature and do refresh.
+    const ruleSig = `${community.id}|${canEdit ? "edit" : "view"}|${(community.system.rules || []).map((item) => item.id).join(",")}`;
+    if (els.communityRules.dataset.ruleSig !== ruleSig) {
+      els.communityRules.dataset.ruleSig = ruleSig;
+      els.communityRules.innerHTML = community.system.rules.length
+        ? community.system.rules.map((item) => canEdit ? renderCommunityRuleEditor(item) : renderRuleRow(item, "community")).join("")
+        : emptyState(canEdit ? "Add a community rule to define scoring." : "No community rules yet.");
+      bindCommunityRuleEditors();
+    }
 
     const analytics = normalizeCommunityAnalytics(community);
     els.communityAnalyticsSettings.hidden = !canEdit;

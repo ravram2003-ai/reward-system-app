@@ -6546,6 +6546,16 @@ body.auth-locked {
   background: var(--surface);
   border: 1px solid var(--line);
 }
+/* The row opens the person's profile — read as tappable (the action button keeps its
+   own cursor). Hover lifts to the field tone + stronger border for a clear affordance. */
+.chats-person-row.is-tappable {
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.chats-person-row.is-tappable:hover {
+  background: var(--field-bg);
+  border-color: var(--line-strong);
+}
 .chats-person-main {
   flex: 1;
   min-width: 0;

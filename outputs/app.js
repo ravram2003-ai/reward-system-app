@@ -2259,8 +2259,11 @@
     } else {
       action = `<button class="primary-button small" type="button" data-friend-add="${id}" data-friend-name="${name}">Add friend</button>`;
     }
+    // The row (avatar + name/handle) opens the person's profile via the same path the
+    // feed uses (openUserProfile); the action button is handled first in the delegated
+    // click listeners, so tapping it never opens the profile.
     return `
-      <div class="chats-person-row">
+      <div class="chats-person-row is-tappable" data-open-profile-user="${id}">
         ${renderAvatar({ name: person.display_name || "Member", avatarUrl: person.avatar_url })}
         <div class="chats-person-main"><strong>${name}</strong><span>${handle}</span></div>
         ${action}
@@ -3265,13 +3268,20 @@
     if (els.chatsAddFriendInput) els.chatsAddFriendInput.addEventListener("input", (event) => runFriendSearch(event.target.value));
     if (els.chatsNewMessageResults) els.chatsNewMessageResults.addEventListener("click", (event) => {
       const t = event.target.closest && event.target.closest("[data-message-person]");
-      if (t) openConversationFromPanel(t.dataset.messagePerson, t.dataset.messageName);
+      if (t) { openConversationFromPanel(t.dataset.messagePerson, t.dataset.messageName); return; }
+      // Anywhere else on the row → open that person's profile (same path as the feed).
+      const row = event.target.closest && event.target.closest("[data-open-profile-user]");
+      if (row) openUserProfile(row.dataset.openProfileUser);
     });
     if (els.chatsAddFriendResults) els.chatsAddFriendResults.addEventListener("click", (event) => {
       const add = event.target.closest && event.target.closest("[data-friend-add]");
       const acceptUser = event.target.closest && event.target.closest("[data-friend-accept-user]");
-      if (add) sendFriendRequestTo(add.dataset.friendAdd, add.dataset.friendName);
-      else if (acceptUser) acceptFriendByUser(acceptUser.dataset.friendAcceptUser);
+      // Action button takes precedence and never opens the profile.
+      if (add) { sendFriendRequestTo(add.dataset.friendAdd, add.dataset.friendName); return; }
+      if (acceptUser) { acceptFriendByUser(acceptUser.dataset.friendAcceptUser); return; }
+      // Anywhere else on the row → open that person's profile (same path as the feed).
+      const row = event.target.closest && event.target.closest("[data-open-profile-user]");
+      if (row) openUserProfile(row.dataset.openProfileUser);
     });
     if (els.chatsFriendRequests) els.chatsFriendRequests.addEventListener("click", (event) => {
       const accept = event.target.closest && event.target.closest("[data-friend-accept]");

@@ -5482,6 +5482,21 @@ body.onboarding-locked {
   font-weight: 800;
 }
 
+/* Title + badge row inside a copy/join result card. */
+.onboard-result-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* "Popular" fallback badge — a warm/amber pill, distinct from the teal accent tag and
+   high-contrast on the dark surface (--warm #ecac6b on --warm-soft #352a1d, ~7:1). */
+.onboard-popular-tag {
+  background: var(--warm-soft);
+  color: var(--warm);
+}
+
 .onboard-rule-list-plain li {
   justify-content: flex-start;
   font-weight: 650;

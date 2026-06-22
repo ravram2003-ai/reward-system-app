@@ -453,6 +453,7 @@
   let onboardingDraft = null;           // generated AI system (app-shape draft)
   let onboardingGenerating = false;     // AI generation in flight
   let onboardingMatchesLoading = false; // community search in flight
+  let onboardingRunSeq = 0;             // stale-drop guard for the async picks run (draft + community fetch)
   let onboardingPublicMatches = [];     // public systems matching the interests
   let onboardingCommunityMatches = [];  // public communities matching the interests
   let onboardingCopiedIds = [];         // public-system ids copied this run
@@ -638,6 +639,12 @@
     { key: "friends", label: "With friends" },
     { key: "community", label: "In a community" }
   ];
+  // The picks step never shows an empty "copy"/"join" section: interest matches come
+  // first, then we top up with popular public picks until each section has at least
+  // ONBOARD_MIN_PICKS (capped at ONBOARD_PICKS_CAP). Only a section with genuinely
+  // zero public items in the whole app falls through to the empty message.
+  const ONBOARD_MIN_PICKS = 2;
+  const ONBOARD_PICKS_CAP = 3;
 
   function maybeStartOnboarding() {
     if (onboardingShownThisSession || onboardingActive || !els.onboardingScreen) return;
@@ -1035,7 +1042,7 @@
           <textarea id="onboardDetailInput" rows="2" placeholder="e.g. training for a half marathon" data-onboard-field="detail">${escapeHtml(onboardingDetail)}</textarea>
         </label>
         <div class="onboard-actions">
-          <button class="primary-button" type="button" data-onboard="build-suggestions">Build my suggestions</button>
+          <button class="primary-button" type="button" data-onboard="build-suggestions">Next</button>
           ${skip}
         </div>
       </div>`;
@@ -1107,7 +1114,10 @@
     return `
       <article class="build-result-card">
         <div class="build-result-main">
-          <strong>${escapeHtml(system.title)}</strong>
+          <div class="onboard-result-head">
+            <strong>${escapeHtml(system.title)}</strong>
+            ${system._popular ? `<span class="onboard-tag onboard-popular-tag">Popular</span>` : ""}
+          </div>
           <span>${escapeHtml(system.category || "General wellness")} &middot; ${plural((system.rules || []).length, "rule")}</span>
           <p>${escapeHtml(system.description || "Public reward system you can copy and customize.")}</p>
         </div>
@@ -1126,7 +1136,10 @@
     return `
       <article class="find-community-card">
         <div class="find-community-main">
-          <strong>${escapeHtml(row.name || "Community")}</strong>
+          <div class="onboard-result-head">
+            <strong>${escapeHtml(row.name || "Community")}</strong>
+            ${row._popular ? `<span class="onboard-tag onboard-popular-tag">Popular</span>` : ""}
+          </div>
           <span class="community-meta">${escapeHtml(row.category || "Community")} &middot; ${plural(count, "member")}</span>
           ${row.description ? `<p>${escapeHtml(row.description)}</p>` : ""}
         </div>
@@ -1243,35 +1256,51 @@
     onboardingGenerating = true;
     onboardingPublicMatches = matchOnboardingPublicSystems();
     onboardingCommunityMatches = [];
-    onboardingMatchesLoading = communitiesAreShared() && onboardingInterests.length > 0;
+    // Always look for communities when shared — with no interests (or too few matches)
+    // the search falls back to popular public communities, so the section is never empty.
+    onboardingMatchesLoading = communitiesAreShared();
     renderOnboarding();
     runOnboardingSuggestions();
   }
 
   async function runOnboardingSuggestions() {
+    // Tag this run; a later one (re-entry, e.g. a different account in the same tab)
+    // supersedes it. A superseded run must not write results or clear the loading
+    // state — otherwise a stale fetch could render onto the new run's screen.
+    const myRun = ++onboardingRunSeq;
+    const isCurrent = () => myRun === onboardingRunSeq && onboardingActive && onboardingStep === 4;
     if (onboardingMatchesLoading) {
       Promise.resolve(matchOnboardingCommunities())
-        .then((rows) => { onboardingCommunityMatches = rows; })
-        .catch(() => { onboardingCommunityMatches = []; })
+        .then((rows) => { if (myRun === onboardingRunSeq) onboardingCommunityMatches = rows; })
+        .catch(() => { if (myRun === onboardingRunSeq) onboardingCommunityMatches = []; })
         .then(() => {
+          if (myRun !== onboardingRunSeq) return;
           onboardingMatchesLoading = false;
-          if (onboardingActive && onboardingStep === 4) renderOnboarding();
+          if (isCurrent()) renderOnboarding();
         });
     }
     try {
-      onboardingDraft = await aiGenerateDraft(buildOnboardingAiInputs(), blankAiAdjustments(), "personal");
+      const draft = await aiGenerateDraft(buildOnboardingAiInputs(), blankAiAdjustments(), "personal");
+      if (myRun === onboardingRunSeq) onboardingDraft = draft;
     } catch (error) {
-      onboardingDraft = null;
+      if (myRun === onboardingRunSeq) onboardingDraft = null;
     } finally {
-      onboardingGenerating = false;
-      if (onboardingActive && onboardingStep === 4) renderOnboarding();
+      if (myRun === onboardingRunSeq) {
+        onboardingGenerating = false;
+        if (isCurrent()) renderOnboarding();
+      }
     }
   }
 
-  // Public systems matching the chosen interests, reusing the Build search pool
-  // (getBuildPublicSystems + matchesSystemSearch). Deduped, capped at three.
+  // Public systems for the "copy" section, reusing the Build search pool
+  // (getBuildPublicSystems + matchesSystemSearch). Interest matches first; if fewer
+  // than ONBOARD_MIN_PICKS, top up with popular systems from the same pool (tagged
+  // _popular). Deduped, capped at ONBOARD_PICKS_CAP. Empty only when the pool itself
+  // is empty (genuinely zero public systems). NOTE: public systems are client-side
+  // only — there's no server store — so "popular" sorts the local pool by a proxy.
   function matchOnboardingPublicSystems() {
     const pool = getBuildPublicSystems();
+    if (!pool.length) return [];
     const seen = new Set();
     const out = [];
     onboardingInterests.forEach((interest) => {
@@ -1280,34 +1309,61 @@
       pool.forEach((system) => {
         if (seen.has(system.id) || !matchesSystemSearch(system, query)) return;
         seen.add(system.id);
-        out.push(system);
+        out.push({ ...system, _popular: false });
       });
     });
-    return out.slice(0, 3);
+    if (out.length < ONBOARD_MIN_PICKS) {
+      popularOnboardingSystems(pool).forEach((system) => {
+        if (out.length >= ONBOARD_PICKS_CAP || seen.has(system.id)) return;
+        seen.add(system.id);
+        out.push({ ...system, _popular: true });
+      });
+    }
+    return out.slice(0, ONBOARD_PICKS_CAP);
   }
 
-  // Public communities matching the interests via search_communities. Public-tier,
-  // not already-joined, deduped, capped at three.
+  // Popularity proxy for the local public-systems pool: a richer rule set reads as a
+  // more complete/established system (there's no server-side copy/member count to sort
+  // by). Stable tiebreak by title so the fill order is deterministic.
+  function popularOnboardingSystems(pool) {
+    return [...pool].sort((a, b) =>
+      ((b.rules || []).length - (a.rules || []).length) ||
+      String(a.title || "").localeCompare(String(b.title || "")));
+  }
+
+  // Public communities for the "join" section. Interest matches via search_communities
+  // first; if fewer than ONBOARD_MIN_PICKS, top up with popular public communities
+  // (popular_communities RPC, ordered by member count, tagged _popular). Public-tier,
+  // not already-joined, deduped, capped at ONBOARD_PICKS_CAP. Empty only when the app
+  // has genuinely zero public communities.
   async function matchOnboardingCommunities() {
     if (!communitiesAreShared() || !window.PointwellSignals || typeof window.PointwellSignals.searchCommunities !== "function") return [];
-    const queries = onboardingInterests
-      .map((interest) => String(interest.label || "").trim())
-      .filter((query) => query.length >= 2)
-      .slice(0, 4);
-    if (!queries.length) return [];
-    const lists = await Promise.all(queries.map((query) =>
-      Promise.resolve(window.PointwellSignals.searchCommunities(query)).catch(() => [])));
     const seen = new Set();
     const out = [];
-    lists.forEach((rows) => (Array.isArray(rows) ? rows : []).forEach((row) => {
-      if (!row || row.visibility !== "public") return;
+    const addRow = (row, popular) => {
+      if (out.length >= ONBOARD_PICKS_CAP || !row || row.visibility !== "public") return;
       if (row.is_member || isCommunityJoined(row.id)) return;
       const id = String(row.id);
       if (seen.has(id)) return;
       seen.add(id);
-      out.push(row);
-    }));
-    return out.slice(0, 3);
+      out.push({ ...row, _popular: popular });
+    };
+    // 1) Interest matches.
+    const queries = onboardingInterests
+      .map((interest) => String(interest.label || "").trim())
+      .filter((query) => query.length >= 2)
+      .slice(0, 4);
+    if (queries.length) {
+      const lists = await Promise.all(queries.map((query) =>
+        Promise.resolve(window.PointwellSignals.searchCommunities(query)).catch(() => [])));
+      lists.forEach((rows) => (Array.isArray(rows) ? rows : []).forEach((row) => addRow(row, false)));
+    }
+    // 2) Popular fallback to keep the section populated.
+    if (out.length < ONBOARD_MIN_PICKS && typeof window.PointwellSignals.popularCommunities === "function") {
+      const popular = await Promise.resolve(window.PointwellSignals.popularCommunities(12)).catch(() => []);
+      (Array.isArray(popular) ? popular : []).forEach((row) => addRow(row, true));
+    }
+    return out.slice(0, ONBOARD_PICKS_CAP);
   }
 
   // "Add" the AI system through the normal creation path (mirrors startStarterSystem):

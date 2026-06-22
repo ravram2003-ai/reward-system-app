@@ -660,6 +660,22 @@
     }
   }
 
+  // Popular communities — PUBLIC communities ordered by member count, for the
+  // onboarding "Communities to join" fallback when interest matches are thin (the Join
+  // action is public-only). Same row shape as searchCommunities (member count + my
+  // membership/request status). The popular_communities SECURITY DEFINER RPC returns
+  // public only — private and request_to_join are excluded at the DB level. [] on fail.
+  async function popularCommunities(limit) {
+    var sb = getClient();
+    if (!sb) return [];
+    try {
+      var res = await sb.rpc("popular_communities", { lim: Number(limit) > 0 ? Number(limit) : 12 });
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
   // Discover feed — ranked recent PUBLIC posts similar to what the caller tracks. The
   // discover_feed SECURITY DEFINER RPC enforces public-only authors + excludes the
   // caller / friends / followed / blocked server-side, so the anon key never reads
@@ -980,6 +996,7 @@
     leaveCommunity: leaveCommunity,
     findCommunityByCode: findCommunityByCode,
     searchCommunities: searchCommunities,
+    popularCommunities: popularCommunities,
     requestToJoin: requestToJoin,
     getOwnerJoinRequests: getOwnerJoinRequests,
     getMyJoinRequests: getMyJoinRequests,

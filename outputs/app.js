@@ -2691,7 +2691,6 @@
       "quickLogDraft",
       "customizeTopCardSystemSelect",
       "customizeChartsSystemSelect",
-      "openAddEntryButton",
       "createFab",
       "backToDashboardButton",
       "cancelTopCardButton",
@@ -3024,8 +3023,8 @@
 
     if (els.feedTabs) els.feedTabs.addEventListener("click", onFeedTabClick);
 
-    els.openAddEntryButton.addEventListener("click", openAddEntryPage);
-    // The "+" FAB logs an entry directly (creating systems/communities lives in Build).
+    // The "+" FAB is the single entry point for logging (creating systems/communities
+    // lives in Build). openAddEntryPage guards the no-system / no-rules cases with a toast.
     if (els.createFab) els.createFab.addEventListener("click", openAddEntryPage);
     bindQuickLogControls();
     els.backToDashboardButton.addEventListener("click", returnToDashboard);
@@ -4061,7 +4060,6 @@
       if (els.miniLeaderboard) els.miniLeaderboard.hidden = true;
       els.dailyStatusLabel.textContent = "Create a reward system to start.";
       if (els.dailyInsightText) els.dailyInsightText.textContent = "Create a reward system to start your daily insight.";
-      els.openAddEntryButton.disabled = true;
       els.customizeTopCardButton.disabled = true;
       els.customizeChartsButton.disabled = true;
       els.topCardBlockList.innerHTML = "";
@@ -4082,7 +4080,6 @@
     }
     els.breakdownTitle.textContent = "Entries Added Today";
     els.ruleCountLabel.textContent = plural(system.rules.length, "rule");
-    els.openAddEntryButton.disabled = !system.rules.length;
     els.customizeTopCardButton.disabled = !system.rules.length;
     els.customizeChartsButton.disabled = false;
 

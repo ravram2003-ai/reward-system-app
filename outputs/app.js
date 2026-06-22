@@ -280,6 +280,8 @@
     communityDraftInputs: {},
     knownWorkoutIds: [],   // wearable workout/exercise session ids we've already seen
     pendingWorkout: null,  // a newly-detected workout awaiting the "log it?" prompt
+    wearableLastSeen: {},  // { provider: { metric: { value, dateKey } } } — for sync deltas
+    checkIn: null,         // the pending "since your last check-in" card
     systems: [
       {
         id: "life-core",
@@ -2665,6 +2667,7 @@
   function cacheElements() {
     const ids = [
       "wearablePrompt",
+      "checkInCard",
       "profileAvatar",
       "todayLabel",
       "dashboardView",
@@ -3038,6 +3041,7 @@
     if (els.createFab) els.createFab.addEventListener("click", openAddEntryPage);
     bindQuickLogControls();
     bindWearablePrompt();
+    bindCheckInCard();
     els.backToDashboardButton.addEventListener("click", returnToDashboard);
     els.customizeTopCardButton.addEventListener("click", openCustomizeTopCardPage);
     els.cancelTopCardButton.addEventListener("click", cancelTopCardCustomization);
@@ -3364,6 +3368,7 @@
     renderProfilePage();
     renderProfile();
     renderNotifications();
+    renderCheckInCard();
     renderWearablePrompt();
     pushMyBehindStatus();
     // Load signed-URL thumbnails for any entry photos rendered this pass (the helper
@@ -7567,13 +7572,17 @@
     const updated = changed ? fanOutSyncedMetricsToContexts(provider) : 0;
     // Detect any new Fitbit workout/exercise sessions → queue a one-time, dismissible prompt.
     detectNewWorkouts(provider, result && result.workouts);
+    // Build the "since your last check-in" card from the per-metric deltas (Part A). It's the
+    // non-blocking confirmation (no auto-posting); the toast is only the fallback.
+    const checkIn = changed ? buildCheckIn(provider) : null;
+    if (checkIn) state.checkIn = checkIn;
     saveState();
     render();
     if (result && result.error === "reconnect") {
       if (!options.silent) showToast(`Reconnect ${wearableShortLabel(provider)} to keep syncing.`);
-    } else if (updated > 0) {
-      // Brief, non-blocking confirmation — auto-posting stays off (nothing is posted to a
-      // feed by syncing). Shown on sign-in and on Sync now.
+    } else if (checkIn) {
+      // The check-in card is the confirmation — no toast.
+    } else if (updated > 0 && !options.silent) {
       showToast(`Synced from ${wearableShortLabel(provider)} · updated ${plural(updated, "rule")}`);
     } else if (!options.silent) {
       if (changed) showToast(`${wearableShortLabel(provider)} synced`);
@@ -7761,6 +7770,198 @@
     els.wearablePrompt.addEventListener("click", (event) => {
       if (event.target.closest("[data-workout-dismiss]")) { dismissWorkoutPrompt(); return; }
       if (event.target.closest("[data-workout-log]")) { startWorkoutLog(); return; }
+    });
+  }
+
+  // ── PART A — "since your last check-in" sync card ────────────────────────────
+  // Every loggable rule for `provider`, grouped by the sourceMetric it reads, across the
+  // user's personal systems AND every community they're in. Drives the delta card + Log all.
+  function syncedRuleIndexForProvider(provider) {
+    const index = {};
+    const add = (rawRule, contextType, contextId, contextName) => {
+      const rule = scoring.normalizeRule(rawRule);
+      if (rule.dataSource !== provider || !rule.sourceMetric) return;
+      (index[rule.sourceMetric] = index[rule.sourceMetric] || []).push({ rule, contextType, contextId, contextName });
+    };
+    (state.systems || []).forEach((s) => (s.rules || []).forEach((r) => add(r, "personal", s.id, s.title || "System")));
+    (state.communities || []).forEach((c) => {
+      const sys = normalizeSystem(c.system || { rules: [] });
+      (sys.rules || []).forEach((r) => add(r, "community", c.id, c.name || "Community"));
+    });
+    return index;
+  }
+
+  // True if a rule has a genuine HAND-logged entry today (not a synced/materialized one).
+  function ruleHasManualEntryToday(contextType, contextId, ruleId) {
+    const today = getTodayKey();
+    if (contextType === "community") {
+      return (state.communityEntries || []).some((e) =>
+        e.communityId === contextId && e.userId === "me" && e.ruleId === ruleId && (e.dateKey || e.date) === today && !e.viaSource);
+    }
+    return (state.quickEntries || []).some((e) =>
+      e.systemId === contextId && e.ruleId === ruleId && (e.dateKey || e.date) === today && !e.viaSource);
+  }
+
+  // Build the check-in card: per-metric current total + change since last seen (daily reset
+  // aware) + the points the first rule using that metric earns. Returns null if nothing changed.
+  function buildCheckIn(provider) {
+    const data = (state.mockSyncData && state.mockSyncData[provider]) || {};
+    const index = syncedRuleIndexForProvider(provider);
+    const seenAll = (state.wearableLastSeen && state.wearableLastSeen[provider]) || {};
+    const today = getTodayKey();
+    const metrics = [];
+    Object.keys(index).forEach((metric) => {
+      const current = Number(data[metric]);
+      if (!Number.isFinite(current) || current <= 0) return;
+      // Only surface metrics with a rule the card can actually act on (Log all / post skip
+      // manual-locked rules); don't advertise a row whose buttons would be a no-op.
+      const first = index[metric].find((e) => e.rule.allowManualOverride !== false);
+      if (!first) return;
+      const seen = seenAll[metric];
+      // Prior-day (or never-seen) last check-in → the delta is today's whole total.
+      const delta = (!seen || seen.dateKey !== today) ? current : (current - numberOrDefault(seen.value, 0));
+      metrics.push({
+        metric,
+        label: sourceMetricLabel(provider, metric),
+        unit: first.rule.unit || "",
+        current,
+        delta,
+        points: scoring.calculateRule(first.rule, current).totalPoints,
+      });
+    });
+    if (!metrics.length || !metrics.some((m) => m.delta !== 0)) return null;
+    return { provider, at: new Date().toISOString(), metrics };
+  }
+
+  // Remember the current per-metric totals so the next sync's deltas are measured from here.
+  function updateWearableLastSeen(provider) {
+    state.wearableLastSeen = state.wearableLastSeen || {};
+    const data = (state.mockSyncData && state.mockSyncData[provider]) || {};
+    const today = getTodayKey();
+    const seen = state.wearableLastSeen[provider] = state.wearableLastSeen[provider] || {};
+    Object.keys(data).forEach((metric) => { seen[metric] = { value: Number(data[metric]) || 0, dateKey: today }; });
+  }
+
+  // "Log all" materializes the CURRENT synced total for a rule as a committed entry. The
+  // viaSource flag makes it replace the synced base (never adds the delta → no double-count);
+  // a stale materialized entry for the same rule/day is refreshed, not stacked.
+  function materializePersonalSynced(system, rule, value, provider) {
+    state.quickEntries = (state.quickEntries || []).filter((e) =>
+      !(e.viaSource && e.ruleId === rule.id && e.systemId === system.id && (e.dateKey || e.date) === getTodayKey()));
+    state.quickEntries.push({
+      id: makeId("quick"), date: getTodayKey(), dateKey: getTodayKey(), createdAt: new Date().toISOString(),
+      systemId: system.id, rewardSystemId: system.id, ruleId: rule.id, label: rule.label, unit: rule.unit,
+      amount: value, message: "", photoPath: "", source: "manual-adjustment", viaSource: provider,
+    });
+  }
+  function materializeCommunitySynced(community, rule, value, provider) {
+    state.communityEntries = (state.communityEntries || []).filter((e) =>
+      !(e.viaSource && e.communityId === community.id && e.userId === "me" && e.ruleId === rule.id && (e.dateKey || e.date) === getTodayKey()));
+    addCommunityEntry(community.id, "me", rule, value, "manual-adjustment", "", "", provider);
+    saveCommunitySummaryForMember(community, "me");
+    // Push the synced total to the shared DB so other members see it in standings/feed.
+    Promise.resolve(pushCommunityEntryToDb(community, rule.id, "", "")).catch(() => {});
+  }
+
+  // Log all: set EVERY rule using each changed metric (personal + community) to its current
+  // daily total, fill/refresh-only — a rule with a hand-logged value today is left untouched.
+  function logAllCheckIn() {
+    const checkIn = state.checkIn;
+    if (!checkIn) return;
+    const provider = checkIn.provider;
+    const index = syncedRuleIndexForProvider(provider);
+    const touched = new Set();
+    checkIn.metrics.forEach((m) => {
+      (index[m.metric] || []).forEach((entry) => {
+        if (entry.rule.allowManualOverride === false) return;
+        if (ruleHasManualEntryToday(entry.contextType, entry.contextId, entry.rule.id)) return;
+        const value = syncedValueForRule(entry.rule, { userId: "me", date: todayIso, scope: entry.contextType });
+        if (value === null || value <= 0) return;
+        if (entry.contextType === "community") {
+          const community = (state.communities || []).find((c) => c.id === entry.contextId);
+          if (community) materializeCommunitySynced(community, entry.rule, value, provider);
+        } else {
+          const system = (state.systems || []).find((s) => s.id === entry.contextId);
+          if (system) { materializePersonalSynced(system, entry.rule, value, provider); touched.add(system.id); }
+        }
+      });
+    });
+    (state.systems || []).forEach((system) => {
+      if (touched.has(system.id)) { syncDraftInputsFromEntries(system); autoSaveToday(system); }
+    });
+    updateWearableLastSeen(provider);
+    state.checkIn = null;
+    saveState();
+    render();
+    showToast(`Logged your ${wearableShortLabel(provider)} check-in`);
+  }
+
+  function dismissCheckIn() {
+    if (state.checkIn) updateWearableLastSeen(state.checkIn.provider);
+    state.checkIn = null;
+    saveState();
+    renderCheckInCard();
+  }
+
+  // "Add photo & caption" on the card → open the composer (Part B) pre-filled with the first
+  // changed metric's rule + value, tagged so the post keeps a "via Fitbit" badge.
+  function checkInAddPost() {
+    const checkIn = state.checkIn;
+    if (!checkIn || !checkIn.metrics.length) return;
+    const provider = checkIn.provider;
+    const index = syncedRuleIndexForProvider(provider);
+    for (const m of checkIn.metrics) {
+      const entry = (index[m.metric] || []).find((e) => e.rule.allowManualOverride !== false);
+      if (entry) {
+        const value = syncedValueForRule(entry.rule, { userId: "me", date: todayIso, scope: entry.contextType });
+        updateWearableLastSeen(provider);
+        state.checkIn = null;
+        upgradeSyncedEntryToPost(entry.contextType, entry.contextId, entry.rule.id, value, provider);
+        return;
+      }
+    }
+    showToast("No rule to post this to yet.");
+  }
+
+  function renderCheckInCard() {
+    const mount = els.checkInCard;
+    if (!mount) return;
+    const checkIn = state.checkIn;
+    if (!checkIn || !checkIn.metrics.length) { mount.hidden = true; mount.innerHTML = ""; return; }
+    const rows = checkIn.metrics.map((m) => {
+      const deltaText = m.delta > 0 ? `+${formatValue(m.delta)} · ` : (m.delta < 0 ? `${formatValue(m.delta)} · ` : "");
+      const ptsClass = m.points >= 0 ? "positive" : "negative";
+      return `
+        <div class="checkin-row">
+          <div class="checkin-row-main">
+            <strong>${escapeHtml(m.label)}</strong>
+            <span>${escapeHtml(deltaText)}now ${escapeHtml(formatValue(m.current))} ${escapeHtml(m.unit)}</span>
+          </div>
+          <span class="point-pill ${ptsClass}">${m.points >= 0 ? "+" : ""}${escapeHtml(formatPoints(m.points))} pts</span>
+        </div>`;
+    }).join("");
+    mount.hidden = false;
+    mount.innerHTML = `
+      <div class="checkin-card">
+        <div class="checkin-card-head">
+          <span class="via-source-tag">via ${escapeHtml(wearableShortLabel(checkIn.provider))}</span>
+          <strong>Since your last check-in</strong>
+        </div>
+        <div class="checkin-rows">${rows}</div>
+        <div class="checkin-actions">
+          <button type="button" class="ghost-button small" data-checkin-dismiss>Not now</button>
+          <button type="button" class="ghost-button small" data-checkin-post>Add photo &amp; caption</button>
+          <button type="button" class="primary-button small" data-checkin-log>Log all</button>
+        </div>
+      </div>`;
+  }
+
+  function bindCheckInCard() {
+    if (!els.checkInCard) return;
+    els.checkInCard.addEventListener("click", (event) => {
+      if (event.target.closest("[data-checkin-dismiss]")) { dismissCheckIn(); return; }
+      if (event.target.closest("[data-checkin-post]")) { checkInAddPost(); return; }
+      if (event.target.closest("[data-checkin-log]")) { logAllCheckIn(); return; }
     });
   }
 

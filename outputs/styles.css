@@ -8575,37 +8575,58 @@ body.onboarding-locked .fab-add { display: none; }
 }
 .quick-log-photo-link:hover { text-decoration: underline; }
 
-/* Dismissible "new workout — log it?" prompt. Fixed, non-blocking, mobile-safe; left-
-   anchored and FAB-clearing (right gap), lifted above the bottom nav on narrow screens. */
-.wearable-prompt {
+/* Fixed, non-blocking, mobile-safe stack for the sync cards (check-in + workout prompt).
+   Left-anchored and FAB-clearing (right gap), lifted above the bottom nav on narrow screens.
+   The wrapper ignores pointer events; each card re-enables them. */
+.wearable-stack {
   position: fixed;
   left: 12px;
   right: 84px;
   bottom: calc(28px + env(safe-area-inset-bottom, 0px));
   z-index: 75;
   display: flex;
+  flex-direction: column;
+  gap: 10px;
   pointer-events: none;
 }
-.wearable-prompt[hidden] { display: none; }
-.wearable-prompt-card {
+@media (max-width: 1050px) {
+  .wearable-stack { bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
+}
+.wearable-prompt,
+.checkin-card-wrap { display: flex; pointer-events: none; }
+.wearable-prompt[hidden],
+.checkin-card-wrap[hidden] { display: none; }
+.wearable-prompt-card,
+.checkin-card {
   pointer-events: auto;
   width: 100%;
   max-width: 440px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-card);
+}
+.wearable-prompt-card {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
   padding: 12px 14px;
-  border-radius: var(--radius);
-  background: var(--panel);
-  border: 1px solid var(--line-strong);
-  box-shadow: var(--shadow-card);
 }
 .wearable-prompt-main { flex: 1 1 160px; min-width: 0; display: grid; gap: 3px; }
 .wearable-prompt-main strong { color: var(--ink); font-weight: 800; font-size: 0.92rem; overflow-wrap: anywhere; }
 .wearable-prompt-main .via-source-tag { margin-left: 0; justify-self: start; }
 .wearable-prompt-sub { color: var(--muted); font-size: 0.78rem; }
 .wearable-prompt-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-@media (max-width: 1050px) {
-  .wearable-prompt { bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
-}
+
+/* "Since your last check-in" card — per-metric delta + points, with Log all / post / dismiss. */
+.checkin-card { padding: 12px 14px; display: grid; gap: 10px; }
+.checkin-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.checkin-card-head strong { color: var(--ink); font-weight: 800; font-size: 0.92rem; }
+.checkin-card-head .via-source-tag { margin-left: 0; }
+.checkin-rows { display: grid; gap: 8px; }
+.checkin-row { display: flex; align-items: center; gap: 10px; }
+.checkin-row-main { flex: 1 1 auto; min-width: 0; display: grid; gap: 2px; }
+.checkin-row-main strong { color: var(--ink); font-weight: 750; font-size: 0.86rem; overflow-wrap: anywhere; }
+.checkin-row-main span { color: var(--muted); font-size: 0.76rem; }
+.checkin-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }

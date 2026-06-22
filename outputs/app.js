@@ -10058,7 +10058,7 @@
       var pts = rule ? numberOrDefault(scoring.calculateRule(rule, numberOrDefault(entry.amount, 0)).totalPoints, 0) : 0;
       var label = (rule && rule.label) || entry.label || "Entry";
       marks.push({
-        key: entry.ruleId || label, label: label, pts: pts,
+        id: entry.id, key: entry.ruleId || label, label: label, pts: pts,
         s: start, e: Math.min(1440, start + NOMINAL),
         color: dayScheduleColor(entry.ruleId || label)
       });

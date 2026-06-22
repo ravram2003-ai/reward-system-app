@@ -302,6 +302,24 @@ h3 {
   border-color: rgba(38, 107, 94, 0.2);
 }
 
+/* Profile tab: the user's avatar as the tab icon (photo or initials). Smaller than the
+   default 42px .avatar, centered, with a clear active ring. */
+.tab-avatar {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  font-size: 0.62rem;
+  font-weight: 800;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.nav-tab.active .tab-avatar {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
 .tab-icon {
   width: 24px;
   height: 24px;
@@ -7030,21 +7048,32 @@ button.notif-item:hover {
   }
   .nav-tab {
     flex: 1 1 0;
+    min-width: 0; /* allow the label to truncate so 5 tabs fit a narrow phone */
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 3px;
     min-height: 52px;
-    padding: 6px 4px;
+    padding: 6px 2px;
   }
   .nav-tab .tab-icon {
     font-size: 1.15rem;
   }
   .nav-tab span:last-child {
     display: block;
-    font-size: 0.66rem;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.62rem;
     font-weight: 700;
     line-height: 1;
+  }
+  /* The Profile tab uses the user's avatar as its icon. */
+  .nav-tab .tab-avatar {
+    width: 24px;
+    height: 24px;
+    font-size: 0.6rem;
   }
   /* Clear the fixed bars: the persistent header (top) and the bottom nav.
      Authoritative here (last @media(max-width:1050px) rule) so it wins over the

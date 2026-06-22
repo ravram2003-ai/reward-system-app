@@ -3073,7 +3073,8 @@ label small {
     z-index: 60;
     height: auto;
     gap: 12px;
-    padding: 12px;
+    /* Pad the top by the iOS notch inset so the logo/bell clear the status bar. */
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 12px 12px;
     backdrop-filter: none;
   }
 
@@ -7007,14 +7008,29 @@ button.notif-item:hover {
   }
   /* Clear the fixed bars: the persistent header (top) and the bottom nav.
      Authoritative here (last @media(max-width:1050px) rule) so it wins over the
-     earlier .workspace padding declarations in this range. */
+     earlier .workspace padding declarations in this range.
+     The header wraps from one row (~44px) to two (~98px) below ~418px wide, and
+     adds the notch inset on iOS, so a fixed value either clips the first content
+     (the green "+ Add entry" bar) or wastes space. --mobile-header-h is the
+     header's real rendered height, kept in sync by syncHeaderHeight() in app.js;
+     the 122px fallback covers the two-row worst case before/without that JS. */
   .workspace {
-    padding-top: 92px;
+    padding-top: calc(var(--mobile-header-h, 122px) + 12px);
     padding-bottom: 84px;
   }
-  /* The bell dropdown can fill more width on a phone. */
+  /* On phones the bell dropdown was anchored to the right of the bell, so its
+     fixed width ran off the LEFT edge and clipped each row's text. Pin it to the
+     viewport instead: a near-full-width panel just below the fixed header, inset
+     a little from both edges so nothing is ever clipped. Desktop keeps the
+     right-anchored absolute dropdown declared in the base .notif-panel rule. */
   .notif-panel {
-    width: min(340px, calc(100vw - 24px));
+    position: fixed;
+    top: calc(var(--mobile-header-h, 122px) + 8px);
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
+    max-height: min(70vh, 460px);
   }
 }
 

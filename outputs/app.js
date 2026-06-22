@@ -3169,7 +3169,9 @@
     if (els.backFromFriendActivityButton) els.backFromFriendActivityButton.addEventListener("click", returnToFriends);
     if (els.friendsList) els.friendsList.addEventListener("click", (event) => {
       const row = event.target.closest && event.target.closest("[data-friend-open]");
-      if (row) openFriendActivity(row.dataset.friendOpen, row.dataset.friendName);
+      // Open the friend's full profile (same path as the feed), not the old
+      // "What <name> logged today" shared-activity screen.
+      if (row) openUserProfile(row.dataset.friendOpen);
     });
     els.findCommunitySearchInput.addEventListener("input", (event) => {
       runCommunityCodeSearch(event.target.value);

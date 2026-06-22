@@ -660,6 +660,79 @@
     }
   }
 
+  // Popular communities — PUBLIC communities ordered by member count, for the
+  // onboarding "Communities to join" fallback when interest matches are thin (the Join
+  // action is public-only). Same row shape as searchCommunities (member count + my
+  // membership/request status). The popular_communities SECURITY DEFINER RPC returns
+  // public only — private and request_to_join are excluded at the DB level. [] on fail.
+  async function popularCommunities(limit) {
+    var sb = getClient();
+    if (!sb) return [];
+    try {
+      var res = await sb.rpc("popular_communities", { lim: Number(limit) > 0 ? Number(limit) : 12 });
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // ── Public reward systems (copyable) ─────────────────────────────────────────
+  // A public profile's public systems are mirrored to public.public_systems and
+  // surfaced for copying. All four RPCs are SECURITY DEFINER and public-only by RLS
+  // (supabase/public-systems.sql); the anon key can never read them.
+
+  // Mirror the caller's CURRENT set of public systems (upsert + prune in one call).
+  // list = [{ client_id, title, category, description, payload }]. {error} on completion.
+  async function syncPublicSystems(list) {
+    var sb = getClient();
+    if (!sb) return { error: null };
+    try {
+      var res = await sb.rpc("sync_public_systems", { systems: Array.isArray(list) ? list : [] });
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: e };
+    }
+  }
+
+  // Title/category/description search across public profiles' public systems (excludes
+  // self + blocked). Rows: { id, owner_user, owner_name, owner_handle, title, category,
+  // description, payload, copy_count }. [] on fail.
+  async function searchPublicSystems(query) {
+    var sb = getClient();
+    var q = String(query || "").trim();
+    if (!sb || q.length < 2) return [];
+    try {
+      var res = await sb.rpc("search_public_systems", { q: q });
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Public systems ranked by copy count — the fallback pool for "Public systems you
+  // can copy". Same row shape as searchPublicSystems. [] on fail.
+  async function popularPublicSystems(limit) {
+    var sb = getClient();
+    if (!sb) return [];
+    try {
+      var res = await sb.rpc("popular_public_systems", { lim: Number(limit) > 0 ? Number(limit) : 24 });
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Bump a public system's copy_count when someone copies it (best-effort popularity).
+  async function incrementPublicSystemCopy(id) {
+    var sb = getClient();
+    if (!sb || !id) return;
+    try {
+      await sb.rpc("increment_public_system_copy", { sid: id });
+    } catch (e) {
+      /* best-effort */
+    }
+  }
+
   // Discover feed — ranked recent PUBLIC posts similar to what the caller tracks. The
   // discover_feed SECURITY DEFINER RPC enforces public-only authors + excludes the
   // caller / friends / followed / blocked server-side, so the anon key never reads
@@ -980,6 +1053,11 @@
     leaveCommunity: leaveCommunity,
     findCommunityByCode: findCommunityByCode,
     searchCommunities: searchCommunities,
+    popularCommunities: popularCommunities,
+    syncPublicSystems: syncPublicSystems,
+    searchPublicSystems: searchPublicSystems,
+    popularPublicSystems: popularPublicSystems,
+    incrementPublicSystemCopy: incrementPublicSystemCopy,
     requestToJoin: requestToJoin,
     getOwnerJoinRequests: getOwnerJoinRequests,
     getMyJoinRequests: getMyJoinRequests,

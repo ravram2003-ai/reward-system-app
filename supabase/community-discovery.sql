@@ -119,6 +119,47 @@ revoke all on function public.search_communities(text) from public, anon;
 grant execute on function public.search_communities(text) to authenticated;
 
 -- ───────────────────────────────────────────────────────────────────────────
+-- 3b. popular_communities(lim): the discovery fallback for onboarding's "Communities
+--     to join" when interest matches are thin. Same row shape as search_communities,
+--     ranked by member count instead of a name query. PUBLIC-ONLY by design: the
+--     onboarding "Join" action does an instant member-join, which is only valid for
+--     public communities — returning request_to_join (let alone private) here would
+--     waste the lim budget on rows the client must discard, so the section could
+--     under-fill while joinable public communities sit just past the limit. Private is
+--     NEVER returned. SECURITY DEFINER so the member-count subquery + membership status
+--     resolve regardless of per-row RLS; anon is never granted execute. lim ∈ [1, 50].
+-- ───────────────────────────────────────────────────────────────────────────
+create or replace function public.popular_communities(lim integer default 12)
+returns table (
+  id uuid,
+  name text,
+  category text,
+  description text,
+  visibility text,
+  member_count bigint,
+  is_member boolean,
+  request_status text
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select c.id, c.name, c.category, c.description, c.visibility,
+         (select count(*) from public.community_members m where m.community_id = c.id) as member_count,
+         public.is_community_member(c.id, auth.uid()) as is_member,
+         (select jr.status from public.join_requests jr
+           where jr.community_id = c.id and jr.requester_user = auth.uid()
+           order by jr.created_at desc limit 1) as request_status
+  from public.communities c
+  where c.visibility = 'public'
+  order by member_count desc, c.created_at desc
+  limit greatest(1, least(coalesce(lim, 12), 50));
+$$;
+revoke all on function public.popular_communities(integer) from public, anon;
+grant execute on function public.popular_communities(integer) to authenticated;
+
+-- ───────────────────────────────────────────────────────────────────────────
 -- 4. get_owner_join_requests(): pending requests for communities the caller OWNS,
 --    with the requester's name (profiles RLS is self-only, so a definer is needed).
 -- ───────────────────────────────────────────────────────────────────────────

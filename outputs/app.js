@@ -453,6 +453,7 @@
   let onboardingDraft = null;           // generated AI system (app-shape draft)
   let onboardingGenerating = false;     // AI generation in flight
   let onboardingMatchesLoading = false; // community search in flight
+  let onboardingRunSeq = 0;             // stale-drop guard for the async picks run (draft + community fetch)
   let onboardingPublicMatches = [];     // public systems matching the interests
   let onboardingCommunityMatches = [];  // public communities matching the interests
   let onboardingCopiedIds = [];         // public-system ids copied this run
@@ -638,6 +639,12 @@
     { key: "friends", label: "With friends" },
     { key: "community", label: "In a community" }
   ];
+  // The picks step never shows an empty "copy"/"join" section: interest matches come
+  // first, then we top up with popular public picks until each section has at least
+  // ONBOARD_MIN_PICKS (capped at ONBOARD_PICKS_CAP). Only a section with genuinely
+  // zero public items in the whole app falls through to the empty message.
+  const ONBOARD_MIN_PICKS = 2;
+  const ONBOARD_PICKS_CAP = 3;
 
   function maybeStartOnboarding() {
     if (onboardingShownThisSession || onboardingActive || !els.onboardingScreen) return;
@@ -981,6 +988,7 @@
     // Keep system ownership labels in sync with the new display name (saveProfile parity).
     state.systems.forEach((system) => { if (system.ownerId === "me") system.ownerName = name; });
     saveState();
+    syncMyPublicSystems(); // a public profile chosen here publishes any public systems
   }
 
   function onboardingInterestChipMarkup(item) {
@@ -1035,7 +1043,7 @@
           <textarea id="onboardDetailInput" rows="2" placeholder="e.g. training for a half marathon" data-onboard-field="detail">${escapeHtml(onboardingDetail)}</textarea>
         </label>
         <div class="onboard-actions">
-          <button class="primary-button" type="button" data-onboard="build-suggestions">Build my suggestions</button>
+          <button class="primary-button" type="button" data-onboard="build-suggestions">Next</button>
           ${skip}
         </div>
       </div>`;
@@ -1107,7 +1115,10 @@
     return `
       <article class="build-result-card">
         <div class="build-result-main">
-          <strong>${escapeHtml(system.title)}</strong>
+          <div class="onboard-result-head">
+            <strong>${escapeHtml(system.title)}</strong>
+            ${system._popular ? `<span class="onboard-tag onboard-popular-tag">Popular</span>` : ""}
+          </div>
           <span>${escapeHtml(system.category || "General wellness")} &middot; ${plural((system.rules || []).length, "rule")}</span>
           <p>${escapeHtml(system.description || "Public reward system you can copy and customize.")}</p>
         </div>
@@ -1126,7 +1137,10 @@
     return `
       <article class="find-community-card">
         <div class="find-community-main">
-          <strong>${escapeHtml(row.name || "Community")}</strong>
+          <div class="onboard-result-head">
+            <strong>${escapeHtml(row.name || "Community")}</strong>
+            ${row._popular ? `<span class="onboard-tag onboard-popular-tag">Popular</span>` : ""}
+          </div>
           <span class="community-meta">${escapeHtml(row.category || "Community")} &middot; ${plural(count, "member")}</span>
           ${row.description ? `<p>${escapeHtml(row.description)}</p>` : ""}
         </div>
@@ -1243,35 +1257,66 @@
     onboardingGenerating = true;
     onboardingPublicMatches = matchOnboardingPublicSystems();
     onboardingCommunityMatches = [];
-    onboardingMatchesLoading = communitiesAreShared() && onboardingInterests.length > 0;
+    // Always look for communities when shared — with no interests (or too few matches)
+    // the search falls back to popular public communities, so the section is never empty.
+    onboardingMatchesLoading = communitiesAreShared();
     renderOnboarding();
     runOnboardingSuggestions();
   }
 
   async function runOnboardingSuggestions() {
+    // Tag this run; a later one (re-entry, e.g. a different account in the same tab)
+    // supersedes it. A superseded run must not write results or clear the loading
+    // state — otherwise a stale fetch could render onto the new run's screen.
+    const myRun = ++onboardingRunSeq;
+    const isCurrent = () => myRun === onboardingRunSeq && onboardingActive && onboardingStep === 4;
     if (onboardingMatchesLoading) {
       Promise.resolve(matchOnboardingCommunities())
-        .then((rows) => { onboardingCommunityMatches = rows; })
-        .catch(() => { onboardingCommunityMatches = []; })
+        .then((rows) => { if (myRun === onboardingRunSeq) onboardingCommunityMatches = rows; })
+        .catch(() => { if (myRun === onboardingRunSeq) onboardingCommunityMatches = []; })
         .then(() => {
+          if (myRun !== onboardingRunSeq) return;
           onboardingMatchesLoading = false;
-          if (onboardingActive && onboardingStep === 4) renderOnboarding();
+          if (isCurrent()) renderOnboarding();
         });
     }
+    // Refresh the public-systems pool from the server (in case it loaded after sign-in
+    // or changed since), then re-derive the copy section. Both the state write and the
+    // render are run-token guarded so a superseded run can't clobber a newer account.
+    if (signalsReady()) {
+      Promise.resolve(loadPublicSystemsFromDb())
+        .then((mapped) => {
+          if (myRun !== onboardingRunSeq) return;
+          state.publicSystems = mapped;
+          onboardingPublicMatches = matchOnboardingPublicSystems();
+        })
+        .catch(() => {})
+        .then(() => { if (isCurrent()) renderOnboarding(); });
+    }
     try {
-      onboardingDraft = await aiGenerateDraft(buildOnboardingAiInputs(), blankAiAdjustments(), "personal");
+      const draft = await aiGenerateDraft(buildOnboardingAiInputs(), blankAiAdjustments(), "personal");
+      if (myRun === onboardingRunSeq) onboardingDraft = draft;
     } catch (error) {
-      onboardingDraft = null;
+      if (myRun === onboardingRunSeq) onboardingDraft = null;
     } finally {
-      onboardingGenerating = false;
-      if (onboardingActive && onboardingStep === 4) renderOnboarding();
+      if (myRun === onboardingRunSeq) {
+        onboardingGenerating = false;
+        if (isCurrent()) renderOnboarding();
+      }
     }
   }
 
-  // Public systems matching the chosen interests, reusing the Build search pool
-  // (getBuildPublicSystems + matchesSystemSearch). Deduped, capped at three.
+  // Public systems for the "copy" section, reusing the Build search pool
+  // (getBuildPublicSystems + matchesSystemSearch) — which now includes other public
+  // profiles' public systems loaded from the server (loadPublicSystemsFromDb) plus the
+  // user's own public systems. Interest matches first; if fewer than ONBOARD_MIN_PICKS,
+  // top up with popular systems from the same pool (tagged _popular). Deduped, capped at
+  // ONBOARD_PICKS_CAP. Empty only when the pool is genuinely empty (zero public systems).
   function matchOnboardingPublicSystems() {
-    const pool = getBuildPublicSystems();
+    // Exclude the user's own public systems — "Public systems you can copy" is about
+    // discovering OTHER people's (the Build search still shows your own).
+    const pool = getBuildPublicSystems().filter((system) => system.ownerId !== "me");
+    if (!pool.length) return [];
     const seen = new Set();
     const out = [];
     onboardingInterests.forEach((interest) => {
@@ -1280,34 +1325,62 @@
       pool.forEach((system) => {
         if (seen.has(system.id) || !matchesSystemSearch(system, query)) return;
         seen.add(system.id);
-        out.push(system);
+        out.push({ ...system, _popular: false });
       });
     });
-    return out.slice(0, 3);
+    if (out.length < ONBOARD_MIN_PICKS) {
+      popularOnboardingSystems(pool).forEach((system) => {
+        if (out.length >= ONBOARD_PICKS_CAP || seen.has(system.id)) return;
+        seen.add(system.id);
+        out.push({ ...system, _popular: true });
+      });
+    }
+    return out.slice(0, ONBOARD_PICKS_CAP);
   }
 
-  // Public communities matching the interests via search_communities. Public-tier,
-  // not already-joined, deduped, capped at three.
+  // Rank the public-systems pool for the "Popular" fallback: server-backed systems by
+  // real copy count first, then a richer rule set (the proxy for local/own systems with
+  // no copy count), then title for a deterministic tiebreak.
+  function popularOnboardingSystems(pool) {
+    return [...pool].sort((a, b) =>
+      ((b.copyCount || 0) - (a.copyCount || 0)) ||
+      ((b.rules || []).length - (a.rules || []).length) ||
+      String(a.title || "").localeCompare(String(b.title || "")));
+  }
+
+  // Public communities for the "join" section. Interest matches via search_communities
+  // first; if fewer than ONBOARD_MIN_PICKS, top up with popular public communities
+  // (popular_communities RPC, ordered by member count, tagged _popular). Public-tier,
+  // not already-joined, deduped, capped at ONBOARD_PICKS_CAP. Empty only when the app
+  // has genuinely zero public communities.
   async function matchOnboardingCommunities() {
     if (!communitiesAreShared() || !window.PointwellSignals || typeof window.PointwellSignals.searchCommunities !== "function") return [];
-    const queries = onboardingInterests
-      .map((interest) => String(interest.label || "").trim())
-      .filter((query) => query.length >= 2)
-      .slice(0, 4);
-    if (!queries.length) return [];
-    const lists = await Promise.all(queries.map((query) =>
-      Promise.resolve(window.PointwellSignals.searchCommunities(query)).catch(() => [])));
     const seen = new Set();
     const out = [];
-    lists.forEach((rows) => (Array.isArray(rows) ? rows : []).forEach((row) => {
-      if (!row || row.visibility !== "public") return;
+    const addRow = (row, popular) => {
+      if (out.length >= ONBOARD_PICKS_CAP || !row || row.visibility !== "public") return;
       if (row.is_member || isCommunityJoined(row.id)) return;
       const id = String(row.id);
       if (seen.has(id)) return;
       seen.add(id);
-      out.push(row);
-    }));
-    return out.slice(0, 3);
+      out.push({ ...row, _popular: popular });
+    };
+    // 1) Interest matches.
+    const queries = onboardingInterests
+      .map((interest) => String(interest.label || "").trim())
+      .filter((query) => query.length >= 2)
+      .slice(0, 4);
+    if (queries.length) {
+      const lists = await Promise.all(queries.map((query) =>
+        Promise.resolve(window.PointwellSignals.searchCommunities(query)).catch(() => [])));
+      lists.forEach((rows) => (Array.isArray(rows) ? rows : []).forEach((row) => addRow(row, false)));
+    }
+    // 2) Popular fallback to keep the section populated.
+    if (out.length < ONBOARD_MIN_PICKS && typeof window.PointwellSignals.popularCommunities === "function") {
+      const popular = await Promise.resolve(window.PointwellSignals.popularCommunities(12)).catch(() => []);
+      (Array.isArray(popular) ? popular : []).forEach((row) => addRow(row, true));
+    }
+    return out.slice(0, ONBOARD_PICKS_CAP);
   }
 
   // "Add" the AI system through the normal creation path (mirrors startStarterSystem):
@@ -1344,6 +1417,7 @@
     state.trackerSystemId = copy.id;
     state.activeView = "dashboard";
     if (!onboardingCopiedIds.includes(id)) onboardingCopiedIds.push(id);
+    bumpPublicSystemCopy(source);
     saveState();
     showToast("Copied into your systems");
     renderOnboarding();
@@ -1421,6 +1495,9 @@
       }
       currentInboxUid = uid;
     }
+    // Publish my public systems for others to copy, and load theirs into local state.
+    syncMyPublicSystems();
+    state.publicSystems = await loadPublicSystemsFromDb();
     // Load the user's shared communities (one DB row each) into local state, then
     // act on any ?join= invite link that brought them here.
     await loadCommunitiesFromDb();
@@ -10280,6 +10357,7 @@
     state.systemSetupStep = 0;
     state.systemEditorOpen = false;
     saveState();
+    syncMyPublicSystems(); // prune the deleted system from the server if it was public
     render();
     showToast("System deleted");
   }
@@ -10293,6 +10371,7 @@
     system.visibility = els.systemVisibilityInput.value;
     system.ownerName = state.profile.name;
     saveState();
+    syncMyPublicSystems(); // publish/unpublish to match the system's new visibility
     renderChrome();
     renderDashboard();
     renderDiscover();
@@ -10766,6 +10845,7 @@
     copy.ownerId = "me";
     copy.ownerName = state.profile.name;
     copy.visibility = "private";
+    bumpPublicSystemCopy(source);
     state.systems.unshift(copy);
     state.selectedSystemId = copy.id;
     state.trackerSystemId = copy.id;
@@ -11742,6 +11822,8 @@
     });
     resetProfileAvatarDraft();
     saveState();
+    // Public/private toggle or a renamed system changes what others can copy → resync.
+    syncMyPublicSystems();
     render();
     showToast("Profile saved");
     } finally {
@@ -12225,6 +12307,82 @@
     }
     saveState();
     render();
+  }
+
+  // ── Public reward systems (copyable) ────────────────────────────────────────
+  // A public profile's PUBLIC systems are mirrored to the server so anyone can copy
+  // them; other people's land in state.publicSystems (which feeds getBuildPublicSystems,
+  // so both the Build "Reward Systems" search and onboarding's "Public systems you can
+  // copy" pick them up). Server-side RLS guarantees only public-profile public systems
+  // are ever exposed (supabase/public-systems.sql). All calls are best-effort no-ops
+  // when Supabase isn't configured.
+
+  // Mirror MY public systems to the server (only when my profile is public; a private
+  // profile publishes nothing → the server prunes my rows). Sends the full set.
+  function syncMyPublicSystems() {
+    if (!signalsReady() || typeof window.PointwellSignals.syncPublicSystems !== "function") return;
+    const list = state.profile.privacy === "public"
+      ? state.systems
+          .filter((system) => system.visibility === "public")
+          .map((system) => ({
+            client_id: String(system.id),
+            title: system.title || "Reward system",
+            category: system.category || "",
+            description: system.description || "",
+            payload: publicSystemPayload(system)
+          }))
+      : [];
+    Promise.resolve(window.PointwellSignals.syncPublicSystems(list)).catch(() => {});
+  }
+
+  // The portable system shape stored server-side and cloned by a copier (the fields
+  // cloneSystem reads). Keep it minimal — no owner/visibility/ids (those are re-derived).
+  function publicSystemPayload(system) {
+    return {
+      title: system.title || "Reward system",
+      category: system.category || "",
+      description: system.description || "",
+      rules: system.rules || [],
+      calculatedTotals: system.calculatedTotals || []
+    };
+  }
+
+  // Fetch OTHER people's public systems (ranked by copy count) mapped to client shape.
+  // Returns the array (does NOT assign) so the caller controls when state.publicSystems
+  // is written — important during a same-tab account switch, where a stale run must not
+  // clobber the new account's pool.
+  async function loadPublicSystemsFromDb() {
+    if (!signalsReady() || typeof window.PointwellSignals.popularPublicSystems !== "function") return [];
+    const rows = await Promise.resolve(window.PointwellSignals.popularPublicSystems(50)).catch(() => []);
+    return (Array.isArray(rows) ? rows : []).map(publicSystemFromDb);
+  }
+
+  // Map a public_systems row to a client-shaped system. Carries serverPublicId (to bump
+  // the copy counter) and copyCount (the popularity sort key).
+  function publicSystemFromDb(row) {
+    const payload = row && row.payload && typeof row.payload === "object" ? row.payload : {};
+    return normalizeSystem({
+      id: String(row.id),
+      serverPublicId: String(row.id),
+      ownerId: String(row.owner_user || "public"),
+      ownerName: row.owner_name || "Public profile",
+      ownerHandle: row.owner_handle ? cleanHandle(row.owner_handle) : "",
+      title: row.title || payload.title || "Reward system",
+      category: row.category || payload.category || "",
+      description: row.description || payload.description || "",
+      visibility: "public",
+      rules: Array.isArray(payload.rules) ? payload.rules : [],
+      calculatedTotals: Array.isArray(payload.calculatedTotals) ? payload.calculatedTotals : [],
+      copyCount: Number(row.copy_count) || 0
+    });
+  }
+
+  // Best-effort popularity bump when a server-backed public system is copied.
+  function bumpPublicSystemCopy(source) {
+    if (source && source.serverPublicId && signalsReady()
+        && typeof window.PointwellSignals.incrementPublicSystemCopy === "function") {
+      Promise.resolve(window.PointwellSignals.incrementPublicSystemCopy(source.serverPublicId)).catch(() => {});
+    }
   }
 
   // Persist a member's logged check-in for one rule/day to the shared table (the

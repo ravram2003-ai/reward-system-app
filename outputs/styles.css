@@ -8274,3 +8274,141 @@ body.onboarding-locked .fab-add { display: none; }
 .quick-log-clar-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .quick-log-draft-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+
+/* ── Tappable user profiles ──────────────────────────────────────────────── */
+/* Feed-post author (avatar + name) is a tappable button → opens their profile. */
+.ig-author {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.ig-author.ig-author-static { cursor: default; flex: 1 1 auto; }
+.ig-author:hover .ig-head-name { text-decoration: underline; }
+.ig-author:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Search-result identity becomes a tappable button. */
+.person-result-identity {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  flex: 1 1 auto;
+  border-radius: 10px;
+}
+.person-result-identity:hover strong { text-decoration: underline; }
+.person-result-identity:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.profile-page-body { max-width: 560px; margin: 0 auto; display: grid; gap: 18px; }
+.profile-page-back { justify-self: start; color: var(--muted); }
+.profile-page-loading { color: var(--muted); text-align: center; padding: 24px 0; }
+
+.profile-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.profile-hero-avatar { flex: 0 0 auto; }
+.profile-hero-main { display: grid; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.profile-hero-name { font-size: 1.3rem; font-weight: 850; color: var(--ink); }
+.profile-hero-handle { color: var(--muted); font-size: 0.9rem; }
+.profile-hero-sub { color: var(--accent-strong); font-size: 0.82rem; font-weight: 700; margin-top: 2px; }
+.profile-hero-actions { display: flex; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; }
+.profile-rel-status { font-size: 0.84rem; font-weight: 750; color: var(--muted); align-self: center; }
+.profile-following:hover { border-color: var(--danger); color: var(--danger); }
+
+.profile-locked-card {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+  padding: 28px 18px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--panel, var(--surface));
+}
+.profile-locked-icon { font-size: 1.6rem; }
+.profile-locked-card strong { font-size: 1.02rem; color: var(--ink); }
+.profile-locked-card p { margin: 0; color: var(--muted); font-size: 0.9rem; max-width: 320px; }
+.profile-locked-card .primary-button { margin-top: 6px; }
+
+.profile-section { display: grid; gap: 10px; }
+.profile-section-title { font-size: 0.95rem; font-weight: 850; color: var(--ink); margin: 0; }
+.profile-posts-section .profile-section-title { font-size: 1.05rem; }
+
+.profile-suggest-list { display: grid; gap: 8px; }
+.profile-suggest-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.profile-suggest-name { flex: 1 1 auto; min-width: 0; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-type-tag {
+  flex: 0 0 auto;
+  font-size: 0.66rem;
+  font-weight: 850;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+.profile-type-tag.tag-community { color: var(--accent-strong); background: var(--accent-soft); }
+.profile-type-tag.tag-system { color: var(--warm); background: var(--warm-soft, rgba(236, 172, 107, 0.16)); }
+
+.profile-expander {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 800;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.profile-expander:hover { border-color: var(--line-strong); }
+.profile-expander:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.profile-expander-chevron { color: var(--muted); flex: 0 0 auto; }
+.profile-compact-list { display: grid; gap: 1px; margin-top: 8px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.profile-compact-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: var(--surface);
+}
+.profile-compact-name { flex: 1 1 auto; min-width: 0; color: var(--ink); font-size: 0.88rem; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-private-row { padding: 9px 12px; background: var(--surface); color: var(--muted); font-size: 0.82rem; font-weight: 600; }
+
+.profile-posts-list { display: grid; gap: 14px; }
+.profile-post-card { cursor: pointer; }
+.profile-post-card:hover { border-color: var(--line-strong); }
+.profile-post-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.profile-post-card .ds-go { margin-left: auto; color: var(--muted); font-weight: 800; font-size: 16px; }

@@ -259,6 +259,8 @@
     mockSyncData: structuredClone(defaultMockSyncData),
     buildViewedPublicId: "",
     buildViewedProfileId: "",
+    profileUserId: "",            // the OTHER user whose profile page is open
+    profileCommExpanded: false,   // "all communities they're in" expander state
     aiDraftSystem: null,
     aiDraftInputs: null,
     aiDraftAdjustments: null,
@@ -2825,6 +2827,8 @@
       "friendsAddBadge",
       "friendsList",
       "friendActivityView",
+      "profilePageView",
+      "profilePageBody",
       "friendActivityTitle",
       "friendActivitySubtitle",
       "friendActivityAvatar",
@@ -2855,7 +2859,8 @@
       friends: els.friendsView,
       "friend-activity": els.friendActivityView,
       chats: els.chatsView,
-      profile: els.profileView
+      profile: els.profileView,
+      "profile-page": els.profilePageView
     };
   }
 
@@ -3198,6 +3203,7 @@
     renderFindCommunities();
     renderFriends();
     renderFriendActivity();
+    renderProfilePage();
     renderProfile();
     renderNotifications();
     pushMyBehindStatus();
@@ -4195,26 +4201,8 @@
     const query = String(state.buildSearchQuery || "").trim().toLowerCase();
     const systems = getBuildPublicSystems();
 
-    // A selected real person → open their profile view, where the existing
-    // kudos / motivation / message flows are reused (renderMemberSignalActions).
-    if (state.buildViewedProfileId) {
-      const person = peopleResults.find((item) => String(item.id) === state.buildViewedProfileId);
-      if (!person) {
-        state.buildViewedProfileId = "";
-      } else {
-        els.buildPublicSearchResults.innerHTML = renderPersonDetail(person);
-        const back = els.buildPublicSearchResults.querySelector("[data-build-back-results]");
-        if (back) back.addEventListener("click", () => {
-          state.buildViewedProfileId = "";
-          state.buildViewedPublicId = "";
-          saveState();
-          renderBuildSearchResults();
-        });
-        bindMemberSignalActions(personCommunity(), personToMember(person), els.buildPublicSearchResults);
-        return;
-      }
-    }
-
+    // Tapping a person opens the dedicated profile page (openUserProfile), so there is
+    // no longer an in-place person detail rendered here.
     const visibleSystems = systems.filter((system) => matchesSystemSearch(system, query));
     els.buildPublicSearchResults.innerHTML = `
       <section class="build-result-section" aria-label="People">
@@ -4247,12 +4235,7 @@
       button.addEventListener("click", () => joinCommunityById(button.dataset.joinCommunityId));
     });
     Array.from(els.buildPublicSearchResults.querySelectorAll("[data-build-view-person-id]")).forEach((button) => {
-      button.addEventListener("click", () => {
-        state.buildViewedProfileId = button.dataset.buildViewPersonId;
-        state.buildViewedPublicId = "";
-        saveState();
-        renderBuildSearchResults();
-      });
+      button.addEventListener("click", () => openUserProfile(button.dataset.buildViewPersonId));
     });
     Array.from(els.buildPublicSearchResults.querySelectorAll("[data-build-view-public-id]")).forEach((button) => {
       button.addEventListener("click", () => {
@@ -4306,50 +4289,21 @@
   function renderPersonResult(person) {
     const name = escapeHtml(person.display_name || "Member");
     const handle = escapeHtml(cleanHandle(person.handle || "") || "@member");
+    const id = escapeHtml(String(person.id));
     return `
       <article class="build-result-card person-result-card">
-        <div class="person-result-identity">
+        <button class="person-result-identity" type="button" data-build-view-person-id="${id}" aria-label="View ${name}'s profile">
           ${renderAvatar({ name: person.display_name || "Member", avatarUrl: person.avatar_url })}
           <div class="build-result-main">
             <strong>${name}</strong>
             <span>${handle}</span>
           </div>
-        </div>
+        </button>
         <div class="build-result-actions">
-          <button class="secondary-button small" type="button" data-build-view-person-id="${escapeHtml(String(person.id))}">View profile</button>
+          <button class="secondary-button small" type="button" data-build-view-person-id="${id}">View profile</button>
         </div>
       </article>
     `;
-  }
-
-  function renderPersonDetail(person) {
-    const name = escapeHtml(person.display_name || "Member");
-    const handle = escapeHtml(cleanHandle(person.handle || "") || "@member");
-    return `
-      <section class="build-profile-detail person-detail">
-        <div class="build-profile-header">
-          <button class="ghost-button small" type="button" data-build-back-results>Back</button>
-          <div class="person-detail-identity">
-            ${renderAvatar({ className: "large-avatar person-detail-avatar", name: person.display_name || "Member", avatarUrl: person.avatar_url })}
-            <div>
-              <h3>${name}</h3>
-              <span>${handle}</span>
-            </div>
-          </div>
-        </div>
-        ${renderMemberSignalActions(personCommunity(), personToMember(person))}
-      </section>
-    `;
-  }
-
-  // Shape a searched person like a community member so the existing connect flows
-  // (kudos / motivation / message + thread) work unchanged. id is a real uuid (not
-  // "me") and userId is set, so the member is fully signalable.
-  function personToMember(person) {
-    return { id: String(person.id), userId: String(person.id), name: person.display_name || "Member", handle: person.handle || "", avatarUrl: person.avatar_url || "" };
-  }
-  function personCommunity() {
-    return { id: null, members: [] };
   }
 
   function matchesSystemSearch(system, query) {
@@ -5890,15 +5844,22 @@
       : "";
     const commentsHtml = renderFeedComments(item, canSocial, social);
     const inputHtml = canSocial ? renderFeedCommentInput(entryId) : "";
+    // The author avatar+name is tappable → opens their profile (not for your own posts).
+    const authorId = item.member && item.member.userId ? String(item.member.userId) : "";
+    const authorTap = !isMe && authorId && authorId !== "me";
+    const authorOpen = authorTap ? `<button class="ig-author" type="button" data-feed-author="${escapeHtml(authorId)}" aria-label="View ${name}'s profile">` : `<div class="ig-author ig-author-static">`;
+    const authorClose = authorTap ? `</button>` : `</div>`;
 
     return `
       <article class="ig-card${milestone ? " is-milestone" : ""}" data-feed-entry="${escapeHtml(entryId)}">
         <div class="ig-card-header">
-          ${renderAvatar({ name: item.member.name, color: item.member.color || "#355d91", avatarUrl: item.member.avatarUrl })}
-          <div class="ig-head-main">
-            <span class="ig-head-name">${name}</span>
-            <span class="ig-head-sub">${sub}</span>
-          </div>
+          ${authorOpen}
+            ${renderAvatar({ name: item.member.name, color: item.member.color || "#355d91", avatarUrl: item.member.avatarUrl })}
+            <div class="ig-head-main">
+              <span class="ig-head-name">${name}</span>
+              <span class="ig-head-sub">${sub}</span>
+            </div>
+          ${authorClose}
           ${isDiscover ? affinityHtml : (milestone ? `<span class="ig-milestone-badge">Goal</span>` : "")}
           ${menuHtml}
         </div>
@@ -6008,6 +5969,8 @@
     if (els.communityFeed && !event.target.closest("[data-feed-menu]") && !event.target.closest(".ig-menu-pop")) {
       Array.from(els.communityFeed.querySelectorAll(".ig-menu-pop")).forEach((p) => { p.hidden = true; });
     }
+    const authorBtn = event.target.closest("[data-feed-author]");
+    if (authorBtn) { openUserProfile(authorBtn.dataset.feedAuthor); return; }
     const likeBtn = event.target.closest("[data-feed-like]");
     if (likeBtn) { toggleFeedLike(likeBtn.dataset.feedLike); return; }
     const commentBtn = event.target.closest("[data-feed-comment-focus]");
@@ -6645,6 +6608,302 @@
       || (profileAvatarDraft.remove ? "" : (state.profile.avatarUrl || ""));
     paintAvatarNode(els.largeAvatar, state.profile.name, previewUrl);
     if (els.profileAvatarRemoveButton) els.profileAvatarRemoveButton.hidden = !previewUrl;
+  }
+
+  // ── Tappable user profile page (an OTHER user; own profile uses renderProfile) ──
+  // openUserProfile(id) → the "profile-page" view, which fetches get_profile_overview
+  // (server-gated by can_view_profile) and renders header + you-might-like + an
+  // all-communities expander + recent posts. All visibility is enforced server-side.
+  let profileOverview = null;
+  let profileOverviewLoading = false;
+  let profileBackView = "";
+
+  function openUserProfile(userId) {
+    const id = String(userId || "");
+    if (!id) return;
+    if (state.account && id === String(state.account.userId)) { openProfile(); return; } // your own → settings
+    profileBackView = (state.activeView && state.activeView !== "profile-page") ? state.activeView : "feed";
+    state.profileUserId = id;
+    profileOverview = null;
+    profileOverviewLoading = true; // show the loading state on the first paint, not an error flash
+    state.activeView = "profile-page";
+    saveState();
+    render();
+    loadProfileOverview(id);
+  }
+
+  async function loadProfileOverview(id) {
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.getProfileOverview !== "function") {
+      profileOverviewLoading = false; profileOverview = null; renderProfilePage(); return;
+    }
+    profileOverviewLoading = true;
+    renderProfilePage();
+    let row = null;
+    try { row = await window.PointwellSignals.getProfileOverview(id); } catch (e) { row = null; }
+    if (String(state.profileUserId) !== String(id)) return; // navigated away mid-fetch
+    profileOverviewLoading = false;
+    profileOverview = row;
+    if (state.activeView === "profile-page") renderProfilePage();
+  }
+
+  function renderProfilePage() {
+    if (!els.profilePageBody || state.activeView !== "profile-page") return;
+    const root = els.profilePageBody;
+    bindProfilePage();
+    const back = `<button class="ghost-button small profile-page-back" type="button" data-profile-back>← Back</button>`;
+    if (!state.profileUserId) { root.innerHTML = back + emptyState("No profile selected."); return; }
+    if (profileOverviewLoading && !profileOverview) { root.innerHTML = back + `<p class="profile-page-loading">Loading profile…</p>`; return; }
+    const o = profileOverview;
+    if (!o) { root.innerHTML = back + emptyState("Couldn't load this profile."); return; }
+
+    const name = escapeHtml(o.display_name || "Member");
+    const handle = escapeHtml(cleanHandle(o.handle || "") || "@member");
+    const canView = !!o.can_view;
+    const isPrivate = o.visibility === "private";
+    const shortLine = canView
+      ? escapeHtml(plural((o.communities || []).length, "public community"))
+      : (isPrivate ? "Private profile" : "Public profile");
+    let html = back + `
+      <section class="profile-hero">
+        ${renderAvatar({ className: "large-avatar profile-hero-avatar", name: o.display_name || "Member", avatarUrl: o.avatar_url })}
+        <div class="profile-hero-main">
+          <h2 class="profile-hero-name">${name}</h2>
+          <span class="profile-hero-handle">${handle}</span>
+          <span class="profile-hero-sub">${shortLine}</span>
+        </div>
+        ${canView ? `<div class="profile-hero-actions">${profileRelationshipButton(o)}${profileMessageButton(name)}</div>` : ""}
+      </section>`;
+
+    if (!canView) {
+      html += `
+        <section class="profile-locked-card">
+          <span class="profile-locked-icon" aria-hidden="true">🔒</span>
+          <strong>This profile is private</strong>
+          <p>Request to follow to see their posts, communities, and goals.</p>
+          ${profileLockedButton(o)}
+        </section>`;
+      root.innerHTML = html;
+      return;
+    }
+
+    html += renderProfileYouMightLike(o) + renderProfileAllCommunities(o) + renderProfileRecentPosts(o);
+    root.innerHTML = html;
+    bindEntryPhotos(root);
+  }
+
+  function profileMessageButton(name) {
+    return `<button class="secondary-button small" type="button" data-profile-message aria-label="Message ${name}"><span aria-hidden="true">✉</span> Message</button>`;
+  }
+
+  // Header relationship button: public → instant Follow/Following (follows table);
+  // private → friend-request approval (Request to follow → Requested → Friends).
+  function profileRelationshipButton(o) {
+    const id = escapeHtml(String(state.profileUserId));
+    const fs = o.friend_status || "none";
+    if (fs === "friends") return `<span class="profile-rel-status">Friends</span>`;
+    if (fs === "pending_out") return `<span class="profile-rel-status">Requested</span>`;
+    if (fs === "pending_in") return `<button class="primary-button small" type="button" data-profile-friend-accept="${id}">Accept request</button>`;
+    if (o.visibility === "private") return `<button class="primary-button small" type="button" data-profile-follow-request="${id}">Request to follow</button>`;
+    return o.is_following
+      ? `<button class="secondary-button small profile-following" type="button" data-profile-unfollow="${id}">Following</button>`
+      : `<button class="primary-button small" type="button" data-profile-follow="${id}"><span aria-hidden="true">+</span> Follow</button>`;
+  }
+
+  function profileLockedButton(o) {
+    const id = escapeHtml(String(state.profileUserId));
+    const fs = o.friend_status || "none";
+    if (fs === "pending_out") return `<span class="profile-rel-status">Requested — pending approval</span>`;
+    if (fs === "pending_in") return `<button class="primary-button" type="button" data-profile-friend-accept="${id}">Accept their request</button>`;
+    return `<button class="primary-button" type="button" data-profile-follow-request="${id}">Request to follow</button>`;
+  }
+
+  // Rank the person's public/request-to-join communities by overlap with the viewer's
+  // tracked categories (reuses the discover relevance helper).
+  function profileRankedCommunities(o) {
+    const cats = callerDiscoverCategories();
+    const norm = (c) => String(c || "").trim();
+    return (o.communities || []).map((c) => {
+      let rel = cats.includes(norm(c.category)) ? 2 : 0;
+      const rules = (c.system && Array.isArray(c.system.rules)) ? c.system.rules : [];
+      rules.forEach((r) => { if (cats.includes(norm((r || {}).category))) rel += 1; });
+      return { c: c, rel: rel };
+    }).sort((a, b) => b.rel - a.rel).map((x) => x.c);
+  }
+
+  function renderProfileYouMightLike(o) {
+    const top = profileRankedCommunities(o).slice(0, 4);
+    if (!top.length) return "";
+    return `
+      <section class="profile-section">
+        <h3 class="profile-section-title">You might like</h3>
+        <div class="profile-suggest-list">${top.map(profileSuggestRow).join("")}</div>
+      </section>`;
+  }
+
+  // A community you're not in → Join/Request (Community tag). One you're already in →
+  // Copy its reward system (System tag). This is the "communities + systems" mix.
+  function profileSuggestRow(c) {
+    const id = escapeHtml(String(c.id));
+    const name = escapeHtml(c.name || "Community");
+    const member = !!c.is_member;
+    const hasSystem = c.system && Array.isArray(c.system.rules) && c.system.rules.length;
+    if (member && hasSystem) {
+      return `<div class="profile-suggest-row"><span class="profile-type-tag tag-system">System</span><span class="profile-suggest-name">${name}</span><button class="secondary-button small" type="button" data-profile-copy="${id}">Copy</button></div>`;
+    }
+    const action = profileCommunityAction(c, "primary-button small");
+    return `<div class="profile-suggest-row"><span class="profile-type-tag tag-community">Community</span><span class="profile-suggest-name">${name}</span>${action}</div>`;
+  }
+
+  function profileCommunityAction(c, btnClass) {
+    const id = escapeHtml(String(c.id));
+    if (c.is_member) return `<span class="profile-rel-status">Joined</span>`;
+    if (c.visibility === "request_to_join") {
+      return c.request_status === "pending"
+        ? `<span class="profile-rel-status">Requested</span>`
+        : `<button class="${btnClass}" type="button" data-profile-request="${id}">Request</button>`;
+    }
+    return `<button class="${btnClass}" type="button" data-profile-join="${id}">Join</button>`;
+  }
+
+  function renderProfileAllCommunities(o) {
+    const comms = o.communities || [];
+    const suggested = new Set(profileRankedCommunities(o).slice(0, 4).map((c) => String(c.id)));
+    const rest = comms.filter((c) => !suggested.has(String(c.id)));
+    const privateNote = (o.private_count || 0) > 0
+      ? `<div class="profile-private-row">+ ${o.private_count} more private (not shown)</div>` : "";
+    if (!rest.length && !privateNote) return "";
+    const open = !!state.profileCommExpanded;
+    const rows = rest.map((c) => `<div class="profile-compact-row"><span class="profile-compact-name">${escapeHtml(c.name || "Community")}</span>${profileCommunityAction(c, "ghost-button small")}</div>`).join("");
+    return `
+      <section class="profile-section">
+        <button class="profile-expander" type="button" data-profile-comm-toggle aria-expanded="${open ? "true" : "false"}">
+          <span>All communities they're in (${comms.length})</span>
+          <span class="profile-expander-chevron" aria-hidden="true">${open ? "▴" : "▾"}</span>
+        </button>
+        ${open ? `<div class="profile-compact-list">${rows}${privateNote}</div>` : ""}
+      </section>`;
+  }
+
+  function renderProfileRecentPosts(o) {
+    const posts = o.posts || [];
+    const cards = posts.length ? posts.map(renderProfilePostCard).join("") : emptyState("No public posts yet.");
+    return `
+      <section class="profile-section profile-posts-section">
+        <h3 class="profile-section-title">Recent posts</h3>
+        <div class="profile-posts-list">${cards}</div>
+      </section>`;
+  }
+
+  // Read-only ig-card for the profile body — photo + caption + like/comment COUNTS,
+  // tappable to open the full interactive post in the Feed (avoids the feed's
+  // #communityFeed-bound like/comment delegation entirely).
+  function renderProfilePostCard(p) {
+    const o = profileOverview || {};
+    const entryId = escapeHtml(String(p.entry_id));
+    const name = escapeHtml(o.display_name || "Member");
+    const when = escapeHtml(window.PointwellSignals.formatRelativeTime(p.updated_at || p.entry_date, Date.now()) || "");
+    const sub = escapeHtml(p.community_name || "Community") + (when ? " · " + when : "");
+    const photoPath = p.photo_path || "";
+    const photoHtml = photoPath ? `<div class="ig-photo" data-entry-photo="${escapeHtml(photoPath)}" role="img" aria-label="Post photo"><img alt="" loading="lazy"></div>` : "";
+    const message = p.message ? `<div class="ig-caption"><span class="ig-name">${name}</span>${escapeHtml(String(p.message))}</div>` : "";
+    const likes = Number(p.like_count) || 0, comments = Number(p.comment_count) || 0;
+    const counts = (likes || comments)
+      ? `<div class="ig-likes">${[likes ? plural(likes, "like") : "", comments ? plural(comments, "comment") : ""].filter(Boolean).join(" · ")}</div>`
+      : "";
+    return `
+      <article class="ig-card profile-post-card" role="button" tabindex="0" data-profile-post="${entryId}" aria-label="Open post">
+        <div class="ig-card-header">
+          ${renderAvatar({ name: o.display_name || "Member", avatarUrl: o.avatar_url })}
+          <div class="ig-head-main"><span class="ig-head-name">${name}</span><span class="ig-head-sub">${sub}</span></div>
+          <span class="ds-go" aria-hidden="true">›</span>
+        </div>
+        ${photoHtml}
+        ${message}
+        ${counts}
+      </article>`;
+  }
+
+  function bindProfilePage() {
+    const root = els.profilePageBody;
+    if (!root || root.dataset.profileBound === "1") return;
+    root.dataset.profileBound = "1";
+    root.addEventListener("click", onProfilePageClick);
+    root.addEventListener("keydown", (event) => {
+      const card = event.target.closest && event.target.closest("[data-profile-post]");
+      if (card && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); openEntryPost(card.dataset.profilePost); }
+    });
+  }
+
+  function onProfilePageClick(event) {
+    const t = event.target;
+    const find = (sel) => t.closest && t.closest(sel);
+    const back = find("[data-profile-back]"); if (back) { state.activeView = profileBackView || "feed"; saveState(); render(); return; }
+    const follow = find("[data-profile-follow]"); if (follow) { profileFollow(follow.dataset.profileFollow); return; }
+    const unfollow = find("[data-profile-unfollow]"); if (unfollow) { profileUnfollow(unfollow.dataset.profileUnfollow); return; }
+    const req = find("[data-profile-follow-request]"); if (req) { profileFollowRequest(req.dataset.profileFollowRequest); return; }
+    const acc = find("[data-profile-friend-accept]"); if (acc) { acceptFriendByUser(acc.dataset.profileFriendAccept); setTimeout(() => loadProfileOverview(state.profileUserId), 500); return; }
+    const msg = find("[data-profile-message]"); if (msg) { profileMessage(); return; }
+    const join = find("[data-profile-join]"); if (join) { profileJoinCommunity(join.dataset.profileJoin); return; }
+    const rj = find("[data-profile-request]"); if (rj) { profileRequestCommunity(rj.dataset.profileRequest); return; }
+    const copy = find("[data-profile-copy]"); if (copy) { profileCopySystem(copy.dataset.profileCopy); return; }
+    const toggle = find("[data-profile-comm-toggle]"); if (toggle) { state.profileCommExpanded = !state.profileCommExpanded; saveState(); renderProfilePage(); return; }
+    const post = find("[data-profile-post]"); if (post) { openEntryPost(post.dataset.profilePost); return; }
+  }
+
+  function profileFollow(id) {
+    if (!signalsReady()) { showToast("Sign in to follow"); return; }
+    if (profileOverview) profileOverview.is_following = true;
+    renderProfilePage();
+    Promise.resolve(window.PointwellSignals.followUser(id)).then((r) => { if (r && r.error) { showToast("Couldn't follow"); loadProfileOverview(id); } }).catch(() => loadProfileOverview(id));
+  }
+  function profileUnfollow(id) {
+    if (profileOverview) profileOverview.is_following = false;
+    renderProfilePage();
+    Promise.resolve(window.PointwellSignals.unfollowUser(id)).then((r) => { if (r && r.error) loadProfileOverview(id); }).catch(() => loadProfileOverview(id));
+  }
+  function profileFollowRequest(id) {
+    if (!signalsReady()) { showToast("Sign in to send a request"); return; }
+    const nm = (profileOverview && profileOverview.display_name) || "";
+    sendFriendRequestTo(id, nm);
+    if (profileOverview) profileOverview.friend_status = "pending_out";
+    renderProfilePage();
+  }
+  function profileMessage() {
+    const o = profileOverview || {};
+    state.activeView = "chats";
+    saveState();
+    render();
+    openChatConversation(String(state.profileUserId), o.display_name || "Member", "");
+  }
+  function profileJoinCommunity(id) {
+    if (!communitiesAreShared()) return;
+    Promise.resolve(window.PointwellSignals.joinCommunity(id, state.account.userId, "member")).then((r) => {
+      if (r && r.error) { showToast(communityDbError(r.error, "Couldn't join that community")); return; }
+      showToast("Joined community");
+      Promise.resolve(loadCommunitiesFromDb()).catch(() => {});
+      loadProfileOverview(state.profileUserId);
+    }).catch(() => {});
+  }
+  function profileRequestCommunity(id) {
+    if (!communitiesAreShared()) return;
+    Promise.resolve(window.PointwellSignals.requestToJoin(id, state.account.userId)).then((r) => {
+      if (r && r.error) { showToast(communityDbError(r.error, "Couldn't request to join")); return; }
+      showToast(r.already ? "You've already requested to join" : "Request sent — the owner will review it");
+      loadProfileOverview(state.profileUserId);
+    }).catch(() => {});
+  }
+  function profileCopySystem(communityId) {
+    const o = profileOverview || {};
+    const c = (o.communities || []).find((x) => String(x.id) === String(communityId));
+    if (!c || !c.system) { showToast("No system to copy"); return; }
+    const source = normalizeSystem(Object.assign({}, c.system, { title: c.system.title || (c.name + " system"), category: c.system.category || c.category || "" }));
+    const copy = cloneSystem(source, (source.title || "System") + " remix");
+    copy.ownerId = "me";
+    copy.ownerName = state.profile.name;
+    copy.visibility = "private";
+    state.systems.unshift(copy);
+    saveState();
+    showToast("Copied into your systems");
   }
 
   function renderProfile() {
@@ -12252,6 +12511,8 @@
       mockSyncData: mergeMockSyncData(saved.mockSyncData),
       buildViewedPublicId: saved.buildViewedPublicId || "",
       buildViewedProfileId: saved.buildViewedProfileId || "",
+      profileUserId: saved.profileUserId || "",
+      profileCommExpanded: Boolean(saved.profileCommExpanded),
       aiDraftSystem: saved.aiDraftSystem ? normalizeSystem(saved.aiDraftSystem) : null,
       topCardPreferences: saved.topCardPreferences && typeof saved.topCardPreferences === "object" ? saved.topCardPreferences : {},
       weeklyChartPreferences: saved.weeklyChartPreferences && typeof saved.weeklyChartPreferences === "object" ? saved.weeklyChartPreferences : {},

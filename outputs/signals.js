@@ -692,6 +692,34 @@
     }
   }
 
+  // Unfollow (delete my follow row). Idempotent.
+  async function unfollowUser(targetId) {
+    var sb = getClient();
+    if (!sb || !targetId) return { error: { message: "Couldn't unfollow." } };
+    try {
+      var res = await sb.rpc("unfollow_user", { target: targetId });
+      return res.error ? { error: res.error } : { error: null };
+    } catch (e) {
+      return { error: { message: "Couldn't unfollow." } };
+    }
+  }
+
+  // One-call profile overview (profile-view.sql get_profile_overview): header +
+  // relationship state, and — ONLY when the server says can_view — the person's PUBLIC
+  // communities + recent PUBLIC posts. Returns a single row object (or null).
+  async function getProfileOverview(targetId) {
+    var sb = getClient();
+    if (!sb || !targetId) return null;
+    try {
+      var res = await sb.rpc("get_profile_overview", { target: targetId });
+      if (res.error) return null;
+      var rows = res.data || [];
+      return rows.length ? rows[0] : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   // Create a PENDING request to join a request_to_join community. A duplicate
   // (already pending) is treated as success. DB RLS enforces the real rules.
   async function requestToJoin(communityId, userId) {
@@ -989,7 +1017,9 @@
     markNotificationsRead: markNotificationsRead,
     subscribeNotifications: subscribeNotifications,
     discoverFeed: discoverFeed,
-    followUser: followUser
+    followUser: followUser,
+    unfollowUser: unfollowUser,
+    getProfileOverview: getProfileOverview
   };
 
   if (typeof module !== "undefined" && module.exports) {

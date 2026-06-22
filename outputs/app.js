@@ -220,7 +220,6 @@
       name: "Avery Rivera",
       handle: "@avery",
       privacy: "public",
-      dailyTarget: 8,
       accent: "#355d91",
       // Uploaded profile picture (public URL from the "avatars" bucket). "" = use the
       // initials avatar. Mirrored to the server (profiles.avatar_url).
@@ -2309,6 +2308,33 @@
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }
 
+  // The header avatar opens YOUR profile the way others see it (the public profile view,
+  // with a Settings button) — not the edit form directly. Falls back to the edit form
+  // when there's no server identity to fetch (local/demo or signed-out).
+  function openMyProfile() {
+    const uid = state.account && state.account.userId;
+    if (signalsReady() && uid) openUserProfile(String(uid));
+    else openProfile();
+  }
+
+  // Back from the Settings edit form → the own profile view (reusing its cached overview
+  // so the profile-page's own Back target is preserved), with sensible fallbacks.
+  function backFromProfileEdit() {
+    const uid = state.account && state.account.userId;
+    if (uid && String(state.profileUserId) === String(uid)) {
+      state.activeView = "profile-page";
+      saveState();
+      render();
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    } else if (signalsReady() && uid) {
+      openUserProfile(String(uid));
+    } else {
+      state.activeView = "dashboard";
+      saveState();
+      render();
+    }
+  }
+
   async function markAllSignalsRead() {
     if (!signalsReady()) return;
     await window.PointwellSignals.markAllRead(state.account.userId);
@@ -2900,7 +2926,7 @@
       "profileNameInput",
       "profileHandleInput",
       "profilePrivacyInput",
-      "dailyTargetInput",
+      "backFromProfileEditButton",
       "largeAvatar",
       "profileAvatarEditButton",
       "profileAvatarMenu",
@@ -3231,7 +3257,8 @@
     if (els.profileSignOutButton) els.profileSignOutButton.addEventListener("click", () => {
       Promise.resolve(window.PointwellAuth && window.PointwellAuth.signOut && window.PointwellAuth.signOut()).catch(() => {});
     });
-    if (els.headerAvatarButton) els.headerAvatarButton.addEventListener("click", openProfile);
+    if (els.headerAvatarButton) els.headerAvatarButton.addEventListener("click", openMyProfile);
+    if (els.backFromProfileEditButton) els.backFromProfileEditButton.addEventListener("click", backFromProfileEdit);
     if (els.onboardingScreen) els.onboardingScreen.addEventListener("click", handleOnboardingClick);
     if (els.onboardingScreen) els.onboardingScreen.addEventListener("keydown", handleOnboardingKeydown);
     if (els.onboardingScreen) els.onboardingScreen.addEventListener("input", handleOnboardingInput);
@@ -3349,7 +3376,7 @@
     const myAvatar = state.profile.avatarUrl || "";
     paintAvatarNode(els.profileAvatar, state.profile.name, myAvatar);
     paintAvatarNode(els.largeAvatar, state.profile.name, myAvatar);
-    if (els.headerAvatarButton) els.headerAvatarButton.classList.toggle("is-active", state.activeView === "profile");
+    if (els.headerAvatarButton) els.headerAvatarButton.classList.toggle("is-active", state.activeView === "profile" || (state.activeView === "profile-page" && !!(state.account && String(state.profileUserId) === String(state.account.userId))));
     if (els.headerFriendsButton) els.headerFriendsButton.classList.toggle("is-active", state.activeView === "friends" || state.activeView === "friend-activity");
     if (els.headerChatsButton) els.headerChatsButton.classList.toggle("is-active", state.activeView === "chats");
     els.todayLabel.textContent = formatDate(todayIso);
@@ -6742,7 +6769,8 @@
   function openUserProfile(userId) {
     const id = String(userId || "");
     if (!id) return;
-    if (state.account && id === String(state.account.userId)) { openProfile(); return; } // your own → settings
+    // (Own id is allowed through: it opens the public profile view with a Settings button,
+    // a "what others see" self-preview — see renderProfilePage / openMyProfile.)
     profileBackView = (state.activeView && state.activeView !== "profile-page") ? state.activeView : "feed";
     state.profileUserId = id;
     profileOverview = null;
@@ -6787,6 +6815,9 @@
     const o = profileOverview;
     if (!o) { root.innerHTML = back + emptyState("Couldn't load this profile."); return; }
 
+    // Viewing your OWN profile → a "what others see" preview with a Settings button in
+    // place of Follow/Message.
+    const isOwnProfile = !!(state.account && String(state.profileUserId) === String(state.account.userId));
     const name = escapeHtml(o.display_name || "Member");
     const handle = escapeHtml(cleanHandle(o.handle || "") || "@member");
     const canView = !!o.can_view;
@@ -6803,7 +6834,9 @@
           ${renderProfileCounts(o)}
           <span class="profile-hero-sub">${shortLine}</span>
         </div>
-        ${canView ? `<div class="profile-hero-actions">${profileRelationshipButton(o)}${profileMessageButton(name)}</div>` : ""}
+        ${isOwnProfile
+          ? `<div class="profile-hero-actions">${profileSettingsButton()}</div>`
+          : (canView ? `<div class="profile-hero-actions">${profileRelationshipButton(o)}${profileMessageButton(name)}</div>` : "")}
       </section>`;
 
     if (!canView) {
@@ -6825,6 +6858,11 @@
 
   function profileMessageButton(name) {
     return `<button class="secondary-button small" type="button" data-profile-message aria-label="Message ${name}"><span aria-hidden="true">✉</span> Message</button>`;
+  }
+
+  // Shown only on your OWN profile view → opens the existing "Profile & privacy" edit form.
+  function profileSettingsButton() {
+    return `<button class="secondary-button small" type="button" data-profile-settings aria-label="Edit profile and privacy settings"><span aria-hidden="true">⚙</span> Settings</button>`;
   }
 
   // Compact follower/following counts under the name/@handle — shown on public AND
@@ -6987,6 +7025,7 @@
     const t = event.target;
     const find = (sel) => t.closest && t.closest(sel);
     const back = find("[data-profile-back]"); if (back) { state.activeView = profileBackView || "feed"; saveState(); render(); return; }
+    const settings = find("[data-profile-settings]"); if (settings) { openProfile(); return; }
     const follow = find("[data-profile-follow]"); if (follow) { profileFollow(follow.dataset.profileFollow); return; }
     const unfollow = find("[data-profile-unfollow]"); if (unfollow) { profileUnfollow(unfollow.dataset.profileUnfollow); return; }
     const req = find("[data-profile-follow-request]"); if (req) { profileFollowRequest(req.dataset.profileFollowRequest); return; }
@@ -7066,7 +7105,6 @@
     els.profileNameInput.value = state.profile.name;
     els.profileHandleInput.value = state.profile.handle.replace(/^@/, "");
     els.profilePrivacyInput.value = state.profile.privacy;
-    els.dailyTargetInput.value = state.profile.dailyTarget;
     if (els.allowMotivationInput) els.allowMotivationInput.checked = state.profile.allowMotivation === true;
     refreshProfileAvatar();
 
@@ -11811,7 +11849,6 @@
     state.profile.name = name;
     state.profile.handle = handle;
     state.profile.privacy = els.profilePrivacyInput.value;
-    state.profile.dailyTarget = numberOrDefault(els.dailyTargetInput.value, 8);
 
     // Persist the searchable basics + visibility to the DB (RLS allows self-update).
     // This is what makes you findable by your chosen name/handle and applies your

@@ -639,6 +639,38 @@
     }
   }
 
+  // Discover feed — ranked recent PUBLIC posts similar to what the caller tracks. The
+  // discover_feed SECURITY DEFINER RPC enforces public-only authors + excludes the
+  // caller / friends / followed / blocked server-side, so the anon key never reads
+  // private posts. Returns [] on any failure.
+  async function discoverFeed(categories, since, maxRows) {
+    var sb = getClient();
+    if (!sb) return [];
+    try {
+      var res = await sb.rpc("discover_feed", {
+        categories: Array.isArray(categories) ? categories : [],
+        since: since || null,
+        max_rows: maxRows || 30
+      });
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Follow a PUBLIC account (one-directional, instant). Idempotent server-side
+  // (follow_user does ON CONFLICT DO NOTHING + validates public/not-blocked/not-self).
+  async function followUser(targetId) {
+    var sb = getClient();
+    if (!sb || !targetId) return { error: { message: "Couldn't follow." } };
+    try {
+      var res = await sb.rpc("follow_user", { target: targetId });
+      return res.error ? { error: res.error } : { error: null };
+    } catch (e) {
+      return { error: { message: "Couldn't follow." } };
+    }
+  }
+
   // Create a PENDING request to join a request_to_join community. A duplicate
   // (already pending) is treated as success. DB RLS enforces the real rules.
   async function requestToJoin(communityId, userId) {
@@ -905,7 +937,9 @@
     blockUser: blockUser,
     unblockUser: unblockUser,
     isBlockedByMe: isBlockedByMe,
-    reportMessage: reportMessage
+    reportMessage: reportMessage,
+    discoverFeed: discoverFeed,
+    followUser: followUser
   };
 
   if (typeof module !== "undefined" && module.exports) {

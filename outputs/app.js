@@ -261,6 +261,8 @@
     profileUserId: "",            // the OTHER user whose profile page is open
     profileCommExpanded: false,   // "all communities they're in" expander state
     profilePostsView: "grid",     // profile "Recent posts" layout: "grid" | "list"
+    profileCommunityContextId: "",   // community the profile was opened from (→ "Today in" section)
+    profileRuleBreakdownOpen: false, // "See rule breakdown" toggle in the "Today in" section
     aiDraftSystem: null,
     aiDraftInputs: null,
     aiDraftAdjustments: null,
@@ -3556,13 +3558,31 @@
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }
 
-  // Home Standings row tapped → open that member's breakdown in the score-context
+  // A leaderboard row → open that member's FULL profile (same as tapping someone in the
+  // feed), carrying the community context so the profile shows a "Today in <community>"
+  // section. Real members route by their user id; demo members (no user id) fall back to
+  // the local member-day view so they still work.
+  function openMemberProfile(community, memberId) {
+    if (!community) return;
+    const member = (community.members || []).find((m) => String(m.id) === String(memberId))
+      || (community.members || []).find((m) => String(m.userId) === String(memberId));
+    if (!member) return; // unknown member id — never silently open someone else's activity
+    if (member.userId) {
+      state.selectedCommunityMemberId = member.id; // keep the leaderboard row highlight in sync
+      openUserProfile(member.userId, community.id);
+      return;
+    }
+    state.selectedCommunityId = community.id;
+    openCommunityMemberActivity(member.id); // demo member without a real profile
+  }
+
+  // Home Standings row tapped → open that member's full profile in the score-context
   // community. Only ever this one shared community's data, so visibility is preserved.
   function openStandingsMember(memberId) {
     const context = getActiveScoreContext();
     if (context.type !== "community" || !context.community) return;
     state.selectedCommunityId = context.community.id;
-    openCommunityMemberActivity(memberId);
+    openMemberProfile(context.community, memberId);
   }
 
   function openAddEntryPage() {
@@ -6766,11 +6786,14 @@
   let profileOverviewLoading = false;
   let profileBackView = "";
 
-  function openUserProfile(userId) {
+  function openUserProfile(userId, communityContextId) {
     const id = String(userId || "");
     if (!id) return;
     // (Own id is allowed through: it opens the public profile view with a Settings button,
     // a "what others see" self-preview — see renderProfilePage / openMyProfile.)
+    // When opened from a community (leaderboard), remember it → the "Today in <community>"
+    // section. Any other entry point (feed, friends, search) clears it.
+    state.profileCommunityContextId = communityContextId ? String(communityContextId) : "";
     profileBackView = (state.activeView && state.activeView !== "profile-page") ? state.activeView : "feed";
     state.profileUserId = id;
     profileOverview = null;
@@ -6812,12 +6835,19 @@
     const back = `<button class="ghost-button small profile-page-back" type="button" data-profile-back>← Back</button>`;
     if (!state.profileUserId) { root.innerHTML = back + emptyState("No profile selected."); return; }
     if (profileOverviewLoading && !profileOverview) { root.innerHTML = back + `<p class="profile-page-loading">Loading profile…</p>`; return; }
-    const o = profileOverview;
-    if (!o) { root.innerHTML = back + emptyState("Couldn't load this profile."); return; }
-
     // Viewing your OWN profile → a "what others see" preview with a Settings button in
-    // place of Follow/Message.
+    // place of Follow/Message. (Derived from state, so it's valid even before the
+    // overview loads / if it fails.)
     const isOwnProfile = !!(state.account && String(state.profileUserId) === String(state.account.userId));
+
+    const o = profileOverview;
+    if (!o) {
+      // The remote profile failed to load, but the "Today in <community>" data is LOCAL
+      // (co-member data) — still show it when community-scoped, above the error note.
+      root.innerHTML = back + renderProfileTodayInCommunity(isOwnProfile) + emptyState("Couldn't load this profile.");
+      centerProfileTodaySchedule(root);
+      return;
+    }
     const name = escapeHtml(o.display_name || "Member");
     const handle = escapeHtml(cleanHandle(o.handle || "") || "@member");
     const canView = !!o.can_view;
@@ -6839,6 +6869,10 @@
           : (canView ? `<div class="profile-hero-actions">${profileRelationshipButton(o)}${profileMessageButton(name)}</div>` : "")}
       </section>`;
 
+    // "Today in <community>" — community-scoped data the viewer already has as a co-member,
+    // so it shows even when the broader profile is locked (private). "" otherwise.
+    html += renderProfileTodayInCommunity(isOwnProfile);
+
     if (!canView) {
       html += `
         <section class="profile-locked-card">
@@ -6848,12 +6882,76 @@
           ${profileLockedButton(o)}
         </section>`;
       root.innerHTML = html;
+      centerProfileTodaySchedule(root);
       return;
     }
 
     html += renderProfileYouMightLike(o, isOwnProfile) + renderProfileAllCommunities(o) + renderProfileRecentPosts(o);
     root.innerHTML = html;
     bindEntryPhotos(root);
+    centerProfileTodaySchedule(root);
+  }
+
+  // The "Today in <community>" section, folded into the profile when it was opened from a
+  // community (leaderboard). Reuses the member-day data + renderers (schedule, rule
+  // breakdown) — compact, with rank + a one-tap Kudos. Returns "" otherwise.
+  function renderProfileTodayInCommunity(isOwnProfile) {
+    const communityId = state.profileCommunityContextId || "";
+    if (!communityId) return "";
+    const community = state.communities.find((c) => String(c.id) === String(communityId));
+    if (!community) return "";
+    const member = (community.members || []).find((m) => String(m.userId) === String(state.profileUserId));
+    if (!member) return "";
+
+    const values = collectDraftValues(community.system, communityValuesForMember(community.id, member.id, todayIso));
+    const summary = calculateMemberCommunitySummary(community, values);
+    const target = calculateTargetSummary(community.system).total;
+    const percent = progressPercent(summary.total, target);
+    const standings = communityStandings(community, COMMUNITY_PERIODS[0].id, "points").slice().sort((a, b) => b.today - a.today);
+    const rank = standings.findIndex((item) => item.id === member.id) + 1;
+    const memberCount = standings.length;
+    const entries = [
+      ...syncedEntriesForContext({ type: "community", community }, community.system, { userId: member.id }),
+      ...getCommunityEntriesForMemberOnDate(community.id, member.id, todayIso)
+    ].sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
+    const breakdownOpen = !!state.profileRuleBreakdownOpen;
+    const ringOffset = 100 - Math.min(Math.max(percent, 0), 100);
+    const kudos = (!isOwnProfile && member.userId && signalsReady())
+      ? `<button class="secondary-button small profile-today-kudos" type="button" data-today-kudos="${escapeHtml(member.id)}"><span aria-hidden="true">♥</span> Kudos</button>`
+      : "";
+
+    return `
+      <section class="profile-section profile-today-section">
+        <div class="profile-today-head">
+          <h3 class="profile-section-title">Today in ${escapeHtml(community.name)}</h3>
+          ${kudos}
+        </div>
+        <div class="score-strip profile-today-strip">
+          <div class="score-ring profile-today-ring" aria-hidden="true">
+            <svg class="score-ring-svg" viewBox="0 0 44 44">
+              <circle class="score-ring-bg" cx="22" cy="22" r="19"></circle>
+              <circle class="score-ring-fill" cx="22" cy="22" r="19" pathLength="100" style="stroke-dashoffset:${ringOffset}"></circle>
+            </svg>
+            <strong class="profile-today-ring-label">${escapeHtml(formatPercent(percent))}</strong>
+          </div>
+          <div class="profile-today-meta">
+            <strong>${escapeHtml(formatPoints(summary.total))} of ${escapeHtml(formatPoints(target))} · ${escapeHtml(formatPercent(percent))}</strong>
+            ${rank ? `<span class="member-rank-pill">Rank #${rank} of ${memberCount}</span>` : ""}
+          </div>
+        </div>
+        ${renderMemberDaySchedule(entries, community)}
+        <button class="profile-expander" type="button" data-profile-rule-toggle aria-expanded="${breakdownOpen ? "true" : "false"}">
+          <span>See rule breakdown (${summary.breakdown.length})</span>
+          <span class="profile-expander-chevron" aria-hidden="true">${breakdownOpen ? "▴" : "▾"}</span>
+        </button>
+        ${breakdownOpen ? `<div class="rule-progress-list">${summary.breakdown.length ? summary.breakdown.map((item) => renderMemberRuleProgressCard(item, community.system)).join("") : `<div class="empty-mini">No community rules yet.</div>`}</div>` : ""}
+      </section>`;
+  }
+
+  // Center the Today's-Schedule timeline on the now-marker (parity with bindMemberSchedule).
+  function centerProfileTodaySchedule(root) {
+    const cal = root && root.querySelector(".ds-cal");
+    if (cal && cal.dataset.nowTop) cal.scrollTop = Math.max(0, Number(cal.dataset.nowTop) - cal.clientHeight / 2);
   }
 
   function profileMessageButton(name) {
@@ -7061,8 +7159,12 @@
     root.dataset.profileBound = "1";
     root.addEventListener("click", onProfilePageClick);
     root.addEventListener("keydown", (event) => {
-      const card = event.target.closest && event.target.closest("[data-profile-post]");
-      if (card && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); openEntryPost(card.dataset.profilePost); }
+      if (event.key !== "Enter" && event.key !== " ") return;
+      if (!event.target.closest) return;
+      const block = event.target.closest("[data-schedule-entry]");
+      if (block) { event.preventDefault(); openScheduleEntry(block.dataset.scheduleEntry); return; }
+      const card = event.target.closest("[data-profile-post]");
+      if (card) { event.preventDefault(); openEntryPost(card.dataset.profilePost); }
     });
   }
 
@@ -7081,7 +7183,25 @@
     const copy = find("[data-profile-copy]"); if (copy) { profileCopySystem(copy.dataset.profileCopy); return; }
     const toggle = find("[data-profile-comm-toggle]"); if (toggle) { state.profileCommExpanded = !state.profileCommExpanded; saveState(); renderProfilePage(); return; }
     const pv = find("[data-profile-posts-view]"); if (pv) { state.profilePostsView = pv.dataset.profilePostsView === "list" ? "list" : "grid"; saveState(); renderProfilePage(); return; }
+    // "Today in <community>" section interactions (kudos, rule breakdown, schedule).
+    const kudos = find("[data-today-kudos]"); if (kudos) { sendProfileTodayKudos(); return; }
+    const ruleToggle = find("[data-profile-rule-toggle]"); if (ruleToggle) { state.profileRuleBreakdownOpen = !state.profileRuleBreakdownOpen; saveState(); renderProfilePage(); return; }
+    const schedToggle = find("[data-toggle-schedule]"); if (schedToggle) { state.scheduleExpanded = !state.scheduleExpanded; saveState(); renderProfilePage(); return; }
+    const schedBlock = find("[data-schedule-entry]"); if (schedBlock) { openScheduleEntry(schedBlock.dataset.scheduleEntry); return; }
     const post = find("[data-profile-post]"); if (post) { openEntryPost(post.dataset.profilePost); return; }
+  }
+
+  // One-tap kudos from the "Today in <community>" strip — reuses sendChosenSignal with the
+  // first kudos preset (same as the standings quick-kudos).
+  function sendProfileTodayKudos() {
+    const community = state.communities.find((c) => String(c.id) === String(state.profileCommunityContextId));
+    if (!community) return;
+    const member = (community.members || []).find((m) => String(m.userId) === String(state.profileUserId));
+    if (!member) return;
+    const preset = (window.PointwellSignals && typeof window.PointwellSignals.presetsForType === "function")
+      ? window.PointwellSignals.presetsForType("kudos")[0]
+      : "Nice work";
+    sendChosenSignal(community, member, "kudos", preset, null);
   }
 
   function profileFollow(id) {
@@ -10046,7 +10166,7 @@
   function bindLeaderboardRows() {
     Array.from(els.leaderboardList.querySelectorAll("[data-community-member-id]")).forEach((button) => {
       button.addEventListener("click", () => {
-        openCommunityMemberActivity(button.dataset.communityMemberId);
+        openMemberProfile(getSelectedCommunity(), button.dataset.communityMemberId);
       });
     });
   }
@@ -10331,12 +10451,18 @@
     const rule = item.rule;
     const goal = goalAmountForRule(rule);
     const percent = progressPercent(item.value, goal);
+    const overGoal = percent > 100;
     const progressLine = [
       `${formatValue(item.value)} / ${formatValue(goal || 0)} ${rule.unit}`,
       `${formatPercent(percent)} complete`,
       pointEarnedText(item.totalPoints),
       shortRuleValueSourceLabel(rule)
     ].join(" · ");
+    // Over goal: keep the bar full (fill capped at 100%) and show the real overage as a
+    // distinct over-goal label, e.g. "+4 · 300% of goal" — never an overflowing bar.
+    const percentLabel = overGoal
+      ? `+${escapeHtml(formatValue(item.value - goal))} · ${escapeHtml(formatPercent(percent))} of goal`
+      : escapeHtml(formatPercent(percent));
     return `
       <div class="rule-progress-card">
         <div class="rule-progress-main">
@@ -10344,10 +10470,10 @@
             <strong>${escapeHtml(rule.label)}</strong>
             <span>${escapeHtml(progressLine)}</span>
           </div>
-          <span class="rule-progress-percent">${escapeHtml(formatPercent(percent))}</span>
+          <span class="rule-progress-percent${overGoal ? " over-goal" : ""}">${percentLabel}</span>
         </div>
         <div class="mini-progress-track" aria-hidden="true">
-          <div class="mini-progress-fill${percent > 100 ? " over-goal" : ""}" style="width:${Math.min(percent, 100)}%"></div>
+          <div class="mini-progress-fill${overGoal ? " over-goal" : ""}" style="width:${Math.min(percent, 100)}%"></div>
         </div>
       </div>
     `;
@@ -12878,6 +13004,8 @@
       profileUserId: saved.profileUserId || "",
       profileCommExpanded: Boolean(saved.profileCommExpanded),
       profilePostsView: saved.profilePostsView === "list" ? "list" : "grid",
+      profileCommunityContextId: saved.profileCommunityContextId || "",
+      profileRuleBreakdownOpen: Boolean(saved.profileRuleBreakdownOpen),
       aiDraftSystem: saved.aiDraftSystem ? normalizeSystem(saved.aiDraftSystem) : null,
       topCardPreferences: saved.topCardPreferences && typeof saved.topCardPreferences === "object" ? saved.topCardPreferences : {},
       weeklyChartPreferences: saved.weeklyChartPreferences && typeof saved.weeklyChartPreferences === "object" ? saved.weeklyChartPreferences : {},

@@ -2661,7 +2661,6 @@
   function cacheElements() {
     const ids = [
       "profileAvatar",
-      "headerAvatarButton",
       "todayLabel",
       "dashboardView",
       "addEntryView",
@@ -3008,6 +3007,9 @@
   function bindEvents() {
     els.tabs.forEach((tab) => {
       tab.addEventListener("click", () => {
+        // The Profile tab opens the existing own-profile self-view (loads the overview),
+        // so it can't just set activeView directly like the other tabs.
+        if (tab.dataset.view === "profile-page") { openMyProfile(); return; }
         state.activeView = tab.dataset.view;
         if (state.activeView === "systems") {
           state.systemEditorOpen = false;
@@ -3260,7 +3262,6 @@
     if (els.profileSignOutButton) els.profileSignOutButton.addEventListener("click", () => {
       Promise.resolve(window.PointwellAuth && window.PointwellAuth.signOut && window.PointwellAuth.signOut()).catch(() => {});
     });
-    if (els.headerAvatarButton) els.headerAvatarButton.addEventListener("click", openMyProfile);
     if (els.backFromProfileEditButton) els.backFromProfileEditButton.addEventListener("click", backFromProfileEdit);
     if (els.onboardingScreen) els.onboardingScreen.addEventListener("click", handleOnboardingClick);
     if (els.onboardingScreen) els.onboardingScreen.addEventListener("keydown", handleOnboardingKeydown);
@@ -3365,10 +3366,16 @@
 
   function renderChrome() {
     if (!els.views[state.activeView]) state.activeView = "dashboard";
+    const ownProfileActive = state.activeView === "profile"
+      || (state.activeView === "profile-page" && !!(state.account && String(state.profileUserId) === String(state.account.userId)));
     els.tabs.forEach((tab) => {
-      const isActive = tab.dataset.view === state.activeView
-        || ((state.activeView === "add-entry" || state.activeView === "customize-top-card" || state.activeView === "customize-charts") && tab.dataset.view === "dashboard")
-        || ((state.activeView === "create-community" || state.activeView === "community-detail" || state.activeView === "community-settings" || state.activeView === "community-member-activity" || state.activeView === "find-communities") && tab.dataset.view === "communities");
+      const isActive = tab.dataset.view === "profile-page"
+        // The Profile tab is active only for YOUR OWN profile/settings — not when viewing
+        // someone else's profile-page (opened from the feed/leaderboard).
+        ? ownProfileActive
+        : (tab.dataset.view === state.activeView
+          || ((state.activeView === "add-entry" || state.activeView === "customize-top-card" || state.activeView === "customize-charts") && tab.dataset.view === "dashboard")
+          || ((state.activeView === "create-community" || state.activeView === "community-detail" || state.activeView === "community-settings" || state.activeView === "community-member-activity" || state.activeView === "find-communities") && tab.dataset.view === "communities"));
       tab.classList.toggle("active", isActive);
       tab.setAttribute("aria-current", isActive ? "page" : "false");
     });
@@ -3379,7 +3386,6 @@
     const myAvatar = state.profile.avatarUrl || "";
     paintAvatarNode(els.profileAvatar, state.profile.name, myAvatar);
     paintAvatarNode(els.largeAvatar, state.profile.name, myAvatar);
-    if (els.headerAvatarButton) els.headerAvatarButton.classList.toggle("is-active", state.activeView === "profile" || (state.activeView === "profile-page" && !!(state.account && String(state.profileUserId) === String(state.account.userId))));
     if (els.headerFriendsButton) els.headerFriendsButton.classList.toggle("is-active", state.activeView === "friends" || state.activeView === "friend-activity");
     if (els.headerChatsButton) els.headerChatsButton.classList.toggle("is-active", state.activeView === "chats");
     els.todayLabel.textContent = formatDate(todayIso);

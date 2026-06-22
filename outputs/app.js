@@ -242,6 +242,7 @@
     communityTrendMemberId: "",
     dashboardAnalyticsOpen: false,
     inactiveCommunitiesOpen: false,
+    scheduleExpanded: false,
     scoreContext: "personal",
     buildMode: "home",
     buildSearchQuery: "",
@@ -1603,16 +1604,23 @@
     renderNotifications();
   }
 
-  // Tap a like/comment notification → open the Feed and expand that post's comments.
-  function openPostFromNotif(entryId) {
+  // Switch to the Feed and open a specific post: expand its comment thread and scroll the
+  // matching ig-card into view. Shared by the notification tap and the schedule-block tap.
+  function openEntryPost(entryId) {
     if (!entryId) return;
-    closeNotifPanel();
     state.activeView = "feed";
     saveState();
     render();
     if (typeof expandFeedComments === "function") expandFeedComments(String(entryId));
     const card = els.communityFeed && els.communityFeed.querySelector('[data-feed-entry="' + entryId + '"]');
     if (card && card.scrollIntoView) card.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
+  // Tap a like/comment notification → open the Feed and expand that post's comments.
+  function openPostFromNotif(entryId) {
+    if (!entryId) return;
+    closeNotifPanel();
+    openEntryPost(entryId);
   }
 
   function toggleNotifPanel() {
@@ -3664,8 +3672,8 @@
       <option value="community:${escapeHtml(community.id)}">${escapeHtml(community.name)}</option>
     `).join("");
     return `
-      ${personalOptions ? `<optgroup label="Personal">${personalOptions}</optgroup>` : ""}
       ${communityOptions ? `<optgroup label="Communities">${communityOptions}</optgroup>` : ""}
+      ${personalOptions ? `<optgroup label="Personal">${personalOptions}</optgroup>` : ""}
     `;
   }
 
@@ -3680,8 +3688,8 @@
       <option value="community:${escapeHtml(community.id)}">${escapeHtml(community.name)}</option>
     `).join("");
     return `
-      <optgroup label="Personal Reward Systems">${systemOptions}</optgroup>
       ${communityOptions ? `<optgroup label="Communities">${communityOptions}</optgroup>` : ""}
+      <optgroup label="Personal Reward Systems">${systemOptions}</optgroup>
     `;
   }
 
@@ -9605,6 +9613,40 @@
       </div>
     `;
     bindMemberSignalActions(community, memberItem);
+    bindMemberSchedule(community);
+  }
+
+  // Today's Schedule interactions: the "Show full day"/"Show less" toggle, the clickable
+  // blocks (each opens its entry's post), and centering the scroll on the now-marker.
+  function bindMemberSchedule(community) {
+    const panel = els.memberActivityPanel;
+    if (!panel) return;
+    const toggle = panel.querySelector("[data-toggle-schedule]");
+    if (toggle) toggle.addEventListener("click", () => {
+      state.scheduleExpanded = !state.scheduleExpanded;
+      saveState();
+      renderMemberActivity(community);
+    });
+    Array.from(panel.querySelectorAll("[data-schedule-entry]")).forEach((block) => {
+      const open = () => openScheduleEntry(block.dataset.scheduleEntry);
+      block.addEventListener("click", open);
+      block.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
+      });
+    });
+    // Center the now-marker (matters once expanded to 24h; the windowed view already fits).
+    const cal = panel.querySelector(".ds-cal");
+    if (cal && cal.dataset.nowTop) {
+      cal.scrollTop = Math.max(0, Number(cal.dataset.nowTop) - cal.clientHeight / 2);
+    }
+  }
+
+  // A schedule block was tapped → open that entry's post in the Feed (reuses openEntryPost
+  // → the ig-card with photo/caption/likes/comments). Synced/personal entries (no uuid id,
+  // no post) degrade gracefully to a toast instead of erroring.
+  function openScheduleEntry(entryId) {
+    if (!entryId || !isDbEntryId(entryId)) { showToast("This entry doesn't have a post yet"); return; }
+    openEntryPost(entryId);
   }
 
   // ── Today's Schedule: each of the member's logged entries placed on a
@@ -9654,19 +9696,25 @@
         + '\n      </section>\n    ';
     }
 
-    // Focus the grid on the part of the day with activity (±1h), min 8h tall.
-    var winStart = 6 * 60, winEnd = 22 * 60;
-    if (marks.length) {
-      var minS = Math.min.apply(null, marks.map(function (m) { return m.s; }));
-      var maxE = Math.max.apply(null, marks.map(function (m) { return m.e; }));
-      winStart = Math.max(0, Math.floor(minS / 60) * 60 - 60);
-      winEnd = Math.min(1440, Math.ceil(maxE / 60) * 60 + 60);
+    // Default to a compact window around NOW (2h before → 4h after, in the viewer's
+    // local time); "Show full day" expands to the whole 24h. state.scheduleExpanded
+    // persists the choice. now/nowMin are local (getHours/getMinutes) → "your local time".
+    var now = new Date();
+    var nowMin = now.getHours() * 60 + now.getMinutes();
+    var winStart, winEnd;
+    if (state.scheduleExpanded) {
+      winStart = 0; winEnd = 1440;
+    } else {
+      winStart = Math.max(0, nowMin - 120);
+      winEnd = Math.min(1440, nowMin + 240);
     }
-    if (winEnd - winStart < 8 * 60) winEnd = Math.min(1440, winStart + 8 * 60);
+    // Windowed view only places blocks intersecting the window (so off-window entries
+    // don't consume calendar columns); full day shows everything.
+    var visMarks = state.scheduleExpanded ? marks.slice() : marks.filter(function (m) { return m.e > winStart && m.s < winEnd; });
 
     // Column-pack overlapping markers within each cluster.
     var clusters = [], cur = [], cEnd = -Infinity;
-    marks.forEach(function (x) {
+    visMarks.forEach(function (x) {
       if (cur.length && x.s >= cEnd) { clusters.push(cur); cur = []; cEnd = -Infinity; }
       cur.push(x); cEnd = Math.max(cEnd, x.e);
     });
@@ -9686,35 +9734,38 @@
     for (var h = Math.ceil(winStart / 60); h <= Math.floor(winEnd / 60); h++) {
       hours += '<div class="ds-hour" style="top:' + Math.round((h * 60 - winStart) * PX_PER_MIN) + 'px">' + String(h).padStart(2, "0") + ':00</div>';
     }
-    var blocks = marks.map(function (m) {
+    // Each block is a clickable affordance (role=button + chevron) that opens the entry's
+    // post in the Feed; data-schedule-entry carries the community_entries id.
+    var blocks = visMarks.map(function (m) {
       var top = Math.round((m.s - winStart) * PX_PER_MIN);
       var bh = Math.max(Math.round((m.e - m.s) * PX_PER_MIN), MIN_BLOCK);
       var leftPct = (m.col / m.cols) * 100, widthPct = (1 / m.cols) * 100;
       var ptsText = (m.pts >= 0 ? "+" : "") + formatPoints(m.pts);
-      var aria = m.label + " " + ptsText + " at " + dayScheduleClock(m.s);
-      return '<div class="ds-block" style="--c:' + m.color + ';top:' + top + 'px;height:' + bh + 'px;left:calc(' + leftPct + '% + 2px);width:calc(' + widthPct + '% - 4px)" title="' + escapeHtml(aria) + '" aria-label="' + escapeHtml(aria) + '">'
+      var aria = m.label + " " + ptsText + " at " + dayScheduleClock(m.s) + " — open post";
+      return '<div class="ds-block" role="button" tabindex="0" data-schedule-entry="' + escapeHtml(m.id || "") + '" style="--c:' + m.color + ';top:' + top + 'px;height:' + bh + 'px;left:calc(' + leftPct + '% + 2px);width:calc(' + widthPct + '% - 4px)" title="' + escapeHtml(aria) + '" aria-label="' + escapeHtml(aria) + '">'
         + '<span class="ds-bl">' + escapeHtml(m.label) + ' ' + escapeHtml(ptsText) + '</span>'
-        + '<span class="ds-bt">' + dayScheduleClock(m.s) + '</span></div>';
+        + '<span class="ds-bt">' + dayScheduleClock(m.s) + '</span>'
+        + '<span class="ds-go" aria-hidden="true">›</span></div>';
     }).join("");
 
     var seen = {};
-    var legend = marks.filter(function (m) { if (seen[m.key]) return false; seen[m.key] = 1; return true; })
+    var legend = visMarks.filter(function (m) { if (seen[m.key]) return false; seen[m.key] = 1; return true; })
       .map(function (m) { return '<span class="ds-lg"><span class="ds-sw" style="background:' + m.color + '"></span>' + escapeHtml(m.label) + '</span>'; }).join("");
 
-    var now = new Date();
-    var nowMin = now.getHours() * 60 + now.getMinutes();
+    var nowTop = Math.round((nowMin - winStart) * PX_PER_MIN);
     var nowLine = (nowMin >= winStart && nowMin <= winEnd)
-      ? '<div class="ds-now" style="top:' + Math.round((nowMin - winStart) * PX_PER_MIN) + 'px"><span class="ds-now-lab">' + dayScheduleClock(nowMin) + '</span></div>'
+      ? '<div class="ds-now" style="top:' + nowTop + 'px"><span class="ds-now-lab">' + dayScheduleClock(nowMin) + '</span></div>'
       : "";
-    var body = marks.length ? '<div class="ds-events">' + blocks + '</div>' : '<div class="ds-empty">No activities logged today yet</div>';
+    var body = visMarks.length ? '<div class="ds-events">' + blocks + '</div>' : '<div class="ds-empty">Nothing around now — tap “Show full day”.</div>';
+    var toggle = '<button type="button" class="ds-toggle" data-toggle-schedule aria-expanded="' + (state.scheduleExpanded ? "true" : "false") + '">' + (state.scheduleExpanded ? "Show less" : "Show full day") + '</button>';
 
     return '\n      <section class="section-band member-schedule-panel" aria-labelledby="memberScheduleTitle">'
       + '\n        <div class="panel-heading tight"><div>'
       + '\n          <h3 id="memberScheduleTitle">Today’s Schedule</h3>'
       + '\n          <span>' + escapeHtml(plural(marks.length, "activity")) + ' · your local time</span>'
-      + '\n        </div></div>'
+      + '\n        </div>' + toggle + '</div>'
       + (legend ? '\n        <div class="ds-legend">' + legend + '</div>' : "")
-      + '\n        <div class="ds-cal" style="--ds-hour:' + HOUR_PX + 'px">'
+      + '\n        <div class="ds-cal" data-now-top="' + nowTop + '" style="--ds-hour:' + HOUR_PX + 'px">'
       + '\n          <div class="ds-hours">' + hours + '</div>'
       + '\n          <div class="ds-track" style="height:' + trackH + 'px">' + nowLine + body + '</div>'
       + '\n        </div>'
@@ -12189,6 +12240,7 @@
       communityTrendMemberId: saved.communityTrendMemberId || seed.communityTrendMemberId,
       dashboardAnalyticsOpen: Boolean(saved.dashboardAnalyticsOpen),
       inactiveCommunitiesOpen: Boolean(saved.inactiveCommunitiesOpen),
+      scheduleExpanded: Boolean(saved.scheduleExpanded),
       editingRuleId: saved.editingRuleId || "",
       systemSetupStep: clampSetupStep(saved.systemSetupStep),
       systemEditorOpen: Boolean(saved.systemEditorOpen),

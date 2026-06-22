@@ -7743,6 +7743,46 @@ body.onboarding-locked .fab-add { display: none; }
   cursor: pointer;
 }
 .ig-action-cheer:hover { background: var(--accent-soft); }
+/* Discover: + Follow button, "Following" label, and the affinity-reason chip. */
+.ig-action-follow {
+  margin-left: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 800;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border: 0;
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.ig-action-follow:hover { filter: brightness(1.06); }
+.ig-following {
+  margin-left: 4px;
+  font-size: 0.82rem;
+  font-weight: 750;
+  color: var(--muted);
+  padding: 7px 6px;
+}
+.ig-affinity {
+  flex: 0 0 auto;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+.feed-tabs { margin-bottom: 16px; max-width: 500px; margin-left: auto; margin-right: auto; }
+.feed-discover-loading { max-width: 500px; margin: 8px auto 0; color: var(--muted); text-align: center; font-size: 0.9rem; padding: 18px 0; }
 .ig-summary {
   margin-left: auto;
   color: var(--muted);

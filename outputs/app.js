@@ -988,6 +988,7 @@
     // Keep system ownership labels in sync with the new display name (saveProfile parity).
     state.systems.forEach((system) => { if (system.ownerId === "me") system.ownerName = name; });
     saveState();
+    syncMyPublicSystems(); // a public profile chosen here publishes any public systems
   }
 
   function onboardingInterestChipMarkup(item) {
@@ -1279,6 +1280,19 @@
           if (isCurrent()) renderOnboarding();
         });
     }
+    // Refresh the public-systems pool from the server (in case it loaded after sign-in
+    // or changed since), then re-derive the copy section. Both the state write and the
+    // render are run-token guarded so a superseded run can't clobber a newer account.
+    if (signalsReady()) {
+      Promise.resolve(loadPublicSystemsFromDb())
+        .then((mapped) => {
+          if (myRun !== onboardingRunSeq) return;
+          state.publicSystems = mapped;
+          onboardingPublicMatches = matchOnboardingPublicSystems();
+        })
+        .catch(() => {})
+        .then(() => { if (isCurrent()) renderOnboarding(); });
+    }
     try {
       const draft = await aiGenerateDraft(buildOnboardingAiInputs(), blankAiAdjustments(), "personal");
       if (myRun === onboardingRunSeq) onboardingDraft = draft;
@@ -1293,13 +1307,15 @@
   }
 
   // Public systems for the "copy" section, reusing the Build search pool
-  // (getBuildPublicSystems + matchesSystemSearch). Interest matches first; if fewer
-  // than ONBOARD_MIN_PICKS, top up with popular systems from the same pool (tagged
-  // _popular). Deduped, capped at ONBOARD_PICKS_CAP. Empty only when the pool itself
-  // is empty (genuinely zero public systems). NOTE: public systems are client-side
-  // only — there's no server store — so "popular" sorts the local pool by a proxy.
+  // (getBuildPublicSystems + matchesSystemSearch) — which now includes other public
+  // profiles' public systems loaded from the server (loadPublicSystemsFromDb) plus the
+  // user's own public systems. Interest matches first; if fewer than ONBOARD_MIN_PICKS,
+  // top up with popular systems from the same pool (tagged _popular). Deduped, capped at
+  // ONBOARD_PICKS_CAP. Empty only when the pool is genuinely empty (zero public systems).
   function matchOnboardingPublicSystems() {
-    const pool = getBuildPublicSystems();
+    // Exclude the user's own public systems — "Public systems you can copy" is about
+    // discovering OTHER people's (the Build search still shows your own).
+    const pool = getBuildPublicSystems().filter((system) => system.ownerId !== "me");
     if (!pool.length) return [];
     const seen = new Set();
     const out = [];
@@ -1322,11 +1338,12 @@
     return out.slice(0, ONBOARD_PICKS_CAP);
   }
 
-  // Popularity proxy for the local public-systems pool: a richer rule set reads as a
-  // more complete/established system (there's no server-side copy/member count to sort
-  // by). Stable tiebreak by title so the fill order is deterministic.
+  // Rank the public-systems pool for the "Popular" fallback: server-backed systems by
+  // real copy count first, then a richer rule set (the proxy for local/own systems with
+  // no copy count), then title for a deterministic tiebreak.
   function popularOnboardingSystems(pool) {
     return [...pool].sort((a, b) =>
+      ((b.copyCount || 0) - (a.copyCount || 0)) ||
       ((b.rules || []).length - (a.rules || []).length) ||
       String(a.title || "").localeCompare(String(b.title || "")));
   }
@@ -1400,6 +1417,7 @@
     state.trackerSystemId = copy.id;
     state.activeView = "dashboard";
     if (!onboardingCopiedIds.includes(id)) onboardingCopiedIds.push(id);
+    bumpPublicSystemCopy(source);
     saveState();
     showToast("Copied into your systems");
     renderOnboarding();
@@ -1477,6 +1495,9 @@
       }
       currentInboxUid = uid;
     }
+    // Publish my public systems for others to copy, and load theirs into local state.
+    syncMyPublicSystems();
+    state.publicSystems = await loadPublicSystemsFromDb();
     // Load the user's shared communities (one DB row each) into local state, then
     // act on any ?join= invite link that brought them here.
     await loadCommunitiesFromDb();
@@ -10336,6 +10357,7 @@
     state.systemSetupStep = 0;
     state.systemEditorOpen = false;
     saveState();
+    syncMyPublicSystems(); // prune the deleted system from the server if it was public
     render();
     showToast("System deleted");
   }
@@ -10349,6 +10371,7 @@
     system.visibility = els.systemVisibilityInput.value;
     system.ownerName = state.profile.name;
     saveState();
+    syncMyPublicSystems(); // publish/unpublish to match the system's new visibility
     renderChrome();
     renderDashboard();
     renderDiscover();
@@ -10822,6 +10845,7 @@
     copy.ownerId = "me";
     copy.ownerName = state.profile.name;
     copy.visibility = "private";
+    bumpPublicSystemCopy(source);
     state.systems.unshift(copy);
     state.selectedSystemId = copy.id;
     state.trackerSystemId = copy.id;
@@ -11798,6 +11822,8 @@
     });
     resetProfileAvatarDraft();
     saveState();
+    // Public/private toggle or a renamed system changes what others can copy → resync.
+    syncMyPublicSystems();
     render();
     showToast("Profile saved");
     } finally {
@@ -12281,6 +12307,82 @@
     }
     saveState();
     render();
+  }
+
+  // ── Public reward systems (copyable) ────────────────────────────────────────
+  // A public profile's PUBLIC systems are mirrored to the server so anyone can copy
+  // them; other people's land in state.publicSystems (which feeds getBuildPublicSystems,
+  // so both the Build "Reward Systems" search and onboarding's "Public systems you can
+  // copy" pick them up). Server-side RLS guarantees only public-profile public systems
+  // are ever exposed (supabase/public-systems.sql). All calls are best-effort no-ops
+  // when Supabase isn't configured.
+
+  // Mirror MY public systems to the server (only when my profile is public; a private
+  // profile publishes nothing → the server prunes my rows). Sends the full set.
+  function syncMyPublicSystems() {
+    if (!signalsReady() || typeof window.PointwellSignals.syncPublicSystems !== "function") return;
+    const list = state.profile.privacy === "public"
+      ? state.systems
+          .filter((system) => system.visibility === "public")
+          .map((system) => ({
+            client_id: String(system.id),
+            title: system.title || "Reward system",
+            category: system.category || "",
+            description: system.description || "",
+            payload: publicSystemPayload(system)
+          }))
+      : [];
+    Promise.resolve(window.PointwellSignals.syncPublicSystems(list)).catch(() => {});
+  }
+
+  // The portable system shape stored server-side and cloned by a copier (the fields
+  // cloneSystem reads). Keep it minimal — no owner/visibility/ids (those are re-derived).
+  function publicSystemPayload(system) {
+    return {
+      title: system.title || "Reward system",
+      category: system.category || "",
+      description: system.description || "",
+      rules: system.rules || [],
+      calculatedTotals: system.calculatedTotals || []
+    };
+  }
+
+  // Fetch OTHER people's public systems (ranked by copy count) mapped to client shape.
+  // Returns the array (does NOT assign) so the caller controls when state.publicSystems
+  // is written — important during a same-tab account switch, where a stale run must not
+  // clobber the new account's pool.
+  async function loadPublicSystemsFromDb() {
+    if (!signalsReady() || typeof window.PointwellSignals.popularPublicSystems !== "function") return [];
+    const rows = await Promise.resolve(window.PointwellSignals.popularPublicSystems(50)).catch(() => []);
+    return (Array.isArray(rows) ? rows : []).map(publicSystemFromDb);
+  }
+
+  // Map a public_systems row to a client-shaped system. Carries serverPublicId (to bump
+  // the copy counter) and copyCount (the popularity sort key).
+  function publicSystemFromDb(row) {
+    const payload = row && row.payload && typeof row.payload === "object" ? row.payload : {};
+    return normalizeSystem({
+      id: String(row.id),
+      serverPublicId: String(row.id),
+      ownerId: String(row.owner_user || "public"),
+      ownerName: row.owner_name || "Public profile",
+      ownerHandle: row.owner_handle ? cleanHandle(row.owner_handle) : "",
+      title: row.title || payload.title || "Reward system",
+      category: row.category || payload.category || "",
+      description: row.description || payload.description || "",
+      visibility: "public",
+      rules: Array.isArray(payload.rules) ? payload.rules : [],
+      calculatedTotals: Array.isArray(payload.calculatedTotals) ? payload.calculatedTotals : [],
+      copyCount: Number(row.copy_count) || 0
+    });
+  }
+
+  // Best-effort popularity bump when a server-backed public system is copied.
+  function bumpPublicSystemCopy(source) {
+    if (source && source.serverPublicId && signalsReady()
+        && typeof window.PointwellSignals.incrementPublicSystemCopy === "function") {
+      Promise.resolve(window.PointwellSignals.incrementPublicSystemCopy(source.serverPublicId)).catch(() => {});
+    }
   }
 
   // Persist a member's logged check-in for one rule/day to the shared table (the

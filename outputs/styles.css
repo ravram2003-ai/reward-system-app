@@ -6567,6 +6567,24 @@ body.auth-locked {
   line-height: 1;
   border: 2px solid var(--panel);
 }
+/* Bell "ring" — a quick wobble when a new notification arrives (toggled by ringBell()
+   in app.js for ~700ms). Pivots from the bell's top like a real bell. */
+.bell-icon.is-ringing {
+  animation: bell-ring 0.7s ease-in-out;
+  transform-origin: top center;
+}
+@keyframes bell-ring {
+  0%   { transform: rotate(0); }
+  15%  { transform: rotate(13deg); }
+  30%  { transform: rotate(-11deg); }
+  45%  { transform: rotate(8deg); }
+  60%  { transform: rotate(-5deg); }
+  75%  { transform: rotate(2deg); }
+  100% { transform: rotate(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bell-icon.is-ringing { animation: none; }
+}
 .notif-panel {
   position: absolute;
   top: calc(100% + 8px);

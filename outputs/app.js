@@ -468,7 +468,39 @@
     bindEvents();
     render();
     startDateRolloverWatcher();
+    startHeaderHeightWatcher();
     initAuthGate();
+  }
+
+  // Mobile fixed-header clearance. Below 1050px the shared header (.sidebar) is
+  // position:fixed and wraps from one row to two at narrow phone widths, so its
+  // height varies (~44px → ~98px) and gains the iOS notch inset on top. CSS can't
+  // read a fixed sibling's height, so we measure it and expose --mobile-header-h;
+  // the workspace top padding and the notification panel offset both read it so
+  // the green "+ Add entry" bar and the bell dropdown always clear the header.
+  function syncHeaderHeight() {
+    const header = document.querySelector(".sidebar");
+    if (!header) return;
+    const root = document.documentElement;
+    if (window.matchMedia("(max-width: 1050px)").matches) {
+      root.style.setProperty("--mobile-header-h", header.offsetHeight + "px");
+    } else {
+      root.style.removeProperty("--mobile-header-h"); // desktop uses the base layout
+    }
+  }
+
+  let headerHeightRaf = 0;
+  function startHeaderHeightWatcher() {
+    const schedule = () => {
+      if (headerHeightRaf) cancelAnimationFrame(headerHeightRaf);
+      headerHeightRaf = requestAnimationFrame(() => { headerHeightRaf = 0; syncHeaderHeight(); });
+    };
+    syncHeaderHeight();
+    window.addEventListener("resize", schedule);
+    window.addEventListener("orientationchange", schedule);
+    window.addEventListener("load", syncHeaderHeight);
+    // Web-font swap can change the wrapped header's height after first paint.
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncHeaderHeight).catch(() => {});
   }
 
   // An invite link is <app-url>?join=CODE. Capture the code, then strip it from the

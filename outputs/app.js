@@ -237,6 +237,7 @@
     trackerSystemId: "life-core",
     selectedCommunityId: "",
     selectedCommunityMemberId: "",
+    feedTab: "friends",
     communityLeaderboardPeriod: "",
     communityTrendMemberId: "",
     dashboardAnalyticsOpen: false,
@@ -1810,6 +1811,7 @@
       "systemsView",
       "discoverView",
       "feedView",
+      "feedTabs",
       "communitiesView",
       "communityDetailView",
       "communitySettingsView",
@@ -2161,6 +2163,8 @@
       });
     });
 
+    if (els.feedTabs) els.feedTabs.addEventListener("click", onFeedTabClick);
+
     els.openAddEntryButton.addEventListener("click", openAddEntryPage);
     // The "+" FAB logs an entry directly (creating systems/communities lives in Build).
     if (els.createFab) els.createFab.addEventListener("click", openAddEntryPage);
@@ -2466,7 +2470,7 @@
     renderDashboard();
     renderSystems();
     renderDiscover();
-    renderCommunityFeed();
+    renderFeed();
     renderCommunities();
     renderCreateCommunity();
     renderCommunitySettings();
@@ -4823,6 +4827,11 @@
   const feedCommentsOpen = new Set();  // entryIds whose full thread is expanded
   const feedSocialFetched = new Set(); // entryIds already requested (prevents refetch loops)
   let feedItems = [];
+  // Discover (ranked public feed) state — fetched once per session via the discover_feed RPC.
+  let discoverFeedRows = [];     // raw rows from discover_feed
+  let discoverFeedItems = [];    // mapped into the { entry, community, member, rule, when, discover } shape
+  let discoverLoading = false;
+  let discoverLoaded = false;
 
   // A real DB id (uuid) means likes/comments can attach; a just-logged local entry
   // (makeId("community-entry")) cannot until the next loadCommunitiesFromDb().
@@ -4855,6 +4864,180 @@
       if (post) post.disabled = !input.value.trim();
       if (drafts[entryId].focused) { input.focus(); const n = input.value.length; try { input.setSelectionRange(n, n); } catch (e) { /* ignore */ } }
     });
+  }
+
+  // ── Feed tabs: Friends (existing community feed) | Discover (ranked public feed) ──
+  const FEED_TABS = [{ id: "friends", label: "Friends" }, { id: "discover", label: "Discover" }];
+
+  function currentFeedTab() {
+    return state.feedTab === "discover" ? "discover" : "friends";
+  }
+
+  function renderFeed() {
+    renderFeedTabs();
+    renderActiveFeed();
+  }
+
+  function renderFeedTabs() {
+    if (!els.feedTabs) return;
+    const tab = currentFeedTab();
+    els.feedTabs.innerHTML = FEED_TABS.map((t) =>
+      `<button class="segmented-button${t.id === tab ? " active" : ""}" type="button" role="tab" aria-selected="${t.id === tab ? "true" : "false"}" data-feed-tab="${t.id}">${escapeHtml(t.label)}</button>`
+    ).join("");
+  }
+
+  // Render whichever feed the active tab selects — both render into #communityFeed so
+  // the existing like/comment/photo delegation + feedItems plumbing is reused as-is.
+  function renderActiveFeed() {
+    if (currentFeedTab() === "discover") renderDiscoverFeed();
+    else renderCommunityFeed();
+  }
+
+  function onFeedTabClick(event) {
+    const btn = event.target.closest && event.target.closest("[data-feed-tab]");
+    if (!btn) return;
+    const tab = btn.dataset.feedTab === "discover" ? "discover" : "friends";
+    if (currentFeedTab() === tab) return;
+    state.feedTab = tab;
+    saveState();
+    if (tab === "discover" && !discoverLoaded && !discoverLoading) loadDiscoverFeed();
+    renderFeed();
+  }
+
+  // Caller's interest categories: personal systems' rule categories + the categories of
+  // communities they're in (deduped). Kept split so the affinity tag can say whether a
+  // match came from a system ("Like your X") or a community ("Popular in X").
+  function discoverCallerCatSets() {
+    const system = new Set();
+    const community = new Set();
+    const norm = (c) => String(c || "").trim();
+    (state.systems || []).forEach((s) => {
+      if (norm(s.category)) system.add(norm(s.category));
+      (s.rules || []).forEach((r) => { const c = norm(scoring.normalizeRule(r).category); if (c) system.add(c); });
+    });
+    (state.communities || []).forEach((cm) => {
+      if (norm(cm.category)) community.add(norm(cm.category));
+      const sys = cm.system || { rules: [] };
+      (sys.rules || []).forEach((r) => { const c = norm(scoring.normalizeRule(r).category); if (c) community.add(c); });
+    });
+    return { system: system, community: community };
+  }
+
+  function callerDiscoverCategories() {
+    const sets = discoverCallerCatSets();
+    return Array.from(new Set([...sets.system, ...sets.community]));
+  }
+
+  // Fetch the ranked public feed once per session. Never throws (the RPC enforces all
+  // visibility server-side); on any failure we simply show the empty state.
+  async function loadDiscoverFeed() {
+    if (discoverLoading) return;
+    discoverLoading = true;
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.discoverFeed !== "function") {
+      discoverFeedRows = [];
+      discoverFeedItems = [];
+      discoverLoading = false;
+      discoverLoaded = true;
+      if (state.activeView === "feed" && currentFeedTab() === "discover") renderActiveFeed();
+      return;
+    }
+    let rows = [];
+    try {
+      rows = await window.PointwellSignals.discoverFeed(callerDiscoverCategories(), null, 30);
+    } catch (error) {
+      rows = [];
+    }
+    discoverFeedRows = Array.isArray(rows) ? rows : [];
+    discoverFeedItems = discoverFeedRows.map(mapDiscoverRowToItem).filter(Boolean);
+    discoverLoading = false;
+    discoverLoaded = true;
+    if (state.activeView === "feed" && currentFeedTab() === "discover") renderActiveFeed();
+  }
+
+  // Shape a discover_feed row into the { entry, community, member, rule, when, discover }
+  // item renderFeedPost expects. rule is null + entry.unit "done" so entryLogText shows
+  // just the activity label (we don't have the source community's rule config here).
+  function mapDiscoverRowToItem(row) {
+    if (!row || !row.entry_id) return null;
+    const authorId = String(row.author_id || "");
+    const matched = row.matched_category ? String(row.matched_category).trim() : "";
+    const sets = discoverCallerCatSets();
+    let reason = "Suggested for you";
+    if (matched) {
+      if (sets.system.has(matched)) reason = `Like your ${matched} system`;
+      else if (sets.community.has(matched)) reason = `Popular in ${matched}`;
+      else reason = `Matches your ${matched}`;
+    }
+    return {
+      entry: {
+        id: row.entry_id,
+        userId: authorId,
+        ruleId: row.rule_id || "",
+        label: row.rule_id || "Check-in",
+        unit: "done",
+        amount: numberOrDefault(row.amount, 0),
+        message: row.message || "",
+        photoPath: row.photo_path || "",
+        timestamp: row.updated_at || "",
+        dateKey: row.entry_date || ""
+      },
+      community: { id: row.community_id || "", name: row.community_name || "Community", category: row.community_category || "" },
+      member: { id: authorId, userId: authorId, name: row.author_name || "Member", handle: row.author_handle || "", avatarUrl: row.author_avatar_url || "", color: "#355d91" },
+      rule: null,
+      when: row.updated_at || "",
+      discover: { authorId: authorId, reason: reason, matched: matched, following: false, score: numberOrDefault(row.score, 0) }
+    };
+  }
+
+  // + Follow on a Discover card — reuses the follow signal; flips to "Following" in place
+  // (no reload). Followed authors are excluded from future discover_feed loads server-side.
+  function followFromDiscover(authorId, btn) {
+    if (!signalsReady()) { showToast("Sign in to follow"); return; }
+    if (!authorId || !window.PointwellSignals || typeof window.PointwellSignals.followUser !== "function") return;
+    const card = btn.closest && btn.closest("[data-feed-entry]");
+    const item = card && feedItemById(card.dataset.feedEntry);
+    if (item && item.discover) item.discover.following = true;
+    const span = document.createElement("span");
+    span.className = "ig-following";
+    span.textContent = "Following";
+    btn.replaceWith(span);
+    Promise.resolve(window.PointwellSignals.followUser(authorId)).then((res) => {
+      if (res && res.error) showToast("Couldn't follow — try again");
+      else showToast("Following");
+    }).catch(() => showToast("Couldn't follow — try again"));
+  }
+
+  function renderDiscoverFeed() {
+    if (!els.communityFeed) return;
+    if (!signalsReady()) {
+      feedItems = [];
+      els.communityFeed.hidden = false;
+      els.communityFeed.innerHTML = `<div class="panel-heading"><h3>Discover</h3></div>` + emptyState("Sign in to discover public posts.");
+      return;
+    }
+    if (!discoverLoaded && !discoverLoading) loadDiscoverFeed();
+    if (discoverLoading && !discoverLoaded) {
+      feedItems = [];
+      els.communityFeed.hidden = false;
+      els.communityFeed.innerHTML = `<div class="panel-heading"><h3>Discover</h3></div><p class="feed-discover-loading">Finding posts like yours…</p>`;
+      return;
+    }
+    feedItems = discoverFeedItems;
+    const drafts = captureFeedDrafts(els.communityFeed);
+    els.communityFeed.hidden = false;
+    els.communityFeed.innerHTML = `
+      <div class="panel-heading">
+        <h3>Discover</h3>
+        ${feedItems.length ? `<span>${plural(feedItems.length, "post")}</span>` : ""}
+      </div>
+      ${feedItems.length
+        ? `<div class="community-feed-list">${feedItems.map(renderFeedPost).join("")}</div>`
+        : emptyState("No similar public posts yet — try following people or making your profile public.")}
+    `;
+    bindEntryPhotos(els.communityFeed);
+    bindFeedDelegation();
+    restoreFeedDrafts(els.communityFeed, drafts);
+    fetchFeedSocial();
   }
 
   function renderCommunityFeed() {
@@ -4920,7 +5103,7 @@
           any = true;
         }
       });
-      if (any) renderCommunityFeed();
+      if (any) renderActiveFeed();
     }).catch(() => {});
   }
 
@@ -4931,9 +5114,12 @@
     const entry = item.entry;
     const entryId = String(entry.id);
     const isMe = entry.userId === "me";
+    const isDiscover = !!item.discover;
     const name = escapeHtml(item.member.name || "Member");
     const points = item.rule ? scoring.calculateRule(item.rule, entry.amount).totalPoints : 0;
-    const summary = escapeHtml(entryLogText(entry, item.rule)) + " · " + escapeHtml(formatPoints(points)) + " pts";
+    const summary = isDiscover
+      ? escapeHtml(entryLogText(entry, item.rule))
+      : escapeHtml(entryLogText(entry, item.rule)) + " · " + escapeHtml(formatPoints(points)) + " pts";
     const rel = window.PointwellSignals.formatRelativeTime(item.when, Date.now()) || "";
     const relText = rel === "just now" || !rel ? (rel || "") : rel + " ago";
     const sub = escapeHtml(item.community.name) + (relText ? " · " + escapeHtml(relText) : "");
@@ -4947,7 +5133,7 @@
       ? `<div class="ig-photo" data-entry-photo="${escapeHtml(photoPath)}" role="img" aria-label="Post photo"><img alt="" loading="lazy"></div>`
       : "";
 
-    const menuHtml = isMe ? "" : `
+    const menuHtml = (isMe || isDiscover) ? "" : `
         <div class="ig-menu-wrap" data-feed-menu-wrap>
           <button class="ig-menu" type="button" data-feed-menu aria-haspopup="true" aria-expanded="false" aria-label="More options">⋯</button>
           <div class="ig-menu-pop" hidden>
@@ -4961,8 +5147,18 @@
     const commentBtn = canSocial
       ? `<button class="ig-action-btn" type="button" data-feed-comment-focus="${escapeHtml(entryId)}" aria-label="Comment">${FEED_COMMENT_SVG}</button>`
       : "";
-    const cheerBtn = !isMe
+    const cheerBtn = (!isMe && !isDiscover)
       ? `<button class="ig-action-cheer" type="button" data-feed-cheer data-feed-member="${escapeHtml(item.member.id)}" data-feed-community="${escapeHtml(item.community.id)}" aria-label="Cheer ${escapeHtml(memberFirstName(item.member))}"><span aria-hidden="true">★</span> Cheer</button>`
+      : "";
+    // Discover-only: a + Follow button (reuses the follow signal) and the single
+    // strongest affinity reason as a header chip.
+    const followBtn = (isDiscover && signalsReady() && item.discover.authorId)
+      ? (item.discover.following
+          ? `<span class="ig-following">Following</span>`
+          : `<button class="ig-action-follow" type="button" data-discover-follow="${escapeHtml(item.discover.authorId)}"><span aria-hidden="true">+</span> Follow</button>`)
+      : "";
+    const affinityHtml = (isDiscover && item.discover.reason)
+      ? `<span class="ig-affinity">${escapeHtml(item.discover.reason)}</span>`
       : "";
 
     const likeCountHtml = (canSocial && social.like_count > 0)
@@ -4983,7 +5179,7 @@
             <span class="ig-head-name">${name}</span>
             <span class="ig-head-sub">${sub}</span>
           </div>
-          ${milestone ? `<span class="ig-milestone-badge">Goal</span>` : ""}
+          ${isDiscover ? affinityHtml : (milestone ? `<span class="ig-milestone-badge">Goal</span>` : "")}
           ${menuHtml}
         </div>
         ${photoHtml}
@@ -4991,6 +5187,7 @@
           ${likeBtn}
           ${commentBtn}
           ${cheerBtn}
+          ${followBtn}
           <span class="ig-summary">${summary}</span>
         </div>
         ${likeCountHtml}
@@ -5053,7 +5250,7 @@
     if (!els.communityFeed) return;
     const card = els.communityFeed.querySelector(`[data-feed-entry="${entryId}"]`);
     const item = feedItemById(entryId);
-    if (!card || !item) { renderCommunityFeed(); return; }
+    if (!card || !item) { renderActiveFeed(); return; }
     // Preserve this card's half-typed comment (+ focus) and its already-loaded photo.
     const oldInput = card.querySelector("[data-feed-comment-input]");
     const draftVal = oldInput ? oldInput.value : "";
@@ -5097,6 +5294,8 @@
     if (commentBtn) { focusFeedComment(commentBtn.dataset.feedCommentFocus); return; }
     const cheerBtn = event.target.closest("[data-feed-cheer]");
     if (cheerBtn) { cheerFromFeed(cheerBtn.dataset.feedCommunity, cheerBtn.dataset.feedMember); return; }
+    const followBtn = event.target.closest("[data-discover-follow]");
+    if (followBtn) { followFromDiscover(followBtn.dataset.discoverFollow, followBtn); return; }
     const expandBtn = event.target.closest("[data-feed-expand]");
     if (expandBtn) { expandFeedComments(expandBtn.dataset.feedExpand); return; }
     const menuBtn = event.target.closest("[data-feed-menu]");
@@ -11273,6 +11472,7 @@
       account: saved.account && typeof saved.account === "object" ? saved.account : null,
       scoreContext: saved.scoreContext || seed.scoreContext,
       selectedCommunityMemberId: saved.selectedCommunityMemberId || seed.selectedCommunityMemberId,
+      feedTab: saved.feedTab === "discover" ? "discover" : "friends",
       communityLeaderboardPeriod: saved.communityLeaderboardPeriod || seed.communityLeaderboardPeriod,
       communityTrendMemberId: saved.communityTrendMemberId || seed.communityTrendMemberId,
       dashboardAnalyticsOpen: Boolean(saved.dashboardAnalyticsOpen),

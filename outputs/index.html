@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260621-quicklog">
+    <link rel="stylesheet" href="styles.css?v=20260621-discover">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -98,7 +98,7 @@
       </aside>
 
       <main class="workspace">
-        <section class="view is-visible" id="dashboardView" aria-labelledby="dashboardTitle">
+        <section class="view" id="dashboardView" aria-labelledby="dashboardTitle">
           <button class="add-entry-bar" type="button" id="openAddEntryButton">
             <span class="add-entry-bar-plus" aria-hidden="true">+</span><span>Add entry</span>
           </button>
@@ -780,6 +780,7 @@
               <h2 id="feedTitle">Feed</h2>
             </div>
           </div>
+          <div class="segmented feed-tabs" id="feedTabs" role="tablist" aria-label="Feed source"></div>
           <section class="community-feed" id="communityFeed" aria-label="Recent activity" hidden></section>
         </section>
 
@@ -1375,13 +1376,13 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="supabase-config.js?v=20260621-quicklog"></script>
-    <script src="auth-helpers.js?v=20260621-quicklog"></script>
-    <script src="scoring.js?v=20260621-quicklog"></script>
-    <script src="insight.js?v=20260621-quicklog"></script>
-    <script src="signals.js?v=20260621-quicklog"></script>
-    <script src="wearables.js?v=20260621-quicklog"></script>
-    <script type="module" src="auth.js?v=20260621-quicklog"></script>
-    <script src="app.js?v=20260621-quicklog"></script>
+    <script src="supabase-config.js?v=20260621-discover"></script>
+    <script src="auth-helpers.js?v=20260621-discover"></script>
+    <script src="scoring.js?v=20260621-discover"></script>
+    <script src="insight.js?v=20260621-discover"></script>
+    <script src="signals.js?v=20260621-discover"></script>
+    <script src="wearables.js?v=20260621-discover"></script>
+    <script type="module" src="auth.js?v=20260621-discover"></script>
+    <script src="app.js?v=20260621-discover"></script>
   </body>
 </html>

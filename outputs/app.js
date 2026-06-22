@@ -423,10 +423,19 @@
   let aiRefining = false;           // guards the async "Improve this system" chat calls
   let aiImproveOpen = false;        // keep the improve/chat panel open across re-renders
   let aiChatFocusWanted = false;    // restore chat-input focus after a send (input is disabled mid-refine)
-  // First-run onboarding overlay state — the guided, AI-personalized 3-screen flow.
+  // First-run onboarding overlay state — the guided, AI-personalized 4-screen flow.
   let onboardingActive = false;
-  let onboardingStep = 1;               // 1 explain · 2 get-to-know-you · 3 AI picks
+  let onboardingStep = 1;               // 1 explain · 2 create-profile · 3 interests · 4 AI picks
   let onboardingShownThisSession = false;
+  // Create-profile screen (step 2) state.
+  let onboardingProfileName = "";       // display name (prefilled from account/profile)
+  let onboardingProfileHandle = "";     // raw @handle input value (without leading @)
+  let onboardingProfilePrivacy = "public"; // profile visibility: "public" | "private"
+  let onboardingAvatarDraft = { file: null, previewUrl: "" }; // picked-but-not-saved photo
+  let onboardingHandleStatus = "";      // "" | checking | available | taken | short
+  let onboardingHandleCheckSeq = 0;     // debounce/stale-drop guard for availability
+  let onboardingHandleCheckTimer = null;
+  let onboardingProfileSaving = false;  // guards the async Continue (avatar upload + save)
   let onboardingInterests = [];         // chosen interests [{ key, label, custom }]
   let onboardingLevel = "start";        // start | building | hard → AI strictness
   let onboardingStay = [];              // ["solo","friends","community"]
@@ -631,6 +640,17 @@
     onboardingCopiedIds = [];
     onboardingJoinedIds = [];
     onboardingAddedSystemId = "";
+    onboardingProfileName = "";
+    onboardingProfileHandle = "";
+    onboardingProfilePrivacy = "public";
+    if (onboardingAvatarDraft && onboardingAvatarDraft.previewUrl) {
+      try { URL.revokeObjectURL(onboardingAvatarDraft.previewUrl); } catch (err) {}
+    }
+    onboardingAvatarDraft = { file: null, previewUrl: "" };
+    onboardingHandleStatus = "";
+    onboardingProfileSaving = false;
+    onboardingHandleCheckSeq++;
+    clearTimeout(onboardingHandleCheckTimer);
   }
 
   function onboardingLevelStrictness() {
@@ -659,8 +679,9 @@
 
   function onboardingScreenMarkup() {
     const skip = `<button class="ghost-button small onboard-skip" type="button" data-onboard="skip">Skip for now</button>`;
-    if (onboardingStep === 2) return onboardingInterestsMarkup(skip);
-    if (onboardingStep === 3) return onboardingPicksMarkup(skip);
+    if (onboardingStep === 2) return onboardingProfileMarkup(skip);
+    if (onboardingStep === 3) return onboardingInterestsMarkup(skip);
+    if (onboardingStep === 4) return onboardingPicksMarkup(skip);
     return onboardingExplainMarkup(skip);
   }
 
@@ -688,10 +709,236 @@
             </li>`).join("")}
         </ol>
         <div class="onboard-actions">
-          <button class="primary-button" type="button" data-onboard="to-interests">Get started</button>
+          <button class="primary-button" type="button" data-onboard="to-profile">Get started</button>
           ${skip}
         </div>
       </div>`;
+  }
+
+  // Screen 2 — create profile: avatar (reuses uploadAvatar/avatar_url), display name,
+  // @handle with a live availability check, and a Public/Private visibility picker.
+  // Persisted to the profiles row via updateProfile on Continue. Skip keeps defaults.
+  function initOnboardingProfile() {
+    onboardingProfileName = onboardingPrefillName();
+    onboardingProfileHandle = String(state.profile.handle || "").replace(/^@+/, "");
+    onboardingProfilePrivacy = state.profile.privacy === "private" ? "private" : "public";
+    if (onboardingAvatarDraft && onboardingAvatarDraft.previewUrl) {
+      try { URL.revokeObjectURL(onboardingAvatarDraft.previewUrl); } catch (err) {}
+    }
+    onboardingAvatarDraft = { file: null, previewUrl: "" };
+    onboardingHandleStatus = "";
+    onboardingHandleCheckSeq++;
+    clearTimeout(onboardingHandleCheckTimer);
+  }
+
+  // Prefer a real display name; fall back to the email local-part for a fresh account.
+  function onboardingPrefillName() {
+    const name = String(state.profile.name || "").trim();
+    if (name && name !== "Avery Rivera") return name;
+    const email = state.account && state.account.email ? String(state.account.email) : "";
+    const local = email.split("@")[0] || "";
+    return local || name || "";
+  }
+
+  function onboardingHandleStatusText() {
+    if (onboardingHandleStatus === "checking") return "Checking…";
+    if (onboardingHandleStatus === "available") return "✓ available";
+    if (onboardingHandleStatus === "taken") return "Taken — try another";
+    if (onboardingHandleStatus === "short") return "At least 2 characters";
+    return "";
+  }
+
+  function onboardingHandleStatusClass() {
+    if (onboardingHandleStatus === "available") return "is-available";
+    if (onboardingHandleStatus === "taken") return "is-taken";
+    if (onboardingHandleStatus === "checking" || onboardingHandleStatus === "short") return "is-muted";
+    return "";
+  }
+
+  function onboardingProfileMarkup(skip) {
+    const name = onboardingProfileName;
+    const avatarUrl = onboardingAvatarDraft.previewUrl || state.profile.avatarUrl || "";
+    const avatarInner = avatarUrl
+      ? `<img class="avatar-img" src="${escapeHtml(avatarUrl)}" alt="" aria-hidden="true">`
+      : escapeHtml(getInitials(name));
+    return `
+      <div class="onboard-screen onboard-create-profile onboard-scroll">
+        <p class="eyebrow">Your profile</p>
+        <h2>How others will see you.</h2>
+        <div class="onboard-avatar-row">
+          <div class="profile-avatar-attach onboard-avatar-attach">
+            <div class="large-avatar" id="onboardAvatarPreview" aria-hidden="true">${avatarInner}</div>
+            <button class="profile-avatar-edit" type="button" data-onboard="avatar-pick" aria-label="Add a photo"><span aria-hidden="true">📷</span></button>
+            <input type="file" accept="image/*" data-onboard-field="avatar" hidden>
+          </div>
+          <div class="onboard-avatar-text">
+            <strong>Add a photo</strong>
+            <span class="onboard-sub">Optional — we'll use your initials if you skip it.</span>
+            ${onboardingAvatarDraft.previewUrl ? `<button class="ghost-button small" type="button" data-onboard="avatar-remove">Remove photo</button>` : ""}
+          </div>
+        </div>
+        <div class="profile-form onboard-profile-form">
+          <label>
+            <span>Display name</span>
+            <input type="text" data-onboard-field="name" value="${escapeHtml(name)}" placeholder="Your name" autocomplete="name" maxlength="60">
+          </label>
+          <label>
+            <span>Handle</span>
+            <div class="onboard-handle-field">
+              <span class="onboard-handle-at" aria-hidden="true">@</span>
+              <input type="text" data-onboard-field="handle" value="${escapeHtml(onboardingProfileHandle)}" placeholder="yourhandle" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="30">
+            </div>
+            <span class="onboard-handle-status ${onboardingHandleStatusClass()}" id="onboardHandleStatus">${escapeHtml(onboardingHandleStatusText())}</span>
+          </label>
+        </div>
+        <div class="onboard-chip-group">
+          <p class="onboard-group-label">Profile visibility</p>
+          <div class="onboard-cards onboard-vis-cards">
+            <button class="onboard-card${onboardingProfilePrivacy === "public" ? " onboard-card-primary" : ""}" type="button" data-onboard="visibility" data-visibility="public" aria-pressed="${onboardingProfilePrivacy === "public" ? "true" : "false"}">
+              <span class="onboard-card-icon" aria-hidden="true">◍</span>
+              <strong>Public</strong>
+              <span>Anyone can find you and follow your activity.</span>
+            </button>
+            <button class="onboard-card${onboardingProfilePrivacy === "private" ? " onboard-card-primary" : ""}" type="button" data-onboard="visibility" data-visibility="private" aria-pressed="${onboardingProfilePrivacy === "private" ? "true" : "false"}">
+              <span class="onboard-card-icon" aria-hidden="true">◐</span>
+              <strong>Private</strong>
+              <span>Only approved followers see your activity.</span>
+            </button>
+          </div>
+        </div>
+        <div class="onboard-actions">
+          <button class="primary-button" type="button" data-onboard="profile-continue">Continue</button>
+          ${skip}
+        </div>
+      </div>`;
+  }
+
+  // Persist the typed name/handle into module state before any re-render wipes them.
+  function syncOnboardingProfileFields() {
+    if (!els.onboardingBody) return;
+    const nameEl = els.onboardingBody.querySelector('[data-onboard-field="name"]');
+    const handleEl = els.onboardingBody.querySelector('[data-onboard-field="handle"]');
+    if (nameEl) onboardingProfileName = nameEl.value;
+    if (handleEl) onboardingProfileHandle = handleEl.value;
+  }
+
+  function updateOnboardingHandleBadge() {
+    if (!els.onboardingBody) return;
+    const badge = els.onboardingBody.querySelector("#onboardHandleStatus");
+    if (!badge) return;
+    badge.textContent = onboardingHandleStatusText();
+    badge.className = "onboard-handle-status " + onboardingHandleStatusClass();
+  }
+
+  // Live @handle availability — debounced searchProfiles (fuzzy), filtered to an exact
+  // match excluding self. Updates the badge in place so the input keeps focus.
+  function checkOnboardingHandle() {
+    const normalized = cleanHandle(onboardingProfileHandle || "");
+    const slug = normalized.slice(1);
+    clearTimeout(onboardingHandleCheckTimer);
+    const seq = ++onboardingHandleCheckSeq;
+    if (slug.length < 2) { onboardingHandleStatus = "short"; updateOnboardingHandleBadge(); return; }
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.searchProfiles !== "function") {
+      onboardingHandleStatus = ""; updateOnboardingHandleBadge(); return;
+    }
+    onboardingHandleStatus = "checking";
+    updateOnboardingHandleBadge();
+    onboardingHandleCheckTimer = setTimeout(() => {
+      Promise.resolve(window.PointwellSignals.searchProfiles(slug)).then((rows) => {
+        if (seq !== onboardingHandleCheckSeq) return;
+        onboardingHandleStatus = onboardingHandleRowsTaken(rows, normalized) ? "taken" : "available";
+        updateOnboardingHandleBadge();
+      }).catch(() => {
+        if (seq !== onboardingHandleCheckSeq) return;
+        onboardingHandleStatus = ""; updateOnboardingHandleBadge();
+      });
+    }, 250);
+  }
+
+  // A handle is taken if another profile (not me) has the exact normalized handle.
+  function onboardingHandleRowsTaken(rows, normalized) {
+    const myId = state.account && state.account.userId;
+    return (Array.isArray(rows) ? rows : []).some((row) =>
+      cleanHandle(row.handle || "") === normalized && String(row.id) !== String(myId));
+  }
+
+  // Authoritative check on Continue (the live badge may still be mid-debounce).
+  async function onboardingHandleIsTaken(normalized) {
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.searchProfiles !== "function") return false;
+    const slug = normalized.slice(1);
+    if (slug.length < 2) return false;
+    const rows = await Promise.resolve(window.PointwellSignals.searchProfiles(slug)).catch(() => []);
+    return onboardingHandleRowsTaken(rows, normalized);
+  }
+
+  function chooseOnboardingAvatar(file) {
+    if (!/^image\//i.test(file.type || "")) { showToast("That's not an image — choose a photo"); return; }
+    if (file.size > ENTRY_PHOTO_MAX_BYTES) { showToast("Photo is too big (max 5 MB) — pick a smaller one"); return; }
+    if (onboardingAvatarDraft.previewUrl) { try { URL.revokeObjectURL(onboardingAvatarDraft.previewUrl); } catch (err) {} }
+    onboardingAvatarDraft = { file: file, previewUrl: URL.createObjectURL(file) };
+    syncOnboardingProfileFields();
+    renderOnboarding();
+  }
+
+  function clearOnboardingAvatar() {
+    if (onboardingAvatarDraft.previewUrl) { try { URL.revokeObjectURL(onboardingAvatarDraft.previewUrl); } catch (err) {} }
+    onboardingAvatarDraft = { file: null, previewUrl: "" };
+    syncOnboardingProfileFields();
+    renderOnboarding();
+  }
+
+  // Continue → validate handle (block taken/invalid), save the profile via the existing
+  // updateProfile path, then advance to the interests screen. Skip is handled by "skip".
+  async function onboardingProfileContinue() {
+    if (onboardingProfileSaving) return;
+    syncOnboardingProfileFields();
+    const normalized = cleanHandle(onboardingProfileHandle || "");
+    if (normalized.length < 3) {
+      onboardingHandleStatus = "short"; updateOnboardingHandleBadge();
+      showToast("Pick a handle (at least 2 characters)");
+      return;
+    }
+    onboardingProfileSaving = true;
+    try {
+      if (await onboardingHandleIsTaken(normalized)) {
+        onboardingHandleStatus = "taken"; updateOnboardingHandleBadge();
+        showToast("That handle's taken — try another");
+        return;
+      }
+      await saveOnboardingProfile(normalized);
+      onboardingStep = 3;
+      renderOnboarding();
+    } finally {
+      onboardingProfileSaving = false;
+    }
+  }
+
+  // Mirror saveProfile's write path: upload the avatar (if picked) to the avatars bucket,
+  // then updateProfile(display_name, handle, visibility, avatar_url?). Avatar/save are
+  // best-effort — onboarding proceeds even if the network write fails.
+  async function saveOnboardingProfile(normalizedHandle) {
+    const name = String(onboardingProfileName || "").trim() || onboardingPrefillName() || "Member";
+    const privacy = onboardingProfilePrivacy === "private" ? "private" : "public";
+    state.profile.name = name;
+    state.profile.handle = normalizedHandle;
+    state.profile.privacy = privacy;
+    const profilePatch = { display_name: name, handle: normalizedHandle, visibility: privacy };
+    const uid = state.account && state.account.userId;
+    if (onboardingAvatarDraft.file && signalsReady() && uid && window.PointwellSignals && typeof window.PointwellSignals.uploadAvatar === "function") {
+      const up = await Promise.resolve(window.PointwellSignals.uploadAvatar(onboardingAvatarDraft.file, uid)).catch(() => ({ error: { message: "upload failed" } }));
+      if (up && !up.error && up.url) {
+        state.profile.avatarUrl = up.url;
+        profilePatch.avatar_url = up.url;
+      } else {
+        showToast("Couldn't upload the photo — saved without it");
+      }
+    }
+    if (signalsReady() && uid && window.PointwellSignals && typeof window.PointwellSignals.updateProfile === "function") {
+      Promise.resolve(window.PointwellSignals.updateProfile(uid, profilePatch)).catch(() => {});
+    }
+    // Keep system ownership labels in sync with the new display name (saveProfile parity).
+    state.systems.forEach((system) => { if (system.ownerId === "me") system.ownerName = name; });
+    saveState();
   }
 
   function onboardingInterestChipMarkup(item) {
@@ -852,7 +1099,11 @@
     if (!target) return;
     const action = target.dataset.onboard;
     if (action === "skip") { finishOnboarding(); return; }
-    if (action === "to-interests") { onboardingStep = 2; renderOnboarding(); return; }
+    if (action === "to-profile") { initOnboardingProfile(); onboardingStep = 2; renderOnboarding(); return; }
+    if (action === "visibility") { syncOnboardingProfileFields(); onboardingProfilePrivacy = target.dataset.visibility === "private" ? "private" : "public"; renderOnboarding(); return; }
+    if (action === "avatar-pick") { const inp = els.onboardingBody && els.onboardingBody.querySelector('[data-onboard-field="avatar"]'); if (inp) inp.click(); return; }
+    if (action === "avatar-remove") { clearOnboardingAvatar(); return; }
+    if (action === "profile-continue") { onboardingProfileContinue(); return; }
     if (action === "interest") { toggleOnboardingInterest(target.dataset.interest, target.dataset.label); return; }
     if (action === "interest-remove") { removeOnboardingInterest(target.dataset.interest); return; }
     if (action === "interest-add") { addCustomOnboardingInterest(); return; }
@@ -871,6 +1122,29 @@
     if (!field || event.key !== "Enter") return;
     event.preventDefault();
     addCustomOnboardingInterest();
+  }
+
+  // Live handle-availability check + name sync as the user types the profile fields.
+  function handleOnboardingInput(event) {
+    const target = event.target;
+    if (!target || !target.closest) return;
+    if (target.closest('[data-onboard-field="handle"]')) {
+      onboardingProfileHandle = target.value;
+      checkOnboardingHandle();
+      return;
+    }
+    if (target.closest('[data-onboard-field="name"]')) {
+      onboardingProfileName = target.value;
+    }
+  }
+
+  // The avatar file picker (a hidden <input type=file> inside the overlay).
+  function handleOnboardingChange(event) {
+    const input = event.target.closest && event.target.closest('[data-onboard-field="avatar"]');
+    if (!input) return;
+    const file = input.files && input.files[0];
+    input.value = "";
+    if (file) chooseOnboardingAvatar(file);
   }
 
   // Persist the free-text answer before any re-render (innerHTML replace) wipes it.
@@ -922,7 +1196,7 @@
   // the screen in as they land.
   function startOnboardingSuggestions() {
     syncOnboardingFields();
-    onboardingStep = 3;
+    onboardingStep = 4;
     onboardingDraft = null;
     onboardingGenerating = true;
     onboardingPublicMatches = matchOnboardingPublicSystems();
@@ -939,7 +1213,7 @@
         .catch(() => { onboardingCommunityMatches = []; })
         .then(() => {
           onboardingMatchesLoading = false;
-          if (onboardingActive && onboardingStep === 3) renderOnboarding();
+          if (onboardingActive && onboardingStep === 4) renderOnboarding();
         });
     }
     try {
@@ -948,7 +1222,7 @@
       onboardingDraft = null;
     } finally {
       onboardingGenerating = false;
-      if (onboardingActive && onboardingStep === 3) renderOnboarding();
+      if (onboardingActive && onboardingStep === 4) renderOnboarding();
     }
   }
 
@@ -1041,7 +1315,7 @@
     const res = await window.PointwellSignals.joinCommunity(communityId, state.account.userId, "member");
     if (res && res.error) { showToast(communityDbError(res.error, "Couldn't join that community")); return; }
     onboardingJoinedIds.push(communityId);
-    if (onboardingActive && onboardingStep === 3) renderOnboarding();
+    if (onboardingActive && onboardingStep === 4) renderOnboarding();
     // Resync state.communities in the background so the joined community is present
     // when the user lands; render() runs behind the overlay, so it's invisible here.
     Promise.resolve(loadCommunitiesFromDb()).catch(() => {});
@@ -2725,6 +2999,8 @@
     if (els.headerAvatarButton) els.headerAvatarButton.addEventListener("click", openProfile);
     if (els.onboardingScreen) els.onboardingScreen.addEventListener("click", handleOnboardingClick);
     if (els.onboardingScreen) els.onboardingScreen.addEventListener("keydown", handleOnboardingKeydown);
+    if (els.onboardingScreen) els.onboardingScreen.addEventListener("input", handleOnboardingInput);
+    if (els.onboardingScreen) els.onboardingScreen.addEventListener("change", handleOnboardingChange);
     if (els.notifBellButton) els.notifBellButton.addEventListener("click", (event) => {
       event.stopPropagation();
       toggleNotifPanel();

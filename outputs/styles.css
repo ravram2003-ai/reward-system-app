@@ -5509,6 +5509,107 @@ body.onboarding-locked {
   margin: 0;
 }
 
+/* Onboarding create-profile screen (avatar + name + @handle + visibility) */
+.onboard-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.onboard-avatar-attach {
+  flex: 0 0 auto;
+}
+
+.onboard-avatar-text {
+  display: grid;
+  gap: 3px;
+}
+
+.onboard-avatar-text strong {
+  font-size: 0.98rem;
+}
+
+.onboard-avatar-text .ghost-button {
+  justify-self: start;
+  margin-top: 2px;
+  padding-left: 0;
+}
+
+.onboard-profile-form {
+  gap: 14px;
+}
+
+.onboard-handle-field {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--field-bg);
+  overflow: hidden;
+}
+
+.onboard-handle-field:focus-within {
+  border-color: var(--line-strong);
+  box-shadow: 0 0 0 2px rgba(58, 214, 166, 0.25);
+}
+
+.onboard-handle-at {
+  flex: 0 0 auto;
+  padding: 0 4px 0 12px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.onboard-handle-field input {
+  flex: 1 1 auto;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding-left: 2px;
+}
+
+.onboard-handle-field input:hover,
+.onboard-handle-field input:focus-visible {
+  border: none;
+  box-shadow: none;
+  outline: none;
+}
+
+.onboard-handle-status {
+  min-height: 1em;
+  font-size: 0.8rem;
+  font-weight: 750;
+  color: var(--muted);
+}
+
+.onboard-handle-status.is-available {
+  color: var(--accent-strong);
+}
+
+.onboard-handle-status.is-taken {
+  color: var(--danger);
+}
+
+.onboard-handle-status.is-muted {
+  color: var(--muted);
+}
+
+.onboard-vis-cards {
+  grid-template-columns: 1fr 1fr;
+}
+
+.onboard-vis-cards .onboard-card {
+  padding: 14px;
+}
+
+@media (max-width: 460px) {
+  .onboard-vis-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* People search results (real accounts) */
 .person-result-card {
   align-items: center;

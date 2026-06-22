@@ -278,6 +278,8 @@
     quickEntries: [],
     communityEntries: [],
     communityDraftInputs: {},
+    knownWorkoutIds: [],   // wearable workout/exercise session ids we've already seen
+    pendingWorkout: null,  // a newly-detected workout awaiting the "log it?" prompt
     systems: [
       {
         id: "life-core",
@@ -357,6 +359,8 @@
   let state = loadState();
   let addEntryDraft = { ruleId: "", amount: 0 };
   let aiPrefilledComposer = false; // AI Quick Log mapped one entry → composer is pre-filled
+  let composerSourceTag = ""; // when set (a wearable provider id), the next posted entry
+                              // carries a "via Fitbit" badge (synced-entry → post upgrade)
   // Optional message + photo for the next Add Entry. Both optional; reset after save.
   let addEntryAttachment = { message: "", file: null, previewUrl: "" };
   const ENTRY_PHOTO_MAX_BYTES = 5 * 1024 * 1024; // ~5 MB cap (protects free-tier storage)
@@ -2660,6 +2664,7 @@
 
   function cacheElements() {
     const ids = [
+      "wearablePrompt",
       "profileAvatar",
       "todayLabel",
       "dashboardView",
@@ -3032,6 +3037,7 @@
     // lives in Build). openAddEntryPage guards the no-system / no-rules cases with a toast.
     if (els.createFab) els.createFab.addEventListener("click", openAddEntryPage);
     bindQuickLogControls();
+    bindWearablePrompt();
     els.backToDashboardButton.addEventListener("click", returnToDashboard);
     els.customizeTopCardButton.addEventListener("click", openCustomizeTopCardPage);
     els.cancelTopCardButton.addEventListener("click", cancelTopCardCustomization);
@@ -3358,6 +3364,7 @@
     renderProfilePage();
     renderProfile();
     renderNotifications();
+    renderWearablePrompt();
     pushMyBehindStatus();
     // Load signed-URL thumbnails for any entry photos rendered this pass (the helper
     // skips ones already loaded; Storage policy decides if each is actually viewable).
@@ -3604,6 +3611,7 @@
     resetAddEntryAttachment(); // each Add Entry starts with a clean message/photo
     resetQuickLog();           // ...and a clean quick-log box
     aiPrefilledComposer = false; // a fresh manual open is not AI-prefilled
+    composerSourceTag = "";      // ...and carries no "via Fitbit" tag
     state.activeView = "add-entry";
     saveState();
     render();
@@ -3612,6 +3620,23 @@
       (els.quickLogInput || els.dailyInputList.querySelector("[data-add-entry-rule]"))?.focus();
       window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     });
+  }
+
+  // PART B — turn a synced entry (or a Fitbit workout) into a full post: open the EXISTING
+  // composer pre-filled with the rule + value in its own context, tagged so the posted entry
+  // keeps a "via Fitbit" badge. Reuses prefillComposerFromQuickLog's seam entirely; the user
+  // just adds an optional photo/caption and taps the normal Post button.
+  function upgradeSyncedEntryToPost(contextType, contextId, ruleId, amount, viaSource) {
+    const ok = prefillComposerFromQuickLog({
+      contextType: contextType === "community" ? "community" : "personal",
+      contextId,
+      ruleId,
+      amount: numberOrDefault(amount, 0)
+    });
+    if (!ok) { showToast("Couldn't open that entry"); return; }
+    aiPrefilledComposer = false;             // show the "via" note, not the AI note
+    composerSourceTag = REAL_WEARABLE_SOURCES.has(viaSource) ? viaSource : "";
+    render(); // re-render the add-entry panel so the source note + tag take effect
   }
 
   function returnToDashboard() {
@@ -3938,12 +3963,24 @@
   function communityValuesForMember(communityId, userId, date = todayIso) {
     const values = {};
     const community = state.communities.find((item) => item.id === communityId);
+    // Manual logs ADD on top of the synced value (and of each other). A "materialized" post
+    // of the synced value (viaSource — the Part B share) already equals it, so for that rule
+    // the synced base is dropped to avoid double-counting.
+    const manual = {};
+    const materialized = {};
+    getCommunityEntriesForMemberOnDate(communityId, userId, date).forEach((entry) => {
+      manual[entry.ruleId] = numberOrDefault(manual[entry.ruleId], 0) + numberOrDefault(entry.amount, 0);
+      if (entry.viaSource) materialized[entry.ruleId] = true;
+    });
     (community?.system?.rules || []).forEach((item) => {
       const rule = scoring.normalizeRule(item);
-      values[rule.id] = syncedValueForRule(rule, { userId, date, scope: "community" }) ?? 0;
+      const synced = materialized[rule.id]
+        ? 0
+        : (syncedValueForRule(rule, { userId, date, scope: "community" }) ?? 0);
+      values[rule.id] = synced + numberOrDefault(manual[rule.id], 0);
     });
-    getCommunityEntriesForMemberOnDate(communityId, userId, date).forEach((entry) => {
-      values[entry.ruleId] = numberOrDefault(values[entry.ruleId], 0) + numberOrDefault(entry.amount, 0);
+    Object.keys(manual).forEach((ruleId) => {
+      if (!(ruleId in values)) values[ruleId] = manual[ruleId];
     });
     return values;
   }
@@ -3969,7 +4006,7 @@
     return { date, total, values: communityValuesForMember(communityId, userId, date) };
   }
 
-  function addCommunityEntry(communityId, userId, rule, amount, source = "manual", message = "", photoPath = "") {
+  function addCommunityEntry(communityId, userId, rule, amount, source = "manual", message = "", photoPath = "", viaSource = "") {
     const dateKey = getTodayKey();
     state.communityEntries = state.communityEntries || [];
     state.communityEntries.push({
@@ -3985,7 +4022,8 @@
       timestamp: new Date().toISOString(),
       message: message || "",
       photoPath: photoPath || "",
-      source
+      source,
+      viaSource: viaSource || ""
     });
   }
 
@@ -5973,6 +6011,10 @@
     const sub = escapeHtml(item.community.name) + (relText ? " · " + escapeHtml(relText) : "");
     const goal = item.rule ? goalAmountForRule(item.rule) : 0;
     const milestone = goal > 0 && numberOrDefault(entry.amount, 0) >= goal;
+    // A post upgraded from a wearable sync keeps a small "via Fitbit" badge.
+    const viaBadge = REAL_WEARABLE_SOURCES.has(entry.viaSource)
+      ? `<span class="via-source-tag">via ${escapeHtml(wearableShortLabel(entry.viaSource))}</span>`
+      : "";
     const canSocial = signalsReady() && isDbEntryId(entry.id);
     const social = feedSocialFor(entryId);
 
@@ -6034,6 +6076,7 @@
               <span class="ig-head-sub">${sub}</span>
             </div>
           ${authorClose}
+          ${viaBadge}
           ${isDiscover ? affinityHtml : (milestone ? `<span class="ig-milestone-badge">Goal</span>` : "")}
           ${menuHtml}
         </div>
@@ -6916,9 +6959,11 @@
     const standings = communityStandings(community, COMMUNITY_PERIODS[0].id, "points").slice().sort((a, b) => b.today - a.today);
     const rank = standings.findIndex((item) => item.id === member.id) + 1;
     const memberCount = standings.length;
+    const memberManual = getCommunityEntriesForMemberOnDate(community.id, member.id, todayIso);
+    const memberMaterializedRuleIds = new Set(memberManual.filter((entry) => entry.viaSource).map((entry) => entry.ruleId));
     const entries = [
-      ...syncedEntriesForContext({ type: "community", community }, community.system, { userId: member.id }),
-      ...getCommunityEntriesForMemberOnDate(community.id, member.id, todayIso)
+      ...syncedEntriesForContext({ type: "community", community }, community.system, { userId: member.id }).filter((entry) => !memberMaterializedRuleIds.has(entry.ruleId)),
+      ...memberManual
     ].sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
     const breakdownOpen = !!state.profileRuleBreakdownOpen;
     const ringOffset = 100 - Math.min(Math.max(percent, 0), 100);
@@ -7470,28 +7515,69 @@
     if (res && res.error) showToast(res.error.message || "Couldn't start the connection.");
   }
 
+  // Friendly short name for sync toasts/badges ("Fitbit" reads better than the full
+  // "Google Health (Fitbit)" label in a one-line confirmation).
+  function wearableShortLabel(provider) {
+    if (provider === "google-health") return "Fitbit";
+    if (provider === "whoop") return "Whoop";
+    return dataSourceLabel(provider);
+  }
+
+  // After a wearable sync, push the freshly-synced values into EVERY rule that reads them —
+  // across all personal systems AND every community the user is in — recalculating + saving
+  // each context so standings and the feed reflect them everywhere (not just the active
+  // tracker). Synced values are computed live (syncedValueForRule); in todayValuesForSystem/
+  // communityValuesForMember manual logs ADD on top of the synced value (and re-syncing just
+  // refreshes the live base, so it never stacks). Returns the count of rules tied to
+  // `provider` that received a synced value today.
+  function fanOutSyncedMetricsToContexts(provider) {
+    let updated = 0;
+    const countRule = (rule) => {
+      if (provider && rule.dataSource !== provider) return;
+      const value = syncedValueForRule(rule, { userId: "me", date: todayIso });
+      if (value !== null && Number(value) > 0) updated += 1;
+    };
+    (state.systems || []).forEach((system) => {
+      (system.rules || []).forEach((item) => countRule(scoring.normalizeRule(item)));
+      autoSaveToday(system);
+    });
+    (state.communities || []).forEach((community) => {
+      const sys = normalizeSystem(community.system || { rules: [] });
+      (sys.rules || []).forEach((item) => countRule(scoring.normalizeRule(item)));
+      saveCommunitySummaryForMember(community, "me");
+    });
+    const active = getTrackerSystem();
+    if (active) syncDraftInputsFromEntries(active);
+    return updated;
+  }
+
   async function syncWearable(provider, options = {}) {
     const api = window.PointwellWearables;
     if (!api) return;
-    if (!options.silent) showToast(`Syncing ${dataSourceLabel(provider)}…`);
+    if (!options.silent) showToast(`Syncing ${wearableShortLabel(provider)}…`);
     const res = await api.sync(provider);
     if (res.error) {
       if (!options.silent) showToast(res.error.message || "Couldn't sync right now.");
       return;
     }
+    const result = res.data && res.data.providers && res.data.providers[provider];
     const changed = applyWearableMetrics(res.data && res.data.providers);
-    const system = getTrackerSystem();
-    if (system) {
-      syncDraftInputsFromEntries(system);
-      autoSaveToday(system);
-    }
+    // Fan out to every allowing rule across personal systems + communities (fill-empty-only:
+    // hand-logged values are never overwritten). updated = rules that got a value today.
+    const updated = changed ? fanOutSyncedMetricsToContexts(provider) : 0;
+    // Detect any new Fitbit workout/exercise sessions → queue a one-time, dismissible prompt.
+    detectNewWorkouts(provider, result && result.workouts);
     saveState();
     render();
-    if (!options.silent) {
-      const result = res.data && res.data.providers && res.data.providers[provider];
-      if (result && result.error === "reconnect") showToast(`Reconnect ${dataSourceLabel(provider)} to keep syncing.`);
-      else if (changed) showToast(`${dataSourceLabel(provider)} synced`);
-      else showToast(`No new ${dataSourceLabel(provider)} data yet today.`);
+    if (result && result.error === "reconnect") {
+      if (!options.silent) showToast(`Reconnect ${wearableShortLabel(provider)} to keep syncing.`);
+    } else if (updated > 0) {
+      // Brief, non-blocking confirmation — auto-posting stays off (nothing is posted to a
+      // feed by syncing). Shown on sign-in and on Sync now.
+      showToast(`Synced from ${wearableShortLabel(provider)} · updated ${plural(updated, "rule")}`);
+    } else if (!options.silent) {
+      if (changed) showToast(`${wearableShortLabel(provider)} synced`);
+      else showToast(`No new ${wearableShortLabel(provider)} data yet today.`);
     }
   }
 
@@ -7567,6 +7653,115 @@
     showToast(`${dataSourceLabel(provider)} connected — syncing your data…`);
     await syncWearable(provider, { silent: true });
     showToast(`${dataSourceLabel(provider)} connected`);
+  }
+
+  // ── PART C — detect new Fitbit workouts and prompt to log them ───────────────
+  // The sync response carries recent exercise/workout sessions. We remember which we've
+  // seen (so none ever nags twice) and queue the newest unseen one for a dismissible
+  // "log it?" prompt. Logging reuses the AI quick-log confirm card + add-entry/save path.
+  function detectNewWorkouts(provider, workouts) {
+    if (provider !== "google-health" || !Array.isArray(workouts) || !workouts.length) return;
+    state.knownWorkoutIds = Array.isArray(state.knownWorkoutIds) ? state.knownWorkoutIds : [];
+    const known = new Set(state.knownWorkoutIds.map(String));
+    const fresh = workouts.filter((w) => w && w.id && !known.has(String(w.id)));
+    if (!fresh.length) return;
+    // Remember every fresh id now so a dismissed/declined session never re-prompts.
+    fresh.forEach((w) => state.knownWorkoutIds.push(String(w.id)));
+    if (state.knownWorkoutIds.length > 200) state.knownWorkoutIds = state.knownWorkoutIds.slice(-200);
+    // Queue the most recent fresh session (don't clobber one already awaiting a decision).
+    if (!state.pendingWorkout) {
+      const newest = fresh.slice().sort((a, b) => String(b.startTime || "").localeCompare(String(a.startTime || "")))[0];
+      state.pendingWorkout = { ...newest, provider };
+    }
+  }
+
+  // Best-effort workout → loggable rule: prefer a rule whose label/unit mentions the workout
+  // type or is workout/exercise/minutes-flavored; else the first number rule. Returns a
+  // catalog item (the user can still change it in the confirm card) or null.
+  function matchWorkoutToRule(workout, catalog) {
+    if (!catalog.length) return null;
+    const typeWords = String(workout.type || "").toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+    const score = (c) => {
+      const hay = `${c.label} ${c.unit}`.toLowerCase();
+      let s = 0;
+      if (typeWords.some((w) => hay.includes(w))) s += 5;
+      if (/workout|exercise|train|gym|cardio|run|lift|move|active|sport/.test(hay)) s += 2;
+      if (/\b(min|minute|minutes)\b/.test(String(c.unit).toLowerCase())) s += 1;
+      if (c.type === "number") s += 1;
+      return s;
+    };
+    let best = null, bestScore = -1;
+    catalog.forEach((c) => { const s = score(c); if (s > bestScore) { bestScore = s; best = c; } });
+    return best;
+  }
+
+  // "Log it" — drop the workout into the quick-log confirm card (matched rule + duration as
+  // the amount), tagged as a Fitbit import, and open Add Entry. The user can change the
+  // rule/context, multi-log, or add a photo/caption, then Confirm — all via existing paths.
+  function startWorkoutLog() {
+    const workout = state.pendingWorkout;
+    if (!workout) return;
+    const catalog = buildLoggableRuleCatalog();
+    if (!catalog.length) { showToast("Add a rule to a system or community first."); return; }
+    const match = matchWorkoutToRule(workout, catalog);
+    if (!match) { showToast("No rule to log this to yet."); return; }
+    const entry = normalizeQuickLogEntry({
+      contextType: match.contextType,
+      contextId: match.contextId,
+      ruleId: match.id,
+      amount: numberOrDefault(workout.durationMinutes, 0) || 1,
+    });
+    if (!entry) { showToast("Couldn't map that workout."); return; }
+    entry.isFitbitImport = true;
+    quickLogDraft = [entry];
+    quickLogClarifications = [];
+    state.pendingWorkout = null; // the prompt has been acted on
+    state.activeView = "add-entry";
+    setQuickLogHint(`From ${wearableShortLabel(workout.provider || "google-health")}: ${workout.type || "Workout"} — pick the rule/amount, then Confirm.`);
+    saveState();
+    render();
+    renderQuickLogDraft();
+    requestAnimationFrame(() => {
+      if (els.quickLogDraft && els.quickLogDraft.scrollIntoView) els.quickLogDraft.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  }
+
+  function dismissWorkoutPrompt() {
+    state.pendingWorkout = null; // already remembered in knownWorkoutIds → won't re-prompt
+    saveState();
+    renderWearablePrompt();
+  }
+
+  // Non-blocking, dismissible prompt mounted in its own fixed container (#wearablePrompt).
+  function renderWearablePrompt() {
+    const mount = els.wearablePrompt;
+    if (!mount) return;
+    const w = state.pendingWorkout;
+    if (!w) { mount.hidden = true; mount.innerHTML = ""; return; }
+    const dur = numberOrDefault(w.durationMinutes, 0);
+    const durText = dur > 0 ? ` · ${dur} min` : "";
+    const calText = w.calories ? ` · ${formatValue(w.calories)} cal` : "";
+    mount.hidden = false;
+    mount.innerHTML = `
+      <div class="wearable-prompt-card">
+        <div class="wearable-prompt-main">
+          <span class="via-source-tag">via ${escapeHtml(wearableShortLabel(w.provider || "google-health"))}</span>
+          <strong>New ${escapeHtml(w.type || "Workout")}${escapeHtml(durText)}${escapeHtml(calText)}</strong>
+          <span class="wearable-prompt-sub">Log it to a rule?</span>
+        </div>
+        <div class="wearable-prompt-actions">
+          <button type="button" class="ghost-button small" data-workout-dismiss>Not now</button>
+          <button type="button" class="primary-button small" data-workout-log>Log it</button>
+        </div>
+      </div>`;
+  }
+
+  function bindWearablePrompt() {
+    if (!els.wearablePrompt) return;
+    els.wearablePrompt.addEventListener("click", (event) => {
+      if (event.target.closest("[data-workout-dismiss]")) { dismissWorkoutPrompt(); return; }
+      if (event.target.closest("[data-workout-log]")) { startWorkoutLog(); return; }
+    });
   }
 
   function manageIntegration(integrationId) {
@@ -7856,12 +8051,18 @@
       ? `<button type="button" class="quick-log-done${entry.amount > 0 ? " is-on" : ""}" data-quick-log-toggle="${escapeHtml(entry._id)}" aria-pressed="${entry.amount > 0 ? "true" : "false"}">${entry.amount > 0 ? "Done ✓" : "Mark done"}</button>`
       : `<input type="number" class="quick-log-amount" data-quick-log-amount="${escapeHtml(entry._id)}" value="${escapeHtml(String(entry.amount))}" min="0" step="any" inputmode="decimal" aria-label="Amount for ${label}"><span class="quick-log-unit">${escapeHtml(rule.unit || "")}</span>`;
     const estimateTag = entry.isPhotoEstimate ? `<span class="quick-log-estimate-tag">AI estimate</span>` : "";
+    const fitbitTag = entry.isFitbitImport ? `<span class="quick-log-estimate-tag">via Fitbit</span>` : "";
+    // A Fitbit import can become a full post with a selfie + caption (reuses Part B).
+    const photoLink = entry.isFitbitImport
+      ? `<button type="button" class="quick-log-photo-link" data-quick-log-photo="${escapeHtml(entry._id)}">📷 Add photo &amp; caption</button>`
+      : "";
     return `
       <div class="quick-log-row-item" data-quick-log-id="${escapeHtml(entry._id)}">
         <div class="quick-log-row-main">
-          <div class="quick-log-row-title"><strong>${label}</strong>${estimateTag}</div>
+          <div class="quick-log-row-title"><strong>${label}</strong>${estimateTag}${fitbitTag}</div>
           <div class="quick-log-row-controls">${amountControl}</div>
           <div class="quick-log-row-context">${contextControl}</div>
+          ${photoLink}
         </div>
         <span class="point-pill ${points < 0 ? "negative" : "positive"}">${points >= 0 ? "+" : ""}${escapeHtml(formatPoints(points))} pts</span>
         <button type="button" class="quick-log-remove" data-quick-log-remove="${escapeHtml(entry._id)}" aria-label="Remove ${label}">✕</button>
@@ -7895,6 +8096,12 @@
     if (toggleBtn) {
       const entry = quickLogEntryById(toggleBtn.dataset.quickLogToggle);
       if (entry) { entry.amount = entry.amount > 0 ? 0 : 1; renderQuickLogDraft(); }
+      return;
+    }
+    const photoBtn = event.target.closest("[data-quick-log-photo]");
+    if (photoBtn) {
+      const entry = quickLogEntryById(photoBtn.dataset.quickLogPhoto);
+      if (entry) upgradeSyncedEntryToPost(entry.contextType, entry.contextId, entry.ruleId, entry.amount, "google-health");
       return;
     }
     const clarChip = event.target.closest("[data-quick-log-clar]");
@@ -8133,7 +8340,8 @@
   function renderAddEntryPanel(system) {
     const rules = system.rules.map(scoring.normalizeRule);
     if (!rules.length) return emptyState("Add a scoring rule before adding entries.");
-    const values = valuesForScoreContext(getActiveScoreContext());
+    const context = getActiveScoreContext();
+    const values = valuesForScoreContext(context);
     if (!addEntryDraft.ruleId || !rules.some((item) => item.id === addEntryDraft.ruleId)) {
       const firstRule = rules[0];
       addEntryDraft = { ruleId: firstRule.id, amount: suggestedEntryAmount(firstRule) };
@@ -8144,7 +8352,9 @@
     const currentTotal = numberOrDefault(values[selectedRule.id], 0);
     const goal = goalAmountForRule(selectedRule);
     const currentPercent = progressPercent(currentTotal, goal);
-    const previewTotal = currentTotal + amount;
+    // A normal log adds on top (current + amount). A "materialize" (Part B share, composerSourceTag
+    // set) just turns the existing synced value into a post — the total doesn't change.
+    const previewTotal = composerSourceTag ? currentTotal : currentTotal + amount;
     const previewPercent = progressPercent(previewTotal, goal);
     const options = rules.map((item) => `
       <option value="${escapeHtml(item.id)}"${item.id === selectedRule.id ? " selected" : ""}>
@@ -8152,9 +8362,12 @@
       </option>
     `).join("");
 
+    const viaNote = REAL_WEARABLE_SOURCES.has(composerSourceTag)
+      ? `<p class="add-entry-ai-note"><span aria-hidden="true">⌚</span> From ${escapeHtml(wearableShortLabel(composerSourceTag))} — add a photo &amp; caption, then post.</p>`
+      : "";
     return `
       <div class="add-entry-card" data-add-entry-card>
-        ${aiPrefilledComposer ? `<p class="add-entry-ai-note"><span aria-hidden="true">✨</span> AI filled this in — review, add a photo/caption, and post.</p>` : ""}
+        ${aiPrefilledComposer ? `<p class="add-entry-ai-note"><span aria-hidden="true">✨</span> AI filled this in — review, add a photo/caption, and post.</p>` : viaNote}
         <label class="wide-entry-field">
           <span>Metric/rule</span>
           <select data-add-entry-rule aria-label="Choose metric to add">${options}</select>
@@ -8285,7 +8498,7 @@
     const source = rule.dataSource;
     const value = syncedValueForRule(rule, { userId: "me", date: todayIso, scope: getActiveScoreContext().type });
     const status = value === null ? "Not connected" : `${formatValue(value)} ${rule.unit} synced today`;
-    const action = rule.allowManualOverride === false ? "Manual adjustment is off." : "Use Add Entry only for a manual adjustment.";
+    const action = rule.allowManualOverride === false ? "Manual logging is off for this rule." : "Logging here adds on top of today's synced value.";
     return `
       <div class="source-notice">
         <strong>${escapeHtml(dataSourceLabel(source))}</strong>
@@ -8334,14 +8547,14 @@
   }
 
   // The submit button's label — "Post <rule>" (toggle) or "Post <value> <unit> <rule>"
-  // (amount), with an "adjustment" suffix for synced rules; "Choose completion" until a
-  // toggle rule is checked. Shared by the initial render and the live preview update.
+  // (amount); "Choose completion" until a toggle rule is checked. Shared by the initial
+  // render and the live preview update. (How a synced-rule log combines with the synced value
+  // is conveyed by the source notice, not a button suffix.)
   function addEntryButtonLabel(rule, amount) {
-    const adj = isRuleSynced(rule) ? " adjustment" : "";
     if (rule.inputMethod === "toggle") {
-      return Number(amount) > 0 ? `Post ${rule.label}${adj}` : "Choose completion";
+      return Number(amount) > 0 ? `Post ${rule.label}` : "Choose completion";
     }
-    return `Post ${formatValue(amount)} ${rule.unit} ${rule.label}${adj}`;
+    return `Post ${formatValue(amount)} ${rule.unit} ${rule.label}`;
   }
 
   function renderInputRow(item, scope = "personal") {
@@ -8416,6 +8629,7 @@
     const rule = system?.rules.map(scoring.normalizeRule).find((item) => item.id === ruleId);
     if (!system || !rule) return;
     aiPrefilledComposer = false; // user picked a different rule → drop the AI-filled note
+    composerSourceTag = "";      // ...and the "via Fitbit" tag no longer applies
     addEntryDraft = { ruleId, amount: suggestedEntryAmount(rule) };
     els.dailyInputList.innerHTML = renderAddEntryPanel(system);
     bindDailyInputs();
@@ -8442,8 +8656,10 @@
   }
 
   function updateAddEntryPreview(rule, amount) {
-    const currentTotal = numberOrDefault(valuesForScoreContext(getActiveScoreContext())[rule.id], 0);
-    const previewTotal = currentTotal + amount;
+    const context = getActiveScoreContext();
+    const currentTotal = numberOrDefault(valuesForScoreContext(context)[rule.id], 0);
+    // A normal log adds on top; a "materialize" (Part B share) leaves the total unchanged.
+    const previewTotal = composerSourceTag ? currentTotal : currentTotal + amount;
     const goal = goalAmountForRule(rule);
     const currentPercent = progressPercent(currentTotal, goal);
     const previewPercent = progressPercent(previewTotal, goal);
@@ -8463,7 +8679,7 @@
     const rule = system.rules.map(scoring.normalizeRule).find((item) => item.id === addEntryDraft.ruleId);
     if (!rule) return;
     if (isRuleSynced(rule) && rule.allowManualOverride === false) {
-      showToast("Manual adjustment is off for this rule");
+      showToast("Manual logging is off for this rule");
       return;
     }
     const amount = normalizeAddEntryAmount(addEntryDraft.amount, rule);
@@ -8471,6 +8687,10 @@
       showToast("Choose an amount to add");
       return;
     }
+
+    // A synced-entry/workout → post upgrade tags the saved entry so the feed card shows a
+    // small "via Fitbit" badge. Only real wearable providers qualify.
+    const viaSource = REAL_WEARABLE_SOURCES.has(composerSourceTag) ? composerSourceTag : "";
 
     // Optional message + photo. Both optional; logging with neither is unchanged.
     const message = (addEntryAttachment.message || "").trim().slice(0, ENTRY_MESSAGE_MAX);
@@ -8489,7 +8709,7 @@
     }
 
     if (context.type === "community") {
-      addCommunityEntry(context.community.id, "me", rule, amount, isRuleSynced(rule) ? "manual-adjustment" : "manual", message, photoPath);
+      addCommunityEntry(context.community.id, "me", rule, amount, isRuleSynced(rule) ? "manual-adjustment" : "manual", message, photoPath, viaSource);
       saveCommunitySummaryForMember(context.community, "me");
       // Persist to the shared DB just like the community check-in button does, so a
       // dashboard "Add Entry" survives navigation / reload / other members. Surface
@@ -8517,7 +8737,8 @@
         amount,
         message,
         photoPath,
-        source: isRuleSynced(rule) ? "manual-adjustment" : "manual"
+        source: isRuleSynced(rule) ? "manual-adjustment" : "manual",
+        viaSource
       });
       syncDraftInputsFromEntries(system);
       autoSaveToday(system);
@@ -8525,6 +8746,7 @@
     addEntryDraft = { ruleId: rule.id, amount: suggestedEntryAmount(rule) };
     resetAddEntryAttachment();
     aiPrefilledComposer = false;
+    composerSourceTag = "";
     state.activeView = "dashboard";
     saveState();
     render();
@@ -9505,18 +9727,23 @@
     const manualEntries = context.type === "community"
       ? getCommunityEntriesForMemberToday(context.community.id, "me")
       : getQuickEntriesForToday(system.id);
+    // A normal manual log ADDS on top of the synced value, so both rows show and both count.
+    // But a "materialized" post (viaSource) already represents the synced value, so its rule's
+    // synced base is dropped from scoring — drop the synced pseudo-row too so it isn't a phantom.
+    const materializedRuleIds = new Set(manualEntries.filter((entry) => entry.viaSource).map((entry) => entry.ruleId));
     const entries = [
-      ...syncedEntriesForContext(context, system),
+      ...syncedEntriesForContext(context, system).filter((entry) => !materializedRuleIds.has(entry.ruleId)),
       ...manualEntries
     ];
     const ruleMap = new Map(system.rules.map((item) => {
       const rule = scoring.normalizeRule(item);
       return [rule.id, rule];
     }));
+    const contextId = context.type === "community" ? context.community.id : system.id;
     const body = entries.length
       ? entries.map((entry) => {
           const rule = ruleMap.get(entry.ruleId);
-          return renderQuickEntryRow(entry, rule, context.type);
+          return renderQuickEntryRow(entry, rule, context.type, contextId);
         }).join("")
       : `<div class="empty-mini">No entries added yet.</div>`;
     els.todaySavedLabel.textContent = plural(entries.length, "entry");
@@ -9660,6 +9887,15 @@
     Array.from(els.scoreBreakdown.querySelectorAll("[data-delete-community-entry]")).forEach((button) => {
       button.addEventListener("click", () => deleteCommunityEntry(button.dataset.deleteCommunityEntry));
     });
+    Array.from(els.scoreBreakdown.querySelectorAll("[data-upgrade-synced]")).forEach((button) => {
+      button.addEventListener("click", () => upgradeSyncedEntryToPost(
+        button.dataset.upgradeCtxType,
+        button.dataset.upgradeCtxId,
+        button.dataset.upgradeSynced,
+        button.dataset.upgradeAmount,
+        button.dataset.upgradeSource
+      ));
+    });
   }
 
   function renderBreakdownRow(item, dailyTarget) {
@@ -9705,7 +9941,7 @@
     `;
   }
 
-  function renderQuickEntryRow(entry, rule, source = "personal") {
+  function renderQuickEntryRow(entry, rule, source = "personal", contextId = "") {
     const text = entryLogText(entry, rule);
     const isReadOnly = entry.source === "synced" || entry.source === "calculated";
     const attr = source === "community"
@@ -9713,13 +9949,26 @@
       : `data-delete-quick-entry="${escapeHtml(entry.id)}"`;
     const sourceLabel = entrySourceLabel(entry, rule);
     const attach = renderEntryAttachmentMarkup(entry);
+    // A live synced wearable value can be turned into a full feed post (photo + caption) —
+    // only when the rule allows a manual post (otherwise the composer's Post would block).
+    const canUpgrade = entry.source === "synced" && REAL_WEARABLE_SOURCES.has(entry.dataSource)
+      && rule && rule.allowManualOverride !== false;
+    const upgradeBtn = canUpgrade
+      ? `<button class="ghost-button small entry-upgrade-button" type="button" data-upgrade-synced="${escapeHtml(entry.ruleId)}" data-upgrade-ctx-type="${escapeHtml(source)}" data-upgrade-ctx-id="${escapeHtml(contextId)}" data-upgrade-amount="${escapeHtml(String(entry.amount))}" data-upgrade-source="${escapeHtml(entry.dataSource || "")}">Add photo &amp; caption</button>`
+      : "";
+    const viaBadge = REAL_WEARABLE_SOURCES.has(entry.viaSource)
+      ? `<span class="via-source-tag">via ${escapeHtml(wearableShortLabel(entry.viaSource))}</span>`
+      : "";
+    const rightSide = isReadOnly
+      ? `<div class="entry-row-actions">${upgradeBtn}<span class="tracking-pill">${escapeHtml(entry.source === "calculated" ? "Calculated" : "Synced")}</span></div>`
+      : `<button class="ghost-button small" type="button" ${attr}>Delete</button>`;
     return `
       <div class="entry-log-row quick-entry-row${attach ? " has-attach" : ""}">
         <div class="entry-log-main">
-          <strong>${escapeHtml(text)}</strong>
+          <strong>${escapeHtml(text)}${viaBadge}</strong>
           <span>${escapeHtml(sourceLabel)}</span>
         </div>
-        ${isReadOnly ? `<span class="tracking-pill">${escapeHtml(entry.source === "calculated" ? "Calculated" : "Synced")}</span>` : `<button class="ghost-button small" type="button" ${attr}>Delete</button>`}
+        ${rightSide}
         ${attach}
       </div>
     `;
@@ -10189,9 +10438,11 @@
     const values = collectDraftValues(community.system, communityValuesForMember(community.id, memberItem.id, todayIso));
     const summary = calculateMemberCommunitySummary(community, values);
     // Newest entry first (timestamps shown per row below).
+    const memberItemManual = getCommunityEntriesForMemberOnDate(community.id, memberItem.id, todayIso);
+    const memberItemMaterializedRuleIds = new Set(memberItemManual.filter((entry) => entry.viaSource).map((entry) => entry.ruleId));
     const entries = [
-      ...syncedEntriesForContext({ type: "community", community }, community.system, { userId: memberItem.id }),
-      ...getCommunityEntriesForMemberOnDate(community.id, memberItem.id, todayIso)
+      ...syncedEntriesForContext({ type: "community", community }, community.system, { userId: memberItem.id }).filter((entry) => !memberItemMaterializedRuleIds.has(entry.ruleId)),
+      ...memberItemManual
     ].sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
     const target = calculateTargetSummary(community.system).total;
     const percent = progressPercent(summary.total, target);
@@ -12238,12 +12489,25 @@
 
   function todayValuesForSystem(system) {
     const values = {};
+    // Sum hand-logged entries per rule; manual logs ADD on top of the synced value (and of
+    // each other). A "materialized" post of the synced value (viaSource — the Part B share)
+    // already equals it, so for that rule the synced base is dropped to avoid double-counting.
+    const manual = {};
+    const materialized = {};
+    getQuickEntriesForToday(system.id).forEach((entry) => {
+      manual[entry.ruleId] = numberOrDefault(manual[entry.ruleId], 0) + numberOrDefault(entry.amount, 0);
+      if (entry.viaSource) materialized[entry.ruleId] = true;
+    });
     (system.rules || []).forEach((item) => {
       const rule = scoring.normalizeRule(item);
-      values[rule.id] = syncedValueForRule(rule, { userId: "me", date: todayIso, scope: "personal" }) ?? 0;
+      const synced = materialized[rule.id]
+        ? 0
+        : (syncedValueForRule(rule, { userId: "me", date: todayIso, scope: "personal" }) ?? 0);
+      values[rule.id] = synced + numberOrDefault(manual[rule.id], 0);
     });
-    getQuickEntriesForToday(system.id).forEach((entry) => {
-      values[entry.ruleId] = numberOrDefault(values[entry.ruleId], 0) + numberOrDefault(entry.amount, 0);
+    // Manual entries for a rule no longer in the system still count toward the day total.
+    Object.keys(manual).forEach((ruleId) => {
+      if (!(ruleId in values)) values[ruleId] = manual[ruleId];
     });
     return values;
   }

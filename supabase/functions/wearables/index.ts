@@ -244,17 +244,22 @@ async function getJson(url: string, token: string): Promise<any | null> {
 // CivilDateTime at UTC midnight, `offset` days from now (used for dailyRollUp range).
 function civilDay(offset: number) {
   const d = new Date(Date.now() + offset * 86400000);
-  // dailyRollUp's CivilDateTime = a plain civil DATE with a STRING timeZone.
-  // (The earlier {id:"UTC"} object + time fields made the request 400 → empty.)
-  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate(), timeZone: "UTC" };
+  // dailyRollUp's CivilDateTime = { date: google.type.Date, time?: TimeOfDay }. year/
+  // month/day live UNDER `date` (not at the top level), and there is NO timeZone field.
+  // Sending them flat caused: 400 "Unknown name 'year'/'month'/'day' at range.start".
+  // Omitting `time` defaults to midnight — exactly the day boundary the range wants.
+  return { date: { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() } };
 }
 // "active-energy-burned" -> "activeEnergyBurned" (the per-point payload key)
 function camelKey(dataType: string): string {
   return dataType.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 }
 async function googleRollup(dataType: string, token: string): Promise<any | null> {
+  // The roll-up range must be exactly ONE aggregation window (range span == windowSizeDays)
+  // and its start must align to a window boundary — otherwise Google returns
+  // 400 INVALID_ROLLUP_QUERY_DURATION. So: today only — start today 00:00, end tomorrow 00:00 exclusive.
   const body = {
-    range: { start: civilDay(-2), end: civilDay(1) },
+    range: { start: civilDay(0), end: civilDay(1) },
     windowSizeDays: 1,
     pageSize: 100,
     dataSourceFamily: "users/me/dataSourceFamilies/all-sources",
@@ -271,7 +276,7 @@ async function googleRollup(dataType: string, token: string): Promise<any | null
       return null;
     }
     const json = await resp.json();
-    console.log(`[wearables] rollup ${dataType} ok: ${JSON.stringify(json).slice(0, 700)}`);
+    console.log(`[wearables] rollup ${dataType} HTTP ${resp.status} ok: ${JSON.stringify(json).slice(0, 700)}`);
     return json;
   } catch (e) {
     console.log(`[wearables] rollup ${dataType} threw: ${e}`);
@@ -309,6 +314,38 @@ function pointTime(p: any): number {
   const h = num(t.hours) ?? 0, mi = num(t.minutes) ?? 0, s = num(t.seconds) ?? 0;
   return Date.UTC(y, mo - 1, d, h, mi, s);
 }
+// The civil day (YYYYMMDD int) a list point belongs to, from its timestamp — handles ISO
+// strings and civil-time objects (flat or { date: {...} }).
+function listDayKey(p: any): number {
+  const t = p?.endTime || p?.startTime || p?.civilEndTime || p?.civilStartTime;
+  if (typeof t === "string") {
+    const d = new Date(t);
+    return isNaN(d.getTime()) ? 0 : d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+  }
+  const dt = (t && typeof t === "object") ? (t.date || t) : {};
+  return (num(dt.year) ?? 0) * 10000 + (num(dt.month) ?? 0) * 100 + (num(dt.day) ?? 0);
+}
+// Cumulative daily total from the LIST endpoint (no time range → none of the dailyRollUp
+// range/alignment 400s). The list returns per-interval counts; we sum the most recent day
+// present (today if it has data). Used for steps + active calories.
+async function googleDailyTotal(dataType: string, token: string): Promise<number | null> {
+  const list = await googleList(dataType, token, 300);
+  console.log(`[wearables] list-total ${dataType} raw: ${JSON.stringify(list).slice(0, 700)}`);
+  const pts = list?.dataPoints;
+  if (!Array.isArray(pts) || !pts.length) return null;
+  const key = camelKey(dataType);
+  let maxDay = 0;
+  for (const p of pts) { const d = listDayKey(p); if (d > maxDay) maxDay = d; }
+  if (!maxDay) return null;
+  let sum = 0; let found = false;
+  for (const p of pts) {
+    if (listDayKey(p) !== maxDay) continue;
+    let v = deepNum(p?.[key]);
+    if (v === null) v = deepNumExcluding(p);
+    if (v !== null) { sum += v; found = true; }
+  }
+  return found ? sum : null;
+}
 // Most recent list data point that carries `key` (e.g. "sleep", "heartRate"),
 // chosen by timestamp so it's robust to ascending/descending result ordering.
 function latestListPoint(list: any, key: string): any | null {
@@ -323,10 +360,11 @@ function latestListPoint(list: any, key: string): any | null {
 
 async function fetchGoogleHealth(token: string): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
-  // Steps — daily total (rollup)
-  put(out, "steps", latestRollupValue(await googleRollup("steps", token), "steps"));
-  // Active calories — daily total (rollup)
-  put(out, "active-calories", latestRollupValue(await googleRollup("active-energy-burned", token), "active-energy-burned"));
+  // Steps — sum today's list points (the dailyRollUp endpoint rejects every range we send
+  // with INVALID_ROLLUP_QUERY_DURATION, so we use the list endpoint like RHR does).
+  put(out, "steps", await googleDailyTotal("steps", token));
+  // Active calories — same approach.
+  put(out, "active-calories", await googleDailyTotal("active-energy-burned", token));
   // Sleep — most recent session. Try the documented path, then fall back to finding
   // minutesAsleep anywhere in the point (Google has shifted this shape before).
   const sleepRaw = await googleList("sleep", token, 20);

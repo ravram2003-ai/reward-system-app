@@ -271,6 +271,27 @@
     }
   }
 
+  // Realtime subscription to MY notification rows (likes/comments/friend events). Mirrors
+  // subscribeInbox but on the notifications table, filtered to recipient_user. Returns an
+  // unsubscribe function. Drives the live bell badge + ring.
+  function subscribeNotifications(userId, onChange) {
+    var sb = getClient();
+    if (!sb || !userId || typeof sb.channel !== "function") return function () {};
+    try {
+      var channel = sb
+        .channel("notifications-" + userId)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "notifications", filter: "recipient_user=eq." + userId },
+          function (payload) { try { onChange(payload); } catch (e) { /* ignore */ } }
+        )
+        .subscribe();
+      return function () { try { sb.removeChannel(channel); } catch (e) { /* ignore */ } };
+    } catch (e) {
+      return function () {};
+    }
+  }
+
   // ── Free-text messaging: thread, block, report ─────────────────────────────
 
   // The full two-way conversation (type='text') between me and another user,
@@ -779,6 +800,32 @@
     }
   }
 
+  // Bell notifications — activity ABOUT me (likes/comments on my posts, friend requests +
+  // accepts, plus cheers/kudos). Direct messages are EXCLUDED server-side (get_notifications
+  // in notifications.sql). RLS + the function's auth.uid() filter keep it to my own rows.
+  async function getNotifications() {
+    var sb = getClient();
+    if (!sb) return [];
+    try {
+      var res = await sb.rpc("get_notifications");
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Mark specific notification-table rows read (cheers/kudos signals are marked via markRead).
+  async function markNotificationsRead(ids) {
+    var sb = getClient();
+    if (!sb || !Array.isArray(ids) || !ids.length) return { error: null };
+    try {
+      var res = await sb.rpc("mark_notifications_read", { ids: ids });
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
   // Relationship with one user: 'friends' | 'pending_out' | 'pending_in' | 'none'.
   async function getFriendshipStatus(otherId) {
     var sb = getClient();
@@ -938,6 +985,9 @@
     unblockUser: unblockUser,
     isBlockedByMe: isBlockedByMe,
     reportMessage: reportMessage,
+    getNotifications: getNotifications,
+    markNotificationsRead: markNotificationsRead,
+    subscribeNotifications: subscribeNotifications,
     discoverFeed: discoverFeed,
     followUser: followUser
   };

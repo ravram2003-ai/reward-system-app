@@ -398,6 +398,12 @@
   // `incomingFriendRequests` = pending requests addressed to me (Accept/Decline + badge).
   let friends = new Set();
   let incomingFriendRequests = [];
+  // Bell notifications (notifications.sql get_notifications): activity ABOUT me —
+  // likes/comments on my posts, friend requests + accepts, cheers/kudos. NEVER direct
+  // messages (those are excluded server-side and live only in Chats).
+  let bellNotifications = [];
+  let unsubscribeNotifications = null;
+  let lastBellBadge = null;        // previous bell count, to detect an increase → ring the bell
   // Peers I blocked from a message request this session — hidden from the inbox
   // immediately (the DB block is the durable guarantee; this is just responsive UI).
   let sessionHiddenPeers = new Set();
@@ -769,6 +775,12 @@
     if (!alreadySubscribed) {
       if (unsubscribeInbox) { try { unsubscribeInbox(); } catch (e) { /* ignore */ } }
       unsubscribeInbox = window.PointwellSignals.subscribeInbox(uid, handleInboxChange);
+      // Live bell: a new notification row (like/comment/friend event) refetches the bell
+      // + rings it (renderNotifications rings when the count goes up).
+      if (unsubscribeNotifications) { try { unsubscribeNotifications(); } catch (e) { /* ignore */ } }
+      if (typeof window.PointwellSignals.subscribeNotifications === "function") {
+        unsubscribeNotifications = window.PointwellSignals.subscribeNotifications(uid, handleNotificationChange);
+      }
       currentInboxUid = uid;
     }
     // Load the user's shared communities (one DB row each) into local state, then
@@ -779,8 +791,11 @@
 
   function teardownSignals() {
     if (unsubscribeInbox) { try { unsubscribeInbox(); } catch (e) { /* ignore */ } unsubscribeInbox = null; }
+    if (unsubscribeNotifications) { try { unsubscribeNotifications(); } catch (e) { /* ignore */ } unsubscribeNotifications = null; }
     currentInboxUid = null;
     inboxSignals = [];
+    bellNotifications = [];
+    lastBellBadge = null;
     ownerJoinRequests = [];
     friends = new Set();
     incomingFriendRequests = [];
@@ -830,7 +845,7 @@
 
   async function refreshInbox() {
     if (!signalsReady()) {
-      inboxSignals = []; ownerJoinRequests = []; friends = new Set(); incomingFriendRequests = []; friendsDetailed = [];
+      inboxSignals = []; ownerJoinRequests = []; friends = new Set(); incomingFriendRequests = []; friendsDetailed = []; bellNotifications = [];
       renderNotifications();
       return;
     }
@@ -840,7 +855,8 @@
       window.PointwellSignals.fetchInbox(state.account.userId, 200),
       window.PointwellSignals.getOwnerJoinRequests(),
       window.PointwellSignals.getFriends(),
-      window.PointwellSignals.getIncomingFriendRequests()
+      window.PointwellSignals.getIncomingFriendRequests(),
+      window.PointwellSignals.getNotifications()        // bell: activity about me, DMs excluded server-side
     ]);
     inboxSignals = Array.isArray(out[0]) ? out[0] : [];
     ownerJoinRequests = Array.isArray(out[1]) ? out[1] : [];
@@ -850,6 +866,7 @@
     // Names from friends/requests help the inbox label conversations I started.
     friendRows.forEach((f) => { if (f.display_name) rememberPeerName(String(f.user_id), f.display_name); });
     incomingFriendRequests = Array.isArray(out[3]) ? out[3] : [];
+    bellNotifications = Array.isArray(out[4]) ? out[4] : [];
     // Seed the chat peer-card cache from rows that already carry avatars (friends +
     // request senders); the rest (cold-message peers) resolve lazily below.
     friendRows.forEach((f) => { if (f.user_id) profileCardCache.set(String(f.user_id), f); });
@@ -867,6 +884,12 @@
       });
     });
     ensureProfileCards(peerIds);
+  }
+
+  // A new/updated notification row arrived (like/comment/friend event). Refetch the bell;
+  // renderNotifications bumps the badge and rings the bell when the unread count rises.
+  function handleNotificationChange() {
+    refreshInbox();
   }
 
   function handleInboxChange(payload) {
@@ -901,28 +924,36 @@
     // never "unread" for me.
     // Exclude peers I blocked-from-a-request this session so the badge can't count
     // a hidden conversation's unread (keeps badge and list in agreement).
-    const unread = ready ? window.PointwellSignals.unreadCount(inboxSignals.filter((s) => s.to_user === me && !sessionHiddenPeers.has(String(s.from_user)))) : 0;
+    // Chats badge = unread DIRECT MESSAGES only (type 'text'). Cheers/kudos now route to
+    // the bell, so they no longer count here (and can never double-count across badges).
+    const chatsUnread = ready ? window.PointwellSignals.unreadCount(inboxSignals.filter((s) => s.to_user === me && s.type === "text" && !sessionHiddenPeers.has(String(s.from_user)))) : 0;
     const requestCount = ready ? ownerJoinRequests.length : 0;
     const friendReqCount = ready ? incomingFriendRequests.length : 0;
-    const badge = unread + requestCount + friendReqCount; // tab badge: messages + join requests + friend requests
-    // Header cluster badges, each its own live count: Alerts bell = all notifications
-    // (messages + join + friend requests), Friends = pending friend requests, Chats =
-    // unread messages.
+    // Bell badge = unread activity ABOUT me from get_notifications (likes/comments/friend
+    // events/cheers — DMs are excluded server-side) + pending community join requests.
+    const bellUnread = ready ? bellNotifications.filter((n) => !n.read).length : 0;
+    const bellBadge = bellUnread + requestCount;
+    // Header cluster badges, each its own live count: Alerts bell = activity about me
+    // (NEVER direct messages), Friends = pending friend requests, Chats = unread DMs.
     const fmt = (n) => (n > 9 ? "9+" : String(n));
     if (els.notifBellBadge) {
-      els.notifBellBadge.textContent = fmt(badge);
-      els.notifBellBadge.hidden = badge === 0;
+      els.notifBellBadge.textContent = fmt(bellBadge);
+      els.notifBellBadge.hidden = bellBadge === 0;
     }
+    // Ring the bell only when the count goes UP (a new notification arrived) — not on the
+    // first render, and not when it drops (marking read).
+    if (lastBellBadge !== null && bellBadge > lastBellBadge) ringBell();
+    lastBellBadge = bellBadge;
     if (els.headerChatsBadge) {
-      els.headerChatsBadge.textContent = fmt(unread);
-      els.headerChatsBadge.hidden = unread === 0;
+      els.headerChatsBadge.textContent = fmt(chatsUnread);
+      els.headerChatsBadge.hidden = chatsUnread === 0;
     }
     if (els.headerFriendsBadge) {
       els.headerFriendsBadge.textContent = fmt(friendReqCount);
       els.headerFriendsBadge.hidden = friendReqCount === 0;
     }
     if (notifPanelOpen) renderNotifPanel(); // keep an open dropdown in sync with the data
-    if (els.chatsMarkAllButton) els.chatsMarkAllButton.hidden = unread === 0;
+    if (els.chatsMarkAllButton) els.chatsMarkAllButton.hidden = chatsUnread === 0;
     // The friends-view "Add friend" button also surfaces the pending friend-request count.
     if (els.friendsAddBadge) { els.friendsAddBadge.textContent = fmt(friendReqCount); els.friendsAddBadge.hidden = friendReqCount === 0; }
     renderOwnerRequests(ready);
@@ -935,12 +966,59 @@
   // (friend requests, community join requests, received kudos/cheers/messages).
   // No parallel store — it reads incomingFriendRequests / ownerJoinRequests /
   // inboxSignals and reuses the same accept/decline/mark-read/open actions.
+  // Briefly "ring" the bell icon (a quick wobble) when a new notification arrives.
+  function ringBell() {
+    const icon = els.notifBellButton && els.notifBellButton.querySelector(".bell-icon");
+    if (!icon) return;
+    icon.classList.remove("is-ringing");
+    void icon.offsetWidth; // restart the animation if it's already mid-ring
+    icon.classList.add("is-ringing");
+    setTimeout(() => { if (icon) icon.classList.remove("is-ringing"); }, 750);
+  }
+
+  // Mark the currently-shown bell notifications read: notification-table rows via
+  // mark_notifications_read, and cheer/kudos signal rows via the signals markRead — so
+  // opening the bell clears its badge WITHOUT touching unread direct messages.
+  function markBellNotificationsRead() {
+    if (!signalsReady()) return;
+    const notifIds = [];
+    const signalIds = [];
+    bellNotifications.forEach((n) => {
+      if (n.read) return;
+      if (n.source === "signal") signalIds.push(n.row_id);
+      else notifIds.push(n.row_id);
+    });
+    if (!notifIds.length && !signalIds.length) return;
+    bellNotifications.forEach((n) => { n.read = true; }); // optimistic
+    lastBellBadge = null; // suppress a spurious ring on the refresh that follows
+    const calls = [];
+    if (notifIds.length && typeof window.PointwellSignals.markNotificationsRead === "function") {
+      calls.push(Promise.resolve(window.PointwellSignals.markNotificationsRead(notifIds)).catch(() => {}));
+    }
+    if (signalIds.length) calls.push(Promise.resolve(window.PointwellSignals.markRead(signalIds)).catch(() => {}));
+    Promise.all(calls).then(() => refreshInbox());
+    renderNotifications();
+  }
+
+  // Tap a like/comment notification → open the Feed and expand that post's comments.
+  function openPostFromNotif(entryId) {
+    if (!entryId) return;
+    closeNotifPanel();
+    state.activeView = "feed";
+    saveState();
+    render();
+    if (typeof expandFeedComments === "function") expandFeedComments(String(entryId));
+    const card = els.communityFeed && els.communityFeed.querySelector('[data-feed-entry="' + entryId + '"]');
+    if (card && card.scrollIntoView) card.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
   function toggleNotifPanel() {
     notifPanelOpen = !notifPanelOpen;
     if (els.notifBellButton) els.notifBellButton.setAttribute("aria-expanded", notifPanelOpen ? "true" : "false");
     if (els.notifPanel) els.notifPanel.hidden = !notifPanelOpen;
     if (notifPanelOpen) {
       renderNotifPanel();
+      markBellNotificationsRead(); // opening the bell clears its unread badge (DMs untouched)
       document.addEventListener("click", handleNotifOutsideClick, true);
       document.addEventListener("keydown", handleNotifEscape);
     } else {
@@ -976,34 +1054,14 @@
       els.notifPanel.innerHTML = `<div class="notif-empty">Sign in to see notifications.</div>`;
       return;
     }
-    const me = state.account && state.account.userId;
-    const received = inboxSignals
-      .filter((s) => s.to_user === me && !sessionHiddenPeers.has(String(s.from_user)))
-      .slice()
-      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-      .slice(0, 8);
-    const unread = window.PointwellSignals.unreadCount(inboxSignals.filter((s) => s.to_user === me && !sessionHiddenPeers.has(String(s.from_user))));
+    const notifs = (bellNotifications || []).slice()
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const showMarkAll = notifs.some((n) => !n.read);
 
-    let html = `<div class="notif-head"><strong>Notifications</strong>${unread ? `<button class="ghost-button small" type="button" data-notif-mark-all>Mark all read</button>` : ""}</div>`;
+    let html = `<div class="notif-head"><strong>Notifications</strong>${showMarkAll ? `<button class="ghost-button small" type="button" data-notif-mark-all>Mark all read</button>` : ""}</div>`;
     const sections = [];
 
-    if (incomingFriendRequests.length) {
-      sections.push(`<div class="notif-section"><span class="notif-section-label">Friend requests</span>` +
-        incomingFriendRequests.map((r) => {
-          const label = r.requester_name || r.requester_handle || "Someone";
-          const id = escapeHtml(String(r.request_id));
-          return `
-            <div class="notif-item">
-              ${renderAvatar({ name: label, avatarUrl: r.requester_avatar_url })}
-              <div class="notif-item-main"><strong>${escapeHtml(label)}</strong><span>wants to connect</span></div>
-              <div class="notif-item-actions">
-                <button class="primary-button small" type="button" data-notif-friend-accept="${id}">Accept</button>
-                <button class="ghost-button small" type="button" data-notif-friend-decline="${id}">Decline</button>
-              </div>
-            </div>`;
-        }).join("") + `</div>`);
-    }
-
+    // Community join requests (owner-side) — their own actionable section.
     if (ownerJoinRequests.length) {
       sections.push(`<div class="notif-section"><span class="notif-section-label">Community requests</span>` +
         ownerJoinRequests.map((r) => {
@@ -1022,24 +1080,70 @@
         }).join("") + `</div>`);
     }
 
-    if (received.length) {
+    // Activity about me (likes/comments/friend requests + accepts/cheers) — from
+    // get_notifications, which NEVER includes direct messages.
+    if (notifs.length) {
       sections.push(`<div class="notif-section"><span class="notif-section-label">Recent</span>` +
-        received.map((s) => {
-          const who = s.from_name || "A teammate";
-          const kind = s.type === "motivation" ? "sent you motivation" : (s.type === "text" ? "sent you a message" : "sent you kudos");
-          const when = escapeHtml(window.PointwellSignals.formatRelativeTime(s.created_at, Date.now()));
-          const peer = escapeHtml(String(s.from_user));
-          return `
-            <button class="notif-item notif-item-signal${s.read ? "" : " unread"}" type="button" data-notif-open="${peer}" data-notif-name="${escapeHtml(who)}">
-              ${renderAvatar({ name: who, avatarUrl: peerAvatarUrl(s.from_user) })}
-              <div class="notif-item-main"><strong>${escapeHtml(who)}</strong><span>${kind} · ${when}</span></div>
-              ${s.read ? "" : '<span class="notif-dot" aria-hidden="true"></span>'}
-            </button>`;
-        }).join("") + `</div>`);
+        notifs.slice(0, 15).map(renderBellNotification).join("") + `</div>`);
     }
 
     html += sections.length ? sections.join("") : `<div class="notif-empty">You're all caught up.</div>`;
     els.notifPanel.innerHTML = html;
+  }
+
+  // One row in the bell panel. Friend requests get inline Approve/Decline (when still
+  // pending); like/comment are tappable (open the post in the feed); cheers/kudos open
+  // the Chats conversation; friend-accept is read-only.
+  function renderBellNotification(n) {
+    const who = n.actor_name || n.actor_handle || "Someone";
+    const when = escapeHtml(window.PointwellSignals.formatRelativeTime(n.created_at, Date.now()));
+    const avatar = renderAvatar({ name: who, avatarUrl: n.actor_avatar_url });
+    const dot = n.read ? "" : '<span class="notif-dot" aria-hidden="true"></span>';
+    const unreadCls = n.read ? "" : " unread";
+
+    if (n.kind === "friend_request" && n.action_id) {
+      const id = escapeHtml(String(n.action_id));
+      return `
+        <div class="notif-item${unreadCls}">
+          ${avatar}
+          <div class="notif-item-main"><strong>${escapeHtml(who)}</strong><span>sent you a friend request · ${when}</span></div>
+          <div class="notif-item-actions">
+            <button class="primary-button small" type="button" data-notif-friend-accept="${id}">Approve</button>
+            <button class="ghost-button small" type="button" data-notif-friend-decline="${id}">Decline</button>
+          </div>
+        </div>`;
+    }
+
+    let subtext;
+    let attrs = "";
+    let tag = "div";
+    if (n.kind === "like") {
+      subtext = "liked your post";
+      tag = "button"; attrs = ` type="button" data-notif-post="${escapeHtml(String(n.entry_id || ""))}"`;
+    } else if (n.kind === "comment") {
+      subtext = n.body ? ("commented: " + escapeHtml(String(n.body))) : "commented on your post";
+      tag = "button"; attrs = ` type="button" data-notif-post="${escapeHtml(String(n.entry_id || ""))}"`;
+    } else if (n.kind === "kudos") {
+      subtext = "sent you kudos";
+      tag = "button"; attrs = ` type="button" data-notif-open="${escapeHtml(String(n.actor_user))}" data-notif-name="${escapeHtml(who)}"`;
+    } else if (n.kind === "motivation") {
+      subtext = "sent you motivation";
+      tag = "button"; attrs = ` type="button" data-notif-open="${escapeHtml(String(n.actor_user))}" data-notif-name="${escapeHtml(who)}"`;
+    } else if (n.kind === "friend_accept") {
+      subtext = "accepted your friend request";
+    } else if (n.kind === "friend_request") {
+      subtext = "sent you a friend request"; // resolved (no longer pending)
+    } else {
+      subtext = "sent you a notification";
+    }
+
+    const cls = tag === "button" ? "notif-item notif-item-signal" : "notif-item";
+    return `
+      <${tag} class="${cls}${unreadCls}"${attrs}>
+        ${avatar}
+        <div class="notif-item-main"><strong>${escapeHtml(who)}</strong><span>${subtext} · ${when}</span></div>
+        ${dot}
+      </${tag}>`;
   }
 
   // Pending join requests for communities I own — action items (Accept / Decline),
@@ -2410,12 +2514,14 @@
       const joinAccept = t.closest && t.closest("[data-notif-join-accept]");
       const joinDecline = t.closest && t.closest("[data-notif-join-decline]");
       const markAll = t.closest && t.closest("[data-notif-mark-all]");
+      const openPost = t.closest && t.closest("[data-notif-post]");
       const open = t.closest && t.closest("[data-notif-open]");
       if (friendAccept) respondToFriendRequest(friendAccept.dataset.notifFriendAccept, true);
       else if (friendDecline) respondToFriendRequest(friendDecline.dataset.notifFriendDecline, false);
       else if (joinAccept) respondToRequest(joinAccept.dataset.notifJoinAccept, true);
       else if (joinDecline) respondToRequest(joinDecline.dataset.notifJoinDecline, false);
-      else if (markAll) markAllSignalsRead();
+      else if (markAll) markBellNotificationsRead();
+      else if (openPost) { openPostFromNotif(openPost.dataset.notifPost); }
       else if (open) {
         closeNotifPanel();
         openChatConversation(open.dataset.notifOpen, open.dataset.notifName, "");

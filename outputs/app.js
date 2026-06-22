@@ -260,6 +260,7 @@
     buildViewedProfileId: "",
     profileUserId: "",            // the OTHER user whose profile page is open
     profileCommExpanded: false,   // "all communities they're in" expander state
+    profilePostsView: "grid",     // profile "Recent posts" layout: "grid" | "list"
     aiDraftSystem: null,
     aiDraftInputs: null,
     aiDraftAdjustments: null,
@@ -6851,7 +6852,7 @@
       return;
     }
 
-    html += renderProfileYouMightLike(o) + renderProfileAllCommunities(o) + renderProfileRecentPosts(o);
+    html += renderProfileYouMightLike(o, isOwnProfile) + renderProfileAllCommunities(o) + renderProfileRecentPosts(o);
     root.innerHTML = html;
     bindEntryPhotos(root);
   }
@@ -6917,8 +6918,11 @@
     }).sort((a, b) => b.rel - a.rel).map((x) => x.c);
   }
 
-  function renderProfileYouMightLike(o) {
-    const top = profileRankedCommunities(o).slice(0, 4);
+  // "You might like" — public communities this person is in that YOU are not. Hidden on
+  // your own profile. Never recommends a community you're already a member of.
+  function renderProfileYouMightLike(o, isOwnProfile) {
+    if (isOwnProfile) return "";
+    const top = profileSuggestions(o);
     if (!top.length) return "";
     return `
       <section class="profile-section">
@@ -6927,16 +6931,17 @@
       </section>`;
   }
 
-  // A community you're not in → Join/Request (Community tag). One you're already in →
-  // Copy its reward system (System tag). This is the "communities + systems" mix.
+  // Ranked community suggestions, excluding any you're already a member of (so a
+  // community you're in is never recommended). Shared by "You might like" and the
+  // "all communities" dedup so they stay consistent.
+  function profileSuggestions(o) {
+    return profileRankedCommunities(o).filter((c) => !c.is_member).slice(0, 4);
+  }
+
+  // Every "you might like" item is a COMMUNITY → Community tag + Join/Request action
+  // (request_to_join → Request/Requested). Members are filtered out upstream.
   function profileSuggestRow(c) {
-    const id = escapeHtml(String(c.id));
     const name = escapeHtml(c.name || "Community");
-    const member = !!c.is_member;
-    const hasSystem = c.system && Array.isArray(c.system.rules) && c.system.rules.length;
-    if (member && hasSystem) {
-      return `<div class="profile-suggest-row"><span class="profile-type-tag tag-system">System</span><span class="profile-suggest-name">${name}</span><button class="secondary-button small" type="button" data-profile-copy="${id}">Copy</button></div>`;
-    }
     const action = profileCommunityAction(c, "primary-button small");
     return `<div class="profile-suggest-row"><span class="profile-type-tag tag-community">Community</span><span class="profile-suggest-name">${name}</span>${action}</div>`;
   }
@@ -6954,7 +6959,7 @@
 
   function renderProfileAllCommunities(o) {
     const comms = o.communities || [];
-    const suggested = new Set(profileRankedCommunities(o).slice(0, 4).map((c) => String(c.id)));
+    const suggested = new Set(profileSuggestions(o).map((c) => String(c.id)));
     const rest = comms.filter((c) => !suggested.has(String(c.id)));
     const privateNote = (o.private_count || 0) > 0
       ? `<div class="profile-private-row">+ ${o.private_count} more private (not shown)</div>` : "";
@@ -6971,14 +6976,55 @@
       </section>`;
   }
 
+  // Recent posts — a hybrid grid (default) or the stacked list. Both render the SAME
+  // server-gated posts (o.posts), so visibility is already enforced; tiles tap to open
+  // the full post via openEntryPost, exactly like the list cards.
   function renderProfileRecentPosts(o) {
     const posts = o.posts || [];
-    const cards = posts.length ? posts.map(renderProfilePostCard).join("") : emptyState("No public posts yet.");
-    return `
-      <section class="profile-section profile-posts-section">
+    const head = `
+      <div class="profile-posts-head">
         <h3 class="profile-section-title">Recent posts</h3>
-        <div class="profile-posts-list">${cards}</div>
-      </section>`;
+        ${posts.length ? `
+        <div class="segmented profile-posts-toggle" role="group" aria-label="Posts layout">
+          <button class="segmented-button${state.profilePostsView !== "list" ? " active" : ""}" type="button" data-profile-posts-view="grid" aria-pressed="${state.profilePostsView !== "list"}">Grid</button>
+          <button class="segmented-button${state.profilePostsView === "list" ? " active" : ""}" type="button" data-profile-posts-view="list" aria-pressed="${state.profilePostsView === "list"}">List</button>
+        </div>` : ""}
+      </div>`;
+    if (!posts.length) {
+      return `<section class="profile-section profile-posts-section">${head}${emptyState("No public posts yet.")}</section>`;
+    }
+    const body = state.profilePostsView === "list"
+      ? `<div class="profile-posts-list">${posts.map(renderProfilePostCard).join("")}</div>`
+      : `<div class="profile-posts-grid">${posts.map((p) => renderProfilePostTile(p, o)).join("")}</div>`;
+    return `<section class="profile-section profile-posts-section">${head}${body}</section>`;
+  }
+
+  // One square grid tile. Photo posts → image thumbnail with a small like/comment overlay;
+  // text-only check-ins → a colored tile (category-stable color) with an icon + short
+  // label, so nothing disappears. Tappable → the full post (openEntryPost), same as cards.
+  function renderProfilePostTile(p, o) {
+    const entryId = escapeHtml(String(p.entry_id));
+    const likes = Number(p.like_count) || 0;
+    const comments = Number(p.comment_count) || 0;
+    const stats = [
+      likes ? `<span class="profile-tile-stat"><span aria-hidden="true">♥</span> ${escapeHtml(formatFollowCount(likes))}</span>` : "",
+      comments ? `<span class="profile-tile-stat"><span aria-hidden="true">💬</span> ${escapeHtml(formatFollowCount(comments))}</span>` : ""
+    ].filter(Boolean).join("");
+    const overlay = stats ? `<span class="profile-tile-overlay">${stats}</span>` : "";
+    const photoPath = p.photo_path || "";
+    if (photoPath) {
+      return `<button class="profile-post-tile profile-tile-photo" type="button" data-profile-post="${entryId}" aria-label="Open post">
+          <div class="ig-photo profile-tile-img" data-entry-photo="${escapeHtml(photoPath)}" role="img" aria-label="Post photo"><img alt="" loading="lazy"></div>
+          ${overlay}
+        </button>`;
+    }
+    const color = dayScheduleColor(p.rule_id || p.community_id || p.entry_id);
+    const label = escapeHtml((p.message && String(p.message).trim()) || p.community_name || "Check-in");
+    return `<button class="profile-post-tile profile-tile-text" type="button" data-profile-post="${entryId}" style="--tile:${color}" aria-label="Open post">
+        <span class="profile-tile-icon" aria-hidden="true">✦</span>
+        <span class="profile-tile-label">${label}</span>
+        ${overlay || (p.community_name ? `<span class="profile-tile-sub">${escapeHtml(p.community_name)}</span>` : "")}
+      </button>`;
   }
 
   // Read-only ig-card for the profile body — photo + caption + like/comment COUNTS,
@@ -7035,6 +7081,7 @@
     const rj = find("[data-profile-request]"); if (rj) { profileRequestCommunity(rj.dataset.profileRequest); return; }
     const copy = find("[data-profile-copy]"); if (copy) { profileCopySystem(copy.dataset.profileCopy); return; }
     const toggle = find("[data-profile-comm-toggle]"); if (toggle) { state.profileCommExpanded = !state.profileCommExpanded; saveState(); renderProfilePage(); return; }
+    const pv = find("[data-profile-posts-view]"); if (pv) { state.profilePostsView = pv.dataset.profilePostsView === "list" ? "list" : "grid"; saveState(); renderProfilePage(); return; }
     const post = find("[data-profile-post]"); if (post) { openEntryPost(post.dataset.profilePost); return; }
   }
 
@@ -12789,6 +12836,7 @@
       buildViewedProfileId: saved.buildViewedProfileId || "",
       profileUserId: saved.profileUserId || "",
       profileCommExpanded: Boolean(saved.profileCommExpanded),
+      profilePostsView: saved.profilePostsView === "list" ? "list" : "grid",
       aiDraftSystem: saved.aiDraftSystem ? normalizeSystem(saved.aiDraftSystem) : null,
       topCardPreferences: saved.topCardPreferences && typeof saved.topCardPreferences === "object" ? saved.topCardPreferences : {},
       weeklyChartPreferences: saved.weeklyChartPreferences && typeof saved.weeklyChartPreferences === "object" ? saved.weeklyChartPreferences : {},

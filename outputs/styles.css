@@ -8454,3 +8454,53 @@ body.onboarding-locked .fab-add { display: none; }
 .profile-post-card:hover { border-color: var(--line-strong); }
 .profile-post-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .profile-post-card .ds-go { margin-left: auto; color: var(--muted); font-weight: 800; font-size: 16px; }
+
+/* Recent posts: header row with the grid/list toggle */
+.profile-posts-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.profile-posts-toggle { flex: 0 0 auto; }
+.profile-posts-toggle .segmented-button { padding: 5px 12px; font-size: 0.78rem; }
+
+/* Hybrid post grid: 3 square tiles per row */
+.profile-posts-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.profile-post-tile {
+  position: relative;
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px;
+  border: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: center;
+  color: var(--ink);
+  font: inherit;
+}
+.profile-post-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Photo tile: the image fills the square */
+.profile-tile-photo { padding: 0; background: var(--soft); }
+.profile-tile-photo .profile-tile-img { width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
+.profile-tile-photo .profile-tile-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Text tile: the category color, darkened so near-white text stays high-contrast */
+.profile-tile-text {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.32), rgba(0, 0, 0, 0.58)), var(--tile, var(--surface));
+}
+.profile-tile-icon { font-size: 1.05rem; line-height: 1; opacity: 0.95; }
+.profile-tile-label {
+  font-size: 0.78rem; font-weight: 750; line-height: 1.2;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.profile-tile-sub { font-size: 0.68rem; color: rgba(238, 241, 239, 0.82); }
+/* Like/comment overlay — bottom-anchored on photos, inline on text tiles */
+.profile-tile-overlay {
+  display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap;
+  font-size: 0.7rem; font-weight: 800;
+}
+.profile-tile-photo .profile-tile-overlay {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 8px 6px; color: #fff;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.62));
+}
+.profile-tile-stat { display: inline-flex; align-items: center; gap: 3px; }

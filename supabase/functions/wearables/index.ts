@@ -341,6 +341,67 @@ async function fetchGoogleHealth(token: string): Promise<Record<string, number>>
   return out;
 }
 
+// "RUNNING" / "running_treadmill" → "Running" (best-effort friendly workout name).
+function prettyWorkout(v: unknown): string {
+  if (typeof v !== "string") return "";
+  const s = v.trim().replace(/[_-]+/g, " ").toLowerCase();
+  return s ? s.replace(/\b\w/g, (c) => c.toUpperCase()) : "";
+}
+// First plausible workout type/name string found inside a session object.
+function workoutType(session: any, depth = 4): string {
+  if (session == null || depth < 0 || typeof session !== "object") return "";
+  for (const k of ["activityType", "exerciseType", "workoutType", "type", "activity", "name", "title"]) {
+    const pretty = prettyWorkout((session as any)[k]);
+    if (pretty) return pretty;
+  }
+  for (const v of Object.values(session)) {
+    if (v && typeof v === "object") { const t = workoutType(v, depth - 1); if (t) return t; }
+  }
+  return "";
+}
+// An ISO timestamp found anywhere inside the point, preferring the given keys.
+function findIso(obj: any, prefer: string[], depth = 5): string | null {
+  if (obj == null || depth < 0 || typeof obj !== "object") return null;
+  for (const k of prefer) {
+    const v = (obj as any)[k];
+    if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v)) return v;
+  }
+  for (const v of Object.values(obj)) { const r = findIso(v, prefer, depth - 1); if (r) return r; }
+  return null;
+}
+// Recent Fitbit exercise/workout sessions via the Google Health "exercise-session" data
+// type. Returns a normalized contract the client consumes — { id, type, durationMinutes,
+// calories, startTime } — so the client never depends on Google's raw shape. Logs the raw
+// response ("[wearables] workouts …") to verify the shape, exactly like steps/sleep.
+async function fetchGoogleWorkouts(token: string): Promise<any[]> {
+  const list = await googleList("exercise-session", token, 25);
+  console.log(`[wearables] workouts raw: ${JSON.stringify(list).slice(0, 1000)}`);
+  const pts: any[] = Array.isArray(list?.dataPoints) ? list.dataPoints : [];
+  const workouts = pts.map((p: any, i: number) => {
+    const session = p?.exerciseSession || p;
+    const start = findIso(p, ["startTime", "civilStartTime"]);
+    const end = findIso(p, ["endTime", "civilEndTime"]);
+    let durationMinutes: number | null = null;
+    if (start && end) {
+      const ms = Date.parse(end) - Date.parse(start);
+      if (Number.isFinite(ms) && ms > 0) durationMinutes = Math.round(ms / 60000);
+    }
+    if (durationMinutes === null) {
+      const secs = findNumberByKey(session, "durationSeconds") ?? findNumberByKey(session, "activeDurationSeconds");
+      if (secs !== null) durationMinutes = Math.round(secs / 60);
+    }
+    const calories = findNumberByKey(session, "kcal") ?? findNumberByKey(session, "calories") ?? findNumberByKey(session, "activeKilocalories");
+    return {
+      id: String(p?.name || session?.id || start || `workout-${i}`),
+      type: workoutType(session) || "Workout",
+      durationMinutes: durationMinutes ?? 0,
+      calories: calories !== null ? Math.round(calories) : null,
+      startTime: start,
+    };
+  }).filter((w: any) => w.startTime || w.durationMinutes);
+  return workouts;
+}
+
 async function fetchWhoop(token: string): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
   const recovery = await getJson(`${WHOOP_API}/recovery?limit=1`, token);
@@ -481,11 +542,16 @@ Deno.serve(async (req) => {
           }
         }
         const metrics = await fetchMetrics(provider, accessToken);
+        // Google Health also exposes exercise/workout sessions — fetch them so the client
+        // can detect new ones and prompt to log. Workouts ride alongside metrics (not in
+        // last_metrics, which is numeric-only) in the sync response.
+        let workouts: any[] = [];
+        if (provider === "google-health") workouts = await fetchGoogleWorkouts(accessToken);
         const syncedAt = new Date().toISOString();
         await db.from("wearable_connections")
           .update({ last_metrics: metrics, last_synced_at: syncedAt })
           .eq("user_id", user.id).eq("provider", provider);
-        providers[provider] = { metrics, last_synced_at: syncedAt };
+        providers[provider] = { metrics, last_synced_at: syncedAt, workouts };
       }
       return json({ providers });
     }

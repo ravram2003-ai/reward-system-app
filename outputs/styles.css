@@ -8535,3 +8535,77 @@ body.onboarding-locked .fab-add { display: none; }
   background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.62));
 }
 .profile-tile-stat { display: inline-flex; align-items: center; gap: 3px; }
+
+/* ── Wearable sync: "via Fitbit" badge, synced-row actions, workout prompt ──────── */
+/* Small source badge (feed post header, today's-entry rows, workout prompt). Blue tint
+   on dark — verified contrast on the near-black --soft / --panel surfaces. */
+.via-source-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.62rem;
+  font-weight: 850;
+  letter-spacing: 0.03em;
+  color: var(--blue);
+  background: var(--blue-soft);
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: 6px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+/* Today's-entry synced row: "Add photo & caption" button sits next to the Synced pill. */
+.entry-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+/* Quick-log Fitbit-import row: inline "add photo & caption" link → composer (Part B). */
+.quick-log-photo-link {
+  border: 0;
+  background: none;
+  color: var(--accent-strong);
+  font-size: 0.74rem;
+  font-weight: 800;
+  padding: 2px 0;
+  cursor: pointer;
+  text-align: left;
+  justify-self: start;
+}
+.quick-log-photo-link:hover { text-decoration: underline; }
+
+/* Dismissible "new workout — log it?" prompt. Fixed, non-blocking, mobile-safe; left-
+   anchored and FAB-clearing (right gap), lifted above the bottom nav on narrow screens. */
+.wearable-prompt {
+  position: fixed;
+  left: 12px;
+  right: 84px;
+  bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  z-index: 75;
+  display: flex;
+  pointer-events: none;
+}
+.wearable-prompt[hidden] { display: none; }
+.wearable-prompt-card {
+  pointer-events: auto;
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-card);
+}
+.wearable-prompt-main { flex: 1 1 160px; min-width: 0; display: grid; gap: 3px; }
+.wearable-prompt-main strong { color: var(--ink); font-weight: 800; font-size: 0.92rem; overflow-wrap: anywhere; }
+.wearable-prompt-main .via-source-tag { margin-left: 0; justify-self: start; }
+.wearable-prompt-sub { color: var(--muted); font-size: 0.78rem; }
+.wearable-prompt-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+@media (max-width: 1050px) {
+  .wearable-prompt { bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
+}

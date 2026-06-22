@@ -49,6 +49,7 @@ const PROVIDERS: Record<Provider, ProviderConfig> = {
     scope: [
       "https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly",
       "https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly",
+      "https://www.googleapis.com/auth/googlehealth.sleep.readonly",
     ].join(" "),
     secretStyle: "body",
     // access_type=offline + prompt=consent are what make Google return a refresh_token.
@@ -257,34 +258,48 @@ function pointTime(p: any): number {
   const h = num(t.hours) ?? 0, mi = num(t.minutes) ?? 0, s = num(t.seconds) ?? 0;
   return Date.UTC(y, mo - 1, d, h, mi, s);
 }
-// The civil day (YYYYMMDD int) a list point belongs to, from its timestamp — handles ISO
-// strings and civil-time objects (flat or { date: {...} }).
-function listDayKey(p: any): number {
-  const t = p?.endTime || p?.startTime || p?.civilEndTime || p?.civilStartTime;
-  if (typeof t === "string") {
-    const d = new Date(t);
-    return isNaN(d.getTime()) ? 0 : d.getUTCFullYear() * 10000 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+// The civil calendar day (YYYYMMDD, the user's local day) a data point belongs to.
+// Google nests the timestamp under the metric (e.g. steps.interval.civilEndTime.date),
+// so we recursively find the first google.type.Date {year,month,day} inside the point.
+function pointDayKey(obj: any, depth = 8): number {
+  if (obj == null || depth < 0 || typeof obj !== "object") return 0;
+  const y = num(obj.year), mo = num(obj.month), d = num(obj.day);
+  if (y && mo && d) return y * 10000 + mo * 100 + d;
+  for (const v of Object.values(obj)) {
+    const k = pointDayKey(v, depth - 1);
+    if (k) return k;
   }
-  const dt = (t && typeof t === "object") ? (t.date || t) : {};
-  return (num(dt.year) ?? 0) * 10000 + (num(dt.month) ?? 0) * 100 + (num(dt.day) ?? 0);
+  return 0;
 }
-// Cumulative daily total from the LIST endpoint (no time range → none of the dailyRollUp
-// range/alignment 400s). The list returns per-interval counts; we sum the most recent day
-// present (today if it has data). Used for steps + active calories.
+// The numeric measurement inside a metric object, ignoring the nested timestamp `interval`:
+// steps {count:"81", interval:{…}} -> 81, activeEnergyBurned {kcal:3.9, interval:{…}} -> 3.9.
+function metricValue(point: any, key: string): number | null {
+  const m = point?.[key];
+  if (m == null) return null;
+  if (typeof m !== "object") return num(m);
+  for (const [k, v] of Object.entries(m)) {
+    if (k === "interval") continue;
+    const n = num(v);
+    if (n !== null) return n;
+  }
+  return deepNumExcluding(m);
+}
+// Daily total from the LIST endpoint (the dailyRollUp endpoint rejects every range we send
+// with INVALID_ROLLUP_QUERY_DURATION). Points come back newest-first; we take the most
+// recent day present and sum every point on it. pageSize 10000 (the documented max) covers
+// a full day of per-minute points, so no pagination is needed. Steps + active calories.
 async function googleDailyTotal(dataType: string, token: string): Promise<number | null> {
-  const list = await googleList(dataType, token, 300);
-  console.log(`[wearables] list-total ${dataType} raw: ${JSON.stringify(list).slice(0, 700)}`);
+  const list = await googleList(dataType, token, 10000);
   const pts = list?.dataPoints;
   if (!Array.isArray(pts) || !pts.length) return null;
   const key = camelKey(dataType);
   let maxDay = 0;
-  for (const p of pts) { const d = listDayKey(p); if (d > maxDay) maxDay = d; }
+  for (const p of pts) { const d = pointDayKey(p); if (d > maxDay) maxDay = d; }
   if (!maxDay) return null;
   let sum = 0; let found = false;
   for (const p of pts) {
-    if (listDayKey(p) !== maxDay) continue;
-    let v = deepNum(p?.[key]);
-    if (v === null) v = deepNumExcluding(p);
+    if (pointDayKey(p) !== maxDay) continue;
+    const v = metricValue(p, key);
     if (v !== null) { sum += v; found = true; }
   }
   return found ? sum : null;
@@ -308,22 +323,21 @@ async function fetchGoogleHealth(token: string): Promise<Record<string, number>>
   put(out, "steps", await googleDailyTotal("steps", token));
   // Active calories — same approach.
   put(out, "active-calories", await googleDailyTotal("active-energy-burned", token));
-  // Sleep — most recent session. Try the documented path, then fall back to finding
-  // minutesAsleep anywhere in the point (Google has shifted this shape before).
-  const sleepRaw = await googleList("sleep", token, 20);
-  console.log(`[wearables] sleep raw: ${JSON.stringify(sleepRaw).slice(0, 700)}`);
-  const sleepPt = latestListPoint(sleepRaw, "sleep");
+  // Sleep — newest session. Results come back newest-first; take the first point carrying a
+  // sleep object and read summary.minutesAsleep (int64 string), with a deep fallback.
+  // (Requires the googlehealth.sleep.readonly scope — reconnect after it was added.)
+  const sleepRaw = await googleList("sleep", token, 25);
+  const sleepPts: any[] = Array.isArray(sleepRaw?.dataPoints) ? sleepRaw.dataPoints : [];
+  const sleepPt = sleepPts.find((p: any) => p?.sleep) || sleepPts[0];
   let mins = num(sleepPt?.sleep?.summary?.minutesAsleep);
   if (mins === null) mins = findNumberByKey(sleepPt, "minutesAsleep");
   if (mins !== null && mins > 0) put(out, "sleep-hours", mins / 60);
   // Resting heart rate — newest heart-rate sample (proxy).
   const hrRaw = await googleList("heart-rate", token, 1);
-  console.log(`[wearables] heart-rate raw: ${JSON.stringify(hrRaw).slice(0, 400)}`);
   const hrPt = latestListPoint(hrRaw, "heartRate");
   let bpm = num(hrPt?.heartRate?.beatsPerMinute);
   if (bpm === null) bpm = findNumberByKey(hrPt, "beatsPerMinute");
   put(out, "resting-heart-rate", bpm);
-  console.log(`[wearables] google-health parsed: ${JSON.stringify(out)}`);
   return out;
 }
 

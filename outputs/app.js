@@ -9473,50 +9473,78 @@
     setQuickLogRecording(false);
   }
 
-  // ── "Snap a meal" → photo → AI calorie/protein estimate ───────────────────────
+  // ── "Snap a photo" → AI estimate → editable draft rows ────────────────────────
   // Sends the photo to the food-estimate vision Edge Function (same provider + secret as
-  // parse-log) and pre-fills the nutrition rule(s) with the returned ESTIMATE — always
-  // labeled and editable before Confirm. We never fabricate numbers: if the vision call
-  // is unavailable or fails, the rows stay blank for the user to fill in.
-  function nutritionRuleAmount(estimate, label, unit) {
-    if (!estimate) return 0;
-    const t = `${label} ${unit}`;
-    if (/calorie|kcal|energy/i.test(t)) return numberOrDefault(estimate.calories, 0);
-    if (/protein/i.test(t)) return numberOrDefault(estimate.protein, 0);
-    if (/carb/i.test(t)) return numberOrDefault(estimate.carbs, 0);
-    if (/fat/i.test(t)) return numberOrDefault(estimate.fat, 0);
-    return 0;
-  }
+  // parse-log). It classifies the image as food / workout / other and returns a ROUGH
+  // ESTIMATE we map onto the user's matching rule(s) — always labeled and editable before
+  // Confirm. We never fabricate numbers: if the photo is unreadable, is "other", or the
+  // vision call is unavailable, we say so and let the user type the entry instead.
 
-  async function startMealEstimate(file) {
-    if (!file) return;
-    const nutrition = buildLoggableRuleCatalog().filter((c) => /calorie|protein|nutrition|food|meal|macro|carb|fat/i.test(`${c.label} ${c.unit}`));
-    if (!nutrition.length) { setQuickLogHint("Add a calories/protein rule first to use Snap a meal."); return; }
-    let estimate = null;
-    if (signalsReady() && window.PointwellSignals && typeof window.PointwellSignals.estimateFood === "function") {
-      setQuickLogHint("Estimating your meal…");
-      try {
-        const parts = await fileToBase64Parts(file);
-        const res = await window.PointwellSignals.estimateFood(parts.data, parts.mediaType, els.quickLogInput ? els.quickLogInput.value.trim() : "");
-        if (!res.error && res.estimate) estimate = res.estimate;
-      } catch (e) { /* fall back to blank rows the user fills in */ }
-    }
-    nutrition.slice(0, 3).forEach((c) => {
+  // Map a photo ESTIMATE (food or workout) onto the user's actual rules → editable draft
+  // rows. Value-driven: for each estimated figure that HAS a value, find the best-matching
+  // rule in the catalog (each rule used at most once). Shared by the Coach and the
+  // quick-log "Snap" flow so both map photos to rules identically. Returns [] when nothing
+  // matches — never fabricates a row.
+  function buildEstimateDraftRows(est) {
+    if (!est || est.kind === "other") return [];
+    const catalog = buildLoggableRuleCatalog();
+    const wanted = est.kind === "workout"
+      ? [
+        { keys: /minute|duration|workout|exercise|cardio|training|gym|run|walk|cycl|ride|lift/i, unitKeys: /min/i, val: est.duration },
+        { keys: /distance|mile|\bkm\b|run|walk|cycl|ride/i, unitKeys: /mi|km|mile|distance/i, val: est.distance },
+        { keys: /calorie|kcal|energy|active/i, unitKeys: /cal|kcal/i, val: est.calories },
+      ]
+      : [
+        { keys: /calorie|kcal|energy/i, val: est.calories },
+        { keys: /protein/i, val: est.protein },
+        { keys: /carb/i, val: est.carbs },
+        { keys: /fat/i, val: est.fat },
+      ];
+    const built = [];
+    const usedRules = {};
+    wanted.forEach((w) => {
+      if (!(numberOrDefault(w.val, 0) > 0)) return;
+      const c = catalog.find((cc) => {
+        if (usedRules[cc.contextId + "|" + cc.id]) return false;
+        return w.keys.test(`${cc.label} ${cc.unit}`) || (w.unitKeys && w.unitKeys.test(cc.unit || ""));
+      });
+      if (!c) return;
       const resolved = resolveQuickLogRule(c.contextType, c.contextId, c.id);
       if (!resolved) return;
-      quickLogDraft.push({
-        _id: makeId("qlog"),
-        contextType: c.contextType,
-        contextId: c.contextId,
-        ruleId: c.id,
-        isYesNo: resolved.rule.simpleStyle === "yesNo",
-        amount: nutritionRuleAmount(estimate, c.label, c.unit),
-        note: "",
-        confidence: estimate ? numberOrDefault(estimate.confidence, 0.4) : 0,
-        isPhotoEstimate: true,
-      });
+      usedRules[c.contextId + "|" + c.id] = true;
+      built.push({ _id: makeId("qlog"), contextType: c.contextType, contextId: c.contextId, ruleId: c.id, isYesNo: resolved.rule.simpleStyle === "yesNo", amount: numberOrDefault(w.val, 0), note: "", confidence: numberOrDefault(est.confidence, 0.4) });
     });
-    setQuickLogHint(estimate ? "AI estimate ready — review the numbers, then Confirm." : "Photo estimate unavailable — enter this meal's values, then Confirm.");
+    return built;
+  }
+
+  async function startPhotoEstimate(file) {
+    if (!file) return;
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.estimateFood !== "function") {
+      setQuickLogHint("Sign in to read photos — or just type what you did above.");
+      return;
+    }
+    let estimate = null;
+    setQuickLogHint("Reading your photo…");
+    try {
+      const parts = await fileToBase64Parts(file);
+      const res = await window.PointwellSignals.estimateFood(parts.data, parts.mediaType, els.quickLogInput ? els.quickLogInput.value.trim() : "");
+      if (!res.error && res.estimate) estimate = res.estimate;
+    } catch (e) { /* handled below */ }
+    if (!estimate) { setQuickLogHint("Couldn't read that photo — type what you did above instead."); return; }
+    // "other" → describe / suggest; never fabricate numbers for it.
+    if (estimate.kind === "other") {
+      setQuickLogHint(estimate.suggestion || estimate.note || "I couldn't put a number on that — type what you did above instead.");
+      return;
+    }
+    const rows = buildEstimateDraftRows(estimate);
+    if (!rows.length) {
+      setQuickLogHint(estimate.kind === "workout"
+        ? "No workout rule (minutes / distance / calories) yet — add one in Build, then snap again."
+        : "No calories/protein rule yet — add one in Build, then snap again.");
+      return;
+    }
+    rows.forEach((r) => { r.isPhotoEstimate = true; quickLogDraft.push(r); });
+    setQuickLogHint(estimate.kind === "workout" ? "Workout estimate ready — review, then Confirm." : "AI estimate ready — review the numbers, then Confirm.");
     renderQuickLogDraft();
   }
 
@@ -9539,7 +9567,7 @@
       els.quickLogMealInput.addEventListener("change", () => {
         const file = els.quickLogMealInput.files && els.quickLogMealInput.files[0];
         els.quickLogMealInput.value = "";
-        if (file) startMealEstimate(file);
+        if (file) startPhotoEstimate(file);
       });
     }
     setupQuickLogMic();
@@ -9570,7 +9598,7 @@
   };
 
   // Read an image File into base64 (no data: prefix) + its media type, for the
-  // multimodal food-estimate call. Shared by Coach and the "Snap a meal" quick-log.
+  // multimodal food-estimate call. Shared by Coach and the "Snap a photo" quick-log.
   function fileToBase64Parts(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -9613,7 +9641,7 @@
   function coachGreet() {
     if (coach.greeted) return;
     coach.greeted = true;
-    coachSay(`<p>Hey ${escapeHtml(coachFirstName())} 👋 Tell me what you did — like <em>“ran 5 miles”</em> or <em>“lifted with the boys”</em> — and I'll map it to the right rule and confirm before logging. Tap 📷 to estimate a meal from a photo.</p>`);
+    coachSay(`<p>Hey ${escapeHtml(coachFirstName())} 👋 Tell me what you did — like <em>“ran 5 miles”</em> or <em>“lifted with the boys”</em> — and I'll map it to the right rule and confirm before logging. Tap 📷 to log a meal or workout from a photo.</p>`);
   }
 
   // ── Floating launcher (bottom-left) + pop-out panel ─────────────────────────
@@ -10975,33 +11003,7 @@
   function coachLogEstimate() {
     const est = coach.estimate;
     if (!est || est.kind === "other") { coachCancelEstimate(); return; }
-    const catalog = buildLoggableRuleCatalog();
-    const wanted = est.kind === "workout"
-      ? [
-        { keys: /minute|duration|workout|exercise|cardio|training|gym|run|walk|cycl|ride|lift/i, unitKeys: /min/i, val: est.duration },
-        { keys: /distance|mile|\bkm\b|run|walk|cycl|ride/i, unitKeys: /mi|km|mile|distance/i, val: est.distance },
-        { keys: /calorie|kcal|energy|active/i, unitKeys: /cal|kcal/i, val: est.calories },
-      ]
-      : [
-        { keys: /calorie|kcal|energy/i, val: est.calories },
-        { keys: /protein/i, val: est.protein },
-        { keys: /carb/i, val: est.carbs },
-        { keys: /fat/i, val: est.fat },
-      ];
-    const built = [];
-    const usedRules = {};
-    wanted.forEach((w) => {
-      if (!(numberOrDefault(w.val, 0) > 0)) return;
-      const c = catalog.find((cc) => {
-        if (usedRules[cc.contextId + "|" + cc.id]) return false;
-        return w.keys.test(`${cc.label} ${cc.unit}`) || (w.unitKeys && w.unitKeys.test(cc.unit || ""));
-      });
-      if (!c) return;
-      const resolved = resolveQuickLogRule(c.contextType, c.contextId, c.id);
-      if (!resolved) return;
-      usedRules[c.contextId + "|" + c.id] = true;
-      built.push({ _id: makeId("qlog"), contextType: c.contextType, contextId: c.contextId, ruleId: c.id, isYesNo: resolved.rule.simpleStyle === "yesNo", amount: numberOrDefault(w.val, 0), note: "", confidence: numberOrDefault(est.confidence, 0.4) });
-    });
+    const built = buildEstimateDraftRows(est);
     if (!built.length) {
       coachSayText(est.kind === "workout"
         ? "I don't see a workout rule (minutes / distance / calories) to log this to. Add one in Build, then snap again."

@@ -8656,3 +8656,5 @@ body.onboarding-locked .fab-add { display: none; }
 .catchup-log-to { color: var(--muted); font-size: 0.72rem; }
 .catchup-row-manual { align-items: center; }
 .catchup-row-manual .catchup-row-main strong { font-size: 0.86rem; color: var(--ink); }
+.catchup-row-conflict .catchup-row-main > span { color: var(--warm); }
+.catchup-conflict-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }

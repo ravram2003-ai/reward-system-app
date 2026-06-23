@@ -281,6 +281,7 @@
     knownWorkoutIds: [],   // wearable workout/exercise session ids we've already seen
     pendingWorkout: null,  // a newly-detected workout awaiting the "log it?" prompt
     wearableLastSeen: {},  // { provider: { metric: { value, dateKey } } } — for sync deltas
+    syncProgress: {},      // { dateKey: { ruleId: { logged, baseline } } } — incremental sync
     catchUp: null,         // the pending "Catch up your day" card
     systems: [
       {
@@ -3972,17 +3973,14 @@
     // of the synced value (viaSource — the Part B share) already equals it, so for that rule
     // the synced base is dropped to avoid double-counting.
     const manual = {};
-    const materialized = {};
     getCommunityEntriesForMemberOnDate(communityId, userId, date).forEach((entry) => {
+      if (entry.viaSource) return; // synced/materialized entries are superseded by syncProgress
       manual[entry.ruleId] = numberOrDefault(manual[entry.ruleId], 0) + numberOrDefault(entry.amount, 0);
-      if (entry.viaSource) materialized[entry.ruleId] = true;
     });
     (community?.system?.rules || []).forEach((item) => {
       const rule = scoring.normalizeRule(item);
-      const synced = materialized[rule.id]
-        ? 0
-        : (syncedValueForRule(rule, { userId, date, scope: "community" }) ?? 0);
-      values[rule.id] = synced + numberOrDefault(manual[rule.id], 0);
+      // Synced contribution per the incremental model; hand-logged entries add on top.
+      values[rule.id] = syncedContribution(rule, { userId, date }) + numberOrDefault(manual[rule.id], 0);
     });
     Object.keys(manual).forEach((ruleId) => {
       if (!(ruleId in values)) values[ruleId] = manual[ruleId];
@@ -7870,37 +7868,128 @@
   // changed since last seen ("you added +X steps · now Y"), matched to any rule that fits it
   // (so you can log it to any system you pick — Fitbit-wired or not) + the points it'd earn.
   // Plus manual still-to-log. Returns null when there's nothing new/unlogged.
-  function buildCatchUp() {
-    state.wearableLastSeen = state.wearableLastSeen || {};
+  // ── Incremental sync reconciliation ──────────────────────────────────────────
+  // Device "total" metrics (steps/sleep/calories/distance/…) accumulate over the day and reset
+  // at midnight, so we add only what the device counted SINCE the last reconcile — never the raw
+  // total (which would double-count manual logs). Per rule/day we keep a BASELINE (device reading
+  // at the last reconcile) + the LOGGED increments so far; a rule's synced value = its logged
+  // increments, and a manual log re-baselines so already-counted activity isn't re-added. EVENT/
+  // count metrics (separate workouts, "times") stack normally and are NOT baselined.
+  const TOTAL_METRICS = new Set([
+    "steps", "sleep-hours", "sleep", "active-calories", "calories", "total-calories",
+    "distance", "exercise-minutes", "workout-minutes", "daily-spending", "net-spending",
+    "dining-spending", "shopping-spending", "nutrition-protein", "nutrition-carbs", "nutrition-fat", "nutrition",
+  ]);
+  function isTotalMetric(metric) { return TOTAL_METRICS.has(metric); }
+
+  // Per-rule/day synced state { logged, baseline }. Keyed by today's date so it resets daily
+  // (device totals reset daily; baselines never carry over). Old days are pruned.
+  function syncProgressToday() {
+    state.syncProgress = state.syncProgress || {};
     const today = getTodayKey();
+    Object.keys(state.syncProgress).forEach((k) => { if (k !== today) delete state.syncProgress[k]; });
+    return (state.syncProgress[today] = state.syncProgress[today] || {});
+  }
+  // Read-only (no mutation — safe to call during scoring/render).
+  function syncProgressForRule(ruleId) {
+    const today = getTodayKey();
+    return (state.syncProgress && state.syncProgress[today] && state.syncProgress[today][ruleId]) || null;
+  }
+  // The synced contribution to a rule's value today = the increments logged for it (NOT the raw total).
+  function loggedSyncedForRule(ruleId) {
+    const p = syncProgressForRule(ruleId);
+    return p ? numberOrDefault(p.logged, 0) : 0;
+  }
+  // A rule's synced contribution today under the model: calculated → its formula value; a device
+  // daily-TOTAL metric → the logged increments (incremental reconciliation); a device measurement/
+  // event metric (resting HR, recovery, strain, balance, …) → its live value as before (those
+  // aren't baselined). Read-only.
+  function syncedContribution(rule, opts = {}) {
+    const userId = opts.userId || "me";
+    const date = opts.date || todayIso;
+    if (rule.dataSource !== "calculated" && isTotalMetric(rule.sourceMetric)) {
+      return (userId === "me" && date === todayIso) ? loggedSyncedForRule(rule.id) : 0;
+    }
+    return syncedValueForRule(rule, { userId, date }) ?? 0;
+  }
+  // The device's CURRENT total for the rule's own source+metric (null if not a connected device rule).
+  function deviceTotalForRule(rule) {
+    if (!isExternalRuleSynced(rule) || !isSourceConnected(rule.dataSource)) return null;
+    const v = Number((state.mockSyncData?.[rule.dataSource] || {})[rule.sourceMetric]);
+    return Number.isFinite(v) ? v : null;
+  }
+  // Sum of TODAY's HAND-logged (non-synced) entries for a rule across personal + community.
+  function manualSumTodayForRule(ruleId) {
+    const today = getTodayKey();
+    let sum = 0;
+    (state.quickEntries || []).forEach((e) => { if (e.ruleId === ruleId && (e.dateKey || e.date) === today && !e.viaSource) sum += numberOrDefault(e.amount, 0); });
+    (state.communityEntries || []).forEach((e) => { if (e.ruleId === ruleId && e.userId === "me" && (e.dateKey || e.date) === today && !e.viaSource) sum += numberOrDefault(e.amount, 0); });
+    return sum;
+  }
+  // Snapshot the current device reading as the rule's baseline (no increment added) — used after a
+  // manual log so device activity counted before it isn't re-added on the next sync.
+  function rebaselineRuleSync(rule) {
+    if (!isTotalMetric(rule.sourceMetric)) return;
+    const device = deviceTotalForRule(rule);
+    if (device === null) return;
+    const day = syncProgressToday();
+    (day[rule.id] = day[rule.id] || { logged: 0, baseline: device }).baseline = device;
+  }
+  // Apply this sync's increment: logged += max(0, device − baseline); baseline = device. Returns it.
+  function applySyncIncrementForRule(rule) {
+    if (!isTotalMetric(rule.sourceMetric)) return 0;
+    const device = deviceTotalForRule(rule);
+    if (device === null) return 0;
+    const day = syncProgressToday();
+    const p = day[rule.id] = day[rule.id] || { logged: 0, baseline: 0 };
+    const inc = Math.max(0, device - numberOrDefault(p.baseline, 0));
+    p.logged = numberOrDefault(p.logged, 0) + inc;
+    p.baseline = device;
+    return inc;
+  }
+  // What we'd apply right now, without mutating state → { increment, current, unknown }. unknown =
+  // no baseline yet AND a manual value already exists today (→ show Keep/Update conflict, don't guess).
+  function syncIncrementPreview(rule) {
+    if (!isTotalMetric(rule.sourceMetric)) return null;
+    const current = deviceTotalForRule(rule);
+    if (current === null) return null;
+    const p = syncProgressForRule(rule.id);
+    if (!p) {
+      if (manualSumTodayForRule(rule.id) > 0) return { increment: 0, current, unknown: true };
+      return { increment: current, current, unknown: false }; // fresh day → today's whole total
+    }
+    return { increment: Math.max(0, current - numberOrDefault(p.baseline, 0)), current, unknown: false };
+  }
+
+  function buildCatchUp() {
     const targets = loggableRuleTargets();
     const devices = [];
     Object.keys(state.mockSyncData || {}).forEach((source) => {
       if (source === "manual" || source === "calculated" || !isSourceConnected(source)) return;
       const data = state.mockSyncData[source] || {};
       Object.keys(data).forEach((metric) => {
+        if (!isTotalMetric(metric)) return; // incremental card is for daily-total metrics
         const current = Number(data[metric]);
         if (!Number.isFinite(current) || current <= 0) return;
-        // Match the device metric to any rule it could be logged to (exact metric, then label).
+        // Match the metric to any rule it could log to (exact metric, then label). Skip stat noise.
         const matched = targets.map((t) => ({ t, score: ruleMatchScore(t, source, metric) }))
-          .filter((m) => m.score > 0)
-          .sort((a, b) => b.score - a.score);
-        if (!matched.length) return; // no rule it could go to → don't surface it (avoids stat noise)
-        const seen = (state.wearableLastSeen[source] || {})[metric];
-        // Prior-day (or never-seen) last check-in → the delta is today's whole total (daily reset).
-        const delta = (!seen || seen.dateKey !== today) ? current : (current - numberOrDefault(seen.value, 0));
-        if (delta === 0) return; // only what's new/changed
+          .filter((m) => m.score > 0).sort((a, b) => b.score - a.score);
+        if (!matched.length) return;
         const best = matched[0].t;
+        const preview = syncIncrementPreview(best.rule);
+        if (!preview) return;
+        if (!preview.unknown && preview.increment === 0) return; // nothing new since last time
         devices.push({
           source, metric,
           label: sourceMetricLabel(source, metric),
           sourceLabel: wearableShortLabel(source),
           unit: best.rule.unit || "",
-          current, delta, value: current,
-          points: scoring.calculateRule(best.rule, current).totalPoints,
+          current, increment: preview.increment, unknown: !!preview.unknown,
+          conflictMine: preview.unknown ? manualSumTodayForRule(best.rule.id) : 0,
+          points: preview.unknown ? 0 : scoring.calculateRule(best.rule, preview.increment).totalPoints,
           targets: matched.map((m) => ({ contextType: m.t.contextType, contextId: m.t.contextId, contextName: m.t.contextName, ruleId: m.t.ruleId, label: m.t.label })),
           primary: best.contextId + "|" + best.ruleId,
-          checked: true,
+          checked: !preview.unknown,
         });
       });
     });
@@ -7909,75 +7998,81 @@
     return { at: new Date().toISOString(), devices, manual };
   }
 
-  // Remember the current value of one source/metric so its next delta is measured from here.
-  function updateLastSeenMetric(source, metric) {
-    state.wearableLastSeen = state.wearableLastSeen || {};
-    const seen = state.wearableLastSeen[source] = state.wearableLastSeen[source] || {};
-    seen[metric] = { value: Number((state.mockSyncData?.[source] || {})[metric]) || 0, dateKey: getTodayKey() };
-  }
+  // Advance every device target's baseline to the current reading (so dismissed/handled rows
+  // aren't re-offered, and the rule's next increment is measured from here). Doesn't add anything.
   function markCatchUpSeen() {
-    (state.catchUp?.devices || []).forEach((d) => updateLastSeenMetric(d.source, d.metric));
+    (state.catchUp?.devices || []).forEach((d) => (d.targets || []).forEach((target) => {
+      const resolved = resolveQuickLogRule(target.contextType, target.contextId, target.ruleId);
+      if (resolved) rebaselineRuleSync(resolved.rule);
+    }));
   }
 
-  // Materialize a synced total as a committed entry. The viaSource flag makes it REPLACE the
-  // synced base (sets the rule to the current total, never adds the delta → no double-count);
-  // a stale materialized entry for the same rule/day is refreshed, not stacked.
-  function materializePersonalSynced(system, rule, value, source) {
-    state.quickEntries = (state.quickEntries || []).filter((e) =>
-      !(e.viaSource && e.ruleId === rule.id && e.systemId === system.id && (e.dateKey || e.date) === getTodayKey()));
-    state.quickEntries.push({
-      id: makeId("quick"), date: getTodayKey(), dateKey: getTodayKey(), createdAt: new Date().toISOString(),
-      systemId: system.id, rewardSystemId: system.id, ruleId: rule.id, label: rule.label, unit: rule.unit,
-      amount: value, message: "", photoPath: "", source: "manual-adjustment", viaSource: source,
-    });
-  }
-  function materializeCommunitySynced(community, rule, value, source) {
-    state.communityEntries = (state.communityEntries || []).filter((e) =>
-      !(e.viaSource && e.communityId === community.id && e.userId === "me" && e.ruleId === rule.id && (e.dateKey || e.date) === getTodayKey()));
-    addCommunityEntry(community.id, "me", rule, value, "manual-adjustment", "", "", source);
-    saveCommunitySummaryForMember(community, "me");
-    // Push the synced total to the shared DB so other members see it in standings/feed.
-    Promise.resolve(pushCommunityEntryToDb(community, rule.id, "", "")).catch(() => {});
+  // Apply the increment of one checked device row to a target rule (incremental model).
+  function applyDeviceRowToTarget(target, source, touched) {
+    const resolved = resolveQuickLogRule(target.contextType, target.contextId, target.ruleId);
+    if (!resolved) return false;
+    applySyncIncrementForRule(resolved.rule); // logged += increment; baseline = current
+    if (target.contextType === "community") {
+      const community = (state.communities || []).find((c) => c.id === target.contextId);
+      if (community) saveCommunitySummaryForMember(community, "me");
+    } else if (touched) {
+      touched.add(target.contextId);
+    }
+    return true;
   }
 
-  // "Log selected": for each CHECKED device row, set every rule using that source+metric (across
-  // personal systems AND communities) to its current daily total, fill/refresh-only — a rule
-  // with a hand-logged value today is left untouched. Manual still-to-log uses its own Log ›.
-  // "Log selected": write each checked device metric's CURRENT total to the rule the user
-  // chose for it (its "log to" selector). The viaSource flag makes it set the rule to that
-  // total (never adds the delta → no double-count), refresh-not-stack, and it's skipped if the
-  // rule already has a hand-logged value today (never overwrite a manual entry).
+  // "Log selected": for each checked device row, ADD its increment to every rule it maps to
+  // (fan-out across personal systems + communities) via the baseline/increment model — never the
+  // raw total, so it adds on top of manual logs without double-counting. Conflict rows are skipped
+  // here (resolved by their own Keep/Update buttons).
   function logSelectedCatchUp() {
     const catchUp = state.catchUp;
     if (!catchUp) return;
     const touched = new Set();
     let logged = 0;
     (catchUp.devices || []).forEach((d) => {
-      if (!d.checked) return;
-      const target = (d.targets || []).find((t) => (t.contextId + "|" + t.ruleId) === d.primary) || (d.targets || [])[0];
-      if (!target) return;
-      if (ruleHasManualEntryToday(target.contextType, target.contextId, target.ruleId)) return;
-      const resolved = resolveQuickLogRule(target.contextType, target.contextId, target.ruleId);
-      if (!resolved) return;
-      const value = numberOrDefault(d.value, 0);
-      if (value <= 0) return;
-      logged += 1;
-      if (target.contextType === "community") {
-        const community = (state.communities || []).find((c) => c.id === target.contextId);
-        if (community) materializeCommunitySynced(community, resolved.rule, value, d.source);
-      } else {
-        const system = (state.systems || []).find((s) => s.id === target.contextId);
-        if (system) { materializePersonalSynced(system, resolved.rule, value, d.source); touched.add(system.id); }
-      }
+      if (!d.checked || d.unknown) return;
+      let any = false;
+      (d.targets || []).forEach((target) => { if (applyDeviceRowToTarget(target, d.source, touched)) any = true; });
+      if (any) logged += 1;
     });
     (state.systems || []).forEach((system) => {
       if (touched.has(system.id)) { syncDraftInputsFromEntries(system); autoSaveToday(system); }
     });
-    markCatchUpSeen();
     state.catchUp = null;
     saveState();
     render();
     showToast(logged ? `Logged ${plural(logged, "metric")} from your devices` : "Nothing selected to log");
+  }
+
+  // Conflict resolution for an unknown-baseline row: "Keep mine" rebaselines (device counts from
+  // here on, manual value kept); "Update" sets the rule to the device total (logged makes up the
+  // difference over the manual value) and rebaselines.
+  function resolveCatchUpConflict(rowIndex, choice) {
+    const d = state.catchUp && state.catchUp.devices && state.catchUp.devices[rowIndex];
+    if (!d) return;
+    const touched = new Set();
+    (d.targets || []).forEach((target) => {
+      const resolved = resolveQuickLogRule(target.contextType, target.contextId, target.ruleId);
+      if (!resolved) return;
+      const device = deviceTotalForRule(resolved.rule);
+      if (device === null) { rebaselineRuleSync(resolved.rule); return; }
+      const day = syncProgressToday();
+      const p = day[resolved.rule.id] = day[resolved.rule.id] || { logged: 0, baseline: 0 };
+      if (choice === "update") p.logged = Math.max(0, device - manualSumTodayForRule(resolved.rule.id)); // total → device value
+      p.baseline = device;
+      if (target.contextType === "community") {
+        const community = (state.communities || []).find((c) => c.id === target.contextId);
+        if (community) saveCommunitySummaryForMember(community, "me");
+      } else { touched.add(target.contextId); }
+    });
+    (state.systems || []).forEach((system) => {
+      if (touched.has(system.id)) { syncDraftInputsFromEntries(system); autoSaveToday(system); }
+    });
+    state.catchUp.devices.splice(rowIndex, 1); // resolved → drop the row
+    if (!state.catchUp.devices.length && !state.catchUp.manual.length) state.catchUp = null;
+    saveState();
+    render();
   }
 
   function dismissCatchUp() {
@@ -8003,7 +8098,20 @@
     const manual = (catchUp && catchUp.manual) || [];
     if (!catchUp || (!devices.length && !manual.length)) { mount.hidden = true; mount.innerHTML = ""; return; }
     const deviceRows = devices.map((d, i) => {
-      const deltaText = d.delta > 0 ? `+${formatValue(d.delta)} · ` : (d.delta < 0 ? `${formatValue(d.delta)} · ` : "");
+      // Unknown baseline (a manual value already exists, no reliable baseline) → ask, don't guess.
+      if (d.unknown) {
+        return `
+        <div class="catchup-row catchup-row-conflict">
+          <div class="catchup-row-main">
+            <div class="catchup-row-title"><span class="via-source-tag">${escapeHtml(d.sourceLabel)}</span><strong>${escapeHtml(d.label)}</strong></div>
+            <span>You logged ${escapeHtml(formatValue(d.conflictMine))} · device shows ${escapeHtml(formatValue(d.current))} ${escapeHtml(d.unit)}</span>
+            <div class="catchup-conflict-actions">
+              <button type="button" class="ghost-button small" data-catchup-keep="${i}">Keep mine</button>
+              <button type="button" class="secondary-button small" data-catchup-update="${i}">Update → ${escapeHtml(formatValue(d.current))}</button>
+            </div>
+          </div>
+        </div>`;
+      }
       const ptsClass = d.points >= 0 ? "positive" : "negative";
       const optLabel = (t) => `${t.label} · ${t.contextName}`;
       const ctx = d.targets.length > 1
@@ -8014,7 +8122,7 @@
           <input type="checkbox" class="catchup-check" data-catchup-check="${i}"${d.checked ? " checked" : ""} aria-label="Include ${escapeHtml(d.label)}">
           <div class="catchup-row-main">
             <div class="catchup-row-title"><span class="via-source-tag">${escapeHtml(d.sourceLabel)}</span><strong>${escapeHtml(d.label)}</strong></div>
-            <span>${escapeHtml(deltaText)}now ${escapeHtml(formatValue(d.current))} ${escapeHtml(d.unit)}</span>
+            <span>+${escapeHtml(formatValue(d.increment))} ${escapeHtml(d.unit)} since last time · now ${escapeHtml(formatValue(d.current))}</span>
             <div class="catchup-row-context">${ctx}</div>
           </div>
           <span class="point-pill ${ptsClass}">${d.points >= 0 ? "+" : ""}${escapeHtml(formatPoints(d.points))} pts</span>
@@ -8046,6 +8154,10 @@
     els.checkInCard.addEventListener("click", (event) => {
       if (event.target.closest("[data-catchup-dismiss]")) { dismissCatchUp(); return; }
       if (event.target.closest("[data-catchup-log]")) { logSelectedCatchUp(); return; }
+      const keepBtn = event.target.closest("[data-catchup-keep]");
+      if (keepBtn) { resolveCatchUpConflict(Number(keepBtn.dataset.catchupKeep), "keep"); return; }
+      const updateBtn = event.target.closest("[data-catchup-update]");
+      if (updateBtn) { resolveCatchUpConflict(Number(updateBtn.dataset.catchupUpdate), "update"); return; }
       const manualBtn = event.target.closest("[data-catchup-manual]");
       if (manualBtn) {
         const parts = String(manualBtn.dataset.catchupManual).split("|");
@@ -8492,6 +8604,7 @@
       photoPath: "",
       source: isRuleSynced(rule) ? "manual-adjustment" : "manual",
     });
+    rebaselineRuleSync(rule); // device activity already counted isn't re-added on the next sync
     autoSaveToday(system);
   }
 
@@ -8513,6 +8626,7 @@
           const community = state.communities.find((c) => c.id === entry.contextId);
           if (!community) { failed += 1; return; }
           addCommunityEntry(community.id, "me", rule, amount, isRuleSynced(rule) ? "manual-adjustment" : "manual", note, "");
+          rebaselineRuleSync(rule); // device activity already counted isn't re-added next sync
           saveCommunitySummaryForMember(community, "me");
           dbPushes.push(Promise.resolve(pushCommunityEntryToDb(community, rule.id, note, "")).catch(() => ({ error: { message: "push failed" } })));
         } else {
@@ -9044,6 +9158,7 @@
       syncDraftInputsFromEntries(system);
       autoSaveToday(system);
     }
+    if (!viaSource) rebaselineRuleSync(rule); // hand log → device counts from here on
     addEntryDraft = { ruleId: rule.id, amount: suggestedEntryAmount(rule) };
     resetAddEntryAttachment();
     aiPrefilledComposer = false;
@@ -9251,11 +9366,13 @@
     };
   }
 
+  // Rules that are "active" today (scored even with no manual entry): hand-logged rules, plus
+  // calculated rules with a value, plus device rules that have a logged increment.
   function entryRuleIdsForToday(system) {
     const systemId = typeof system === "string" ? system : system?.id;
     const ids = new Set(getQuickEntriesForToday(systemId).map((entry) => entry.ruleId));
     (system?.rules || []).map(scoring.normalizeRule).forEach((rule) => {
-      if (syncedValueForRule(rule, { userId: "me", date: todayIso, scope: "personal" }) !== null) ids.add(rule.id);
+      if (syncedContribution(rule, { userId: "me", date: todayIso }) > 0) ids.add(rule.id);
     });
     return ids;
   }
@@ -9264,7 +9381,7 @@
     const ids = new Set(getCommunityEntriesForMemberToday(communityId, userId).map((entry) => entry.ruleId));
     const community = state.communities.find((item) => item.id === communityId);
     (community?.system?.rules || []).map(scoring.normalizeRule).forEach((rule) => {
-      if (syncedValueForRule(rule, { userId, date: todayIso, scope: "community" }) !== null) ids.add(rule.id);
+      if (syncedContribution(rule, { userId, date: todayIso }) > 0) ids.add(rule.id);
     });
     return ids;
   }
@@ -12794,17 +12911,15 @@
     // each other). A "materialized" post of the synced value (viaSource — the Part B share)
     // already equals it, so for that rule the synced base is dropped to avoid double-counting.
     const manual = {};
-    const materialized = {};
     getQuickEntriesForToday(system.id).forEach((entry) => {
+      if (entry.viaSource) return; // synced/materialized entries are superseded by syncProgress
       manual[entry.ruleId] = numberOrDefault(manual[entry.ruleId], 0) + numberOrDefault(entry.amount, 0);
-      if (entry.viaSource) materialized[entry.ruleId] = true;
     });
     (system.rules || []).forEach((item) => {
       const rule = scoring.normalizeRule(item);
-      const synced = materialized[rule.id]
-        ? 0
-        : (syncedValueForRule(rule, { userId: "me", date: todayIso, scope: "personal" }) ?? 0);
-      values[rule.id] = synced + numberOrDefault(manual[rule.id], 0);
+      // Synced contribution per the incremental model (total metrics → logged increments;
+      // calculated/measurement metrics → their value); hand-logged entries add on top.
+      values[rule.id] = syncedContribution(rule, { userId: "me", date: todayIso }) + numberOrDefault(manual[rule.id], 0);
     });
     // Manual entries for a rule no longer in the system still count toward the day total.
     Object.keys(manual).forEach((ruleId) => {
@@ -13497,18 +13612,18 @@
     return Number.isFinite(Number(value)) ? Number(value) : 0;
   }
 
+  // Synthetic "synced" rows for the entries list — calculated rules show their formula value;
+  // device rules show the LOGGED increments (so the row matches the scored value, not the raw
+  // device total). Only rows with a positive value are shown.
   function syncedEntriesForContext(context, system, options = {}) {
     if (!system || !context) return [];
     const userId = options.userId || "me";
     return system.rules
       .map(scoring.normalizeRule)
       .map((rule) => {
-        const amount = syncedValueForRule(rule, {
-          userId,
-          date: todayIso,
-          scope: context.type
-        });
-        if (amount === null) return null;
+        if (!isRuleSynced(rule)) return null;
+        const amount = syncedContribution(rule, { userId, date: todayIso });
+        if (!(amount > 0)) return null;
         return {
           id: `synced-${context.type}-${rule.id}`,
           ruleId: rule.id,
@@ -13527,7 +13642,7 @@
 
   function hasSyncedValueToday(system) {
     return (system?.rules || []).map(scoring.normalizeRule).some((rule) => {
-      return syncedValueForRule(rule, { userId: "me", date: todayIso, scope: "personal" }) !== null;
+      return syncedContribution(rule, { userId: "me", date: todayIso }) > 0;
     });
   }
 

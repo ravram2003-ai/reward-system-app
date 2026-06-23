@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260623-worlds4">
+    <link rel="stylesheet" href="styles.css?v=20260623-worlddetail2">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -1082,51 +1082,74 @@
           </section>
         </section>
 
-        <section class="view" id="communityDetailView" aria-labelledby="communityDetailTitle">
-          <div class="view-header">
-            <div>
-              <p class="eyebrow">Community</p>
-              <h2>Community</h2>
-            </div>
-            <div class="header-actions">
-              <button class="ghost-button" type="button" id="backToCommunitiesButton">Back</button>
-            </div>
+        <section class="view world-detail-view" id="communityDetailView" aria-labelledby="worldName">
+          <!-- Cover banner (cover_url or default gradient). Back overlaid; owner cover controls. -->
+          <div class="world-banner" id="worldBanner">
+            <img class="world-banner-img" id="worldBannerImg" alt="" hidden>
+            <button class="world-banner-pill world-banner-back" type="button" id="backToCommunitiesButton" aria-label="Back"><span aria-hidden="true">‹</span> Back</button>
+            <button class="world-banner-pill world-cover-edit" type="button" id="worldCoverEdit" hidden><span aria-hidden="true">✎</span> Cover</button>
+            <button class="world-cover-add" type="button" id="worldCoverAdd" hidden><span aria-hidden="true">＋</span> Add cover photo</button>
           </div>
 
-          <section class="community-detail" aria-label="Community detail">
-            <div class="community-hero">
-              <div>
-                <span class="visibility-pill private" id="communityStatus">Private</span>
-                <h2 id="communityDetailTitle">Community</h2>
-                <p class="community-description" id="communityDescription"></p>
-                <div class="community-meta-line" id="communityMeta">0 members · Private</div>
+          <div class="world-detail-body">
+            <div class="world-head">
+              <div class="world-icon" id="worldIcon">
+                <img class="world-icon-img" id="worldIconImg" alt="" hidden>
+                <span class="world-icon-fallback" id="worldIconFallback" aria-hidden="true">W</span>
+                <button class="world-icon-edit" type="button" id="worldIconEdit" aria-label="Change app icon" hidden><span aria-hidden="true">📷</span></button>
               </div>
-              <div class="community-hero-actions">
-                <button class="secondary-button" type="button" id="inviteButton">Invite</button>
-                <button class="ghost-button" type="button" id="communitySettingsButton">Settings</button>
+              <div class="world-head-main">
+                <strong class="world-name" id="worldName">World</strong>
+                <p class="world-subtitle" id="worldSubtitle"></p>
               </div>
+              <button class="world-edit-btn" type="button" id="worldEditButton" hidden>Edit</button>
             </div>
 
-            <div class="invite-options" id="inviteOptions" hidden>
+            <div class="world-actions" id="worldActions">
+              <button class="world-action primary" type="button" id="inviteButton">Invite</button>
+              <button class="world-action" type="button" id="communitySettingsButton">Settings</button>
+            </div>
+            <div class="invite-options world-invite-options" id="inviteOptions" hidden>
               <button class="ghost-button small" type="button" id="copyInviteLinkButton">Copy Link</button>
               <button class="ghost-button small" type="button" id="copyInviteCodeButton">Copy Code</button>
               <button class="ghost-button small" type="button" id="sendInviteTextButton">Send Text</button>
               <button class="ghost-button small" type="button" id="sendInviteEmailButton">Send Email</button>
             </div>
 
-            <section class="community-leaderboard-panel" id="communityLeaderboardPanel" aria-labelledby="leaderboardTitle">
-              <div class="panel-heading tight">
-                <div>
-                  <h3 id="leaderboardTitle">Leaderboard</h3>
-                  <span id="communityLeader">Daily community points</span>
-                </div>
-              </div>
-              <div class="segmented" id="communityPeriodTabs" role="tablist" aria-label="Leaderboard period"></div>
-              <div class="leaderboard" id="leaderboardList"></div>
+            <div class="world-photo-empty" id="worldPhotoEmpty" hidden>
+              <p class="world-photo-empty-title">Make this world yours</p>
+              <p class="world-photo-empty-sub">Add a cover photo and icon from your library</p>
+              <button class="world-action primary" type="button" id="worldAddPhotosButton">Add photos</button>
+            </div>
+
+            <div class="world-chips" id="worldChips"></div>
+
+            <section class="world-section community-leaderboard-panel" id="communityLeaderboardPanel" hidden aria-label="Leaderboard">
+              <div class="world-section-head"><span class="world-section-title">Leaderboard</span></div>
+              <div class="segmented world-period-tabs" id="communityPeriodTabs" role="tablist" aria-label="Leaderboard period"></div>
+              <div class="leaderboard world-leaderboard" id="leaderboardList"></div>
             </section>
 
-            <div class="community-analytics" id="communityAnalytics"></div>
-          </section>
+            <section class="world-section" id="personalRulesPanel" hidden aria-label="Today's rules">
+              <div class="world-section-head"><span class="world-section-title">Today's rules</span></div>
+              <div class="world-rules" id="personalRules"></div>
+            </section>
+
+            <section class="world-section" id="worldPostsPanel" aria-label="Recent posts">
+              <div class="world-section-head"><span class="world-section-title">Recent posts</span></div>
+              <div class="world-posts" id="worldPosts"></div>
+            </section>
+
+            <section class="world-section world-trends" id="worldTrendsPanel" hidden>
+              <button class="world-trends-toggle" type="button" id="worldTrendsToggle" aria-expanded="false">See trends &amp; breakdown<span class="world-trends-caret" aria-hidden="true">▾</span></button>
+              <div class="world-trends-body" id="worldTrendsBody" hidden>
+                <div class="community-analytics" id="communityAnalytics"></div>
+              </div>
+            </section>
+          </div>
+
+          <input type="file" accept="image/*" id="worldCoverInput" hidden>
+          <input type="file" accept="image/*" id="worldIconInput" hidden>
         </section>
 
         <section class="view" id="communitySettingsView" aria-labelledby="communitySettingsTitle">
@@ -1479,13 +1502,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260623-worlds4"></script>
-    <script src="auth-helpers.js?v=20260623-worlds4"></script>
-    <script src="scoring.js?v=20260623-worlds4"></script>
-    <script src="insight.js?v=20260623-worlds4"></script>
-    <script src="signals.js?v=20260623-worlds4"></script>
-    <script src="wearables.js?v=20260623-worlds4"></script>
-    <script type="module" src="auth.js?v=20260623-worlds4"></script>
-    <script src="app.js?v=20260623-worlds4"></script>
+    <script src="supabase-config.js?v=20260623-worlddetail2"></script>
+    <script src="auth-helpers.js?v=20260623-worlddetail2"></script>
+    <script src="scoring.js?v=20260623-worlddetail2"></script>
+    <script src="insight.js?v=20260623-worlddetail2"></script>
+    <script src="signals.js?v=20260623-worlddetail2"></script>
+    <script src="wearables.js?v=20260623-worlddetail2"></script>
+    <script type="module" src="auth.js?v=20260623-worlddetail2"></script>
+    <script src="app.js?v=20260623-worlddetail2"></script>
   </body>
 </html>

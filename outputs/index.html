@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260625-coach2">
+    <link rel="stylesheet" href="styles.css?v=20260626-tiles">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -102,10 +102,10 @@
         <section class="view" id="dashboardView" aria-labelledby="dashboardTitle">
           <div class="view-header score-header">
             <div>
-              <p class="eyebrow">Daily check-in</p>
-              <h2 id="dashboardTitle">Score today</h2>
+              <p class="eyebrow">Today</p>
+              <h2 id="dashboardTitle">Your worlds</h2>
             </div>
-            <div class="header-actions">
+            <div class="header-actions" hidden>
               <div class="score-context-pill">
                 <select id="scoreContextSelect" aria-label="Score context"></select>
               </div>
@@ -118,6 +118,12 @@
             </div>
           </div>
 
+          <!-- Bubble-tile home: one tile per world (community / personal system). Phase 1. -->
+          <div class="world-grid" id="worldGrid" aria-label="Your worlds"></div>
+
+          <!-- Per-system detail (score hero + analytics). Hidden on the tile home; still
+               rendered for data + reused by the Add Entry view. -->
+          <div id="dashboardDetail" hidden>
           <section class="score-hero" aria-label="Today's score">
             <div class="score-hero-top">
               <div class="score-ring score-hero-ring" aria-hidden="true">
@@ -191,6 +197,7 @@
               </div>
               <div class="breakdown-list entries-log-list" id="scoreBreakdown"></div>
             </section>
+          </div>
           </div>
           </div>
         </section>
@@ -1409,13 +1416,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260625-coach2"></script>
-    <script src="auth-helpers.js?v=20260625-coach2"></script>
-    <script src="scoring.js?v=20260625-coach2"></script>
-    <script src="insight.js?v=20260625-coach2"></script>
-    <script src="signals.js?v=20260625-coach2"></script>
-    <script src="wearables.js?v=20260625-coach2"></script>
-    <script type="module" src="auth.js?v=20260625-coach2"></script>
-    <script src="app.js?v=20260625-coach2"></script>
+    <script src="supabase-config.js?v=20260626-tiles"></script>
+    <script src="auth-helpers.js?v=20260626-tiles"></script>
+    <script src="scoring.js?v=20260626-tiles"></script>
+    <script src="insight.js?v=20260626-tiles"></script>
+    <script src="signals.js?v=20260626-tiles"></script>
+    <script src="wearables.js?v=20260626-tiles"></script>
+    <script type="module" src="auth.js?v=20260626-tiles"></script>
+    <script src="app.js?v=20260626-tiles"></script>
   </body>
 </html>

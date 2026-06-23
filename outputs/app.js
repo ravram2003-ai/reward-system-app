@@ -2727,6 +2727,8 @@
       "miniLeaderboard",
       "analyticsToggle",
       "dashboardAnalytics",
+      "worldGrid",
+      "dashboardDetail",
       "notifBellButton",
       "notifBellBadge",
       "notifPanel",
@@ -3051,6 +3053,10 @@
     // The "+" FAB is the single entry point for logging (creating systems/communities
     // lives in Build). openAddEntryPage guards the no-system / no-rules cases with a toast.
     if (els.createFab) els.createFab.addEventListener("click", openAddEntryPage);
+    // Bubble-tile home: tap a world tile to open it (delegated; survives re-renders).
+    // TODO(phase 2): add pointerdown/long-press + drag handlers here to reorder/feature/
+    // resize tiles, persisting to state.homeLayout (see applyWorldLayout / worldFeaturedKeys).
+    if (els.worldGrid) els.worldGrid.addEventListener("click", onWorldGridClick);
     bindQuickLogControls();
     bindCoach();
     bindWearablePrompt();
@@ -4089,12 +4095,181 @@
     `;
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // BUBBLE-TILE HOME (Phase 1) — the Today body is a grid of "world" tiles, one per
+  // community the user belongs to + one per personal system. Each tile shows the world's
+  // name + today's score ring (your points vs the world's daily target). The top two are
+  // featured (large): a big community tile shows a mini leaderboard (reusing
+  // communityStandings); a big personal tile shows "X to go". Tapping a tile opens that
+  // world via the EXISTING handlers (no new detail views). The header + "+" FAB are kept.
+  // Reuses communityTarget/communityMemberPointsOnDate/communityStandings (community) and
+  // todayValuesForSystem/calculateDashboardSummary (personal) + the score-ring markup.
+  // ════════════════════════════════════════════════════════════════════════════
+  function worldTileKey(t) { return t.type + ":" + t.id; }
+
+  function buildWorldTiles() {
+    const tiles = [];
+    (state.communities || []).forEach((community) => {
+      const me = (community.members || []).find((m) => m.id === "me");
+      const target = communityTarget(community);
+      const myPoints = me ? communityMemberPointsOnDate(community, me, todayIso) : 0;
+      tiles.push({ type: "community", id: community.id, name: community.name || "Community", myPoints: myPoints, target: target, percent: progressPercent(myPoints, target), community: community });
+    });
+    (state.systems || []).forEach((rawSystem) => {
+      const system = normalizeSystem(rawSystem);
+      const values = todayValuesForSystem(system);
+      const summary = calculateDashboardSummary(system, values);
+      const myPoints = roundScore(summary.total);
+      const target = numberOrDefault(summary.target && summary.target.total, 0);
+      tiles.push({ type: "personal", id: rawSystem.id, name: rawSystem.title || "System", myPoints: myPoints, target: target, percent: progressPercent(myPoints, target), toGo: Math.max(target - myPoints, 0) });
+    });
+    return applyWorldLayout(tiles);
+  }
+
+  // Phase 1 default order: communities first (by today's points desc), then personal
+  // systems (by points desc).
+  // TODO(phase 2 — drag to reorder/resize): when state.homeLayout = { order: [key…],
+  // featured: [key,key], size: { key: "lg"|"sm" } } exists, honor it here (order below
+  // already does) and persist it on drop. worldFeaturedKeys() already prefers it too.
+  function applyWorldLayout(tiles) {
+    const layout = state.homeLayout;
+    if (layout && Array.isArray(layout.order) && layout.order.length) {
+      const byKey = {};
+      tiles.forEach((t) => { byKey[worldTileKey(t)] = t; });
+      const ordered = [];
+      layout.order.forEach((k) => { if (byKey[k]) { ordered.push(byKey[k]); delete byKey[k]; } });
+      Object.keys(byKey).forEach((k) => ordered.push(byKey[k])); // newly-joined worlds at the end
+      return ordered;
+    }
+    const score = (t) => numberOrDefault(t.myPoints, 0);
+    return tiles.slice().sort((a, b) => {
+      if (a.type !== b.type) return a.type === "community" ? -1 : 1;
+      return score(b) - score(a);
+    });
+  }
+
+  function worldFeaturedKeys(ordered) {
+    if (state.homeLayout && Array.isArray(state.homeLayout.featured) && state.homeLayout.featured.length) {
+      return new Set(state.homeLayout.featured);
+    }
+    return new Set(ordered.slice(0, 2).map(worldTileKey)); // top two are featured/large
+  }
+
+  function renderWorldGrid() {
+    const mount = els.worldGrid;
+    if (!mount) return;
+    const tiles = buildWorldTiles();
+    const addTile = `<button type="button" class="world-tile world-add" data-world-add>
+        <span class="world-add-plus" aria-hidden="true">+</span>
+        <span class="world-add-label">${tiles.length ? "New" : "Create your first world"}</span>
+      </button>`;
+    if (!tiles.length) { mount.innerHTML = addTile; return; }
+    const featured = worldFeaturedKeys(tiles);
+    mount.innerHTML = tiles.map((t) => renderWorldTile(t, featured.has(worldTileKey(t)))).join("") + addTile;
+  }
+
+  function renderWorldRing(t, large) {
+    const target = numberOrDefault(t.target, 0);
+    const pct = Math.min(Math.max(numberOrDefault(t.percent, 0), 0), 100);
+    // No target yet (e.g. a system with no rules) → show just the points, never "X/0".
+    const label = target > 0
+      ? `${escapeHtml(formatPoints(t.myPoints))}/${escapeHtml(formatPoints(target))}`
+      : `${escapeHtml(formatPoints(t.myPoints))} pts`;
+    return `<div class="score-ring world-ring${large ? " world-ring-lg" : ""}" aria-hidden="true">
+        <svg class="score-ring-svg" viewBox="0 0 44 44">
+          <circle class="score-ring-bg" cx="22" cy="22" r="19"></circle>
+          <circle class="score-ring-fill" cx="22" cy="22" r="19" pathLength="100" style="stroke-dashoffset:${100 - pct}"></circle>
+        </svg>
+        <strong class="score-ring-label">${label}</strong>
+      </div>`;
+  }
+
+  function renderWorldTile(t, large) {
+    const typeClass = t.type === "community" ? "tile-community" : "tile-personal";
+    const ring = renderWorldRing(t, large);
+    let detail;
+    if (large && t.type === "community") {
+      detail = renderWorldLeaderboard(t.community);
+    } else if (large && t.type === "personal") {
+      const toGo = numberOrDefault(t.toGo, 0);
+      detail = `<p class="world-tile-detail">${toGo > 0 ? `${escapeHtml(formatPoints(toGo))} to go` : "Goal hit today 🎉"}</p>`;
+    } else {
+      detail = `<span class="world-tile-sub">${t.type === "community" ? "community" : "personal"}</span>`;
+    }
+    // Phase 2 hook: data-world-key is the stable id a drag/reorder handler would move.
+    return `<button type="button" class="world-tile ${typeClass}${large ? " is-large" : ""}" data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(worldTileKey(t))}" aria-label="Open ${escapeHtml(t.name)}">
+        <div class="world-tile-head">
+          ${ring}
+          <strong class="world-tile-name">${escapeHtml(t.name)}</strong>
+        </div>
+        ${detail}
+      </button>`;
+  }
+
+  function renderWorldLeaderboard(community) {
+    // Respect the owner's leaderboard module toggle (defaults to on when unset), like
+    // renderMiniLeaderboard does — never surface standings a community has hidden.
+    const modules = (community && community.analytics && community.analytics.modules) || {};
+    if (modules.leaderboard === false) return `<span class="world-tile-sub">community</span>`;
+    let standings = [];
+    try { standings = communityStandings(community, COMMUNITY_PERIODS[0].id, "points").slice(0, 3); } catch (e) { standings = []; }
+    if (!standings.length) return `<span class="world-tile-sub">community</span>`;
+    const rows = standings.map((m, i) => {
+      const me = m.id === "me";
+      return `<div class="world-lb-row${me ? " is-me" : ""}">
+          <span class="world-lb-rank">${i + 1}</span>
+          <span class="world-lb-name">${me ? "You" : escapeHtml(m.name || "Member")}</span>
+          <span class="world-lb-pts">${escapeHtml(formatPoints(m.today))}</span>
+        </div>`;
+    }).join("");
+    return `<div class="world-lb">${rows}</div>`;
+  }
+
+  // ── Tile taps → open that world via existing handlers (no new detail views) ──
+  function onWorldGridClick(event) {
+    if (event.target.closest("[data-world-add]")) { openAddWorld(); return; }
+    const tile = event.target.closest("[data-world-id]");
+    if (!tile) return;
+    if (tile.dataset.worldType === "community") openWorldCommunity(tile.dataset.worldId);
+    else openWorldPersonal(tile.dataset.worldId);
+  }
+
+  function openWorldCommunity(id) {
+    if (!(state.communities || []).some((c) => c.id === id)) return;
+    state.scoreContext = "community:" + id;
+    saveState();
+    openCommunityFromScore(); // sets selectedCommunityId + community-detail view + renders
+  }
+
+  function openWorldPersonal(id) {
+    if (!(state.systems || []).some((s) => s.id === id)) return;
+    state.scoreContext = "personal";
+    state.trackerSystemId = id;
+    saveState();
+    openAddEntryPage(); // opens that system's surface (guards no-rules with a toast)
+  }
+
+  function openAddWorld() {
+    // Build creates BOTH systems and communities (house rule); land on the Build home.
+    state.activeView = "systems";
+    state.systemEditorOpen = false;
+    state.editingRuleId = "";
+    if (typeof resetBuildHome === "function") resetBuildHome();
+    saveState();
+    render();
+    if (typeof scrollSystemsListToTop === "function") scrollSystemsListToTop();
+  }
+
   function renderDashboard() {
     refreshToday();
     if (!state.trackerSystemId || !state.systems.some((system) => system.id === state.trackerSystemId)) {
       state.trackerSystemId = state.systems[0]?.id || "";
     }
     state.scoreContext = normalizeScoreContextValue(state.scoreContext);
+
+    // Bubble-tile home (Phase 1): the visible Today body. The per-system detail below is
+    // hidden (#dashboardDetail) but still computed — its values feed the Add Entry view.
+    renderWorldGrid();
 
     // Default analytics visibility; updateDashboardComputed() flips these for the
     // action-first empty state (and the no-system branch below leaves them visible).

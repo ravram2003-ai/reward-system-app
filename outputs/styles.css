@@ -8773,3 +8773,66 @@ body.onboarding-locked .coach-panel { display: none; }
 @media (max-width: 560px) {
   .coach-est-grid { grid-template-columns: 1fr; }
 }
+
+/* ── Bubble-tile home (Today) — one tile per world (community / personal system) ── */
+.world-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 4px;
+}
+.world-tile {
+  appearance: none; -webkit-appearance: none;
+  position: relative; width: 100%; font: inherit; text-align: left; cursor: pointer;
+  display: flex; flex-direction: column; gap: 10px;
+  min-height: 116px; padding: 16px;
+  border-radius: 20px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink);
+  transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease;
+}
+.world-tile:hover { transform: translateY(-2px); border-color: var(--line-strong); }
+.world-tile:active { transform: translateY(0); background: var(--soft); }
+.world-tile:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+.world-tile.is-large { grid-column: 1 / -1; min-height: 150px; }
+
+/* Color cue: communities teal, personal purple. */
+.tile-community { border-color: rgba(58, 214, 166, 0.28); background: linear-gradient(160deg, rgba(58, 214, 166, 0.10), var(--surface) 62%); }
+.tile-personal  { border-color: rgba(167, 139, 250, 0.30); background: linear-gradient(160deg, rgba(167, 139, 250, 0.12), var(--surface) 62%); }
+.tile-personal .score-ring-fill { stroke: #a78bfa; }
+
+.world-tile-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.world-tile-name { font-size: 1.05rem; font-weight: 850; color: var(--ink); overflow-wrap: anywhere; line-height: 1.15; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.world-tile.is-large .world-tile-name { font-size: 1.2rem; }
+.world-tile-sub { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.world-tile-detail { margin: 0; color: var(--accent-strong); font-weight: 800; font-size: 0.9rem; }
+.tile-personal .world-tile-detail { color: #c4b5fd; }
+
+/* Tile score ring — reuses .score-ring/.score-ring-* markup from the hero, sized down.
+   Thinner stroke than the base 4 so the smaller rings don't look heavy (the hero does the same). */
+.world-ring { width: 44px; height: 44px; flex: 0 0 44px; }
+.world-ring-lg { width: 52px; height: 52px; flex: 0 0 52px; }
+.world-ring .score-ring-bg, .world-ring .score-ring-fill { stroke-width: 3.5; }
+.world-ring .score-ring-label { display: block; font-size: 0.7rem; font-weight: 850; color: var(--ink); }
+.world-ring-lg .score-ring-label { font-size: 0.8rem; }
+
+/* Mini leaderboard on the big community tile. */
+.world-lb { display: grid; gap: 5px; margin-top: 2px; }
+.world-lb-row { display: flex; align-items: center; gap: 8px; font-size: 0.84rem; }
+.world-lb-rank { width: 15px; color: var(--muted); font-weight: 800; font-variant-numeric: tabular-nums; }
+.world-lb-name { flex: 1 1 auto; min-width: 0; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.world-lb-pts { color: var(--muted); font-weight: 800; font-variant-numeric: tabular-nums; }
+.world-lb-row.is-me, .world-lb-row.is-me .world-lb-name, .world-lb-row.is-me .world-lb-pts { color: var(--accent-strong); }
+
+/* Add-a-world tile. */
+.world-add { align-items: center; justify-content: center; gap: 6px; border-style: dashed; background: transparent; color: var(--muted); }
+.world-add:hover { color: var(--ink); border-color: var(--accent); transform: translateY(-2px); }
+.world-add-plus { font-size: 1.6rem; line-height: 1; color: var(--accent-strong); }
+.world-add-label { font-size: 0.8rem; font-weight: 800; }
+
+@media (min-width: 680px) {
+  .world-tile.is-large { grid-column: span 1; } /* two featured side by side on desktop */
+}
+@media (max-width: 380px) {
+  .world-grid { gap: 10px; }
+  .world-tile { padding: 13px; min-height: 106px; }
+}

@@ -8976,3 +8976,8 @@ body.onboarding-locked .coach-panel { display: none; }
 .bde-aud.active{ color:var(--accent-ink,#04130f); background:var(--accent); }
 .bde-nudge{ margin:0; flex:1; min-width:160px; color:var(--muted); font-size:12px; }
 @media (max-width:420px){ .bde-tweak-ask{ flex-wrap:wrap; } .bde-tweak-input{ flex-basis:100%; } .bde-nudge{ flex-basis:100%; } }
+
+/* ── Coach: grounded answer bubbles + action chips ───────────────────────────── */
+.coach-answer p { margin: 0; }
+.coach-answer .coach-card-actions { justify-content: flex-start; margin-top: 8px; }
+.coach-chip { white-space: nowrap; }

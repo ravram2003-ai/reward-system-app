@@ -9891,7 +9891,9 @@
     // A reply that just redirects an in-flight draft ("all relevant places" / "just the
     // boys") adjusts routing rather than starting a new parse.
     if (coach.draft && coachApplyRoutingReply(text)) return;
-    coachRunParse(text);
+    // Classify intent first (log / question / chat) — questions are answered from local
+    // state, not logged. Logs flow to the existing parse → confirm card.
+    coachClassifyAndRoute(text);
   }
 
   function coachTextWantsAll(text) {
@@ -9961,6 +9963,347 @@
     const label = coachRuleLabel(entry.contextType, entry.contextId, entry.ruleId);
     if (!label) return null;
     return buildLoggableRuleCatalog().find((c) => c.contextId === ctx.contextId && c.contextType === ctx.contextType && c.label === label) || null;
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // COACH ANSWERS — intent routing + GROUNDED, code-computed answers.
+  // The model (coach-chat edge fn) ONLY classifies intent and, for a question, picks which
+  // deterministic helper applies. EVERY figure in an answer is computed here from local
+  // state — the model never produces a number. Questions render as plain bubbles (no confirm
+  // card) with an optional action chip; logging/posting still always confirm. If the edge
+  // call fails we degrade to a keyword classifier so lookups + logging keep working.
+  // ════════════════════════════════════════════════════════════════════════════
+  const METRIC_SOURCE = {
+    steps: ["steps"], sleep: ["sleep-hours", "sleep"],
+    calories: ["active-calories", "calories", "total-calories"], distance: ["distance"],
+  };
+
+  // Names only (no figures) so the router can resolve params like "the boys" / "steps".
+  function coachContextPayload() {
+    const metrics = [], rules = [], seenMetric = {};
+    const scan = (sys) => (sys.rules || []).map(scoring.normalizeRule).forEach((r) => {
+      if (r.label) rules.push(r.label);
+      if (r.dataSource && r.dataSource !== "manual" && r.dataSource !== "calculated" && r.sourceMetric && !seenMetric[r.sourceMetric]) { seenMetric[r.sourceMetric] = true; metrics.push(r.sourceMetric); }
+    });
+    (state.systems || []).forEach((s) => scan(normalizeSystem(s)));
+    (state.communities || []).forEach((c) => scan(normalizeSystem(c.system || { rules: [] })));
+    return {
+      communities: (state.communities || []).map((c) => c.name || "Community").slice(0, 30),
+      systems: (state.systems || []).map((s) => s.title || "System").slice(0, 30),
+      metrics: metrics.slice(0, 20),
+      rules: rules.slice(0, 60),
+    };
+  }
+
+  function coachClassifyAndRoute(text) {
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.coachChat !== "function") {
+      coachFallbackRoute(text, false); // signed out / no router → keyword fallback keeps working
+      return;
+    }
+    coach.busy = true;
+    const thinking = coachSay(`<p class="coach-thinking">One sec…</p>`);
+    Promise.resolve(window.PointwellSignals.coachChat(text, coachContextPayload())).then((res) => {
+      coach.busy = false;
+      if (res.error) { if (thinking) thinking.remove(); coachFallbackRoute(text, true); return; }
+      if (res.intent === "question") { if (thinking) thinking.remove(); coachAnswer(res.query || { id: "overview" }, text); return; }
+      if (res.intent === "chat") {
+        if (thinking) thinking.remove();
+        coachSayText(res.clarify || res.reply || "I'm here — tell me what you did, or ask how today's going.");
+        return;
+      }
+      // intent "log" (default): let coachRunParse render its own "Reading that…" first, THEN
+      // drop the "One sec…" bubble so there's no flicker/gap between the two.
+      coachRunParse(text);
+      if (thinking) thinking.remove();
+    }).catch(() => { if (thinking) thinking.remove(); coach.busy = false; coachFallbackRoute(text, true); });
+  }
+
+  // Degradation: without the router, a simple keyword classifier still answers data
+  // questions from local state and still routes logs to parse-log.
+  function coachLooksLikeQuestion(t) {
+    const s = t.trim().toLowerCase();
+    return /\?\s*$/.test(s) || /^(how|what|whats|what's|when|which|who|why|am i|do i|did i|have i|is |are |where|tell me|show me)/.test(s);
+  }
+
+  function coachKeywordQuery(text) {
+    const t = text.toLowerCase();
+    if (!coachLooksLikeQuestion(t)) return null;
+    if (/\bdid i log|\bhave i (logged|done)|\bhave i hit\b/.test(t)) return { id: "was_logged", rule: text.replace(/.*\b(?:log|logged|done|hit)\b/i, "").replace(/[?]/g, "").trim() };
+    if (/\bstep/.test(t)) return { id: "metric_today", metric: "steps" };
+    if (/\bsleep/.test(t)) return { id: "metric_today", metric: "sleep" };
+    if (/\bcalorie|\bcals?\b/.test(t)) return { id: "metric_today", metric: "calories" };
+    if (/\bdistance|\bmiles?\b|\bkm\b/.test(t)) return { id: "metric_today", metric: "distance" };
+    if (/\brank|\blead\b|\bleading\b|first place|\bwinning\b|\bbehind\b|\bahead\b/.test(t)) return { id: "rank" };
+    if (/\bleft\b|\bunlogged|\bstill (need|have|to)|\bto do\b|\bremaining\b|haven'?t/.test(t)) return { id: "unlogged" };
+    if (/\bweek\b/.test(t)) return { id: "week_summary" };
+    if (/\bpoint|\bscore|\bhow am i|\bhow'?s? (it|my|today|things)|\bprogress\b/.test(t)) return { id: "overview" };
+    return { id: "overview" };
+  }
+
+  function coachFallbackRoute(text, fromError) {
+    const q = coachKeywordQuery(text);
+    if (q) {
+      if (fromError) coachSayText("(Offline — answering from your saved data.)");
+      coachAnswer(q, text);
+      return;
+    }
+    if (coachLooksLikeQuestion(text)) {
+      coachSayText("I can't reach the AI right now, but I can still tell you about your steps, points, rank, or what's left to log — try one of those.");
+      return;
+    }
+    coachRunParse(text); // looks like a log → existing parse flow (has its own offline guard)
+  }
+
+  // ── Answer dispatcher: maps a query id → a deterministic helper. ─────────────
+  function coachAnswer(query, text) {
+    getTodayKey(); // refresh the day key (and todayIso) before any helper reads today's data
+    const id = (query && query.id) || "overview";
+    let res;
+    try {
+      if (id === "metric_today") res = coachAnsMetricToday(query.metric, text);
+      else if (id === "context_score") res = coachAnsContextScore(query.context);
+      else if (id === "rule_progress") res = coachAnsRuleProgress(query.rule, query.context);
+      else if (id === "rank") res = coachAnsRank(query.context);
+      else if (id === "unlogged") res = coachAnsUnlogged();
+      else if (id === "was_logged") res = coachAnsWasLogged(query.rule || query.metric);
+      else if (id === "week_summary") res = coachAnsWeekSummary(query.context);
+      else res = coachAnsOverview();
+    } catch (e) { res = { html: "<p>I hit a snag pulling that up — try again in a sec.</p>" }; }
+    if (!res || !res.html) res = { html: "<p>I don't have that one — ask about your steps, points, rank, or what's left to log.</p>" };
+    coachSay(`<div class="coach-answer">${res.html}${res.chip || ""}</div>`);
+  }
+
+  // ── Resolution helpers (state → context/rule objects) ───────────────────────
+  function coachResolveContext(name) {
+    const raw = String(name || "").trim();
+    if (!raw || /^(active|current|this|here)$/i.test(raw)) {
+      const ctx = getActiveScoreContext();
+      if (ctx.type === "community" && ctx.community) return { type: "community", id: ctx.community.id, name: ctx.community.name || "Community", community: ctx.community };
+      if (ctx.system) return { type: "personal", id: ctx.system.id, name: ctx.system.title || "System", system: ctx.system };
+      return null;
+    }
+    const n = raw.toLowerCase();
+    const matchName = (s) => { const v = (s || "").toLowerCase(); return v === n || (v && (v.indexOf(n) > -1 || n.indexOf(v) > -1)); };
+    const com = (state.communities || []).find((c) => matchName(c.name));
+    if (com) return { type: "community", id: com.id, name: com.name || "Community", community: com };
+    const sys = (state.systems || []).find((s) => matchName(s.title));
+    if (sys) return { type: "personal", id: sys.id, name: sys.title || "System", system: sys };
+    return null;
+  }
+
+  function coachDefaultContext() {
+    const a = coachResolveContext("active");
+    if (a) return a;
+    const c = (state.communities || [])[0];
+    if (c) return { type: "community", id: c.id, name: c.name || "Community", community: c };
+    const s = (state.systems || [])[0];
+    if (s) return { type: "personal", id: s.id, name: s.title || "System", system: s };
+    return null;
+  }
+
+  function coachContextPointsToday(ctx) {
+    const today = getTodayKey();
+    if (ctx.type === "community") {
+      const me = (ctx.community.members || []).find((m) => m.id === "me");
+      return { points: me ? communityMemberPointsOnDate(ctx.community, me, today) : 0, target: communityTarget(ctx.community) };
+    }
+    const system = normalizeSystem(ctx.system);
+    const summary = calculateDashboardSummary(system, todayValuesForSystem(system));
+    return { points: roundScore(summary.total), target: numberOrDefault(summary.target && summary.target.total, 0), summary: summary };
+  }
+
+  // Today's value for a rule: the device's raw total if it's a connected wearable rule,
+  // otherwise the sum of today's logged entries for it.
+  function coachRuleValueToday(rule, contextType, contextId) {
+    if (contextType === "community") return numberOrDefault(communityValuesForMember(contextId, "me", getTodayKey())[rule.id], 0);
+    const sys = (state.systems || []).find((s) => s.id === contextId);
+    return sys ? numberOrDefault(todayValuesForSystem(normalizeSystem(sys))[rule.id], 0) : 0;
+  }
+  function coachRuleValueOrDevice(rule, contextType, contextId) {
+    if (rule.dataSource && rule.dataSource !== "manual" && rule.dataSource !== "calculated" && isSourceConnected(rule.dataSource)) {
+      const d = deviceTotalForRule(rule);
+      if (d != null) return d;
+    }
+    return coachRuleValueToday(rule, contextType, contextId);
+  }
+
+  function coachFindMetricRule(metric) {
+    const keys = METRIC_SOURCE[metric] || [metric];
+    let best = null;
+    const scan = (sys, contextType, contextId, contextName) => (sys.rules || []).map(scoring.normalizeRule).forEach((r) => {
+      if (keys.indexOf(r.sourceMetric) === -1) return;
+      const connected = !!(r.dataSource && r.dataSource !== "manual" && r.dataSource !== "calculated" && isSourceConnected(r.dataSource));
+      const cand = { rule: r, contextType, contextId, contextName, connected };
+      if (connected && (!best || !best.connected)) best = cand;
+      else if (!best) best = cand;
+    });
+    (state.systems || []).forEach((s) => scan(normalizeSystem(s), "personal", s.id, s.title || "System"));
+    (state.communities || []).forEach((c) => scan(normalizeSystem(c.system || { rules: [] }), "community", c.id, c.name || "Community"));
+    return best;
+  }
+
+  function coachFindRuleByLabel(label, contextName) {
+    const n = String(label || "").toLowerCase().trim();
+    if (!n) return null;
+    const ctxFilter = contextName ? coachResolveContext(contextName) : null;
+    const out = [];
+    const scan = (sys, contextType, contextId, cName) => (sys.rules || []).map(scoring.normalizeRule).forEach((r) => {
+      if (!r.label) return;
+      const rl = r.label.toLowerCase();
+      if (rl === n || rl.indexOf(n) > -1 || n.indexOf(rl) > -1) out.push({ rule: r, contextType, contextId, contextName: cName });
+    });
+    (state.systems || []).forEach((s) => scan(normalizeSystem(s), "personal", s.id, s.title || "System"));
+    (state.communities || []).forEach((c) => scan(normalizeSystem(c.system || { rules: [] }), "community", c.id, c.name || "Community"));
+    if (ctxFilter) { const f = out.find((o) => o.contextId === ctxFilter.id); if (f) return f; }
+    return out[0] || null;
+  }
+
+  function coachGuessMetric(text) {
+    const t = String(text || "").toLowerCase();
+    if (/\bstep/.test(t)) return "steps";
+    if (/\bsleep/.test(t)) return "sleep";
+    if (/\bcalorie|\bcals?\b/.test(t)) return "calories";
+    if (/\bdistance|\bmiles?\b|\bkm\b/.test(t)) return "distance";
+    return "";
+  }
+
+  // ── The deterministic answer helpers (ALL figures come from these) ──────────
+  function coachAnsMetricToday(metric, text) {
+    const m = String(metric || "").toLowerCase() || coachGuessMetric(text);
+    if (!m) return { html: `<p>Which one? I can check your steps, sleep, calories, or distance.</p>` };
+    const found = coachFindMetricRule(m);
+    if (!found) return { html: `<p>I don't see a ${escapeHtml(m)} tracker set up — add one in Build (and connect a device) and I'll track it.</p>` };
+    const r = found.rule;
+    const goal = goalAmountForRule(r);
+    const label = sourceMetricLabel(r.dataSource, r.sourceMetric) || r.label || m;
+    let value = found.connected ? deviceTotalForRule(r) : coachRuleValueToday(r, found.contextType, found.contextId);
+    if (value == null) value = syncedContribution(r, { userId: "me", date: todayIso });
+    value = numberOrDefault(value, 0);
+    let line = `You're at <strong>${escapeHtml(formatValue(value))} ${escapeHtml(String(label).toLowerCase())}</strong> today`;
+    if (found.connected) line += ` (via ${escapeHtml(wearableShortLabel(r.dataSource))})`;
+    if (goal > 0) {
+      const toGo = Math.max(goal - value, 0);
+      line += toGo > 0 ? ` — ${escapeHtml(formatValue(toGo))} to go to hit ${escapeHtml(formatValue(goal))}.` : ` — past your ${escapeHtml(formatValue(goal))} goal! 🎉`;
+    } else line += ".";
+    return { html: `<p>${line}</p>` };
+  }
+
+  function coachAnsContextScore(name) {
+    const ctx = coachResolveContext(name) || coachDefaultContext();
+    if (!ctx) return { html: `<p>Set up a reward system in Build and I'll track your points here.</p>` };
+    const { points, target } = coachContextPointsToday(ctx);
+    let line = `You're at <strong>${escapeHtml(formatPoints(points))}${target > 0 ? "/" + escapeHtml(formatPoints(target)) : ""}</strong> points in <strong>${escapeHtml(ctx.name)}</strong> today`;
+    if (target > 0) { const toGo = Math.max(target - points, 0); line += toGo > 0 ? ` — ${escapeHtml(formatPoints(toGo))} to go (${Math.round(progressPercent(points, target))}%).` : ` — goal hit! 🎉`; }
+    else line += ".";
+    return { html: `<p>${line}</p>` };
+  }
+
+  function coachAnsRuleProgress(ruleLabel, contextName) {
+    const found = coachFindRuleByLabel(ruleLabel, contextName);
+    if (!found) return { html: `<p>I couldn't find a “${escapeHtml(ruleLabel || "")}” habit. Ask about one of your tracked rules.</p>` };
+    const r = found.rule, value = coachRuleValueOrDevice(r, found.contextType, found.contextId), goal = goalAmountForRule(r);
+    let line;
+    if (r.simpleStyle === "yesNo") {
+      line = value > 0 ? `<strong>${escapeHtml(r.label)}</strong> is done for today ✓ (${escapeHtml(found.contextName)}).` : `<strong>${escapeHtml(r.label)}</strong> isn't logged yet today (${escapeHtml(found.contextName)}).`;
+    } else {
+      line = `<strong>${escapeHtml(r.label)}</strong>: ${escapeHtml(formatValue(value))}${goal > 0 ? " / " + escapeHtml(formatValue(goal)) : ""} ${escapeHtml(r.unit || "")} today`;
+      if (goal > 0) { const toGo = Math.max(goal - value, 0); line += toGo > 0 ? ` — ${escapeHtml(formatValue(toGo))} ${escapeHtml(r.unit || "")} to go.` : ` — goal hit! 🎉`; }
+      else line += ".";
+    }
+    return { html: `<p>${line}</p>` };
+  }
+
+  function coachAnsRank(contextName) {
+    let ctx = coachResolveContext(contextName);
+    if (!ctx || ctx.type !== "community") {
+      const c = (state.communities || [])[0];
+      if (!c) return { html: `<p>You're not in a community yet — join or create one in Build to see standings.</p>` };
+      ctx = { type: "community", id: c.id, name: c.name || "Community", community: c };
+    }
+    const modules = (ctx.community.analytics && ctx.community.analytics.modules) || {};
+    if (modules.leaderboard === false) return { html: `<p>${escapeHtml(ctx.name)} has its leaderboard turned off, so I can't show standings.</p>` };
+    let standings = [];
+    try { standings = communityStandings(ctx.community, COMMUNITY_PERIODS[0].id, "points"); } catch (e) { standings = []; }
+    const myIndex = standings.findIndex((m) => m.id === "me");
+    if (myIndex === -1) return { html: `<p>No standings to show for ${escapeHtml(ctx.name)} yet today.</p>` };
+    const me = standings[myIndex], rank = myIndex + 1;
+    let line;
+    if (rank === 1) {
+      const second = standings[1];
+      line = second ? `You're <strong>#1</strong> in ${escapeHtml(ctx.name)} today — ${escapeHtml(formatPoints(Math.max(me.today - second.today, 0)))} ahead of #2. 🥇` : `You're <strong>#1</strong> in ${escapeHtml(ctx.name)} today. 🥇`;
+    } else {
+      const gap = Math.max(standings[0].today - me.today, 0);
+      line = `You're <strong>#${rank}</strong> of ${standings.length} in ${escapeHtml(ctx.name)} today — ${escapeHtml(formatPoints(gap))} more point${formatPoints(gap) === "1" ? "" : "s"} to take the lead.`;
+    }
+    return { html: `<p>${line}</p>` };
+  }
+
+  function coachAnsUnlogged() {
+    const items = buildStillToLog();
+    if (!items.length) return { html: `<p>You're all caught up — nothing you usually log is left for today. 🙌</p>` };
+    const names = items.slice(0, 5).map((m) => escapeHtml(m.label)).join(", ") + (items.length > 5 ? `, +${items.length - 5} more` : "");
+    return { html: `<p>Still to log today: ${names}.</p>`, chip: `<div class="coach-card-actions"><button type="button" class="secondary-button small coach-chip" data-coach-answer-action="catchup">Log these</button></div>` };
+  }
+
+  function coachAnsWasLogged(thing) {
+    const n = String(thing || "").toLowerCase().trim();
+    if (!n) return { html: `<p>Log what, exactly? Name a habit or metric and I'll check.</p>` };
+    if (METRIC_SOURCE[n]) {
+      const f = coachFindMetricRule(n);
+      if (f) { const v = numberOrDefault(coachRuleValueOrDevice(f.rule, f.contextType, f.contextId), 0); return { html: `<p>${v > 0 ? `Yes — ${escapeHtml(f.rule.label || n)} shows ${escapeHtml(formatValue(v))} today.` : `No ${escapeHtml(n)} recorded yet today.`}</p>` }; }
+    }
+    const found = coachFindRuleByLabel(n, null);
+    if (!found) return { html: `<p>I couldn't find “${escapeHtml(thing)}” among your habits.</p>` };
+    const logged = ruleHasManualEntryToday(found.contextType, found.contextId, found.rule.id) || numberOrDefault(coachRuleValueOrDevice(found.rule, found.contextType, found.contextId), 0) > 0;
+    const chip = logged ? "" : `<div class="coach-card-actions"><button type="button" class="secondary-button small coach-chip" data-coach-answer-action="log:${escapeHtml(found.contextType + "|" + found.contextId + "|" + found.rule.id)}">Log it</button></div>`;
+    return { html: `<p>${logged ? `Yes — <strong>${escapeHtml(found.rule.label)}</strong> is logged for today ✓` : `Not yet — <strong>${escapeHtml(found.rule.label)}</strong> isn't logged today`} (${escapeHtml(found.contextName)}).</p>`, chip: chip };
+  }
+
+  function coachAnsWeekSummary(contextName) {
+    const ctx = coachResolveContext(contextName) || coachDefaultContext();
+    if (!ctx) return { html: `<p>Set up a system or community first and I'll summarize your week.</p>` };
+    const week = currentWeekDateKeys(), today = getTodayKey();
+    const target = ctx.type === "community" ? communityTarget(ctx.community) : coachContextPointsToday(ctx).target;
+    let daysHit = 0, daysSoFar = 0;
+    const me = ctx.type === "community" ? (ctx.community.members || []).find((m) => m.id === "me") : null;
+    week.forEach((d) => {
+      if (d > today) return;
+      daysSoFar += 1;
+      let pts;
+      if (ctx.type === "community") pts = me ? communityMemberPointsOnDate(ctx.community, me, d) : 0;
+      else { const e = findEntry(d, ctx.id); pts = e ? numberOrDefault(e.total, 0) : 0; }
+      if (target > 0 && pts >= target) daysHit += 1;
+    });
+    let line = `This week in <strong>${escapeHtml(ctx.name)}</strong>: you hit your goal <strong>${daysHit}</strong> of ${daysSoFar} day${daysSoFar === 1 ? "" : "s"} so far.`;
+    return { html: `<p>${line}</p>` };
+  }
+
+  function coachAnsOverview() {
+    const ctx = coachDefaultContext();
+    if (!ctx) return { html: `<p>Set up a reward system in Build and I'll track your day here.</p>` };
+    const { points, target } = coachContextPointsToday(ctx);
+    let line = `In <strong>${escapeHtml(ctx.name)}</strong> you're at <strong>${escapeHtml(formatPoints(points))}${target > 0 ? "/" + escapeHtml(formatPoints(target)) : ""}</strong> points today`;
+    if (target > 0) { const toGo = Math.max(target - points, 0); line += toGo > 0 ? ` (${Math.round(progressPercent(points, target))}%).` : ` — goal hit! 🎉`; }
+    else line += ".";
+    const still = buildStillToLog();
+    let chip = "";
+    if (still.length) { line += ` ${still.length} thing${still.length === 1 ? "" : "s"} you usually log ${still.length === 1 ? "isn't" : "aren't"} in yet.`; chip = `<div class="coach-card-actions"><button type="button" class="secondary-button small coach-chip" data-coach-answer-action="catchup">Log these</button></div>`; }
+    return { html: `<p>${line}</p>`, chip: chip };
+  }
+
+  // Action chips on answer bubbles → run the REAL (confirm-gated) flow, never auto-log.
+  function coachAnswerAction(action) {
+    if (action === "catchup") { coachBehindCatchUp(null); return; }
+    if (action.indexOf("log:") === 0) {
+      const parts = action.slice(4).split("|");
+      const resolved = resolveQuickLogRule(parts[0], parts[1], parts[2]);
+      if (!resolved) { coachSayText("That rule isn't available anymore."); return; }
+      const isYesNo = resolved.rule.simpleStyle === "yesNo";
+      coach.draft = { entries: [{ _id: makeId("qlog"), contextType: parts[0], contextId: parts[1], ruleId: parts[2], isYesNo: isYesNo, amount: isYesNo ? 1 : suggestedEntryAmount(resolved.rule), note: "", confidence: 0.7 }], clars: [], routeAll: false };
+      coach.draftCardEl = null;
+      coachSay(`<p>Sure — set the amount and confirm:</p>`);
+      coachRenderDraftCard();
+    }
   }
 
   function coachRunParse(text) {
@@ -10404,6 +10747,8 @@
   // ── Delegated thread handlers ───────────────────────────────────────────────
   function onCoachThreadClick(event) {
     const t = event.target;
+    const answerAction = t.closest("[data-coach-answer-action]");
+    if (answerAction) { coachAnswerAction(answerAction.dataset.coachAnswerAction); return; }
     const card = () => t.closest(".coach-nudge-card");
     const devLog = t.closest("[data-coach-devlog]");
     if (devLog) { const p = devLog.dataset.coachDevlog.split("|"); coachDeviceLog(p[0], p[1], card(), { post: false }); return; }

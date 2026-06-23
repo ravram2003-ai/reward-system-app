@@ -29,6 +29,11 @@ const CORS = {
 const QUERY_IDS = new Set(["metric_today", "context_score", "rule_progress", "rank", "unlogged", "was_logged", "week_summary", "overview"]);
 const METRICS = new Set(["steps", "sleep", "calories", "distance"]);
 
+// Server-side backstop: even if the model mis-classifies, never answer a health/medical/diet
+// question with tracking data — force it to a plain refusal.
+const MEDICAL = /\b(doctor|medical|prescription|symptom|diagnos|disease|illness|medication|nutritionist|eating disorder|diet plan|lose weight|weight loss|calorie deficit|how many calories should|is it (safe|healthy|ok) to)\b/i;
+const MEDICAL_REPLY = "I can only help with your Pointwell tracking — for health, diet, or medical questions, please talk to a qualified professional.";
+
 const SYSTEM_PROMPT = `You are the ROUTER for Pointwell's "Coach" assistant. Pointwell tracks habits/goals as points. You NEVER compute, estimate, guess, or state ANY number, score, step count, rank, or metric value — the app computes every figure in code from the user's own data. Your ONLY job is to (a) classify the message and (b) for a question, choose which data lookup applies.
 
 Respond with ONLY a single minified JSON object — no prose, no markdown fences:
@@ -134,6 +139,9 @@ Deno.serve(async (req: Request) => {
   const text = str(input.text, 1000);
   if (!text) return jsonResponse({ error: "Say something first." }, 400);
 
+  // Hard refusal for medical/diet questions — don't even ask the model.
+  if (MEDICAL.test(text)) return jsonResponse({ intent: "chat", reply: MEDICAL_REPLY }, 200);
+
   const system = SYSTEM_PROMPT.replace("{{CONTEXT}}", buildContextBlock(input.context));
 
   try {
@@ -152,13 +160,20 @@ Deno.serve(async (req: Request) => {
       console.error("Anthropic error:", resp.status, detail.slice(0, 300));
       return jsonResponse({ error: messageForStatus(resp.status) }, 502);
     }
-    const data = await resp.json();
-    const out = (data?.content || []).filter((b: any) => b?.type === "text").map((b: any) => b.text).join("");
+    const data = await resp.json().catch(() => null);
+    if (!data || !Array.isArray(data.content)) {
+      console.error("Unexpected Anthropic response shape");
+      return jsonResponse({ error: "The AI returned an unexpected response. Please try again." }, 502);
+    }
+    const out = data.content.filter((b: any) => b?.type === "text").map((b: any) => b.text).join("");
     const parsed = extractJson(out);
     if (!parsed || typeof parsed !== "object") {
       return jsonResponse({ error: "The AI returned an unexpected response. Please try again." }, 502);
     }
-    return jsonResponse(sanitizeResult(parsed), 200);
+    // Backstop: if a medical/diet message slipped through as a non-chat intent, refuse.
+    const result = sanitizeResult(parsed);
+    if (result.intent !== "chat" && MEDICAL.test(text)) return jsonResponse({ intent: "chat", reply: MEDICAL_REPLY }, 200);
+    return jsonResponse(result, 200);
   } catch (err: any) {
     console.error("coach-chat failed:", err?.message);
     return jsonResponse({ error: "Couldn't reach the AI service. Please try again." }, 502);

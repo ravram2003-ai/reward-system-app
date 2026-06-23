@@ -9467,16 +9467,18 @@
     coach.busy = true;
     const thinking = coachSay(`<p class="coach-thinking">One sec…</p>`);
     Promise.resolve(window.PointwellSignals.coachChat(text, coachContextPayload())).then((res) => {
-      if (thinking) thinking.remove();
       coach.busy = false;
-      if (res.error) { coachFallbackRoute(text, true); return; }
-      if (res.intent === "question") { coachAnswer(res.query || { id: "overview" }, text); return; }
+      if (res.error) { if (thinking) thinking.remove(); coachFallbackRoute(text, true); return; }
+      if (res.intent === "question") { if (thinking) thinking.remove(); coachAnswer(res.query || { id: "overview" }, text); return; }
       if (res.intent === "chat") {
-        const msg = res.clarify || res.reply || "I'm here — tell me what you did, or ask how today's going.";
-        coachSayText(msg);
+        if (thinking) thinking.remove();
+        coachSayText(res.clarify || res.reply || "I'm here — tell me what you did, or ask how today's going.");
         return;
       }
-      coachRunParse(text); // intent "log" (default) → existing parse → confirm flow (sets its own busy)
+      // intent "log" (default): let coachRunParse render its own "Reading that…" first, THEN
+      // drop the "One sec…" bubble so there's no flicker/gap between the two.
+      coachRunParse(text);
+      if (thinking) thinking.remove();
     }).catch(() => { if (thinking) thinking.remove(); coach.busy = false; coachFallbackRoute(text, true); });
   }
 
@@ -9518,6 +9520,7 @@
 
   // ── Answer dispatcher: maps a query id → a deterministic helper. ─────────────
   function coachAnswer(query, text) {
+    getTodayKey(); // refresh the day key (and todayIso) before any helper reads today's data
     const id = (query && query.id) || "overview";
     let res;
     try {

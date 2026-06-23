@@ -7952,7 +7952,13 @@ img.member-avatar {
 .fab-add:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 3px; }
 /* No FAB over the sign-in / onboarding screens. */
 body.auth-locked .fab-add,
-body.onboarding-locked .fab-add { display: none; }
+body.onboarding-locked .fab-add,
+body.auth-locked .coach-launcher,
+body.onboarding-locked .coach-launcher,
+body.auth-locked .coach-peek,
+body.onboarding-locked .coach-peek,
+body.auth-locked .coach-panel,
+body.onboarding-locked .coach-panel { display: none; }
 /* On narrow screens the FAB must clear the fixed bottom nav (z-index 70, ~84px tall). */
 @media (max-width: 1050px) {
   .fab-add { bottom: calc(94px + env(safe-area-inset-bottom, 0px)); }
@@ -8619,53 +8625,64 @@ body.onboarding-locked .fab-add { display: none; }
 .wearable-prompt-sub { color: var(--muted); font-size: 0.78rem; }
 .wearable-prompt-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
-/* "Since your last check-in" card — per-metric delta + points, with Log all / post / dismiss. */
-.checkin-card { padding: 12px 14px; display: grid; gap: 10px; }
-.checkin-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.checkin-card-head strong { color: var(--ink); font-weight: 800; font-size: 0.92rem; }
-.checkin-card-head .via-source-tag { margin-left: 0; }
-.checkin-rows { display: grid; gap: 8px; }
-.checkin-row { display: flex; align-items: center; gap: 10px; }
-.checkin-row-main { flex: 1 1 auto; min-width: 0; display: grid; gap: 2px; }
-.checkin-row-main strong { color: var(--ink); font-weight: 750; font-size: 0.86rem; overflow-wrap: anywhere; }
-.checkin-row-main span { color: var(--muted); font-size: 0.76rem; }
-.checkin-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
-
-/* "Catch up your day" — source-agnostic: device deltas (checkbox + source badge + log-to
-   selector) and manual still-to-log. Reuses .checkin-card / .point-pill / .via-source-tag. */
-.catchup-card { max-width: 460px; }
-.catchup-section { display: grid; gap: 7px; }
-.catchup-section-label {
-  font-size: 0.62rem; font-weight: 850; letter-spacing: 0.06em; text-transform: uppercase;
-  color: var(--muted);
+/* ── Coach (AI chat) — floating launcher + pop-out panel ─────────────────────── */
+/* Bottom-left launcher (mirrors the bottom-right "+" FAB, in a calmer accent-soft fill). */
+.coach-launcher {
+  position: fixed; left: 20px; bottom: 24px; z-index: 80;
+  width: 56px; height: 56px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent-strong);
+  border: 1px solid var(--accent); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
 }
-.catchup-row { display: flex; align-items: flex-start; gap: 10px; }
-.catchup-check { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--accent); flex-shrink: 0; }
-.catchup-row-main { flex: 1 1 auto; min-width: 0; display: grid; gap: 3px; }
-.catchup-row-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.catchup-row-title strong { color: var(--ink); font-weight: 750; font-size: 0.86rem; overflow-wrap: anywhere; }
-.catchup-row-title .via-source-tag { margin-left: 0; }
-.catchup-row-main > span { color: var(--muted); font-size: 0.76rem; }
-.catchup-row-context { margin-top: 1px; }
-.catchup-context {
-  max-width: 100%; height: 30px; padding: 0 8px; font-size: 0.76rem;
-  color: var(--ink); background: var(--field-bg); border: 1px solid var(--line); border-radius: 8px;
+.coach-launcher.has-nudges { background: var(--accent); color: var(--accent-ink); }
+.coach-launcher-badge {
+  position: absolute; top: -2px; right: -2px; min-width: 19px; height: 19px;
+  border-radius: 10px; padding: 0 5px; background: var(--warm); color: var(--accent-ink);
+  font-size: 0.72rem; font-weight: 800; display: flex; align-items: center; justify-content: center;
+  border: 2px solid var(--soft);
 }
-.catchup-context-name { color: var(--accent-strong); font-size: 0.74rem; font-weight: 700; }
-.catchup-row-context { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.catchup-log-to { color: var(--muted); font-size: 0.72rem; }
-.catchup-row-manual { align-items: center; }
-.catchup-row-manual .catchup-row-main strong { font-size: 0.86rem; color: var(--ink); }
-.catchup-row-conflict .catchup-row-main > span { color: var(--warm); }
-.catchup-conflict-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
-
-/* ── Coach (AI chat) ───────────────────────────────────────────────────────── */
-.header-coach-btn svg { color: var(--accent-strong); }
-.coach-shell { display: flex; flex-direction: column; gap: 12px; }
+/* The class display rules above override the [hidden] UA style, so guard it explicitly. */
+.coach-launcher-badge[hidden], .coach-peek[hidden], .coach-panel[hidden], .coach-icon-btn[hidden] { display: none; }
+/* Proactive peek bubble(s) that auto-pop above the launcher, then collapse to the badge. */
+.coach-peek {
+  position: fixed; left: 20px; bottom: 92px; z-index: 80;
+  width: min(280px, calc(100vw - 40px)); display: flex; flex-direction: column; gap: 8px;
+}
+.coach-peek-bubble {
+  text-align: left; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 14px; border-bottom-left-radius: 4px; padding: 10px 11px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 3px; color: var(--ink);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+}
+.coach-peek-head { font-size: 0.72rem; color: var(--accent-strong); font-weight: 800; }
+.coach-peek-text { font-size: 0.84rem; color: var(--ink); }
+.coach-peek-x {
+  align-self: flex-start; background: var(--surface); border: 1px solid var(--line);
+  color: var(--muted); width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+}
+/* Pop-out chat panel anchored bottom-left, over the current screen. */
+.coach-panel {
+  position: fixed; left: 20px; bottom: 24px; z-index: 90;
+  width: 380px; max-width: calc(100vw - 40px); height: min(620px, calc(100vh - 48px));
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--soft); border: 1px solid var(--line-strong); border-radius: 18px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+}
+.coach-panel-head {
+  display: flex; align-items: center; gap: 8px; padding: 12px 14px;
+  border-bottom: 1px solid var(--line); background: var(--surface);
+}
+.coach-panel-title { display: flex; align-items: center; gap: 7px; font-weight: 800; color: var(--ink); }
+.coach-panel-title svg { color: var(--accent-strong); }
+.coach-panel-close {
+  margin-left: auto; background: transparent; border: none; color: var(--muted);
+  font-size: 1.05rem; cursor: pointer; width: 30px; height: 30px; border-radius: 8px;
+}
+.coach-panel-close:hover { background: var(--field-bg); color: var(--ink); }
 .coach-thread {
-  display: flex; flex-direction: column; gap: 10px;
-  min-height: 300px; max-height: calc(100vh - 320px);
-  overflow-y: auto; padding: 8px 2px;
+  flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px;
+  overflow-y: auto; padding: 12px;
 }
 .coach-bubble { max-width: 92%; }
 .coach-bubble.theirs { align-self: flex-start; }
@@ -8677,21 +8694,27 @@ body.onboarding-locked .fab-add { display: none; }
 
 .coach-input-row {
   display: flex; align-items: center; gap: 8px;
-  border-top: 1px solid var(--line); padding-top: 10px;
+  border-top: 1px solid var(--line); padding: 10px 12px 12px; background: var(--surface);
 }
 .coach-input {
-  flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 10px 12px;
+  flex: 1 1 auto; min-width: 0; min-height: 42px; padding: 9px 12px;
   border: 1px solid var(--line); border-radius: 12px;
   background: var(--field-bg); color: var(--ink); font: inherit;
 }
 .coach-input:focus { outline: none; border-color: var(--accent); }
 .coach-icon-btn {
-  width: 40px; height: 40px; flex: 0 0 40px; border-radius: 50%;
-  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  width: 38px; height: 38px; flex: 0 0 38px; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--field-bg); color: var(--ink);
   display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .coach-icon-btn.is-recording { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent); }
-.coach-send { flex: 0 0 auto; }
+.coach-send { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+/* Proactive nudge cards (device increment / conflict / behind-a-habit). */
+.coach-nudge-card { border: 1px solid var(--accent); border-radius: 12px; padding: 11px 12px; background: var(--surface); }
+.coach-nudge-card.is-done { opacity: 0.55; border-color: var(--line); }
+.coach-nudge-head { font-size: 0.74rem; color: var(--muted); display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap; }
+.coach-nudge-sub { font-size: 0.8rem; color: var(--accent-strong); }
 
 /* Cards inside coach bubbles (confirm / post / estimate) */
 .coach-card { display: flex; flex-direction: column; gap: 10px; }
@@ -8737,10 +8760,15 @@ body.onboarding-locked .fab-add { display: none; }
 .coach-est-items { margin: 0; color: var(--ink); }
 .coach-est-note, .coach-est-disclaim { margin: 0; color: var(--muted); font-size: 0.85rem; }
 
-@media (max-width: 720px) {
-  /* A viewport fraction avoids the fixed-subtraction trap (mobile header height varies);
-     min-height stays modest so the input row is never pushed off-screen. */
-  .coach-thread { min-height: 200px; max-height: 58vh; }
+@media (max-width: 1050px) {
+  /* Lift above the bottom tab bar, exactly like the "+" FAB does on narrow screens. */
+  .coach-launcher { bottom: calc(94px + env(safe-area-inset-bottom, 0px)); }
+  .coach-peek { left: 16px; bottom: calc(160px + env(safe-area-inset-bottom, 0px)); }
+  .coach-panel {
+    left: 8px; right: 8px; width: auto; max-width: none;
+    bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+    height: min(72vh, calc(100vh - 180px));
+  }
 }
 @media (max-width: 560px) {
   .coach-est-grid { grid-template-columns: 1fr; }

@@ -30,23 +30,18 @@ const ALLOWED_MEDIA = new Set(["image/jpeg", "image/png", "image/webp", "image/g
 // amplify cost (the client already caps photos at 5MB before upload).
 const MAX_IMAGE_CHARS = 9_000_000;
 
-const SYSTEM_PROMPT = `You estimate the nutrition of a meal from a single photo. You are a rough estimator, not a scale — give your best guess for a typical serving of what you see.
+const SYSTEM_PROMPT = `You analyze ONE photo a user attached in a habit/goal tracker and return a structured, ROUGH estimate they will review and edit. First classify the image into "kind":
 
-Return ONE estimate for the WHOLE plate/meal in the image:
-- "calories": total kilocalories (number).
-- "protein": grams of protein (number).
-- "carbs": grams of carbohydrate (number).
-- "fat": grams of fat (number).
-- "items": a short array of the main foods you recognize (e.g. ["grilled chicken","rice","broccoli"]). Keep it to at most 6 short strings.
-- "note": one short sentence on what you assumed (e.g. "Assumed a ~200g chicken breast and 1 cup of rice."). Keep it under 160 characters.
-- "confidence": 0-1, how sure you are. Lower it when the portion size or ingredients are unclear, or the photo is not food.
+- "food": a meal, snack, or drink. Estimate for the whole item: "calories" (kcal), "protein", "carbs", "fat" (grams), and "items" (up to 6 short food names).
+- "workout": a cardio-machine display (treadmill/bike/rower), a fitness-app or smartwatch workout summary, or a photo clearly showing a completed activity. Set "activity" (e.g. "Run","Walk","Cycling","Lift"), "duration" (minutes), "distance" (number) with "distanceUnit" ("mi" or "km"), and "calories" (kcal) — fill in the ones you can read, use 0 for the rest.
+- "other": anything else. Set "note" to a one-line description of what you see, and "suggestion" to a short idea of what habit it might count toward (e.g. "Looks like a yoga session — log it to a mindfulness rule?").
 
-If the image is clearly NOT food, set every number to 0, items to [], confidence to 0, and note to "No food detected in the photo.".
+Always set "confidence" 0-1 (lower it when values/portions are unclear). If the photo is unreadable or you can't tell, set kind "other", confidence 0, and note "I couldn't make out that photo.". These are ROUGH estimates — never claim precision, and never invent a number you cannot actually see (use 0).
 
-The user may add a short text hint about the meal — use it to refine the estimate.
+The user may add a short text hint — use it to refine the estimate.
 
 OUTPUT: respond with ONLY a single minified JSON object — no prose, no markdown fences:
-{"calories":number,"protein":number,"carbs":number,"fat":number,"items":[string],"note":string,"confidence":number}`;
+{"kind":"food"|"workout"|"other","calories":number,"protein":number,"carbs":number,"fat":number,"items":[string],"activity":string,"duration":number,"distance":number,"distanceUnit":"mi"|"km","note":string,"suggestion":string,"confidence":number}`;
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
@@ -85,13 +80,20 @@ function sanitizeResult(parsed: any) {
     .map((it: unknown) => String(it ?? "").trim().slice(0, 60))
     .filter((it: string) => it.length > 0)
     .slice(0, 6);
+  const kind = parsed?.kind === "food" || parsed?.kind === "workout" ? parsed.kind : "other";
   return {
+    kind,
     calories: nonNegNumber(parsed?.calories, 0),
     protein: nonNegNumber(parsed?.protein, 1),
     carbs: nonNegNumber(parsed?.carbs, 1),
     fat: nonNegNumber(parsed?.fat, 1),
     items,
+    activity: String(parsed?.activity ?? "").trim().slice(0, 40),
+    duration: nonNegNumber(parsed?.duration, 0),
+    distance: nonNegNumber(parsed?.distance, 2),
+    distanceUnit: parsed?.distanceUnit === "km" ? "km" : "mi",
     note: String(parsed?.note ?? "").trim().slice(0, 200),
+    suggestion: String(parsed?.suggestion ?? "").trim().slice(0, 160),
     confidence: clamp01(parsed?.confidence),
   };
 }

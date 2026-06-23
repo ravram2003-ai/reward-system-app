@@ -8981,3 +8981,17 @@ body.onboarding-locked .coach-panel { display: none; }
 .coach-answer p { margin: 0; }
 .coach-answer .coach-card-actions { justify-content: flex-start; margin-top: 8px; }
 .coach-chip { white-space: nowrap; }
+
+/* ── Coach: proactive on/off toggle (Part B opt-out) ─────────────────────────── */
+.coach-proactive-toggle {
+  margin-left: auto; width: 30px; height: 30px; border-radius: 8px;
+  background: transparent; border: none; color: var(--accent-strong); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.coach-proactive-toggle:hover { background: var(--field-bg); }
+.coach-proactive-toggle.is-off { color: var(--muted); position: relative; }
+.coach-proactive-toggle.is-off::after {
+  content: ""; position: absolute; left: 5px; right: 5px; top: 50%; height: 2px;
+  background: var(--muted); transform: rotate(-45deg);
+}
+.coach-panel-head .coach-panel-close { margin-left: 4px; }

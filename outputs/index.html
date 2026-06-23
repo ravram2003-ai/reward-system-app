@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260626-buildmerge">
+    <link rel="stylesheet" href="styles.css?v=20260623-coachsmart">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -1437,6 +1437,9 @@
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.6 4.2L18 8.8l-4.4 1.6L12 14.6l-1.6-4.2L6 8.8l4.4-1.6L12 3z"/><path d="M18.5 14l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7.7-1.9z"/></svg>
             Coach <span class="quick-log-ai-tag">AI</span>
           </span>
+          <button class="coach-proactive-toggle" id="coachProactiveToggle" type="button" aria-pressed="true" title="Proactive nudges on — tap to turn off">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          </button>
           <button class="coach-panel-close" id="coachPanelClose" type="button" aria-label="Close Coach">✕</button>
         </div>
         <div class="coach-thread" id="coachThread" aria-live="polite"></div>
@@ -1461,13 +1464,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260626-buildmerge"></script>
-    <script src="auth-helpers.js?v=20260626-buildmerge"></script>
-    <script src="scoring.js?v=20260626-buildmerge"></script>
-    <script src="insight.js?v=20260626-buildmerge"></script>
-    <script src="signals.js?v=20260626-buildmerge"></script>
-    <script src="wearables.js?v=20260626-buildmerge"></script>
-    <script type="module" src="auth.js?v=20260626-buildmerge"></script>
-    <script src="app.js?v=20260626-buildmerge"></script>
+    <script src="supabase-config.js?v=20260623-coachsmart"></script>
+    <script src="auth-helpers.js?v=20260623-coachsmart"></script>
+    <script src="scoring.js?v=20260623-coachsmart"></script>
+    <script src="insight.js?v=20260623-coachsmart"></script>
+    <script src="signals.js?v=20260623-coachsmart"></script>
+    <script src="wearables.js?v=20260623-coachsmart"></script>
+    <script type="module" src="auth.js?v=20260623-coachsmart"></script>
+    <script src="app.js?v=20260623-coachsmart"></script>
   </body>
 </html>

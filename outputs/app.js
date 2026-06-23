@@ -283,6 +283,9 @@
     wearableLastSeen: {},  // { provider: { metric: { value, dateKey } } } — for sync deltas
     syncProgress: {},      // { dateKey: { ruleId: { logged, baseline } } } — incremental sync
     catchUp: null,         // the pending "Catch up your day" card
+    coachProfile: null,    // code-computed behavioral profile (streaks/usual-times/trends/motivation)
+    coachLearning: { proactiveOff: false, weekKey: "", byType: {}, byHour: {}, shownDay: "", shownCount: 0 }, // nudge feedback loop
+    coachLastPeekSig: "",  // last proactively-peeked nudge signature (no re-nag across reloads)
     systems: [
       {
         id: "life-core",
@@ -2706,6 +2709,7 @@
       "coachPeek",
       "coachPanel",
       "coachPanelClose",
+      "coachProactiveToggle",
       "coachThread",
       "coachForm",
       "coachInput",
@@ -6074,6 +6078,39 @@
     return note ? `Done — ${note}` : `Done — updated to ${plural(count, "rule")}.`;
   }
 
+  // A precise "what actually changed" confirmation from a before/after rule diff (by label),
+  // so the user sees their edits were kept — e.g. "Added 'Stretching' · kept your other 5 rules".
+  function refineRuleKey(r) { return String((r && r.label) || "").trim().toLowerCase(); }
+  function refineDiffSummary(before, after) {
+    if (!before || !after || !Array.isArray(before.rules) || !Array.isArray(after.rules)) return "";
+    const beforeByKey = {}, afterByKey = {};
+    before.rules.forEach((r) => { const k = refineRuleKey(r); if (k) beforeByKey[k] = r; });
+    after.rules.forEach((r) => { const k = refineRuleKey(r); if (k) afterByKey[k] = r; });
+    const added = after.rules.filter((r) => { const k = refineRuleKey(r); return k && !beforeByKey[k]; }).map((r) => r.label);
+    const removed = before.rules.filter((r) => { const k = refineRuleKey(r); return k && !afterByKey[k]; }).map((r) => r.label);
+    const changed = [];
+    let kept = 0;
+    after.rules.forEach((r) => {
+      const k = refineRuleKey(r); if (!k || !beforeByKey[k]) return;
+      const b = beforeByKey[k];
+      const diff = numberOrDefault(r.points, 0) !== numberOrDefault(b.points, 0)
+        || numberOrDefault(r.goal, 0) !== numberOrDefault(b.goal, 0)
+        || numberOrDefault(r.every, 0) !== numberOrDefault(b.every, 0)
+        || String(r.style || "") !== String(b.style || "");
+      if (diff) changed.push(r.label); else kept += 1;
+    });
+    const list = (arr) => arr.slice(0, 3).map((x) => `“${String(x)}”`).join(", ") + (arr.length > 3 ? ` +${arr.length - 3}` : "");
+    const parts = [];
+    if (added.length) parts.push(`Added ${list(added)}`);
+    if (removed.length) parts.push(`Removed ${list(removed)}`);
+    if (changed.length) parts.push(`Updated ${list(changed)}`);
+    if (!parts.length) {
+      if (String(before.title || "") !== String(after.title || "") && after.title) return `Done — renamed it to “${after.title}” · kept your ${plural(kept, "rule")}.`;
+      return ""; // nothing structural detected → caller falls back to the AI's own note
+    }
+    return `Done — ${parts.join("; ")}${kept ? ` · kept your other ${plural(kept, "rule")}` : ""}.`;
+  }
+
   // Reject anything that isn't the exact shape with sane values, so we NEVER apply
   // broken AI data to the draft.
   function validateAiSystem(system) {
@@ -6164,15 +6201,18 @@
     saveState();
     renderSystems(); // shows the user message + a "Thinking…" line
     try {
-      const current = state.aiDraftRawSystem || appSystemToAiShape(state.aiDraftSystem);
+      // Base every refine on the LIVE draft (which includes the user's manual edits) — never a
+      // stale cached AI response, which would silently discard those edits ("reverts to the same thing").
+      const current = appSystemToAiShape(state.aiDraftSystem);
       const history = (state.aiDraftChat || []).slice(-8).map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: m.text }));
-      const res = await window.PointwellSignals.generateRules({ mode: "refine", current: current, instruction: text, history: history });
+      const res = await window.PointwellSignals.generateRules({ mode: "refine", current: current, instruction: text, history: history, kind: draftAudience });
       if (res.error || !res.system || !validateAiSystem(res.system)) {
         pushAiChat("ai", "Couldn't apply that — the AI response wasn't valid, so nothing changed. Try rephrasing.");
       } else {
         state.aiDraftRawSystem = res.system;
         state.aiDraftSystem = buildAiDraftFromAiSystem(res.system, state.aiDraftInputs || readAiFormInputs(), state.aiDraftAdjustments || blankAiAdjustments());
-        pushAiChat("ai", refineConfirmation(res.system));
+        // Confirm what ACTUALLY changed (before/after diff), falling back to the AI's own note.
+        pushAiChat("ai", refineDiffSummary(current, res.system) || refineConfirmation(res.system));
       }
     } catch (e) {
       pushAiChat("ai", "Something went wrong reaching the AI — your system is unchanged.");
@@ -8455,7 +8495,10 @@
       showToast(`Reconnect ${wearableShortLabel(provider)} to keep syncing.`);
     }
     saveState();
-    if (!options.deferRender) render();
+    // Re-run catch-up after EACH successful standalone sync (not just login/batch), so metrics
+    // that sync LATER (e.g. Fitbit sleep after waking) still surface "you slept Xh — log it?".
+    // The batch path passes deferRender and runs catch-up once itself.
+    if (!options.deferRender) { if (changed) runCatchUp(); else render(); }
     return changed;
   }
 
@@ -9581,6 +9624,8 @@
     els.coachPanel.classList.add("is-open");
     if (els.coachLauncher) els.coachLauncher.setAttribute("aria-expanded", "true");
     coachHidePeek();
+    coachProfileFresh();   // refresh the behavioral profile (streaks/trends/usual times) for tailored answers
+    renderCoachProactiveToggle();
     coachGreet();
     coachRenderNudges();   // drop any pending proactive nudges into the thread
     renderCoachLauncher(); // clears the badge now that you're looking
@@ -9601,7 +9646,7 @@
   function renderCoachLauncher() {
     if (!els.coachLauncherBadge) return;
     const n = coachActiveNudgeCount();
-    const show = !coach.panelOpen && n > 0;
+    const show = !coach.panelOpen && n > 0 && !coachLearning().proactiveOff; // opt-out hides proactive surfacing
     els.coachLauncherBadge.hidden = !show;
     els.coachLauncherBadge.textContent = n > 9 ? "9+" : String(n);
     if (els.coachLauncher) els.coachLauncher.classList.toggle("has-nudges", show);
@@ -9613,6 +9658,166 @@
     return (c.devices || []).length + ((c.manual || []).length ? 1 : 0);
   }
 
+  // ════════════════════════════════════════════════════════════════════════════
+  // PART B — SMART + LEARNING COACH (all numbers computed in CODE).
+  // (1) A per-user BEHAVIORAL PROFILE (streaks, usual log times, weekly trends, motivation
+  //     style) computed from local history and persisted; used to tailor nudges + answers.
+  // (2) A FEEDBACK LOOP: each proactive nudge's outcome (shown/acted/dismissed) is recorded
+  //     by TYPE + time-of-day, decayed weekly; types the user keeps dismissing are suppressed,
+  //     with a daily frequency cap. Interpretable thresholds, not a black box.
+  // (3) An easy OFF switch (state.coachLearning.proactiveOff). Always dismissable; never nags.
+  // ════════════════════════════════════════════════════════════════════════════
+  function coachLearning() {
+    state.coachLearning = state.coachLearning || { proactiveOff: false, weekKey: "", byType: {}, byHour: {}, shownDay: "", shownCount: 0 };
+    return state.coachLearning;
+  }
+  function coachHourBucket(h) { return h < 6 ? "night" : h < 12 ? "morning" : h < 18 ? "afternoon" : "evening"; }
+  function coachNowHour() { try { return new Date().getHours(); } catch (e) { return 12; } }
+  function coachWeekKey() { const wk = currentWeekDateKeys(); return (wk && wk.length) ? wk[0] : getTodayKey(); }
+  function coachDecayCounters(map) {
+    Object.keys(map || {}).forEach((k) => {
+      const c = map[k];
+      c.shown = Math.round((c.shown || 0) * 0.5); c.acted = Math.round((c.acted || 0) * 0.5); c.dismissed = Math.round((c.dismissed || 0) * 0.5);
+      if ((c.shown || 0) < 1 && (c.acted || 0) < 1 && (c.dismissed || 0) < 1) delete map[k];
+    });
+  }
+  // Record a proactive-nudge outcome, tagged by type + time-of-day. Weekly decay keeps it recent.
+  function coachLearnRecord(type, outcome) {
+    if (!type || ["shown", "acted", "dismissed"].indexOf(outcome) === -1) return;
+    const L = coachLearning();
+    const wk = coachWeekKey();
+    if (L.weekKey !== wk) { L.weekKey = wk; coachDecayCounters(L.byType); coachDecayCounters(L.byHour); }
+    const bucket = coachHourBucket(coachNowHour());
+    const bump = (map, key) => { const c = map[key] = map[key] || { shown: 0, acted: 0, dismissed: 0 }; c[outcome] = (c[outcome] || 0) + 1; };
+    bump(L.byType, type);
+    bump(L.byHour, type + "@" + bucket);
+    saveState();
+  }
+  // Suppress a nudge TYPE the user repeatedly dismisses (overall, or at this time of day).
+  function coachShouldPeekType(type) {
+    const L = coachLearning();
+    const t = L.byType[type];
+    if (t && t.shown >= 4 && t.dismissed / Math.max(t.shown, 1) >= 0.6) return false;
+    const h = L.byHour[type + "@" + coachHourBucket(coachNowHour())];
+    if (h && h.shown >= 3 && h.dismissed / Math.max(h.shown, 1) >= 0.7) return false;
+    return true;
+  }
+  // Proactive peeks allowed now? (off switch + at most 3 auto-peeks/day.)
+  function coachProactiveAllowed() {
+    const L = coachLearning();
+    if (L.proactiveOff) return false;
+    const today = getTodayKey();
+    if (L.shownDay !== today) { L.shownDay = today; L.shownCount = 0; saveState(); } // persist the daily reset even if no peek follows
+    return L.shownCount < 3;
+  }
+  function coachNotePeekShown() {
+    const L = coachLearning();
+    const today = getTodayKey();
+    if (L.shownDay !== today) { L.shownDay = today; L.shownCount = 0; }
+    L.shownCount += 1;
+    saveState();
+  }
+  function coachToggleProactive() {
+    const L = coachLearning();
+    L.proactiveOff = !L.proactiveOff;
+    saveState();
+    if (L.proactiveOff) coachHidePeek();
+    renderCoachLauncher();
+    renderCoachProactiveToggle();
+    coachSayText(L.proactiveOff ? "Proactive nudges are off — I'll stay quiet until you ask. Turn them back on anytime." : "Proactive nudges are on — I'll surface timely catch-ups.");
+  }
+  function renderCoachProactiveToggle() {
+    if (!els.coachProactiveToggle) return;
+    const off = coachLearning().proactiveOff;
+    els.coachProactiveToggle.classList.toggle("is-off", off);
+    els.coachProactiveToggle.setAttribute("aria-pressed", off ? "false" : "true");
+    els.coachProactiveToggle.title = off ? "Proactive nudges off — tap to turn on" : "Proactive nudges on — tap to turn off";
+  }
+
+  // ── Behavioral profile (streaks, usual log times, weekly trends, motivation) ─
+  function coachHourOf(iso) { try { const h = new Date(iso).getHours(); return Number.isFinite(h) ? h : null; } catch (e) { return null; } }
+  function coachUsualHourForRule(ruleId) {
+    const hours = [];
+    (state.quickEntries || []).forEach((e) => { if (e.ruleId === ruleId) { const h = coachHourOf(e.createdAt || e.timestamp || e.date); if (h != null) hours.push(h); } });
+    (state.communityEntries || []).forEach((e) => { if (e.ruleId === ruleId && e.userId === "me") { const h = coachHourOf(e.timestamp || e.createdAt || e.date); if (h != null) hours.push(h); } });
+    if (!hours.length) return null;
+    const counts = {}; let best = hours[0], bestN = 0;
+    hours.forEach((h) => { counts[h] = (counts[h] || 0) + 1; if (counts[h] > bestN) { bestN = counts[h]; best = h; } });
+    return best;
+  }
+  function coachContextStreak(ctx) {
+    let target, getPts;
+    if (ctx.type === "community") {
+      target = communityTarget(ctx.community);
+      const me = (ctx.community.members || []).find((m) => m.id === "me");
+      getPts = (d) => me ? communityMemberPointsOnDate(ctx.community, me, d) : 0;
+    } else {
+      const sys = normalizeSystem(ctx.system);
+      target = numberOrDefault(calculateTargetSummary(sys).total, 0);
+      getPts = (d) => { const e = findEntry(d, ctx.id); return e ? numberOrDefault(e.total, 0) : 0; };
+    }
+    if (!(target > 0)) return 0;
+    let streak = 0;
+    for (let i = 0; i < 30; i++) {
+      const hit = getPts(offsetDate(-i)) >= target;
+      if (i === 0 && !hit) continue; // today may be unfinished — don't count it against the streak
+      if (hit) streak += 1; else break;
+    }
+    return streak;
+  }
+  function coachMetricTrend(ruleId, systemId) {
+    const avg = (start) => {
+      let sum = 0, n = 0;
+      for (let i = 0; i < 7; i++) { const e = findEntry(offsetDate(start - i), systemId); if (e && e.values && e.values[ruleId] != null) { sum += numberOrDefault(e.values[ruleId], 0); n += 1; } }
+      return n ? sum / n : null;
+    };
+    const thisWk = avg(0), lastWk = avg(-7);
+    if (thisWk == null || lastWk == null || lastWk === 0) return "flat";
+    const change = (thisWk - lastWk) / lastWk;
+    return change > 0.08 ? "up" : change < -0.08 ? "down" : "flat";
+  }
+  function coachMotivationStyle() {
+    const L = coachLearning();
+    const dev = L.byType.device || {}, behind = L.byType.behind || {};
+    const competition = (dev.acted || 0) + ((state.communities || []).length ? 1 : 0);
+    const consistency = (behind.acted || 0) + 1; // slight default lean to consistency
+    if (competition > consistency + 1) return "competition";
+    if (consistency > competition + 1) return "consistency";
+    return "unknown";
+  }
+  function coachBuildProfile() {
+    const profile = { builtAt: getTodayKey(), contexts: {}, rules: {}, trends: {}, motivation: coachMotivationStyle() };
+    (state.systems || []).forEach((s) => { profile.contexts["personal:" + s.id] = { name: s.title || "System", streak: coachContextStreak({ type: "personal", id: s.id, system: s }) }; });
+    (state.communities || []).forEach((c) => { profile.contexts["community:" + c.id] = { name: c.name || "Community", streak: coachContextStreak({ type: "community", id: c.id, community: c }) }; });
+    loggableRuleTargets().forEach((t) => {
+      profile.rules[t.contextId + ":" + t.ruleId] = { label: t.label, usualHour: coachUsualHourForRule(t.ruleId) };
+      if (t.contextType === "personal" && t.sourceMetric) {
+        const dir = coachMetricTrend(t.ruleId, t.contextId);
+        if (dir !== "flat") profile.trends[t.sourceMetric] = { dir: dir, label: t.label };
+      }
+    });
+    state.coachProfile = profile;
+    saveState();
+    return profile;
+  }
+  function coachProfileFresh() {
+    if (!state.coachProfile || state.coachProfile.builtAt !== getTodayKey()) return coachBuildProfile();
+    return state.coachProfile;
+  }
+  function coachBestStreak() {
+    const prof = coachProfileFresh();
+    let best = null;
+    Object.keys(prof.contexts || {}).forEach((k) => { const c = prof.contexts[k]; if (c.streak >= 2 && (!best || c.streak > best.streak)) best = c; });
+    return best;
+  }
+  function coachTrendLine() {
+    const prof = coachProfileFresh();
+    const keys = Object.keys(prof.trends || {});
+    if (!keys.length) return "";
+    const t = prof.trends[keys[0]];
+    return `${t.dir === "up" ? "📈" : "📉"} ${escapeHtml(t.label)} ${t.dir} vs last week`;
+  }
+
   // ── Proactive nudges: device increments + behind-a-habit, surfaced via Coach ─
   // state.catchUp (built by buildCatchUp after a sync / refresh) is the nudge source.
   // We only PEEK when there's genuinely something new (signature changed); otherwise the
@@ -9621,11 +9826,18 @@
   // habit is still empty. Never just for opening the app.
   function coachIngestNudges() {
     coach.posted = coach.posted || {};
+    if (!coach._peekSigSeeded) { coach.lastPeekSig = state.coachLastPeekSig || coach.lastPeekSig; coach._peekSigSeeded = true; }
     if (coach.panelOpen) { coachRenderNudges(); renderCoachLauncher(); return; }
     renderCoachLauncher();
     if (!coachActiveNudgeCount()) { coachHidePeek(); return; }
+    if (!coachProactiveAllowed()) return; // off switch OR daily cap reached → badge only, no peek
     const sig = coachNudgeSignature();
-    if (sig && sig !== coach.lastPeekSig) { coach.lastPeekSig = sig; coachShowPeek(); }
+    if (sig && sig !== coach.lastPeekSig) {
+      coach.lastPeekSig = sig;
+      state.coachLastPeekSig = sig; // persist so a reload doesn't re-nag the same set
+      saveState();
+      coachShowPeek();
+    }
   }
 
   function coachNudgeSignature() {
@@ -9640,22 +9852,33 @@
     if (!els.coachPeek) return;
     const c = state.catchUp;
     if (!c) return;
+    const best = coachBestStreak();
+    const motivation = coachProfileFresh().motivation;
     const lines = [];
     (c.devices || []).forEach((d) => {
       if (lines.length >= 2) return;
-      if (d.unknown) lines.push({ device: true, head: d.sourceLabel, text: `${d.label}: you logged ${formatValue(d.conflictMine)}, device shows ${formatValue(d.current)}` });
-      else lines.push({ device: true, head: d.sourceLabel, text: `+${formatValue(d.increment)} ${d.unit} ${d.label.toLowerCase()} since last time` });
+      const type = d.unknown ? "conflict" : "device";
+      if (!coachShouldPeekType(type)) return; // user keeps dismissing this type → skip the peek
+      if (d.unknown) lines.push({ type: type, head: d.sourceLabel, text: `${d.label}: you logged ${formatValue(d.conflictMine)}, device shows ${formatValue(d.current)}` });
+      else lines.push({ type: type, head: d.sourceLabel, text: `+${formatValue(d.increment)} ${d.unit} ${d.label.toLowerCase()} since last time` });
     });
-    if (lines.length < 2 && (c.manual || []).length) {
-      lines.push({ device: false, head: "Catch up", text: `${plural(c.manual.length, "thing")} you usually log ${c.manual.length === 1 ? "isn't" : "aren't"} in yet` });
+    if (lines.length < 2 && (c.manual || []).length && coachShouldPeekType("behind")) {
+      let text = `${plural(c.manual.length, "thing")} you usually log ${c.manual.length === 1 ? "isn't" : "aren't"} in yet`;
+      // Consistency-minded users get a streak framing; competition-minded get the plain prompt.
+      if (best && motivation !== "competition") text += ` — keep your ${best.streak}-day streak`;
+      lines.push({ type: "behind", head: "Catch up", text: text });
     }
-    if (!lines.length) { coachHidePeek(); return; }
+    if (!lines.length) { coachHidePeek(); return; } // every applicable type is suppressed
     els.coachPeek.innerHTML = lines.map((l) => `
       <button type="button" class="coach-peek-bubble" data-coach-peek-open>
-        <span class="coach-peek-head">${l.device ? "⌚" : "✨"} ${escapeHtml(l.head)}</span>
+        <span class="coach-peek-head">${l.type === "behind" ? "✨" : "⌚"} ${escapeHtml(l.head)}</span>
         <span class="coach-peek-text">${escapeHtml(l.text)}</span>
       </button>`).join("") + `<button type="button" class="coach-peek-x" data-coach-peek-dismiss aria-label="Dismiss">✕</button>`;
     els.coachPeek.hidden = false;
+    coach.peekTypes = lines.map((l) => l.type);
+    const seen = {};
+    lines.forEach((l) => { if (!seen[l.type]) { seen[l.type] = true; coachLearnRecord(l.type, "shown"); } });
+    coachNotePeekShown();
     if (coach.peekTimer) clearTimeout(coach.peekTimer);
     coach.peekTimer = setTimeout(() => coachHidePeek(), 9000);
   }
@@ -9664,7 +9887,12 @@
     if (coach.peekTimer) { clearTimeout(coach.peekTimer); coach.peekTimer = null; }
     if (els.coachPeek) { els.coachPeek.hidden = true; els.coachPeek.innerHTML = ""; }
   }
-  function coachDismissPeek() { coachHidePeek(); }
+  // The X is an explicit dismiss → teach the loop to back off these types (auto-hide doesn't).
+  function coachDismissPeek() {
+    (coach.peekTypes || []).forEach((tp) => coachLearnRecord(tp, "dismissed"));
+    coach.peekTypes = [];
+    coachHidePeek();
+  }
 
   // Post nudge bubbles into the thread (each unique nudge once; acted bubbles stay finalized).
   function coachRenderNudges() {
@@ -9744,6 +9972,7 @@
   // "Log it" on a device nudge → apply its increment to every rule it maps to (reuses the
   // catch-up fan-out + incremental model), then offer to post.
   function coachDeviceLog(source, metric, cardEl, opts = {}) {
+    coachLearnRecord("device", "acted");
     const d = coachDeviceByKey(source, metric);
     if (!d) { coachFinalizeCard(cardEl); return; }
     const touched = new Set();
@@ -9765,6 +9994,7 @@
   }
 
   function coachDeviceDismiss(source, metric, cardEl) {
+    coachLearnRecord("device", "dismissed");
     const d = coachDeviceByKey(source, metric);
     if (d) (d.targets || []).forEach((target) => { const r = resolveQuickLogRule(target.contextType, target.contextId, target.ruleId); if (r) rebaselineRuleSync(r.rule); });
     coachRemoveDeviceNudge(source, metric);
@@ -9775,6 +10005,7 @@
 
   // Conflict (unknown baseline) → reuse the catch-up resolver (it advances the baseline).
   function coachConflict(source, metric, choice, cardEl) {
+    coachLearnRecord("conflict", "acted");
     const idx = ((state.catchUp && state.catchUp.devices) || []).findIndex((d) => d.source === source && d.metric === metric);
     if (idx === -1) { coachFinalizeCard(cardEl); return; }
     const d = state.catchUp.devices[idx];
@@ -9789,6 +10020,7 @@
   // same manual confirm/save flow). Rebuilt LIVE from buildStillToLog so a rule already logged
   // elsewhere since the nudge appeared is never re-drafted (no double-log).
   function coachBehindCatchUp(cardEl) {
+    coachLearnRecord("behind", "acted");
     const stillBehind = buildStillToLog();
     if (state.catchUp) { state.catchUp.manual = []; if (!coachActiveNudgeCount()) state.catchUp = null; saveState(); }
     coachFinalizeCard(cardEl);
@@ -9807,6 +10039,7 @@
   }
 
   function coachBehindDismiss(cardEl) {
+    coachLearnRecord("behind", "dismissed");
     if (state.catchUp) { state.catchUp.manual = []; if (!coachActiveNudgeCount()) state.catchUp = null; saveState(); }
     coachFinalizeCard(cardEl);
     renderCoachLauncher();
@@ -9846,6 +10079,7 @@
   function bindCoach() {
     if (els.coachLauncher) els.coachLauncher.addEventListener("click", toggleCoachPanel);
     if (els.coachPanelClose) els.coachPanelClose.addEventListener("click", closeCoachPanel);
+    if (els.coachProactiveToggle) els.coachProactiveToggle.addEventListener("click", coachToggleProactive);
     if (els.coachPeek) els.coachPeek.addEventListener("click", (event) => {
       if (event.target.closest("[data-coach-peek-dismiss]")) { coachDismissPeek(); return; }
       openCoachPanel();
@@ -9879,7 +10113,7 @@
     if (!/^image\//i.test(file.type || "")) { coachSayText("That's not an image — try a photo."); return; }
     if (file.size > ENTRY_PHOTO_MAX_BYTES) { coachSayText("That photo's a bit big (max 5 MB) — try a smaller one."); return; }
     if (coachPhotoMode === "post" && coach.post) { coachAttachPostPhoto(file); return; }
-    coachStartMealEstimate(file);
+    coachAnalyzePhoto(file);
   }
 
   // ── Text in → parse-log → confirm card ──────────────────────────────────────
@@ -10288,7 +10522,14 @@
     const still = buildStillToLog();
     let chip = "";
     if (still.length) { line += ` ${still.length} thing${still.length === 1 ? "" : "s"} you usually log ${still.length === 1 ? "isn't" : "aren't"} in yet.`; chip = `<div class="coach-card-actions"><button type="button" class="secondary-button small coach-chip" data-coach-answer-action="catchup">Log these</button></div>`; }
-    return { html: `<p>${line}</p>`, chip: chip };
+    // Tailor with the behavioral profile (streak + weekly trend) — both computed in code.
+    const extras = [];
+    const best = coachBestStreak();
+    if (best) extras.push(`🔥 ${best.streak}-day streak in ${escapeHtml(best.name)}`);
+    const trend = coachTrendLine();
+    if (trend) extras.push(trend);
+    const extraHtml = extras.length ? `<p class="coach-est-note">${extras.join(" · ")}</p>` : "";
+    return { html: `<p>${line}</p>${extraHtml}`, chip: chip };
   }
 
   // Action chips on answer bubbles → run the REAL (confirm-gated) flow, never auto-log.
@@ -10648,21 +10889,29 @@
   }
 
   // ── Food photo → calorie/macro estimate ─────────────────────────────────────
-  async function coachStartMealEstimate(file) {
+  // Analyze ANY attached photo: the vision model classifies food / workout / other and returns
+  // a ROUGH, editable estimate (never fabricated). Confirm-gated like every log.
+  async function coachAnalyzePhoto(file) {
     if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.estimateFood !== "function") {
-      coachSayText("Sign in to use meal-photo estimates. You can still tell me the numbers — e.g. “logged 600 cal, 40g protein”.");
+      coachSayText("Sign in to analyze photos. You can still tell me what you did — e.g. “logged 600 cal” or “ran 30 min”.");
       return;
     }
     const previewUrl = URL.createObjectURL(file);
-    coachAppendBubble("user", `<div class="coach-photo-sent"><img src="${escapeHtml(previewUrl)}" alt="Meal photo"></div>`);
+    coachAppendBubble("user", `<div class="coach-photo-sent"><img src="${escapeHtml(previewUrl)}" alt="Attached photo"></div>`);
     coach.busy = true;
-    const thinking = coachSay(`<p class="coach-thinking">Looking at your meal…</p>`);
+    const thinking = coachSay(`<p class="coach-thinking">Looking at your photo…</p>`);
     try {
       const parts = await fileToBase64Parts(file);
       const res = await window.PointwellSignals.estimateFood(parts.data, parts.mediaType, "");
       if (thinking) thinking.remove();
-      if (res.error || !res.estimate) { coachSayText((res.error && res.error.message) || "I couldn't read that photo — tell me the numbers and I'll log them."); return; }
-      coach.estimate = Object.assign({ file: file, previewUrl: previewUrl }, res.estimate);
+      if (res.error || !res.estimate) { coachSayText((res.error && res.error.message) || "I couldn't read that photo — tell me what to log and I'll add it."); return; }
+      const est = res.estimate;
+      // Unreadable → say so, never fabricate numbers.
+      if (numberOrDefault(est.confidence, 0) <= 0 && est.kind === "other") {
+        coachSayText(est.note || "I couldn't make out that photo — tell me what to log and I'll add it.");
+        return;
+      }
+      coach.estimate = Object.assign({ file: file, previewUrl: previewUrl }, est);
       coachRenderEstimateCard();
     } catch (e) {
       if (thinking) thinking.remove();
@@ -10673,52 +10922,92 @@
   function coachRenderEstimateCard() {
     const est = coach.estimate;
     if (!est) return;
-    const items = (est.items || []).length ? `<p class="coach-est-items">${escapeHtml(est.items.join(", "))}</p>` : "";
+    const numField = (key, label, val) => `<label class="coach-est-field"><span>${escapeHtml(label)}</span><input type="number" min="0" step="any" inputmode="decimal" data-coach-est="${key}" value="${escapeHtml(String(numberOrDefault(val, 0)))}"></label>`;
     const note = est.note ? `<p class="coach-est-note">${escapeHtml(est.note)}</p>` : "";
-    const field = (key, label, val) => `<label class="coach-est-field"><span>${escapeHtml(label)}</span><input type="number" min="0" step="any" inputmode="decimal" data-coach-est="${key}" value="${escapeHtml(String(numberOrDefault(val, 0)))}"></label>`;
     coachDisableStaleCards();
     const bubble = coachSay(`<div class="coach-card coach-est-card is-active" data-coach-est-card></div>`);
     est.cardEl = bubble.querySelector("[data-coach-est-card]");
-    est.cardEl.innerHTML = `
-      <p class="coach-card-title">Here's my estimate <span class="quick-log-estimate-tag">AI estimate</span></p>
-      ${items}
-      <div class="coach-est-grid">
-        ${field("calories", "Calories", est.calories)}
-        ${field("protein", "Protein (g)", est.protein)}
-        ${field("carbs", "Carbs (g)", est.carbs)}
-        ${field("fat", "Fat (g)", est.fat)}
-      </div>
-      ${note}
-      <p class="coach-est-disclaim">Rough estimate — edit any number before logging.</p>
-      <div class="coach-card-actions">
-        <button type="button" class="ghost-button small" data-coach-est-cancel>Cancel</button>
-        <button type="button" class="primary-button small" data-coach-est-log>Log these</button>
-      </div>`;
+    if (est.kind === "workout") {
+      est.cardEl.innerHTML = `
+        <p class="coach-card-title">Looks like a ${escapeHtml(est.activity || "workout")} <span class="quick-log-estimate-tag">AI estimate</span></p>
+        <div class="coach-est-grid">
+          ${numField("duration", "Duration (min)", est.duration)}
+          ${numField("distance", "Distance (" + escapeHtml(est.distanceUnit || "mi") + ")", est.distance)}
+          ${numField("calories", "Calories", est.calories)}
+        </div>
+        ${note}
+        <p class="coach-est-disclaim">Rough estimate — edit any number before logging.</p>
+        <div class="coach-card-actions">
+          <button type="button" class="ghost-button small" data-coach-est-cancel>Cancel</button>
+          <button type="button" class="primary-button small" data-coach-est-log>Log it</button>
+        </div>`;
+    } else if (est.kind === "food") {
+      const items = (est.items || []).length ? `<p class="coach-est-items">${escapeHtml(est.items.join(", "))}</p>` : "";
+      est.cardEl.innerHTML = `
+        <p class="coach-card-title">Here's my estimate <span class="quick-log-estimate-tag">AI estimate</span></p>
+        ${items}
+        <div class="coach-est-grid">
+          ${numField("calories", "Calories", est.calories)}
+          ${numField("protein", "Protein (g)", est.protein)}
+          ${numField("carbs", "Carbs (g)", est.carbs)}
+          ${numField("fat", "Fat (g)", est.fat)}
+        </div>
+        ${note}
+        <p class="coach-est-disclaim">Rough estimate — edit any number before logging.</p>
+        <div class="coach-card-actions">
+          <button type="button" class="ghost-button small" data-coach-est-cancel>Cancel</button>
+          <button type="button" class="primary-button small" data-coach-est-log>Log these</button>
+        </div>`;
+    } else {
+      // "other" — describe + suggest a rule; no fabricated numbers, nothing to log.
+      const sugg = est.suggestion ? `<p class="coach-est-note">${escapeHtml(est.suggestion)}</p>` : "";
+      est.cardEl.innerHTML = `
+        <p class="coach-card-title">Here's what I see</p>
+        ${note}${sugg}
+        <p class="coach-est-disclaim">I can't put a number on that — tell me what to log and I'll add it.</p>
+        <div class="coach-card-actions">
+          <button type="button" class="ghost-button small" data-coach-est-cancel>OK</button>
+        </div>`;
+    }
     coachScroll();
   }
 
   function coachLogEstimate() {
     const est = coach.estimate;
-    if (!est) return;
+    if (!est || est.kind === "other") { coachCancelEstimate(); return; }
     const catalog = buildLoggableRuleCatalog();
-    const wanted = [
-      { keys: /calorie|kcal|energy/i, val: est.calories },
-      { keys: /protein/i, val: est.protein },
-      { keys: /carb/i, val: est.carbs },
-      { keys: /fat/i, val: est.fat },
-    ];
+    const wanted = est.kind === "workout"
+      ? [
+        { keys: /minute|duration|workout|exercise|cardio|training|gym|run|walk|cycl|ride|lift/i, unitKeys: /min/i, val: est.duration },
+        { keys: /distance|mile|\bkm\b|run|walk|cycl|ride/i, unitKeys: /mi|km|mile|distance/i, val: est.distance },
+        { keys: /calorie|kcal|energy|active/i, unitKeys: /cal|kcal/i, val: est.calories },
+      ]
+      : [
+        { keys: /calorie|kcal|energy/i, val: est.calories },
+        { keys: /protein/i, val: est.protein },
+        { keys: /carb/i, val: est.carbs },
+        { keys: /fat/i, val: est.fat },
+      ];
     const built = [];
     const usedRules = {};
     wanted.forEach((w) => {
       if (!(numberOrDefault(w.val, 0) > 0)) return;
-      const c = catalog.find((cc) => w.keys.test(`${cc.label} ${cc.unit}`) && !usedRules[cc.contextId + "|" + cc.id]);
+      const c = catalog.find((cc) => {
+        if (usedRules[cc.contextId + "|" + cc.id]) return false;
+        return w.keys.test(`${cc.label} ${cc.unit}`) || (w.unitKeys && w.unitKeys.test(cc.unit || ""));
+      });
       if (!c) return;
       const resolved = resolveQuickLogRule(c.contextType, c.contextId, c.id);
       if (!resolved) return;
       usedRules[c.contextId + "|" + c.id] = true;
       built.push({ _id: makeId("qlog"), contextType: c.contextType, contextId: c.contextId, ruleId: c.id, isYesNo: resolved.rule.simpleStyle === "yesNo", amount: numberOrDefault(w.val, 0), note: "", confidence: numberOrDefault(est.confidence, 0.4) });
     });
-    if (!built.length) { coachSayText("I don't see a calories/protein rule to log this to. Add one in Build, then snap again."); return; }
+    if (!built.length) {
+      coachSayText(est.kind === "workout"
+        ? "I don't see a workout rule (minutes / distance / calories) to log this to. Add one in Build, then snap again."
+        : "I don't see a calories/protein rule to log this to. Add one in Build, then snap again.");
+      return;
+    }
     coach.lastLogged = built.map((b) => ({ contextType: b.contextType, contextId: b.contextId, ruleId: b.ruleId, amount: b.amount, isYesNo: b.isYesNo }));
     quickLogDraft = built;
     quickLogClarifications = [];

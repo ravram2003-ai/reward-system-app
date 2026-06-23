@@ -1466,7 +1466,7 @@
     if (signalsReady()) {
       Promise.resolve(window.PointwellSignals.setOnboardingCompleted(state.account.userId)).catch(() => {});
     }
-    if (opts.landing === "communities") state.activeView = "communities";
+    if (opts.landing === "communities") state.activeView = "dashboard"; // worlds live on Today now
     if (!opts.skipRender) { saveState(); render(); }
   }
 
@@ -2688,6 +2688,11 @@
       "discoverView",
       "feedView",
       "feedTabs",
+      "searchView",
+      "headerSearchButton",
+      "headerSearchForm",
+      "headerSearchInput",
+      "headerSearchResults",
       "communitiesView",
       "communityDetailView",
       "communitySettingsView",
@@ -3037,7 +3042,7 @@
       "customize-charts": els.customizeChartsView,
       systems: els.systemsView,
       feed: els.feedView,
-      communities: els.communitiesView,
+      search: els.searchView,
       "create-community": els.createCommunityView,
       "community-detail": els.communityDetailView,
       "community-settings": els.communitySettingsView,
@@ -3068,8 +3073,8 @@
         if (state.activeView === "systems" && !state.systemEditorOpen) {
           scrollSystemsListToTop();
         }
-        // Feed + Communities both read community data; refresh it on open.
-        if (state.activeView === "communities" || state.activeView === "feed") loadCommunitiesFromDb();
+        // Feed reads community data; refresh it on open.
+        if (state.activeView === "feed") loadCommunitiesFromDb();
       });
     });
 
@@ -3279,6 +3284,15 @@
     els.backFromCommunitySettingsButton.addEventListener("click", returnToCommunityDetail);
     els.backFromMemberActivityButton.addEventListener("click", returnToCommunityDetail);
     els.backFromFindCommunitiesButton.addEventListener("click", returnToCommunities);
+    if (els.headerSearchButton) els.headerSearchButton.addEventListener("click", openHeaderSearch);
+    if (els.headerSearchForm) els.headerSearchForm.addEventListener("submit", (event) => event.preventDefault());
+    if (els.headerSearchInput) els.headerSearchInput.addEventListener("input", (event) => {
+      state.searchQuery = event.target.value;
+      state.buildViewedPublicId = ""; // a new query closes any open "view details"
+      runPeopleSearch(event.target.value);
+      runBuildCommunitySearch(event.target.value);
+      renderHeaderSearchResults();
+    });
     if (els.headerFriendsButton) els.headerFriendsButton.addEventListener("click", openFriends);
     if (els.headerChatsButton) els.headerChatsButton.addEventListener("click", openChats);
     if (els.backFromFriendsButton) els.backFromFriendsButton.addEventListener("click", returnToDashboard);
@@ -3465,8 +3479,7 @@
         // someone else's profile-page (opened from the feed/leaderboard).
         ? ownProfileActive
         : (tab.dataset.view === state.activeView
-          || ((state.activeView === "add-entry" || state.activeView === "customize-top-card" || state.activeView === "customize-charts") && tab.dataset.view === "dashboard")
-          || ((state.activeView === "create-community" || state.activeView === "community-detail" || state.activeView === "community-settings" || state.activeView === "community-member-activity" || state.activeView === "find-communities") && tab.dataset.view === "communities"));
+          || ((state.activeView === "add-entry" || state.activeView === "customize-top-card" || state.activeView === "customize-charts") && tab.dataset.view === "dashboard"));
       tab.classList.toggle("active", isActive);
       tab.setAttribute("aria-current", isActive ? "page" : "false");
     });
@@ -3514,17 +3527,17 @@
     const q = String(rawQuery || "").trim();
     if (q.length < 2) {
       buildCommunityResults = [];
-      if (state.buildMode === "search") renderBuildSearchResults();
+      refreshSearchSurfaces();
       return;
     }
     if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.searchCommunities !== "function") {
       buildCommunityResults = getVisiblePublicCommunities(q);
-      if (state.buildMode === "search") renderBuildSearchResults();
+      refreshSearchSurfaces();
       return;
     }
     Promise.resolve(window.PointwellSignals.searchCommunities(q)).catch(() => []).then((rows) => {
       buildCommunityResults = Array.isArray(rows) ? rows : [];
-      if (state.buildMode === "search") renderBuildSearchResults();
+      refreshSearchSurfaces();
     });
   }
 
@@ -3571,18 +3584,15 @@
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }
 
+  // Finding/joining communities now lives in the universal header search (the Communities tab
+  // was removed). Any remaining "find communities" entry point routes there.
   function openFindCommunities() {
-    state.activeView = "find-communities";
-    saveState();
-    render();
-    requestAnimationFrame(() => {
-      els.findCommunitySearchInput.focus();
-      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-    });
+    openHeaderSearch();
   }
 
+  // "Back" from a community detail/settings now lands on Today (the Communities tab is gone).
   function returnToCommunities() {
-    state.activeView = "communities";
+    state.activeView = "dashboard";
     saveState();
     render();
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -5105,52 +5115,87 @@
     if (!els.buildPublicSearchResults) return;
     const query = String(state.buildSearchQuery || "").trim().toLowerCase();
     const systems = getBuildPublicSystems();
-
-    // Tapping a person opens the dedicated profile page (openUserProfile), so there is
-    // no longer an in-place person detail rendered here.
+    // Tapping a person opens the dedicated profile page (openUserProfile).
     const visibleSystems = systems.filter((system) => matchesSystemSearch(system, query));
     els.buildPublicSearchResults.innerHTML = `
       <section class="build-result-section" aria-label="People">
-        <div class="build-result-section-heading">
-          <h3>People</h3>
-          <span>${plural(peopleResults.length, "result")}</span>
-        </div>
+        <div class="build-result-section-heading"><h3>People</h3><span>${plural(peopleResults.length, "result")}</span></div>
         ${renderPeopleSection(query)}
       </section>
       <section class="build-result-section" aria-label="Reward Systems">
-        <div class="build-result-section-heading">
-          <h3>Reward Systems</h3>
-          <span>${plural(visibleSystems.length, "result")}</span>
-        </div>
+        <div class="build-result-section-heading"><h3>Reward Systems</h3><span>${plural(visibleSystems.length, "result")}</span></div>
         ${visibleSystems.length ? visibleSystems.map(renderBuildPublicResult).join("") : emptyState("No public reward systems match that search.")}
       </section>
       <section class="build-result-section" aria-label="Communities">
-        <div class="build-result-section-heading">
-          <h3>Communities</h3>
-          <span>${plural(buildCommunityResults.length, "result")}</span>
-        </div>
+        <div class="build-result-section-heading"><h3>Communities</h3><span>${plural(buildCommunityResults.length, "result")}</span></div>
         ${buildCommunityResults.length ? buildCommunityResults.map(renderFindCommunityResult).join("") : emptyState("Search by name to find public communities to join.")}
-      </section>
-    `;
+      </section>`;
+    bindSearchResultActions(els.buildPublicSearchResults, systems);
+  }
 
-    Array.from(els.buildPublicSearchResults.querySelectorAll("[data-build-copy-public-id]")).forEach((button) => {
-      button.addEventListener("click", () => copyPublicSystem(button.dataset.buildCopyPublicId, systems));
+  // ── Universal header search — reuses the SAME queries + result cards as Build search ─
+  // (searchProfiles / getBuildPublicSystems / searchCommunities), but as its own view opened
+  // from the header 🔍, with empty groups hidden. Communities you're in stay on Today.
+  function openHeaderSearch() {
+    state.activeView = "search";
+    saveState();
+    render();
+    requestAnimationFrame(() => {
+      // Sync state to whatever the field holds (browser-restored text or the last query) so the
+      // shown results always match the box, then re-run the transient people/community queries.
+      const q = String((els.headerSearchInput && els.headerSearchInput.value) || state.searchQuery || "");
+      state.searchQuery = q;
+      if (els.headerSearchInput) { els.headerSearchInput.value = q; els.headerSearchInput.focus(); }
+      if (q.trim().length >= 2) { runPeopleSearch(q); runBuildCommunitySearch(q); }
+      renderHeaderSearchResults();
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     });
-    Array.from(els.buildPublicSearchResults.querySelectorAll("[data-join-community-id]")).forEach((button) => {
-      button.addEventListener("click", () => joinCommunityById(button.dataset.joinCommunityId));
-    });
-    Array.from(els.buildPublicSearchResults.querySelectorAll("[data-build-view-person-id]")).forEach((button) => {
-      button.addEventListener("click", () => openUserProfile(button.dataset.buildViewPersonId));
-    });
-    Array.from(els.buildPublicSearchResults.querySelectorAll("[data-build-view-public-id]")).forEach((button) => {
-      button.addEventListener("click", () => {
-        state.buildViewedPublicId = state.buildViewedPublicId === button.dataset.buildViewPublicId
-          ? ""
-          : button.dataset.buildViewPublicId;
-        saveState();
-        renderBuildSearchResults();
-      });
-    });
+  }
+
+  function searchSection(title, count, body) {
+    return `<section class="build-result-section" aria-label="${escapeHtml(title)}">
+        <div class="build-result-section-heading"><h3>${escapeHtml(title)}</h3><span>${plural(count, "result")}</span></div>
+        ${body}
+      </section>`;
+  }
+
+  function renderHeaderSearchResults() {
+    if (!els.headerSearchResults) return;
+    const query = String(state.searchQuery || "").trim().toLowerCase();
+    if (query.length < 2) {
+      els.headerSearchResults.innerHTML = emptyState(signalsReady() ? "Search communities, people, and public systems by name." : "Sign in to search.");
+      return;
+    }
+    const systems = getBuildPublicSystems();
+    const visibleSystems = systems.filter((s) => matchesSystemSearch(s, query));
+    const sections = [];
+    if (buildCommunityResults.length) sections.push(searchSection("Communities", buildCommunityResults.length, buildCommunityResults.map(renderFindCommunityResult).join("")));
+    if (peopleSearchLoading || peopleResults.length) sections.push(searchSection("People", peopleResults.length, renderPeopleSection(query)));
+    if (visibleSystems.length) sections.push(searchSection("Reward systems", visibleSystems.length, visibleSystems.map(renderBuildPublicResult).join("")));
+    els.headerSearchResults.innerHTML = sections.length ? sections.join("") : emptyState("No matches yet — try another name.");
+    bindSearchResultActions(els.headerSearchResults, systems);
+  }
+
+  // Re-render whichever search surface is live (Build panel and/or header view) when an async
+  // people/community query lands or a "view details" toggles.
+  function refreshSearchSurfaces() {
+    refreshSearchSurfaces();
+    if (state.activeView === "search") renderHeaderSearchResults();
+  }
+
+  // Shared result-card handlers — identical for both search surfaces (reuse existing handlers).
+  function bindSearchResultActions(container, systems) {
+    if (!container) return;
+    container.querySelectorAll("[data-build-copy-public-id]").forEach((b) => b.addEventListener("click", () => copyPublicSystem(b.dataset.buildCopyPublicId, systems)));
+    container.querySelectorAll("[data-join-community-id]").forEach((b) => b.addEventListener("click", () => joinCommunityById(b.dataset.joinCommunityId)));
+    container.querySelectorAll("[data-open-community-detail-id]").forEach((b) => b.addEventListener("click", () => openBuildCommunity(b.dataset.openCommunityDetailId, "detail")));
+    container.querySelectorAll("[data-build-view-person-id]").forEach((b) => b.addEventListener("click", () => openUserProfile(b.dataset.buildViewPersonId)));
+    container.querySelectorAll("[data-add-friend-id]").forEach((b) => b.addEventListener("click", () => sendFriendRequestTo(b.dataset.addFriendId, b.dataset.addFriendName || "")));
+    container.querySelectorAll("[data-build-view-public-id]").forEach((b) => b.addEventListener("click", () => {
+      state.buildViewedPublicId = state.buildViewedPublicId === b.dataset.buildViewPublicId ? "" : b.dataset.buildViewPublicId;
+      saveState();
+      refreshSearchSurfaces();
+    }));
   }
 
   // Debounced real user search via the search_profiles RPC. A sequence guard drops
@@ -5162,23 +5207,23 @@
       peopleResults = [];
       peopleSearchLoading = false;
       peopleSearchSeq++; // invalidate any in-flight request
-      if (state.buildMode === "search") renderBuildSearchResults();
+      refreshSearchSurfaces();
       return;
     }
     peopleSearchLoading = true;
     const seq = ++peopleSearchSeq;
-    if (state.buildMode === "search") renderBuildSearchResults(); // show "Searching…"
+    refreshSearchSurfaces(); // show "Searching…"
     peopleSearchTimer = setTimeout(() => {
       Promise.resolve(window.PointwellSignals.searchProfiles(query)).then((rows) => {
         if (seq !== peopleSearchSeq) return;
         peopleResults = Array.isArray(rows) ? rows : [];
         peopleSearchLoading = false;
-        if (state.buildMode === "search") renderBuildSearchResults();
+        refreshSearchSurfaces();
       }).catch(() => {
         if (seq !== peopleSearchSeq) return;
         peopleResults = [];
         peopleSearchLoading = false;
-        if (state.buildMode === "search") renderBuildSearchResults();
+        refreshSearchSurfaces();
       });
     }, 250);
   }
@@ -5205,7 +5250,8 @@
           </div>
         </button>
         <div class="build-result-actions">
-          <button class="secondary-button small" type="button" data-build-view-person-id="${id}">View profile</button>
+          <button class="secondary-button small" type="button" data-add-friend-id="${id}" data-add-friend-name="${name}">Add friend</button>
+          <button class="ghost-button small" type="button" data-build-view-person-id="${id}">View profile</button>
         </div>
       </article>
     `;
@@ -7856,7 +7902,7 @@
     const name = community.name || "this community";
     const finishLocally = () => {
       removeCommunityFromState(community.id);
-      state.activeView = "communities";
+      state.activeView = "dashboard";
       saveState();
       render();
       window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -13672,9 +13718,13 @@
   function renderFindCommunityResult(community) {
     const joined = isCommunityJoined(community.id);
     const isPrivate = community.visibility === "private";
-    const query = String(state.communitySearchQuery || "").trim().toLowerCase();
+    // The active search query across any surface (header / Build / old find), for code matches.
+    const query = String(state.searchQuery || state.buildSearchQuery || state.communitySearchQuery || "").trim().toLowerCase();
     const codeMatch = query && String(community.inviteCode || "").toLowerCase() === query;
-    const actionLabel = joined ? "Joined" : (codeMatch ? "Join with Code" : (isPrivate ? "Request to Join" : "Join"));
+    // Already a member → "Open" the community; otherwise Join / Request / Join with Code.
+    const action = joined
+      ? `<button class="ghost-button small" type="button" data-open-community-detail-id="${escapeHtml(community.id)}">Open</button>`
+      : `<button class="${isPrivate ? "secondary-button" : "primary-button"} small" type="button" data-join-community-id="${escapeHtml(community.id)}">${escapeHtml(codeMatch ? "Join with Code" : (isPrivate ? "Request to Join" : "Join"))}</button>`;
     return `
       <article class="find-community-card">
         <div class="find-community-main">
@@ -13682,7 +13732,7 @@
           <span class="community-meta">${escapeHtml(community.category)} · ${plural(getCommunityMemberCount(community), "member")}</span>
           <p>${escapeHtml(community.description || "")}</p>
         </div>
-        <button class="${isPrivate ? "secondary-button" : "primary-button"} small" type="button" data-join-community-id="${escapeHtml(community.id)}"${joined ? " disabled" : ""}>${escapeHtml(actionLabel)}</button>
+        ${action}
       </article>
     `;
   }
@@ -15378,7 +15428,7 @@
     const existing = state.communities.find((community) => community.id === communityId);
     if (existing) {
       state.selectedCommunityId = existing.id;
-      state.activeView = "communities";
+      state.activeView = "community-detail";
       saveState();
       render();
       showToast("Already joined");
@@ -15389,7 +15439,7 @@
     state.communities.unshift(joinedCommunity);
     seedJoinedCommunityEntries(joinedCommunity);
     state.selectedCommunityId = joinedCommunity.id;
-    state.activeView = "communities";
+    state.activeView = "community-detail";
     state.communityDraftInputs = {};
     saveState();
     render();

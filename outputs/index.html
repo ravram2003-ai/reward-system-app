@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260623-worlds2">
+    <link rel="stylesheet" href="styles.css?v=20260623-search">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -49,6 +49,9 @@
             <h1>Reward systems</h1>
           </div>
           <div class="header-cluster">
+            <button class="header-icon-btn" type="button" id="headerSearchButton" aria-label="Search">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            </button>
             <div class="header-notif">
               <button class="header-bell" type="button" id="notifBellButton" aria-label="Alerts" aria-haspopup="true" aria-expanded="false">
                 <svg class="bell-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
@@ -75,10 +78,6 @@
           <button class="nav-tab" type="button" data-view="feed" aria-label="Feed">
             <span class="tab-icon" aria-hidden="true">☰</span>
             <span>Feed</span>
-          </button>
-          <button class="nav-tab" type="button" data-view="communities" aria-label="Communities">
-            <span class="tab-icon" aria-hidden="true">◧</span>
-            <span>Communities</span>
           </button>
           <button class="nav-tab" type="button" data-view="systems" aria-label="Build and Edit">
             <span class="tab-icon" aria-hidden="true">◎</span>
@@ -821,6 +820,22 @@
           <section class="community-feed" id="communityFeed" aria-label="Recent activity" hidden></section>
         </section>
 
+        <section class="view" id="searchView" aria-labelledby="searchTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">Discover</p>
+              <h2 id="searchTitle">Search</h2>
+            </div>
+          </div>
+          <form class="community-search-bar" id="headerSearchForm" role="search">
+            <div class="community-search-field">
+              <span class="community-search-icon" aria-hidden="true">⌕</span>
+              <input id="headerSearchInput" type="search" autocomplete="off" placeholder="Search communities, people, and systems…" aria-label="Search communities, people, and reward systems">
+            </div>
+          </form>
+          <div class="build-search-results" id="headerSearchResults" aria-live="polite"></div>
+        </section>
+
         <section class="view" id="communitiesView" aria-labelledby="communitiesTitle">
           <div class="view-header">
             <div>
@@ -1464,13 +1479,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260623-worlds2"></script>
-    <script src="auth-helpers.js?v=20260623-worlds2"></script>
-    <script src="scoring.js?v=20260623-worlds2"></script>
-    <script src="insight.js?v=20260623-worlds2"></script>
-    <script src="signals.js?v=20260623-worlds2"></script>
-    <script src="wearables.js?v=20260623-worlds2"></script>
-    <script type="module" src="auth.js?v=20260623-worlds2"></script>
-    <script src="app.js?v=20260623-worlds2"></script>
+    <script src="supabase-config.js?v=20260623-search"></script>
+    <script src="auth-helpers.js?v=20260623-search"></script>
+    <script src="scoring.js?v=20260623-search"></script>
+    <script src="insight.js?v=20260623-search"></script>
+    <script src="signals.js?v=20260623-search"></script>
+    <script src="wearables.js?v=20260623-search"></script>
+    <script type="module" src="auth.js?v=20260623-search"></script>
+    <script src="app.js?v=20260623-search"></script>
   </body>
 </html>

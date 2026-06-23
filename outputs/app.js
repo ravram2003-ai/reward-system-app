@@ -2913,7 +2913,6 @@
       "worldBanner",
       "worldBannerImg",
       "worldCoverEdit",
-      "worldCoverAdd",
       "worldIcon",
       "worldIconImg",
       "worldIconFallback",
@@ -2923,9 +2922,17 @@
       "worldEditButton",
       "worldHeadActions",
       "worldActions",
-      "worldPhotoEmpty",
-      "worldAddPhotosButton",
       "worldChips",
+      "systemMediaFields",
+      "systemCoverThumb",
+      "systemCoverImg",
+      "systemIconThumb",
+      "systemIconImg",
+      "communityMediaFields",
+      "communityCoverThumb",
+      "communityCoverImg",
+      "communityIconThumb",
+      "communityIconImg",
       "personalRulesPanel",
       "personalRules",
       "worldPostsPanel",
@@ -4244,7 +4251,7 @@
       const me = (community.members || []).find((m) => m.id === "me");
       const target = communityTarget(community);
       const myPoints = me ? communityMemberPointsOnDate(community, me, todayIso) : 0;
-      tiles.push({ type: "community", id: community.id, name: community.name || "Community", myPoints: myPoints, target: target, percent: progressPercent(myPoints, target), community: community });
+      tiles.push({ type: "community", id: community.id, name: community.name || "Community", myPoints: myPoints, target: target, percent: progressPercent(myPoints, target), community: community, coverPath: community.coverUrl || community.cover_url || "", iconPath: community.iconUrl || community.icon_url || "" });
     });
     (state.systems || []).forEach((rawSystem) => {
       const system = normalizeSystem(rawSystem);
@@ -4252,7 +4259,7 @@
       const summary = calculateDashboardSummary(system, values);
       const myPoints = roundScore(summary.total);
       const target = numberOrDefault(summary.target && summary.target.total, 0);
-      tiles.push({ type: "personal", id: rawSystem.id, name: rawSystem.title || "System", myPoints: myPoints, target: target, percent: progressPercent(myPoints, target), toGo: Math.max(target - myPoints, 0) });
+      tiles.push({ type: "personal", id: rawSystem.id, name: rawSystem.title || "System", myPoints: myPoints, target: target, percent: progressPercent(myPoints, target), toGo: Math.max(target - myPoints, 0), coverPath: rawSystem.coverUrl || "", iconPath: rawSystem.iconUrl || "" });
     });
     return applyWorldLayout(tiles);
   }
@@ -4383,6 +4390,7 @@
       </div>`;
     if (!tiles.length) { mount.innerHTML = addTile; return; }
     mount.innerHTML = tiles.map((t, i) => renderWorldTile(t, worldTileSize(worldTileKey(t), i))).join("") + addTile;
+    paintWorldTilesMedia(tiles);
   }
 
   // The SAME circular progress ring on every tile/size: a donut with "X/Y" centered inside.
@@ -4416,43 +4424,82 @@
     return toGo > 0 ? escapeHtml(formatPoints(toGo) + (full ? " to go today" : " to go")) : "Goal hit today 🎉";
   }
 
+  // Slim cover strip (cover_url or the per-type gradient fallback) with the world's icon
+  // (icon_url or initials) overlapping its bottom — mirrors the detail-page banner. Images are
+  // painted async (signed URLs) by paintWorldTilesMedia after the grid renders.
+  function renderTileCover(t, size) {
+    const initials = escapeHtml((getInitials(t.name) || "W").slice(0, 2));
+    return `<div class="world-tile-cover world-tile-cover-${size}">
+        <img class="world-tile-cover-img" alt="" hidden>
+        <span class="world-tile-icon">
+          <img class="world-tile-icon-img" alt="" hidden>
+          <span class="world-tile-icon-fallback" aria-hidden="true">${initials}</span>
+        </span>
+      </div>`;
+  }
+
   function renderWorldTile(t, size) {
     const key = worldTileKey(t);
     const typeClass = t.type === "community" ? "tile-community" : "tile-personal";
     const attrs = `data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(key)}" data-world-size="${size}"`;
     const sizeBtn = `<button type="button" class="world-size-btn" data-world-size-cycle aria-label="Resize ${escapeHtml(t.name)} (small, medium, large)" title="Resize"><span aria-hidden="true">⤢</span></button>`;
     const open = `role="button" tabindex="0" aria-label="Open ${escapeHtml(t.name)}"`;
+    const cover = renderTileCover(t, size);
     if (size === "large") {
       return `<div class="world-tile ${typeClass} size-large" ${attrs} ${open}>
           ${sizeBtn}
-          <div class="world-tile-head world-large-head">
-            ${renderWorldRing(t, "large")}
-            <div class="world-tile-main">
-              <strong class="world-tile-name">${escapeHtml(t.name)}</strong>
-              <span class="world-tile-stat">${renderWorldStat(t, true)}</span>
+          ${cover}
+          <div class="world-tile-body">
+            <div class="world-tile-head world-large-head">
+              ${renderWorldRing(t, "large")}
+              <div class="world-tile-main">
+                <strong class="world-tile-name">${escapeHtml(t.name)}</strong>
+                <span class="world-tile-stat">${renderWorldStat(t, true)}</span>
+              </div>
             </div>
+            ${renderWorldSections(t)}
           </div>
-          ${renderWorldSections(t)}
         </div>`;
     }
     if (size === "medium") {
       return `<div class="world-tile ${typeClass} size-medium" ${attrs} ${open}>
           ${sizeBtn}
-          <div class="world-tile-head">
-            ${renderWorldRing(t, "medium")}
-            <div class="world-tile-main">
-              <strong class="world-tile-name">${escapeHtml(t.name)}</strong>
-              <span class="world-tile-stat">${renderWorldStat(t, false)}</span>
+          ${cover}
+          <div class="world-tile-body">
+            <div class="world-tile-head">
+              ${renderWorldRing(t, "medium")}
+              <div class="world-tile-main">
+                <strong class="world-tile-name">${escapeHtml(t.name)}</strong>
+                <span class="world-tile-stat">${renderWorldStat(t, false)}</span>
+              </div>
             </div>
+            ${renderWorldMediumSlots(t)}
           </div>
-          ${renderWorldMediumSlots(t)}
         </div>`;
     }
     return `<div class="world-tile ${typeClass} size-small" ${attrs} ${open}>
         ${sizeBtn}
-        ${renderWorldRing(t, "small")}
-        <strong class="world-tile-name">${escapeHtml(t.name)}</strong>
+        ${cover}
+        <div class="world-tile-body">
+          ${renderWorldRing(t, "small")}
+          <strong class="world-tile-name">${escapeHtml(t.name)}</strong>
+        </div>
       </div>`;
+  }
+
+  // Paint cover/icon signed-URLs onto the rendered tiles (gradient/initials fallback stays
+  // when there's no image). Reuses paintWorldMediaSlot's seq guard so stale paints drop.
+  function paintWorldTilesMedia(tiles) {
+    if (!els.worldGrid) return;
+    const seq = ++worldTilePaintSeq;
+    const stale = () => seq !== worldTilePaintSeq;
+    const nodes = Array.from(els.worldGrid.querySelectorAll(".world-tile[data-world-key]"));
+    (tiles || []).forEach((t) => {
+      const el = nodes.find((n) => n.dataset.worldKey === worldTileKey(t));
+      if (!el) return;
+      paintWorldMediaSlot(t.coverPath, el.querySelector(".world-tile-cover"), el.querySelector(".world-tile-cover-img"), stale);
+      paintWorldMediaSlot(t.iconPath, el.querySelector(".world-tile-icon"), el.querySelector(".world-tile-icon-img"), stale);
+    });
   }
 
   // ── Large-widget sections (default Leaderboard → Recent posts) + the inline add bar ──
@@ -5044,6 +5091,8 @@
     els.systemCategoryInput.value = system.category;
     els.systemDescriptionInput.value = system.description || "";
     els.systemVisibilityInput.value = system.visibility;
+    // Cover/icon thumbnails for this personal world (saves on pick → chooseWorldMedia).
+    paintEditorMedia("system", system.coverUrl || "", system.iconUrl || "", els.systemCoverThumb, els.systemCoverImg, els.systemIconThumb, els.systemIconImg);
     els.selectedRuleCount.textContent = plural(system.rules.length, "rule");
     els.ruleList.innerHTML = system.rules.length
       ? system.rules.map((item) => renderRuleRow(item, "personal")).join("")
@@ -7742,12 +7791,12 @@
     if (els.worldEditButton) els.worldEditButton.hidden = !personal;
     if (els.inviteOptions) els.inviteOptions.hidden = true;
     if (els.personalRulesPanel) els.personalRulesPanel.hidden = !personal;
-    // Owner-only photo controls + empty-state nudge (non-owners see the default gradient).
-    const owner = world.ownerIsMe, hasCover = !!world.coverPath, hasIcon = !!world.iconPath;
-    if (els.worldCoverEdit) els.worldCoverEdit.hidden = !(owner && hasCover);
-    if (els.worldCoverAdd) els.worldCoverAdd.hidden = !(owner && !hasCover);
+    // Owner-only inline shortcuts (full controls live in Edit/Settings): the ✎ Cover hint pill +
+    // the icon camera badge, plus the whole banner is tappable. Non-owners see only the gradient.
+    const owner = world.ownerIsMe;
+    if (els.worldBanner) els.worldBanner.classList.toggle("is-owner", owner);
+    if (els.worldCoverEdit) els.worldCoverEdit.hidden = !owner;
     if (els.worldIconEdit) els.worldIconEdit.hidden = !owner;
-    if (els.worldPhotoEmpty) els.worldPhotoEmpty.hidden = !(owner && !hasCover && !hasIcon);
     renderWorldChips(world);
     paintWorldMedia(world);
   }
@@ -7916,28 +7965,59 @@
   }
 
   // ── World cover/icon: paint signed URLs (private bucket) or fall back to the gradient ──
+  // Separate paint sequences per surface (detail banner / home tiles / editor thumbs) so a
+  // render() that repaints several of them in one pass can't clobber the others' in-flight
+  // signed-URL resolves. Each call passes an isStale() closure bound to its own counter. The
+  // editor counter is keyed per surface ("system" | "community") because BOTH editors repaint
+  // in a single render() pass — one shared counter would drop the first one's thumbnail.
   let worldMediaPaintSeq = 0;
+  let worldTilePaintSeq = 0;
+  const worldEditorPaintSeq = {};
   function paintWorldMedia(world) {
     const seq = ++worldMediaPaintSeq; // drop stale paints when the user navigates between worlds
-    paintWorldMediaSlot(world.coverPath, els.worldBanner, els.worldBannerImg, seq);
-    paintWorldMediaSlot(world.iconPath, els.worldIcon, els.worldIconImg, seq);
+    const stale = () => seq !== worldMediaPaintSeq;
+    paintWorldMediaSlot(world.coverPath, els.worldBanner, els.worldBannerImg, stale);
+    paintWorldMediaSlot(world.iconPath, els.worldIcon, els.worldIconImg, stale);
   }
-  function paintWorldMediaSlot(path, container, img, seq) {
+  function paintWorldMediaSlot(path, container, img, isStale) {
     if (!container || !img) return;
     if (!path || !signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.worldMediaSignedUrl !== "function") {
       img.hidden = true; img.removeAttribute("src"); container.classList.remove("has-photo");
       return;
     }
     Promise.resolve(window.PointwellSignals.worldMediaSignedUrl(path)).then((url) => {
-      if (seq !== worldMediaPaintSeq) return; // a newer world is showing → ignore
+      if (isStale()) return; // a newer paint of this surface is showing → ignore
       if (url) { img.src = url; img.hidden = false; container.classList.add("has-photo"); }
       else { img.hidden = true; img.removeAttribute("src"); container.classList.remove("has-photo"); }
-    }).catch(() => { if (seq === worldMediaPaintSeq) { img.hidden = true; container.classList.remove("has-photo"); } });
+    }).catch(() => { if (!isStale()) { img.hidden = true; container.classList.remove("has-photo"); } });
+  }
+  // Paint the cover+icon thumbnails in the open Edit/Settings form (signed URLs; the ＋ hint
+  // stays when there's no image). Own seq so it can't clobber the tile/detail paints.
+  function paintEditorMedia(surface, coverPath, iconPath, coverThumb, coverImg, iconThumb, iconImg) {
+    const seq = (worldEditorPaintSeq[surface] = (worldEditorPaintSeq[surface] || 0) + 1);
+    const stale = () => seq !== worldEditorPaintSeq[surface];
+    paintWorldMediaSlot(coverPath, coverThumb, coverImg, stale);
+    paintWorldMediaSlot(iconPath, iconThumb, iconImg, stale);
+  }
+
+  // The world whose cover/icon is being edited RIGHT NOW: the open system editor (personal) or
+  // the community settings form, else the detail page. Owner-resolved either way, so the same
+  // chooseWorldMedia/uploadWorldMedia path serves the relocated Edit/Settings controls.
+  function currentMediaWorld() {
+    if (state.activeView === "systems" && state.selectedSystemId) {
+      const sys = (state.systems || []).find((s) => s.id === state.selectedSystemId);
+      if (sys) return { type: "personal", id: sys.id, name: sys.title || "System", system: sys, ownerIsMe: true, coverPath: sys.coverUrl || "", iconPath: sys.iconUrl || "" };
+    }
+    if (state.activeView === "community-settings" && state.selectedCommunityId) {
+      const c = getSelectedCommunity();
+      if (c) return { type: "community", id: c.id, name: c.name || "Community", community: c, ownerIsMe: isCommunityAdmin(c), coverPath: c.coverUrl || c.cover_url || "", iconPath: c.iconUrl || c.icon_url || "" };
+    }
+    return currentDetailWorld();
   }
 
   // ── Owner cover/icon upload (reuses the image picker; uploads to world-media; saves path) ──
   async function chooseWorldMedia(file, kind) {
-    const world = currentDetailWorld();
+    const world = currentMediaWorld();
     if (!world || !world.ownerIsMe || !file) return;
     if (!/^image\//i.test(file.type || "")) { showToast("That's not an image — choose a photo"); return; }
     if (file.size > ENTRY_PHOTO_MAX_BYTES) { showToast("Photo is too big (max 5 MB) — pick a smaller one"); return; }
@@ -7961,15 +8041,29 @@
     }
     saveState();
     showToast(kind === "cover" ? "Cover updated" : "Icon updated");
-    renderCommunityDetail();
+    // Re-render whichever surface is showing so the new image paints (editor thumb, or detail).
+    if (state.activeView === "systems") renderSystems();
+    else if (state.activeView === "community-settings") renderCommunitySettings();
+    else renderCommunityDetail();
   }
 
   function bindWorldDetail() {
     const pick = (input) => { if (input) input.click(); };
-    if (els.worldCoverEdit) els.worldCoverEdit.addEventListener("click", () => pick(els.worldCoverInput));
-    if (els.worldCoverAdd) els.worldCoverAdd.addEventListener("click", () => pick(els.worldCoverInput));
-    if (els.worldAddPhotosButton) els.worldAddPhotosButton.addEventListener("click", () => pick(els.worldCoverInput));
+    // Detail-page inline shortcuts: tap the cover banner → cover picker (ignore the Back pill);
+    // tap the icon camera badge → icon picker. The ✎ Cover hint pill sits inside the banner, so
+    // its click bubbles here too. Full cover/icon controls live in Edit/Settings.
+    if (els.worldBanner) els.worldBanner.addEventListener("click", (e) => {
+      if (e.target.closest("#backToCommunitiesButton")) return;
+      const w = currentDetailWorld();
+      if (w && w.ownerIsMe) pick(els.worldCoverInput);
+    });
     if (els.worldIconEdit) els.worldIconEdit.addEventListener("click", () => pick(els.worldIconInput));
+    // Edit (personal) / Settings (community) cover+icon pickers reuse the SAME file inputs;
+    // currentMediaWorld() resolves which world from the active view.
+    if (els.systemCoverThumb) els.systemCoverThumb.addEventListener("click", () => pick(els.worldCoverInput));
+    if (els.systemIconThumb) els.systemIconThumb.addEventListener("click", () => pick(els.worldIconInput));
+    if (els.communityCoverThumb) els.communityCoverThumb.addEventListener("click", () => pick(els.worldCoverInput));
+    if (els.communityIconThumb) els.communityIconThumb.addEventListener("click", () => pick(els.worldIconInput));
     if (els.worldCoverInput) els.worldCoverInput.addEventListener("change", () => { const f = els.worldCoverInput.files && els.worldCoverInput.files[0]; els.worldCoverInput.value = ""; if (f) chooseWorldMedia(f, "cover"); });
     if (els.worldIconInput) els.worldIconInput.addEventListener("change", () => { const f = els.worldIconInput.files && els.worldIconInput.files[0]; els.worldIconInput.value = ""; if (f) chooseWorldMedia(f, "icon"); });
     if (els.worldTrendsToggle) els.worldTrendsToggle.addEventListener("click", () => { state.worldTrendsOpen = !state.worldTrendsOpen; saveState(); applyWorldTrendsCollapsed(); });
@@ -8122,6 +8216,10 @@
     [els.communityNameInput, els.communityDescriptionInput, els.communityVisibilityInput].forEach((input) => {
       input.disabled = !canEdit;
     });
+    // Owner-only cover/icon controls (saves on pick → chooseWorldMedia); hidden for non-admins,
+    // and skip the signed-URL fetch entirely when they're hidden.
+    if (els.communityMediaFields) els.communityMediaFields.hidden = !canEdit;
+    if (canEdit) paintEditorMedia("community", community.coverUrl || community.cover_url || "", community.iconUrl || community.icon_url || "", els.communityCoverThumb, els.communityCoverImg, els.communityIconThumb, els.communityIconImg);
     els.saveCommunitySettingsButton.hidden = !canEdit;
     els.addCommunityRuleButton.hidden = !canEdit;
     // The rule editor is an uncontrolled form (its data-source/metric dropdowns hold unsaved

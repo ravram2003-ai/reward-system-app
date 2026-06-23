@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260623-searchfix">
+    <link rel="stylesheet" href="styles.css?v=20260623-worldmedia">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -487,6 +487,22 @@
                     <option value="public">Public</option>
                   </select>
                 </label>
+                <div class="world-media-fields wide-field" id="systemMediaFields">
+                  <div class="world-media-field">
+                    <span class="world-media-label">Cover photo</span>
+                    <button type="button" class="world-media-thumb world-media-cover" id="systemCoverThumb" aria-label="Change cover photo">
+                      <img id="systemCoverImg" alt="" hidden>
+                      <span class="world-media-thumb-hint" aria-hidden="true">＋ Cover</span>
+                    </button>
+                  </div>
+                  <div class="world-media-field">
+                    <span class="world-media-label">App icon</span>
+                    <button type="button" class="world-media-thumb world-media-icon" id="systemIconThumb" aria-label="Change app icon">
+                      <img id="systemIconImg" alt="" hidden>
+                      <span class="world-media-thumb-hint" aria-hidden="true">＋</span>
+                    </button>
+                  </div>
+                </div>
               </form>
 
               <datalist id="categoryOptions">
@@ -1088,7 +1104,6 @@
             <img class="world-banner-img" id="worldBannerImg" alt="" hidden>
             <button class="world-banner-pill world-banner-back" type="button" id="backToCommunitiesButton" aria-label="Back"><span aria-hidden="true">‹</span> Back</button>
             <button class="world-banner-pill world-cover-edit" type="button" id="worldCoverEdit" hidden><span aria-hidden="true">✎</span> Cover</button>
-            <button class="world-cover-add" type="button" id="worldCoverAdd" hidden><span aria-hidden="true">＋</span> Add cover photo</button>
           </div>
 
           <div class="world-detail-body">
@@ -1114,12 +1129,6 @@
               <button class="ghost-button small" type="button" id="copyInviteCodeButton">Copy Code</button>
               <button class="ghost-button small" type="button" id="sendInviteTextButton">Send Text</button>
               <button class="ghost-button small" type="button" id="sendInviteEmailButton">Send Email</button>
-            </div>
-
-            <div class="world-photo-empty" id="worldPhotoEmpty" hidden>
-              <p class="world-photo-empty-title">Make this world yours</p>
-              <p class="world-photo-empty-sub">Add a cover photo and icon from your library</p>
-              <button class="world-action primary" type="button" id="worldAddPhotosButton">Add photos</button>
             </div>
 
             <div class="world-chips" id="worldChips"></div>
@@ -1183,6 +1192,22 @@
                   <option value="private">Private — invite code only</option>
                 </select>
               </label>
+              <div class="world-media-fields" id="communityMediaFields">
+                <div class="world-media-field">
+                  <span class="world-media-label">Cover photo</span>
+                  <button type="button" class="world-media-thumb world-media-cover" id="communityCoverThumb" aria-label="Change cover photo">
+                    <img id="communityCoverImg" alt="" hidden>
+                    <span class="world-media-thumb-hint" aria-hidden="true">＋ Cover</span>
+                  </button>
+                </div>
+                <div class="world-media-field">
+                  <span class="world-media-label">App icon</span>
+                  <button type="button" class="world-media-thumb world-media-icon" id="communityIconThumb" aria-label="Change app icon">
+                    <img id="communityIconImg" alt="" hidden>
+                    <span class="world-media-thumb-hint" aria-hidden="true">＋</span>
+                  </button>
+                </div>
+              </div>
             </div>
 
             <section aria-labelledby="communityRulesTitle">
@@ -1502,13 +1527,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260623-searchfix"></script>
-    <script src="auth-helpers.js?v=20260623-searchfix"></script>
-    <script src="scoring.js?v=20260623-searchfix"></script>
-    <script src="insight.js?v=20260623-searchfix"></script>
-    <script src="signals.js?v=20260623-searchfix"></script>
-    <script src="wearables.js?v=20260623-searchfix"></script>
-    <script type="module" src="auth.js?v=20260623-searchfix"></script>
-    <script src="app.js?v=20260623-searchfix"></script>
+    <script src="supabase-config.js?v=20260623-worldmedia"></script>
+    <script src="auth-helpers.js?v=20260623-worldmedia"></script>
+    <script src="scoring.js?v=20260623-worldmedia"></script>
+    <script src="insight.js?v=20260623-worldmedia"></script>
+    <script src="signals.js?v=20260623-worldmedia"></script>
+    <script src="wearables.js?v=20260623-worldmedia"></script>
+    <script type="module" src="auth.js?v=20260623-worldmedia"></script>
+    <script src="app.js?v=20260623-worldmedia"></script>
   </body>
 </html>

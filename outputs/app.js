@@ -1075,18 +1075,18 @@
           ${onboardingAiSystemSection()}
         </section>
         <section class="onboard-section">
-          <p class="onboard-group-label">Public systems you can copy</p>
-          ${onboardingPublicMatches.length
-            ? `<div class="onboard-result-list">${onboardingPublicMatches.map(onboardingPublicSystemRow).join("")}</div>`
-            : `<p class="empty-state onboard-empty">Nothing here yet — you're early.</p>`}
-        </section>
-        <section class="onboard-section">
           <p class="onboard-group-label">Communities to join</p>
           ${onboardingMatchesLoading
             ? `<p class="onboard-sub">Looking for communities…</p>`
             : onboardingCommunityMatches.length
               ? `<div class="onboard-result-list">${onboardingCommunityMatches.map(onboardingCommunityRow).join("")}</div>`
               : `<p class="empty-state onboard-empty">Nothing here yet — you're early.</p>`}
+        </section>
+        <section class="onboard-section">
+          <p class="onboard-group-label">Public systems you can copy</p>
+          ${onboardingPublicMatches.length
+            ? `<div class="onboard-result-list">${onboardingPublicMatches.map(onboardingPublicSystemRow).join("")}</div>`
+            : `<p class="empty-state onboard-empty">Nothing here yet — you're early.</p>`}
         </section>
         <div class="onboard-actions">
           <button class="primary-button" type="button" data-onboard="done">Done — go to my day</button>
@@ -1332,10 +1332,42 @@
   // user's own public systems. Interest matches first; if fewer than ONBOARD_MIN_PICKS,
   // top up with popular systems from the same pool (tagged _popular). Deduped, capped at
   // ONBOARD_PICKS_CAP. Empty only when the pool is genuinely empty (zero public systems).
+  // Same content → same card. public_systems carries many identical rows from different
+  // owners (e.g. seven "Lifestyle baseline"), so deduping by id alone leaves duplicates.
+  // Key on normalized title + category (case/whitespace-insensitive).
+  function publicSystemContentKey(system) {
+    const norm = (value) => String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+    return `${norm(system.title)}|${norm(system.category)}`;
+  }
+
+  // Collapse same-content systems to one, keeping the most-copied representative (then the
+  // richest rule set; first-seen wins on a full tie). Original pool order is preserved.
+  function dedupePublicSystemsByContent(list) {
+    const hasContent = (key) => key.replace(/\|/g, "").trim().length > 0;
+    const bestByKey = new Map();
+    list.forEach((system) => {
+      const key = publicSystemContentKey(system);
+      if (!hasContent(key)) return; // keyless rows are never collapsed
+      const current = bestByKey.get(key);
+      const better = !current
+        || (system.copyCount || 0) > (current.copyCount || 0)
+        || ((system.copyCount || 0) === (current.copyCount || 0)
+            && (system.rules || []).length > (current.rules || []).length);
+      if (better) bestByKey.set(key, system);
+    });
+    const chosen = new Set(bestByKey.values());
+    return list.filter((system) => {
+      const key = publicSystemContentKey(system);
+      return !hasContent(key) || chosen.has(system);
+    });
+  }
+
   function matchOnboardingPublicSystems() {
     // Exclude the user's own public systems — "Public systems you can copy" is about
     // discovering OTHER people's (the Build search still shows your own).
-    const pool = getBuildPublicSystems().filter((system) => system.ownerId !== "me");
+    const pool = dedupePublicSystemsByContent(
+      getBuildPublicSystems().filter((system) => system.ownerId !== "me")
+    );
     if (!pool.length) return [];
     const seen = new Set();
     const out = [];

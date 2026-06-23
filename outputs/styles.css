@@ -5586,13 +5586,19 @@ body.onboarding-locked {
 
 .onboard-profile-form {
   gap: 14px;
+  /* Top-align the two columns so the name input and handle box share a line even
+     though the handle label is taller (it has the status line below it). */
+  align-items: start;
 }
 
 .onboard-handle-field {
   display: flex;
   align-items: center;
   gap: 0;
-  border: 1px solid var(--line);
+  /* Match the bare name <input> exactly: same 42px box, border weight and radius
+     (box-sizing: border-box is global, so height includes the border). */
+  height: 42px;
+  border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   background: var(--field-bg);
   overflow: hidden;
@@ -5612,6 +5618,7 @@ body.onboarding-locked {
 
 .onboard-handle-field input {
   flex: 1 1 auto;
+  height: 100%;
   border: none;
   border-radius: 0;
   background: transparent;

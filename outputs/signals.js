@@ -1017,6 +1017,36 @@
     }
   }
 
+  // Coach chat ROUTER: classify a message as log / question / chat and (for questions) pick
+  // which deterministic data lookup the client should run. The model never returns numbers —
+  // the client computes every figure from local state. Returns { error, intent, query, reply,
+  // clarify } and never throws. `context` carries only NAMES (communities/systems/metrics/
+  // rules) so the router can resolve params — no figures are sent.
+  async function coachChat(text, context) {
+    var sb = getClient();
+    if (!sb || !sb.functions || typeof sb.functions.invoke !== "function") {
+      return { error: { message: "Coach needs a connection." } };
+    }
+    try {
+      // Deployed Edge Function slug — must match how coach-chat is deployed in Supabase.
+      var res = await sb.functions.invoke("coach-chat", {
+        body: { text: String(text || ""), context: context || {} }
+      });
+      if (res.error) return { error: res.error };
+      var data = res.data || {};
+      if (data.error) return { error: { message: String(data.error) } };
+      return {
+        error: null,
+        intent: data.intent || "chat",
+        query: data.query || null,
+        reply: data.reply || "",
+        clarify: data.clarify || ""
+      };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the AI service." } };
+    }
+  }
+
   // "Snap a meal" — send a meal photo (base64, no data: prefix) + optional text hint to
   // the food-estimate Edge Function, which runs the Anthropic vision call server-side.
   // Mirrors parseLog — sb.functions.invoke handles URL/apikey/JWT. Returns a structured
@@ -1111,6 +1141,7 @@
     getFriendsActiveToday: getFriendsActiveToday,
     generateRules: generateRules,
     parseLog: parseLog,
+    coachChat: coachChat,
     estimateFood: estimateFood,
     upsertCommunityEntry: upsertCommunityEntry,
     uploadEntryPhoto: uploadEntryPhoto,

@@ -2668,7 +2668,6 @@
   function cacheElements() {
     const ids = [
       "wearablePrompt",
-      "checkInCard",
       "profileAvatar",
       "todayLabel",
       "dashboardView",
@@ -2700,8 +2699,11 @@
       "quickLogMealInput",
       "quickLogHint",
       "quickLogDraft",
-      "headerCoachButton",
-      "coachView",
+      "coachLauncher",
+      "coachLauncherBadge",
+      "coachPeek",
+      "coachPanel",
+      "coachPanelClose",
       "coachThread",
       "coachForm",
       "coachInput",
@@ -3017,7 +3019,6 @@
       friends: els.friendsView,
       "friend-activity": els.friendActivityView,
       chats: els.chatsView,
-      coach: els.coachView,
       profile: els.profileView,
       "profile-page": els.profilePageView
     };
@@ -3053,7 +3054,6 @@
     bindQuickLogControls();
     bindCoach();
     bindWearablePrompt();
-    bindCatchUpCard();
     els.backToDashboardButton.addEventListener("click", returnToDashboard);
     els.customizeTopCardButton.addEventListener("click", openCustomizeTopCardPage);
     els.cancelTopCardButton.addEventListener("click", cancelTopCardCustomization);
@@ -3379,9 +3379,8 @@
     renderFriendActivity();
     renderProfilePage();
     renderProfile();
-    renderCoach();
     renderNotifications();
-    renderCatchUpCard();
+    renderCoachLauncher();
     renderWearablePrompt();
     pushMyBehindStatus();
     // Load signed-URL thumbnails for any entry photos rendered this pass (the helper
@@ -3413,7 +3412,6 @@
     paintAvatarNode(els.largeAvatar, state.profile.name, myAvatar);
     if (els.headerFriendsButton) els.headerFriendsButton.classList.toggle("is-active", state.activeView === "friends" || state.activeView === "friend-activity");
     if (els.headerChatsButton) els.headerChatsButton.classList.toggle("is-active", state.activeView === "chats");
-    if (els.headerCoachButton) els.headerCoachButton.classList.toggle("is-active", state.activeView === "coach");
     els.todayLabel.textContent = formatDate(todayIso);
   }
 
@@ -7615,19 +7613,15 @@
     runCatchUp(options);
   }
 
-  // Show the catch-up card at most once per login session (an explicit "Sync now" re-evaluates).
-  let catchUpShownThisSession = false;
+  // Rebuild the proactive nudge set (device increments + behind-a-habit) and let Coach decide
+  // whether to peek/badge. Fired after a device sync and on today-refresh — NOT just for opening
+  // the app (buildCatchUp returns null when there's nothing new, so Coach stays quiet).
   function runCatchUp(options = {}) {
-    if (options.login && catchUpShownThisSession) { render(); return; }
     const card = buildCatchUp();
-    if (card) {
-      state.catchUp = card;
-      catchUpShownThisSession = true;
-    } else {
-      state.catchUp = null; // nothing new — clear any stale persisted card
-      if (options.manual) showToast("You're all caught up — nothing new to log.");
-    }
+    state.catchUp = card; // null when nothing new
     saveState();
+    coachIngestNudges();
+    if (options.manual && !card) showToast("You're all caught up — nothing new to log.");
     render();
   }
 
@@ -8013,14 +8007,8 @@
 
   // Advance every device target's baseline to the current reading (so dismissed/handled rows
   // aren't re-offered, and the rule's next increment is measured from here). Doesn't add anything.
-  function markCatchUpSeen() {
-    (state.catchUp?.devices || []).forEach((d) => (d.targets || []).forEach((target) => {
-      const resolved = resolveQuickLogRule(target.contextType, target.contextId, target.ruleId);
-      if (resolved) rebaselineRuleSync(resolved.rule);
-    }));
-  }
-
   // Apply the increment of one checked device row to a target rule (incremental model).
+  // Reused by the Coach "Log it" nudge action.
   function applyDeviceRowToTarget(target, source, touched) {
     const resolved = resolveQuickLogRule(target.contextType, target.contextId, target.ruleId);
     if (!resolved) return false;
@@ -8032,30 +8020,6 @@
       touched.add(target.contextId);
     }
     return true;
-  }
-
-  // "Log selected": for each checked device row, ADD its increment to every rule it maps to
-  // (fan-out across personal systems + communities) via the baseline/increment model — never the
-  // raw total, so it adds on top of manual logs without double-counting. Conflict rows are skipped
-  // here (resolved by their own Keep/Update buttons).
-  function logSelectedCatchUp() {
-    const catchUp = state.catchUp;
-    if (!catchUp) return;
-    const touched = new Set();
-    let logged = 0;
-    (catchUp.devices || []).forEach((d) => {
-      if (!d.checked || d.unknown) return;
-      let any = false;
-      (d.targets || []).forEach((target) => { if (applyDeviceRowToTarget(target, d.source, touched)) any = true; });
-      if (any) logged += 1;
-    });
-    (state.systems || []).forEach((system) => {
-      if (touched.has(system.id)) { syncDraftInputsFromEntries(system); autoSaveToday(system); }
-    });
-    state.catchUp = null;
-    saveState();
-    render();
-    showToast(logged ? `Logged ${plural(logged, "metric")} from your devices` : "Nothing selected to log");
   }
 
   // Conflict resolution for an unknown-baseline row: "Keep mine" rebaselines (device counts from
@@ -8086,108 +8050,6 @@
     if (!state.catchUp.devices.length && !state.catchUp.manual.length) state.catchUp = null;
     saveState();
     render();
-  }
-
-  function dismissCatchUp() {
-    markCatchUpSeen();
-    state.catchUp = null;
-    saveState();
-    renderCatchUpCard();
-  }
-
-  // "Log ›" on a manual still-to-log row → open the existing composer in that rule's context.
-  function catchUpLogManual(contextType, contextId, ruleId) {
-    state.catchUp = null;
-    const resolved = resolveQuickLogRule(contextType, contextId, ruleId);
-    const amount = resolved ? suggestedEntryAmount(resolved.rule) : 1;
-    if (!prefillComposerFromQuickLog({ contextType, contextId, ruleId, amount })) showToast("Couldn't open that rule");
-  }
-
-  function renderCatchUpCard() {
-    const mount = els.checkInCard;
-    if (!mount) return;
-    const catchUp = state.catchUp;
-    const devices = (catchUp && catchUp.devices) || [];
-    const manual = (catchUp && catchUp.manual) || [];
-    if (!catchUp || (!devices.length && !manual.length)) { mount.hidden = true; mount.innerHTML = ""; return; }
-    const deviceRows = devices.map((d, i) => {
-      // Unknown baseline (a manual value already exists, no reliable baseline) → ask, don't guess.
-      if (d.unknown) {
-        return `
-        <div class="catchup-row catchup-row-conflict">
-          <div class="catchup-row-main">
-            <div class="catchup-row-title"><span class="via-source-tag">${escapeHtml(d.sourceLabel)}</span><strong>${escapeHtml(d.label)}</strong></div>
-            <span>You logged ${escapeHtml(formatValue(d.conflictMine))} · device shows ${escapeHtml(formatValue(d.current))} ${escapeHtml(d.unit)}</span>
-            <div class="catchup-conflict-actions">
-              <button type="button" class="ghost-button small" data-catchup-keep="${i}">Keep mine</button>
-              <button type="button" class="secondary-button small" data-catchup-update="${i}">Update → ${escapeHtml(formatValue(d.current))}</button>
-            </div>
-          </div>
-        </div>`;
-      }
-      const ptsClass = d.points >= 0 ? "positive" : "negative";
-      const optLabel = (t) => `${t.label} · ${t.contextName}`;
-      const ctx = d.targets.length > 1
-        ? `<span class="catchup-log-to">Log to</span><select class="catchup-context" data-catchup-context="${i}" aria-label="Where to log ${escapeHtml(d.label)}">${d.targets.map((t) => `<option value="${escapeHtml(t.contextId + "|" + t.ruleId)}"${(t.contextId + "|" + t.ruleId) === d.primary ? " selected" : ""}>${escapeHtml(optLabel(t))}</option>`).join("")}</select>`
-        : `<span class="catchup-context-name">→ ${escapeHtml(optLabel(d.targets[0]))}</span>`;
-      return `
-        <div class="catchup-row">
-          <input type="checkbox" class="catchup-check" data-catchup-check="${i}"${d.checked ? " checked" : ""} aria-label="Include ${escapeHtml(d.label)}">
-          <div class="catchup-row-main">
-            <div class="catchup-row-title"><span class="via-source-tag">${escapeHtml(d.sourceLabel)}</span><strong>${escapeHtml(d.label)}</strong></div>
-            <span>+${escapeHtml(formatValue(d.increment))} ${escapeHtml(d.unit)} since last time · now ${escapeHtml(formatValue(d.current))}</span>
-            <div class="catchup-row-context">${ctx}</div>
-          </div>
-          <span class="point-pill ${ptsClass}">${d.points >= 0 ? "+" : ""}${escapeHtml(formatPoints(d.points))} pts</span>
-        </div>`;
-    }).join("");
-    const manualRows = manual.map((m) => `
-        <div class="catchup-row catchup-row-manual">
-          <div class="catchup-row-main">
-            <strong>${escapeHtml(m.label)}</strong>
-            <span>${escapeHtml(m.contextName)} · not logged yet</span>
-          </div>
-          <button type="button" class="ghost-button small" data-catchup-manual="${escapeHtml(m.contextType + "|" + m.contextId + "|" + m.ruleId)}">Log ›</button>
-        </div>`).join("");
-    mount.hidden = false;
-    mount.innerHTML = `
-      <div class="checkin-card catchup-card">
-        <div class="checkin-card-head"><strong>Catch up your day</strong></div>
-        ${devices.length ? `<div class="catchup-section"><span class="catchup-section-label">From your devices</span><div class="checkin-rows">${deviceRows}</div></div>` : ""}
-        ${manual.length ? `<div class="catchup-section"><span class="catchup-section-label">Still to log</span><div class="checkin-rows">${manualRows}</div></div>` : ""}
-        <div class="checkin-actions">
-          <button type="button" class="ghost-button small" data-catchup-dismiss>Not now</button>
-          ${devices.length ? `<button type="button" class="primary-button small" data-catchup-log>Log selected</button>` : ""}
-        </div>
-      </div>`;
-  }
-
-  function bindCatchUpCard() {
-    if (!els.checkInCard) return;
-    els.checkInCard.addEventListener("click", (event) => {
-      if (event.target.closest("[data-catchup-dismiss]")) { dismissCatchUp(); return; }
-      if (event.target.closest("[data-catchup-log]")) { logSelectedCatchUp(); return; }
-      const keepBtn = event.target.closest("[data-catchup-keep]");
-      if (keepBtn) { resolveCatchUpConflict(Number(keepBtn.dataset.catchupKeep), "keep"); return; }
-      const updateBtn = event.target.closest("[data-catchup-update]");
-      if (updateBtn) { resolveCatchUpConflict(Number(updateBtn.dataset.catchupUpdate), "update"); return; }
-      const manualBtn = event.target.closest("[data-catchup-manual]");
-      if (manualBtn) {
-        const parts = String(manualBtn.dataset.catchupManual).split("|");
-        catchUpLogManual(parts[0], parts[1], parts[2]);
-      }
-    });
-    els.checkInCard.addEventListener("change", (event) => {
-      const check = event.target.closest("[data-catchup-check]");
-      if (check && state.catchUp && state.catchUp.devices[Number(check.dataset.catchupCheck)]) {
-        state.catchUp.devices[Number(check.dataset.catchupCheck)].checked = check.checked;
-        return;
-      }
-      const ctx = event.target.closest("[data-catchup-context]");
-      if (ctx && state.catchUp && state.catchUp.devices[Number(ctx.dataset.catchupContext)]) {
-        state.catchUp.devices[Number(ctx.dataset.catchupContext)].primary = ctx.value;
-      }
-    });
   }
 
   function manageIntegration(integrationId) {
@@ -8783,22 +8645,27 @@
   }
 
   // ════════════════════════════════════════════════════════════════════════════
-  // COACH — a reactive AI chat that maps what you say / snap to your rules,
-  // confirms, logs, and (optionally) turns it into a post. It is a conversational
-  // WRAPPER: it reuses the same parse-log call + catalog (buildLoggableRuleCatalog),
-  // the same quick-log save path (confirmQuickLog), the same food-estimate vision
-  // call, and the same community post path (addCommunityEntry / pushCommunityEntryToDb).
-  // No parallel logging or post logic lives here. Phase 1 is reactive only — proactive
-  // nudges are stubbed at coachProactiveCheck() below.
+  // COACH — an AI chat (floating bottom-left launcher → pop-out panel) that maps what
+  // you say / snap to your rules, confirms, logs, and (optionally) turns it into a post.
+  // It is a conversational WRAPPER: it reuses the same parse-log call + catalog
+  // (buildLoggableRuleCatalog), the same quick-log save path (confirmQuickLog), the same
+  // food-estimate vision call, and the same community post path (addCommunityEntry /
+  // pushCommunityEntryToDb). No parallel logging or post logic lives here.
+  // It is also PROACTIVE: device-increment + behind-a-habit nudges (built by buildCatchUp)
+  // are surfaced as confirm-gated chat bubbles + a launcher badge/peek — see coachIngestNudges.
   // ════════════════════════════════════════════════════════════════════════════
   const coach = {
     greeted: false,
     busy: false,
+    panelOpen: false,   // pop-out panel visibility
     draft: null,        // { entries:[…], clars:[…], routeAll:bool }  awaiting confirm
     draftCardEl: null,  // the live confirm card element (re-rendered in place)
     post: null,         // { targets:[…], contextId, ruleId, amount, caption, file, previewUrl } awaiting post
     estimate: null,     // { calories, protein, carbs, fat, items, note, file, previewUrl }
     lastLogged: [],     // [{ contextType, contextId, ruleId, amount, isYesNo }] — for the post offer
+    posted: {},         // nudge keys already dropped into the thread (post-once)
+    lastPeekSig: "",    // signature of the last peeked nudge set (no re-nag)
+    peekTimer: null,
   };
 
   // Read an image File into base64 (no data: prefix) + its media type, for the
@@ -8846,29 +8713,245 @@
     if (coach.greeted) return;
     coach.greeted = true;
     coachSay(`<p>Hey ${escapeHtml(coachFirstName())} 👋 Tell me what you did — like <em>“ran 5 miles”</em> or <em>“lifted with the boys”</em> — and I'll map it to the right rule and confirm before logging. Tap 📷 to estimate a meal from a photo.</p>`);
-    coachProactiveCheck();
   }
 
-  // TODO(coach phase 2 — proactive): surface check-ins here without being asked, e.g.
-  // "You usually log steps by now — want me to add them?" or nudging a rule the user
-  // normally hits but hasn't today (reuse buildStillToLog()/buildCatchUp()). Phase 1 is
-  // reactive only, so this is intentionally a no-op hook.
-  function coachProactiveCheck() { /* no-op in Phase 1 */ }
-
-  function openCoach() {
-    state.activeView = "coach";
-    saveState();
-    render();
+  // ── Floating launcher (bottom-left) + pop-out panel ─────────────────────────
+  function openCoachPanel() {
+    if (!els.coachPanel) return;
+    coach.panelOpen = true;
+    els.coachPanel.hidden = false;
+    els.coachPanel.classList.add("is-open");
+    if (els.coachLauncher) els.coachLauncher.setAttribute("aria-expanded", "true");
+    coachHidePeek();
     coachGreet();
-    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    coachRenderNudges();   // drop any pending proactive nudges into the thread
+    renderCoachLauncher(); // clears the badge now that you're looking
+    coachScroll();
     requestAnimationFrame(() => { if (els.coachInput) els.coachInput.focus(); });
   }
 
-  // Called from render(); append-only thread, so this stays idempotent (never rebuilds
-  // existing messages — that would wipe the live confirm/post cards mid-edit).
-  function renderCoach() {
-    if (state.activeView !== "coach") return;
-    if (!coach.greeted) coachGreet();
+  function closeCoachPanel() {
+    coach.panelOpen = false;
+    if (els.coachPanel) { els.coachPanel.classList.remove("is-open"); els.coachPanel.hidden = true; }
+    if (els.coachLauncher) els.coachLauncher.setAttribute("aria-expanded", "false");
+    renderCoachLauncher();
+  }
+
+  function toggleCoachPanel() { if (coach.panelOpen) closeCoachPanel(); else openCoachPanel(); }
+
+  // Badge on the launcher = count of active proactive nudges (only while the panel is closed).
+  function renderCoachLauncher() {
+    if (!els.coachLauncherBadge) return;
+    const n = coachActiveNudgeCount();
+    const show = !coach.panelOpen && n > 0;
+    els.coachLauncherBadge.hidden = !show;
+    els.coachLauncherBadge.textContent = n > 9 ? "9+" : String(n);
+    if (els.coachLauncher) els.coachLauncher.classList.toggle("has-nudges", show);
+  }
+
+  function coachActiveNudgeCount() {
+    const c = state.catchUp;
+    if (!c) return 0;
+    return (c.devices || []).length + ((c.manual || []).length ? 1 : 0);
+  }
+
+  // ── Proactive nudges: device increments + behind-a-habit, surfaced via Coach ─
+  // state.catchUp (built by buildCatchUp after a sync / refresh) is the nudge source.
+  // We only PEEK when there's genuinely something new (signature changed); otherwise the
+  // launcher just carries a badge. Triggers: after a device sync (new numbers only — an
+  // unchanged reading yields no increment, so nothing fires) and when a usually-logged
+  // habit is still empty. Never just for opening the app.
+  function coachIngestNudges() {
+    coach.posted = coach.posted || {};
+    if (coach.panelOpen) { coachRenderNudges(); renderCoachLauncher(); return; }
+    renderCoachLauncher();
+    if (!coachActiveNudgeCount()) { coachHidePeek(); return; }
+    const sig = coachNudgeSignature();
+    if (sig && sig !== coach.lastPeekSig) { coach.lastPeekSig = sig; coachShowPeek(); }
+  }
+
+  function coachNudgeSignature() {
+    const c = state.catchUp;
+    if (!c) return "";
+    const dev = (c.devices || []).map((d) => `${d.source}:${d.metric}:${d.unknown ? "C" : ""}${formatValue(d.current)}`).join("|");
+    const man = (c.manual || []).map((m) => m.ruleId).sort().join(",");
+    return dev + "#" + man;
+  }
+
+  function coachShowPeek() {
+    if (!els.coachPeek) return;
+    const c = state.catchUp;
+    if (!c) return;
+    const lines = [];
+    (c.devices || []).forEach((d) => {
+      if (lines.length >= 2) return;
+      if (d.unknown) lines.push({ device: true, head: d.sourceLabel, text: `${d.label}: you logged ${formatValue(d.conflictMine)}, device shows ${formatValue(d.current)}` });
+      else lines.push({ device: true, head: d.sourceLabel, text: `+${formatValue(d.increment)} ${d.unit} ${d.label.toLowerCase()} since last time` });
+    });
+    if (lines.length < 2 && (c.manual || []).length) {
+      lines.push({ device: false, head: "Catch up", text: `${plural(c.manual.length, "thing")} you usually log ${c.manual.length === 1 ? "isn't" : "aren't"} in yet` });
+    }
+    if (!lines.length) { coachHidePeek(); return; }
+    els.coachPeek.innerHTML = lines.map((l) => `
+      <button type="button" class="coach-peek-bubble" data-coach-peek-open>
+        <span class="coach-peek-head">${l.device ? "⌚" : "✨"} ${escapeHtml(l.head)}</span>
+        <span class="coach-peek-text">${escapeHtml(l.text)}</span>
+      </button>`).join("") + `<button type="button" class="coach-peek-x" data-coach-peek-dismiss aria-label="Dismiss">✕</button>`;
+    els.coachPeek.hidden = false;
+    if (coach.peekTimer) clearTimeout(coach.peekTimer);
+    coach.peekTimer = setTimeout(() => coachHidePeek(), 9000);
+  }
+
+  function coachHidePeek() {
+    if (coach.peekTimer) { clearTimeout(coach.peekTimer); coach.peekTimer = null; }
+    if (els.coachPeek) { els.coachPeek.hidden = true; els.coachPeek.innerHTML = ""; }
+  }
+  function coachDismissPeek() { coachHidePeek(); }
+
+  // Post nudge bubbles into the thread (each unique nudge once; acted bubbles stay finalized).
+  function coachRenderNudges() {
+    coach.posted = coach.posted || {};
+    const c = state.catchUp;
+    if (!c) return;
+    (c.devices || []).forEach((d) => {
+      const key = `${d.unknown ? "conf" : "dev"}:${d.source}:${d.metric}:${formatValue(d.current)}`;
+      if (coach.posted[key]) return;
+      coach.posted[key] = true;
+      coachPostDeviceNudge(d);
+    });
+    if ((c.manual || []).length) {
+      const key = `behind:${c.manual.map((m) => m.ruleId).sort().join(",")}`;
+      if (!coach.posted[key]) { coach.posted[key] = true; coachPostBehindNudge(c.manual.slice()); }
+    }
+  }
+
+  function coachDeviceByKey(source, metric) {
+    return ((state.catchUp && state.catchUp.devices) || []).find((d) => d.source === source && d.metric === metric) || null;
+  }
+
+  function coachPostDeviceNudge(d) {
+    const tok = escapeHtml(d.source + "|" + d.metric);
+    if (d.unknown) {
+      coachSay(`
+        <div class="coach-card coach-nudge-card is-active">
+          <div class="coach-nudge-head"><span class="via-source-tag">${escapeHtml(d.sourceLabel)}</span> ${escapeHtml(d.label)}</div>
+          <p class="coach-card-title">You logged ${escapeHtml(formatValue(d.conflictMine))}, but ${escapeHtml(d.sourceLabel)} shows ${escapeHtml(formatValue(d.current))} ${escapeHtml(d.unit)}.</p>
+          <div class="coach-card-actions">
+            <button type="button" class="ghost-button small" data-coach-confkeep="${tok}">Keep mine</button>
+            <button type="button" class="primary-button small" data-coach-confupdate="${tok}">Update → ${escapeHtml(formatValue(d.current))}</button>
+          </div>
+        </div>`);
+      return;
+    }
+    const pts = `${d.points >= 0 ? "+" : ""}${formatPoints(d.points)}`;
+    coachSay(`
+      <div class="coach-card coach-nudge-card is-active">
+        <div class="coach-nudge-head"><span class="via-source-tag">${escapeHtml(d.sourceLabel)}</span> From your device</div>
+        <p class="coach-card-title">+${escapeHtml(formatValue(d.increment))} ${escapeHtml(d.unit)} ${escapeHtml(d.label.toLowerCase())} since last time — now ${escapeHtml(formatValue(d.current))}.</p>
+        <div class="coach-nudge-sub">Worth ${escapeHtml(pts)} pts</div>
+        <div class="coach-card-actions">
+          <button type="button" class="ghost-button small" data-coach-devdismiss="${tok}">Dismiss</button>
+          <button type="button" class="secondary-button small" data-coach-devpost="${tok}">Log &amp; post 📷</button>
+          <button type="button" class="primary-button small" data-coach-devlog="${tok}">Log it</button>
+        </div>
+      </div>`);
+  }
+
+  function coachPostBehindNudge(manual) {
+    const names = manual.slice(0, 3).map((m) => escapeHtml(m.label)).join(", ") + (manual.length > 3 ? `, +${manual.length - 3} more` : "");
+    coachSay(`
+      <div class="coach-card coach-nudge-card is-active">
+        <div class="coach-nudge-head">✨ Catch up</div>
+        <p class="coach-card-title">You usually log ${names} by now. Want to knock ${manual.length === 1 ? "it" : "them"} out?</p>
+        <div class="coach-card-actions">
+          <button type="button" class="ghost-button small" data-coach-behinddismiss>Not now</button>
+          <button type="button" class="primary-button small" data-coach-behind>Catch me up</button>
+        </div>
+      </div>`);
+  }
+
+  function coachFinalizeCard(cardEl) {
+    if (!cardEl) return;
+    cardEl.classList.remove("is-active");
+    cardEl.classList.add("is-done");
+    Array.from(cardEl.querySelectorAll("button, input, select, textarea")).forEach((el) => { el.disabled = true; });
+  }
+
+  function coachRemoveDeviceNudge(source, metric) {
+    if (!state.catchUp) return;
+    state.catchUp.devices = (state.catchUp.devices || []).filter((d) => !(d.source === source && d.metric === metric));
+    if (!coachActiveNudgeCount()) state.catchUp = null;
+  }
+
+  // "Log it" on a device nudge → apply its increment to every rule it maps to (reuses the
+  // catch-up fan-out + incremental model), then offer to post.
+  function coachDeviceLog(source, metric, cardEl, opts = {}) {
+    const d = coachDeviceByKey(source, metric);
+    if (!d) { coachFinalizeCard(cardEl); return; }
+    const touched = new Set();
+    const logged = [];
+    (d.targets || []).forEach((target) => {
+      if (applyDeviceRowToTarget(target, d.source, touched)) {
+        logged.push({ contextType: target.contextType, contextId: target.contextId, ruleId: target.ruleId, amount: d.increment, isYesNo: false });
+      }
+    });
+    (state.systems || []).forEach((system) => { if (touched.has(system.id)) { syncDraftInputsFromEntries(system); autoSaveToday(system); } });
+    coach.lastLogged = logged;
+    const inc = d.increment, unit = d.unit, label = d.label;
+    coachRemoveDeviceNudge(source, metric);
+    saveState();
+    render();
+    coachFinalizeCard(cardEl);
+    coachSay(`<p>✅ Logged +${escapeHtml(formatValue(inc))} ${escapeHtml(unit)} ${escapeHtml(label.toLowerCase())}.</p>`);
+    if (opts.post) coachOpenPostComposer(); else coachOfferPost();
+  }
+
+  function coachDeviceDismiss(source, metric, cardEl) {
+    const d = coachDeviceByKey(source, metric);
+    if (d) (d.targets || []).forEach((target) => { const r = resolveQuickLogRule(target.contextType, target.contextId, target.ruleId); if (r) rebaselineRuleSync(r.rule); });
+    coachRemoveDeviceNudge(source, metric);
+    saveState();
+    coachFinalizeCard(cardEl);
+    renderCoachLauncher();
+  }
+
+  // Conflict (unknown baseline) → reuse the catch-up resolver (it advances the baseline).
+  function coachConflict(source, metric, choice, cardEl) {
+    const idx = ((state.catchUp && state.catchUp.devices) || []).findIndex((d) => d.source === source && d.metric === metric);
+    if (idx === -1) { coachFinalizeCard(cardEl); return; }
+    const d = state.catchUp.devices[idx];
+    const label = d.label, current = d.current;
+    resolveCatchUpConflict(idx, choice); // splices the row, saves, renders
+    coachFinalizeCard(cardEl);
+    coachSay(`<p>✅ ${choice === "update" ? `Updated ${escapeHtml(label.toLowerCase())} to ${escapeHtml(formatValue(current))}` : "Kept your number"}.</p>`);
+    renderCoachLauncher();
+  }
+
+  // "Catch me up" → turn the still-to-log habits into an editable confirm draft (reuses the
+  // same manual confirm/save flow). Rebuilt LIVE from buildStillToLog so a rule already logged
+  // elsewhere since the nudge appeared is never re-drafted (no double-log).
+  function coachBehindCatchUp(cardEl) {
+    const stillBehind = buildStillToLog();
+    if (state.catchUp) { state.catchUp.manual = []; if (!coachActiveNudgeCount()) state.catchUp = null; saveState(); }
+    coachFinalizeCard(cardEl);
+    renderCoachLauncher();
+    const entries = stillBehind.map((m) => {
+      const resolved = resolveQuickLogRule(m.contextType, m.contextId, m.ruleId);
+      if (!resolved) return null;
+      const isYesNo = resolved.rule.simpleStyle === "yesNo";
+      return { _id: makeId("qlog"), contextType: m.contextType, contextId: m.contextId, ruleId: m.ruleId, isYesNo: isYesNo, amount: isYesNo ? 1 : suggestedEntryAmount(resolved.rule), note: "", confidence: 0.6 };
+    }).filter(Boolean);
+    if (!entries.length) { coachSayText("You're all caught up — nothing left to log."); return; }
+    coach.draft = { entries: entries, clars: [], routeAll: false };
+    coach.draftCardEl = null;
+    coachSay(`<p>Here's what you usually log — tweak the amounts and confirm:</p>`);
+    coachRenderDraftCard();
+  }
+
+  function coachBehindDismiss(cardEl) {
+    if (state.catchUp) { state.catchUp.manual = []; if (!coachActiveNudgeCount()) state.catchUp = null; saveState(); }
+    coachFinalizeCard(cardEl);
+    renderCoachLauncher();
   }
 
   function coachSetupMic() {
@@ -8903,7 +8986,12 @@
   }
 
   function bindCoach() {
-    if (els.headerCoachButton) els.headerCoachButton.addEventListener("click", openCoach);
+    if (els.coachLauncher) els.coachLauncher.addEventListener("click", toggleCoachPanel);
+    if (els.coachPanelClose) els.coachPanelClose.addEventListener("click", closeCoachPanel);
+    if (els.coachPeek) els.coachPeek.addEventListener("click", (event) => {
+      if (event.target.closest("[data-coach-peek-dismiss]")) { coachDismissPeek(); return; }
+      openCoachPanel();
+    });
     if (els.coachForm) els.coachForm.addEventListener("submit", (event) => { event.preventDefault(); coachSendText(); });
     if (els.coachThread) {
       els.coachThread.addEventListener("click", onCoachThreadClick);
@@ -9458,6 +9546,19 @@
   // ── Delegated thread handlers ───────────────────────────────────────────────
   function onCoachThreadClick(event) {
     const t = event.target;
+    const card = () => t.closest(".coach-nudge-card");
+    const devLog = t.closest("[data-coach-devlog]");
+    if (devLog) { const p = devLog.dataset.coachDevlog.split("|"); coachDeviceLog(p[0], p[1], card(), { post: false }); return; }
+    const devPost = t.closest("[data-coach-devpost]");
+    if (devPost) { const p = devPost.dataset.coachDevpost.split("|"); coachDeviceLog(p[0], p[1], card(), { post: true }); return; }
+    const devDismiss = t.closest("[data-coach-devdismiss]");
+    if (devDismiss) { const p = devDismiss.dataset.coachDevdismiss.split("|"); coachDeviceDismiss(p[0], p[1], card()); return; }
+    const confKeep = t.closest("[data-coach-confkeep]");
+    if (confKeep) { const p = confKeep.dataset.coachConfkeep.split("|"); coachConflict(p[0], p[1], "keep", card()); return; }
+    const confUpdate = t.closest("[data-coach-confupdate]");
+    if (confUpdate) { const p = confUpdate.dataset.coachConfupdate.split("|"); coachConflict(p[0], p[1], "update", card()); return; }
+    if (t.closest("[data-coach-behind]")) { coachBehindCatchUp(card()); return; }
+    if (t.closest("[data-coach-behinddismiss]")) { coachBehindDismiss(card()); return; }
     if (t.closest("[data-coach-cancel]")) { coachCancelDraft(); return; }
     if (t.closest("[data-coach-log-post]")) { coachConfirmLog(true); return; }
     if (t.closest("[data-coach-log]")) { coachConfirmLog(false); return; }

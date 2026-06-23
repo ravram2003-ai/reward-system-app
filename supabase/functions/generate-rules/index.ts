@@ -58,9 +58,13 @@ OUTPUT: Respond with ONLY a single minified JSON object, no prose, no markdown c
 - "explanation": 1–2 sentences on why these rules, for the review screen.`;
 
 // Refine mode — the user is editing an EXISTING system via a chat instruction.
-const REFINE_SYSTEM_PROMPT = `You are editing an existing Pointwell reward system based on the user's instruction.
+const REFINE_SYSTEM_PROMPT = `You are SURGICALLY editing an EXISTING Pointwell reward system from the user's instruction. The CURRENT system JSON is the source of truth — it already reflects the user's own manual edits, so never discard them.
 
-You receive the CURRENT system as JSON plus an instruction describing a change (e.g. "raise protein to 180g", "add a stretching rule", "make it stricter"). Apply ONLY what the instruction asks. Keep every other rule and field exactly as-is — preserve the labels, units, points, and tiers of rules the instruction does not mention. Do not drop rules unless asked to.
+You receive the CURRENT system as JSON plus an instruction describing a change (e.g. "raise protein to 180g", "add a stretching rule", "make it stricter"). Make the SMALLEST edit that satisfies it:
+- Echo back EVERY rule the instruction does NOT mention EXACTLY as given — identical label, category, unit, style, goal, every, points, tier (and any condition/uncertain/suggestions). Do not rename, re-point, re-target, reorder, reword, or drop them.
+- Add a rule only if asked; modify only the specific rule(s) named; remove a rule only if explicitly asked to.
+- NEVER regenerate a fresh or generic system, and NEVER replace the whole rule set. If the instruction is vague, make the minimal sensible change and keep everything else untouched.
+- Keep title/category/description unless the instruction changes the focus.
 
 Each rule keeps this shape:
 - "label", "category", "unit" (what is measured).
@@ -112,6 +116,9 @@ function buildRefineMessage(input: Record<string, unknown>): string {
     .map((m) => `${String(m?.role) === "user" ? "User" : "Assistant"}: ${String(m?.text ?? "").slice(0, 300)}`)
     .join("\n");
   const lines = [`Current system (JSON):\n${currentJson}`];
+  if (String(input.kind ?? "") === "community") {
+    lines.push("This system is for a COMMUNITY of people working toward a shared goal — keep any new or changed rules fair and broadly applicable.");
+  }
   if (histText) lines.push(`Recent conversation:\n${histText}`);
   lines.push(`Apply this change and return the FULL updated system as JSON:\n${instruction}`);
   return lines.join("\n\n");

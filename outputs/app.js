@@ -634,7 +634,7 @@
       { key: "money", label: "Money" },
       { key: "mindfulness", label: "Mindfulness" }
     ] },
-    { label: "Skills & niche", items: [
+    { label: "Skills & niche", niche: true, items: [
       { key: "chess", label: "Chess" },
       { key: "language", label: "Language" },
       { key: "instrument", label: "Instrument" },
@@ -750,33 +750,30 @@
     return onboardingExplainMarkup(skip);
   }
 
-  // Screen 1 — explain the loop in four calm lines.
-  function onboardingExplainMarkup(skip) {
-    const points = [
-      "Build a reward system for your goals",
-      "Log your check-in each day",
-      "Stay accountable — your community sees who shows up",
-      "Get motivated — cheer, compete, and rise up the leaderboard"
-    ];
+  // Screen 1 — welcome hero. Rows fade/slide up in sequence on open (staggered ~80ms via
+  // per-row animation-delay); the logo floats and the CTA glows. All motion is disabled under
+  // prefers-reduced-motion (see styles.css). Behavior unchanged: Get started → profile, Skip.
+  function onboardingExplainMarkup() {
     return `
-      <div class="onboard-screen onboard-explain">
-        <div class="onboard-brand">
-          <div class="brand-mark" aria-hidden="true">P</div>
+      <div class="onboard-screen onboard-welcome onboard-scroll">
+        <div class="pwrow onboard-brand" style="animation-delay:.04s">
+          <div class="onboard-logo" aria-hidden="true">P</div>
           <p class="eyebrow">Welcome to Pointwell</p>
         </div>
-        <h2>Turn your goals into points.</h2>
-        <p class="onboard-sub">Build a system, show up daily, and watch the points add up.</p>
-        <ol class="onboard-explain-list">
-          ${points.map((text, index) => `
-            <li>
-              <span class="onboard-explain-num" aria-hidden="true">${index + 1}</span>
-              <span>${escapeHtml(text)}</span>
-            </li>`).join("")}
-        </ol>
-        <div class="onboard-actions">
-          <button class="primary-button" type="button" data-onboard="to-profile">Get started</button>
-          ${skip}
+        <h2 class="pwrow" style="animation-delay:.12s">Chase your goals — <span class="onboard-accent">together.</span></h2>
+        <p class="pwrow onboard-sub" style="animation-delay:.2s">Build a system, check in daily, and let your community keep you showing up.</p>
+        <div class="pwrow onboard-step" style="animation-delay:.28s"><span class="onboard-step-num" aria-hidden="true">1</span><span>Build a reward system for your goals</span></div>
+        <div class="pwrow onboard-step" style="animation-delay:.36s"><span class="onboard-step-num" aria-hidden="true">2</span><span>Log your check-in each day</span></div>
+        <div class="pwrow onboard-feat" style="animation-delay:.44s">
+          <div class="onboard-feat-head">
+            <span class="onboard-feat-avatars" aria-hidden="true"><span class="onboard-av onboard-av-a"></span><span class="onboard-av onboard-av-b"></span><span class="onboard-av onboard-av-c"></span></span>
+            <span class="onboard-feat-tag">Your crew shows up with you</span>
+          </div>
+          <p class="onboard-feat-line"><strong>Stay accountable</strong> — everyone sees who logged today.</p>
+          <p class="onboard-feat-line"><strong>Get hyped</strong> — cheer, compete, climb the leaderboard. 🔥</p>
         </div>
+        <button class="primary-button onboard-cta-glow" type="button" data-onboard="to-profile">Get started</button>
+        <button class="ghost-button small onboard-skip pwrow" type="button" data-onboard="skip" style="animation-delay:.58s">Skip for now</button>
       </div>`;
   }
 
@@ -832,7 +829,7 @@
         <h2>How others will see you.</h2>
         <div class="onboard-avatar-row">
           <div class="profile-avatar-attach onboard-avatar-attach">
-            <div class="large-avatar" id="onboardAvatarPreview" aria-hidden="true">${avatarInner}</div>
+            <div class="large-avatar onboard-avatar-square" id="onboardAvatarPreview" aria-hidden="true">${avatarInner}</div>
             <button class="profile-avatar-edit" type="button" data-onboard="avatar-pick" aria-label="Add a photo"><span aria-hidden="true">📷</span></button>
             <input type="file" accept="image/*" data-onboard-field="avatar" hidden>
           </div>
@@ -1007,9 +1004,10 @@
     syncMyPublicSystems(); // a public profile chosen here publishes any public systems
   }
 
-  function onboardingInterestChipMarkup(item) {
+  function onboardingInterestChipMarkup(item, niche) {
     const selected = onboardingInterests.some((entry) => entry.key === item.key);
-    return `<button class="signal-preset-chip onboard-chip${selected ? " is-selected" : ""}" type="button" data-onboard="interest" data-interest="${escapeHtml(item.key)}" data-label="${escapeHtml(item.label)}" aria-pressed="${selected ? "true" : "false"}">${escapeHtml(item.label)}</button>`;
+    const nicheClass = niche ? " onboard-chip-niche" : "";
+    return `<button class="signal-preset-chip onboard-chip${nicheClass}${selected ? " is-selected" : ""}" type="button" data-onboard="interest" data-interest="${escapeHtml(item.key)}" data-label="${escapeHtml(item.label)}" aria-pressed="${selected ? "true" : "false"}">${escapeHtml(item.label)}</button>`;
   }
 
   function onboardingCustomChipMarkup(item) {
@@ -1028,7 +1026,7 @@
         ${ONBOARDING_INTEREST_GROUPS.map((group) => `
           <div class="onboard-chip-group">
             <p class="onboard-group-label">${escapeHtml(group.label)}</p>
-            <div class="signal-presets">${group.items.map(onboardingInterestChipMarkup).join("")}</div>
+            <div class="signal-presets">${group.items.map((item) => onboardingInterestChipMarkup(item, group.niche)).join("")}</div>
           </div>`).join("")}
         <div class="onboard-chip-group">
           <p class="onboard-group-label">Add your own</p>
@@ -1110,16 +1108,18 @@
     }
     const draft = onboardingDraft;
     const added = onboardingAddedSystemId && state.systems.some((item) => item.id === onboardingAddedSystemId);
-    const rules = (draft.rules || []).slice(0, 6)
-      .map((rule) => `<li><span>${escapeHtml(ruleSentence(rule))}</span></li>`).join("");
+    const ruleChips = (draft.rules || []).slice(0, 6).map((rule) => {
+      const pts = numberOrDefault(draftPrimaryPoints(rule), 0);
+      const ptsLabel = (pts < 0 ? "−" : "+") + formatPoints(Math.abs(pts));
+      return `<span class="onboard-rule-chip">${draftRuleIcon(rule)} ${escapeHtml(rule.label || "Rule")} <span class="onboard-rule-chip-pts">${escapeHtml(ptsLabel)}</span></span>`;
+    }).join("");
     return `
-      <div class="onboard-system-card">
+      <div class="onboard-feat onboard-system-feat">
         <div class="onboard-system-head">
           <strong>${escapeHtml(draft.title || "Your reward system")}</strong>
-          <span class="onboard-tag">Generated from your answers</span>
+          <span class="onboard-system-spark" aria-hidden="true">✦</span>
         </div>
-        ${draft.category ? `<p class="onboard-sub">${escapeHtml(draft.category)}</p>` : ""}
-        <ul class="onboard-rule-list onboard-rule-list-plain">${rules}</ul>
+        <div class="onboard-rule-chips">${ruleChips}</div>
         ${added
           ? `<button class="secondary-button" type="button" disabled>Added ✓</button>`
           : `<button class="primary-button" type="button" data-onboard="add-system">Add this system</button>`}
@@ -1150,11 +1150,15 @@
     const id = String(row.id);
     const joined = onboardingJoinedIds.includes(id) || isCommunityJoined(row.id);
     const count = Number(row.member_count) || 0;
+    const name = row.name || "Community";
+    // Deterministic green/purple avatar tint so the list has the demo's varied look.
+    const purple = (name.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 2) === 1;
     return `
-      <article class="find-community-card">
+      <article class="find-community-card onboard-community-card">
+        <div class="onboard-result-av${purple ? " onboard-result-av-purple" : ""}" aria-hidden="true">${escapeHtml(getInitials(name))}</div>
         <div class="find-community-main">
           <div class="onboard-result-head">
-            <strong>${escapeHtml(row.name || "Community")}</strong>
+            <strong>${escapeHtml(name)}</strong>
             ${row._popular ? `<span class="onboard-tag onboard-popular-tag">Popular</span>` : ""}
           </div>
           <span class="community-meta">${escapeHtml(row.category || "Community")} &middot; ${plural(count, "member")}</span>

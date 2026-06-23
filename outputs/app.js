@@ -2728,6 +2728,7 @@
       "analyticsToggle",
       "dashboardAnalytics",
       "worldGrid",
+      "worldGridHint",
       "dashboardDetail",
       "notifBellButton",
       "notifBellBadge",
@@ -3053,10 +3054,17 @@
     // The "+" FAB is the single entry point for logging (creating systems/communities
     // lives in Build). openAddEntryPage guards the no-system / no-rules cases with a toast.
     if (els.createFab) els.createFab.addEventListener("click", openAddEntryPage);
-    // Bubble-tile home: tap a world tile to open it (delegated; survives re-renders).
-    // TODO(phase 2): add pointerdown/long-press + drag handlers here to reorder/feature/
-    // resize tiles, persisting to state.homeLayout (see applyWorldLayout / worldFeaturedKeys).
-    if (els.worldGrid) els.worldGrid.addEventListener("click", onWorldGridClick);
+    // Bubble-tile home: tap a tile to open it; long-press (touch) / click-drag (desktop)
+    // to reorder. Top two of the new order become the featured/large tiles (drag up to
+    // feature, down to shrink); order persists in state.homeLayout.order.
+    if (els.worldGrid) {
+      els.worldGrid.addEventListener("click", onWorldGridClick);
+      els.worldGrid.addEventListener("pointerdown", onWorldGridPointerDown);
+      // move/up on window so the drag keeps tracking outside the grid bounds.
+      window.addEventListener("pointermove", onWorldGridPointerMove, { passive: false });
+      window.addEventListener("pointerup", onWorldGridPointerUp);
+      window.addEventListener("pointercancel", onWorldGridPointerCancel);
+    }
     bindQuickLogControls();
     bindCoach();
     bindWearablePrompt();
@@ -4107,6 +4115,9 @@
   // ════════════════════════════════════════════════════════════════════════════
   function worldTileKey(t) { return t.type + ":" + t.id; }
 
+  // Phase 2 drag-reorder state (long-press on touch / click-drag on desktop).
+  const worldDrag = { key: null, pointerId: null, startX: 0, startY: 0, started: false, longPress: null, ghost: null, ghostDX: 0, ghostDY: 0, placeholder: null, suppressClick: false };
+
   function buildWorldTiles() {
     const tiles = [];
     (state.communities || []).forEach((community) => {
@@ -4126,11 +4137,9 @@
     return applyWorldLayout(tiles);
   }
 
-  // Phase 1 default order: communities first (by today's points desc), then personal
-  // systems (by points desc).
-  // TODO(phase 2 — drag to reorder/resize): when state.homeLayout = { order: [key…],
-  // featured: [key,key], size: { key: "lg"|"sm" } } exists, honor it here (order below
-  // already does) and persist it on drop. worldFeaturedKeys() already prefers it too.
+  // Order: if the user has dragged tiles (state.homeLayout.order, Phase 2), honor that;
+  // otherwise default to communities first (by today's points desc), then personal systems
+  // (by points desc). The top two of the final order are featured/large (worldFeaturedKeys).
   function applyWorldLayout(tiles) {
     const layout = state.homeLayout;
     if (layout && Array.isArray(layout.order) && layout.order.length) {
@@ -4148,17 +4157,18 @@
     });
   }
 
+  // Featured = the top two tiles in the (possibly user-dragged) order. Dragging a tile up
+  // into the top two features it (large); dragging down shrinks it.
   function worldFeaturedKeys(ordered) {
-    if (state.homeLayout && Array.isArray(state.homeLayout.featured) && state.homeLayout.featured.length) {
-      return new Set(state.homeLayout.featured);
-    }
-    return new Set(ordered.slice(0, 2).map(worldTileKey)); // top two are featured/large
+    return new Set(ordered.slice(0, 2).map(worldTileKey));
   }
 
   function renderWorldGrid() {
     const mount = els.worldGrid;
     if (!mount) return;
+    if (worldDrag.started) return; // never rebuild mid-drag — it would drop the ghost/placeholder
     const tiles = buildWorldTiles();
+    if (els.worldGridHint) els.worldGridHint.hidden = tiles.length < 2;
     const addTile = `<button type="button" class="world-tile world-add" data-world-add>
         <span class="world-add-plus" aria-hidden="true">+</span>
         <span class="world-add-label">${tiles.length ? "New" : "Create your first world"}</span>
@@ -4227,11 +4237,139 @@
 
   // ── Tile taps → open that world via existing handlers (no new detail views) ──
   function onWorldGridClick(event) {
+    // A click that follows a drag must not also open the tile.
+    if (worldDrag.suppressClick) { worldDrag.suppressClick = false; return; }
     if (event.target.closest("[data-world-add]")) { openAddWorld(); return; }
     const tile = event.target.closest("[data-world-id]");
     if (!tile) return;
     if (tile.dataset.worldType === "community") openWorldCommunity(tile.dataset.worldId);
     else openWorldPersonal(tile.dataset.worldId);
+  }
+
+  // ── Phase 2: drag to reorder (long-press on touch / click-drag on desktop) ───
+  // The top two tiles in the resulting order are the featured/large ones, so dragging a
+  // tile UP "features" it and dragging it DOWN shrinks it. Order persists in
+  // state.homeLayout.order across sessions (worldFeaturedKeys derives the featured pair).
+  function worldTilesInDom() {
+    return els.worldGrid ? Array.from(els.worldGrid.querySelectorAll(".world-tile[data-world-key]")) : [];
+  }
+
+  function worldTileByKey(key) {
+    return worldTilesInDom().find((el) => el.dataset.worldKey === key) || null;
+  }
+
+  function commitWorldOrder() {
+    const order = worldTilesInDom().map((el) => el.dataset.worldKey);
+    state.homeLayout = state.homeLayout || {};
+    state.homeLayout.order = order; // top two => featured; size follows position
+    saveState();
+  }
+
+  function worldDragMoveGhost(x, y) {
+    if (worldDrag.ghost) {
+      worldDrag.ghost.style.left = (x - worldDrag.ghostDX) + "px";
+      worldDrag.ghost.style.top = (y - worldDrag.ghostDY) + "px";
+    }
+  }
+
+  function worldDragBegin(tile, x, y) {
+    worldDrag.started = true;
+    worldDrag.placeholder = tile;
+    tile.classList.add("is-dragging");
+    if (els.worldGrid) els.worldGrid.classList.add("is-reordering"); // uniform sizes → no resize jank
+    const rect = tile.getBoundingClientRect();
+    const ghost = tile.cloneNode(true);
+    ghost.classList.add("world-ghost");
+    ghost.classList.remove("is-dragging");
+    ghost.style.width = rect.width + "px";
+    ghost.style.height = rect.height + "px";
+    worldDrag.ghostDX = x - rect.left;
+    worldDrag.ghostDY = y - rect.top;
+    document.body.appendChild(ghost);
+    worldDrag.ghost = ghost;
+    worldDragMoveGhost(x, y);
+  }
+
+  function worldDragOver(x, y) {
+    if (!worldDrag.placeholder || !els.worldGrid) return;
+    const under = document.elementFromPoint(x, y);
+    if (!under) return;
+    const tile = under.closest && under.closest(".world-tile[data-world-key]");
+    if (!tile || tile === worldDrag.placeholder) return;
+    const rect = tile.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    // Same row → decide by X; different row → decide by Y.
+    const before = (Math.abs(y - midY) <= rect.height / 2) ? (x < rect.left + rect.width / 2) : (y < midY);
+    els.worldGrid.insertBefore(worldDrag.placeholder, before ? tile : tile.nextSibling);
+  }
+
+  function worldDragEnd(commit) {
+    if (worldDrag.longPress) { clearTimeout(worldDrag.longPress); worldDrag.longPress = null; }
+    const wasDragging = worldDrag.started;
+    if (worldDrag.ghost && worldDrag.ghost.parentNode) worldDrag.ghost.parentNode.removeChild(worldDrag.ghost);
+    if (worldDrag.placeholder) worldDrag.placeholder.classList.remove("is-dragging");
+    if (els.worldGrid) els.worldGrid.classList.remove("is-reordering");
+    worldDrag.ghost = null;
+    worldDrag.placeholder = null;
+    worldDrag.started = false;
+    worldDrag.key = null;
+    worldDrag.pointerId = null;
+    if (wasDragging) {
+      if (commit) commitWorldOrder();
+      // Swallow the click that fires right after pointerup. Re-rendering can drop that
+      // synthesized click, so also auto-clear shortly after so the next tap isn't eaten.
+      worldDrag.suppressClick = true;
+      setTimeout(() => { worldDrag.suppressClick = false; }, 60);
+      renderWorldGrid(); // re-render with real sizes (top two large) from the new order
+    }
+  }
+
+  function onWorldGridPointerDown(event) {
+    if (event.button != null && event.button !== 0) return; // primary / touch only
+    const tile = event.target.closest && event.target.closest(".world-tile[data-world-key]");
+    if (!tile) return; // the Add tile (no data-world-key) and empty space fall through to click
+    worldDrag.key = tile.dataset.worldKey;
+    worldDrag.pointerId = event.pointerId;
+    worldDrag.startX = event.clientX;
+    worldDrag.startY = event.clientY;
+    worldDrag.started = false;
+    if (event.pointerType === "touch") {
+      // Long-press to pick up (so a tap still opens and a swipe still scrolls).
+      worldDrag.longPress = setTimeout(() => {
+        worldDrag.longPress = null;
+        const t = worldTileByKey(worldDrag.key);
+        if (t) { worldDragBegin(t, worldDrag.startX, worldDrag.startY); try { t.setPointerCapture(worldDrag.pointerId); } catch (e) { /* ignore */ } }
+      }, 230);
+    }
+  }
+
+  function onWorldGridPointerMove(event) {
+    if (worldDrag.key == null || event.pointerId !== worldDrag.pointerId) return;
+    const dist = Math.hypot(event.clientX - worldDrag.startX, event.clientY - worldDrag.startY);
+    if (!worldDrag.started) {
+      if (worldDrag.longPress) { // touch waiting to pick up: a real move = scroll → cancel arming
+        if (dist > 12) { clearTimeout(worldDrag.longPress); worldDrag.longPress = null; worldDrag.key = null; }
+        return;
+      }
+      if (event.pointerType !== "touch" && dist > 6) { // mouse: start once past threshold (taps still open)
+        const t = worldTileByKey(worldDrag.key);
+        if (t) { worldDragBegin(t, event.clientX, event.clientY); try { t.setPointerCapture(worldDrag.pointerId); } catch (e) { /* ignore */ } }
+      }
+      return;
+    }
+    event.preventDefault(); // stop scroll/selection while dragging
+    worldDragMoveGhost(event.clientX, event.clientY);
+    worldDragOver(event.clientX, event.clientY);
+  }
+
+  function onWorldGridPointerUp(event) {
+    if (worldDrag.key == null || (worldDrag.pointerId != null && event.pointerId !== worldDrag.pointerId)) return;
+    worldDragEnd(true);
+  }
+
+  function onWorldGridPointerCancel() {
+    if (worldDrag.key == null) return;
+    worldDragEnd(false); // gesture interrupted → discard the in-progress reorder
   }
 
   function openWorldCommunity(id) {

@@ -8836,3 +8836,17 @@ body.onboarding-locked .coach-panel { display: none; }
   .world-grid { gap: 10px; }
   .world-tile { padding: 13px; min-height: 106px; }
 }
+
+/* ── Bubble-tile home: drag-to-reorder (Phase 2) ─────────────────────────────── */
+.world-grid-hint { margin: 10px 2px 0; font-size: 0.78rem; color: var(--muted); }
+.world-tile { touch-action: manipulation; } /* taps + scroll work; long-press drag is JS-driven */
+/* During a drag, freeze all tiles to one size so reordering doesn't jump as a tile
+   moves in/out of the featured (large) slots. */
+.world-grid.is-reordering .world-tile.is-large { grid-column: auto; min-height: 116px; }
+/* The picked-up tile becomes the drop slot: a clear dashed accent outline (0.35 alone was
+   near-invisible on the near-black surface) plus a dimmed fill. */
+.world-tile.is-dragging { opacity: 0.5; border: 2px dashed var(--accent-strong); background: var(--soft); }
+.world-ghost {
+  position: fixed; z-index: 200; margin: 0; pointer-events: none;
+  transform: scale(1.03); box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+}

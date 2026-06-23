@@ -8652,5 +8652,7 @@ body.onboarding-locked .fab-add { display: none; }
   color: var(--ink); background: var(--field-bg); border: 1px solid var(--line); border-radius: 8px;
 }
 .catchup-context-name { color: var(--accent-strong); font-size: 0.74rem; font-weight: 700; }
+.catchup-row-context { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.catchup-log-to { color: var(--muted); font-size: 0.72rem; }
 .catchup-row-manual { align-items: center; }
 .catchup-row-manual .catchup-row-main strong { font-size: 0.86rem; color: var(--ink); }

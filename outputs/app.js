@@ -7805,23 +7805,31 @@
   }
 
   // ── PART A — "since your last check-in" sync card ────────────────────────────
-  // Every loggable EXTERNAL-synced rule (any source — Fitbit/Whoop/Apple Health/bank/…),
-  // grouped by "<source>::<metric>", across the user's personal systems AND communities.
-  // Source-agnostic so a new integration flows in with no special-casing. Drives the card.
-  function syncedRuleIndexAllSources() {
-    const index = {};
+  // Every rule the user can log to (personal systems + communities), with what we need to
+  // match a device metric to it. Source-agnostic: a Fitbit step count can be logged to ANY
+  // steps-ish rule the user picks, even one not wired to Fitbit.
+  function loggableRuleTargets() {
+    const out = [];
     const add = (rawRule, contextType, contextId, contextName) => {
       const rule = scoring.normalizeRule(rawRule);
-      if (!isExternalRuleSynced(rule) || !rule.sourceMetric) return; // any source except manual/calculated
-      const key = rule.dataSource + "::" + rule.sourceMetric;
-      (index[key] = index[key] || []).push({ rule, contextType, contextId, contextName });
+      if (rule.simpleStyle === "penalty" || rule.allowManualOverride === false) return;
+      out.push({ ruleId: rule.id, rule, contextType, contextId, contextName, label: rule.label || "", unit: rule.unit || "", sourceMetric: rule.sourceMetric });
     };
     (state.systems || []).forEach((s) => (s.rules || []).forEach((r) => add(r, "personal", s.id, s.title || "System")));
     (state.communities || []).forEach((c) => {
       const sys = normalizeSystem(c.system || { rules: [] });
       (sys.rules || []).forEach((r) => add(r, "community", c.id, c.name || "Community"));
     });
-    return index;
+    return out;
+  }
+
+  // How well a rule fits a device metric: exact sourceMetric match (3) beats a label/unit word
+  // match (1, e.g. a manual "Steps" rule for the "steps" metric); 0 = no match.
+  function ruleMatchScore(target, source, metric) {
+    if (target.sourceMetric && target.sourceMetric === metric) return 3;
+    const words = `${sourceMetricLabel(source, metric)} ${metric}`.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 2);
+    const hay = `${target.label} ${target.unit}`.toLowerCase();
+    return words.some((w) => hay.includes(w)) ? 1 : 0;
   }
 
   // True if a rule has a genuine HAND-logged entry today (not a synced/materialized one).
@@ -7858,43 +7866,47 @@
     return out.slice(0, 6); // gentle — never a nag wall
   }
 
-  // Build the "Catch up your day" card: device deltas from EVERY connected source + manual
-  // still-to-log. Each device row carries its source, delta (framing), points, and the
-  // contexts (rules) it can log to. Returns null when there's nothing new/unlogged.
+  // Build the "Catch up your day" card: for EVERY connected source, surface each metric that
+  // changed since last seen ("you added +X steps · now Y"), matched to any rule that fits it
+  // (so you can log it to any system you pick — Fitbit-wired or not) + the points it'd earn.
+  // Plus manual still-to-log. Returns null when there's nothing new/unlogged.
   function buildCatchUp() {
-    const index = syncedRuleIndexAllSources();
     state.wearableLastSeen = state.wearableLastSeen || {};
     const today = getTodayKey();
+    const targets = loggableRuleTargets();
     const devices = [];
-    Object.keys(index).forEach((key) => {
-      const sep = key.indexOf("::");
-      const source = key.slice(0, sep);
-      const metric = key.slice(sep + 2);
-      if (!isSourceConnected(source)) return; // only connected integrations
-      const current = Number((state.mockSyncData?.[source] || {})[metric]);
-      if (!Number.isFinite(current) || current <= 0) return;
-      const contexts = index[key].filter((e) => e.rule.allowManualOverride !== false);
-      if (!contexts.length) return; // nothing the card can act on
-      const seen = (state.wearableLastSeen[source] || {})[metric];
-      // Prior-day (or never-seen) last check-in → the delta is today's whole total (daily reset).
-      const delta = (!seen || seen.dateKey !== today) ? current : (current - numberOrDefault(seen.value, 0));
-      const first = contexts[0];
-      devices.push({
-        source, metric,
-        label: sourceMetricLabel(source, metric),
-        sourceLabel: wearableShortLabel(source),
-        unit: first.rule.unit || "",
-        current, delta,
-        points: scoring.calculateRule(first.rule, current).totalPoints,
-        contexts: contexts.map((c) => ({ contextType: c.contextType, contextId: c.contextId, contextName: c.contextName, ruleId: c.rule.id })),
-        primary: first.contextId + "|" + first.rule.id,
-        checked: true,
+    Object.keys(state.mockSyncData || {}).forEach((source) => {
+      if (source === "manual" || source === "calculated" || !isSourceConnected(source)) return;
+      const data = state.mockSyncData[source] || {};
+      Object.keys(data).forEach((metric) => {
+        const current = Number(data[metric]);
+        if (!Number.isFinite(current) || current <= 0) return;
+        // Match the device metric to any rule it could be logged to (exact metric, then label).
+        const matched = targets.map((t) => ({ t, score: ruleMatchScore(t, source, metric) }))
+          .filter((m) => m.score > 0)
+          .sort((a, b) => b.score - a.score);
+        if (!matched.length) return; // no rule it could go to → don't surface it (avoids stat noise)
+        const seen = (state.wearableLastSeen[source] || {})[metric];
+        // Prior-day (or never-seen) last check-in → the delta is today's whole total (daily reset).
+        const delta = (!seen || seen.dateKey !== today) ? current : (current - numberOrDefault(seen.value, 0));
+        if (delta === 0) return; // only what's new/changed
+        const best = matched[0].t;
+        devices.push({
+          source, metric,
+          label: sourceMetricLabel(source, metric),
+          sourceLabel: wearableShortLabel(source),
+          unit: best.rule.unit || "",
+          current, delta, value: current,
+          points: scoring.calculateRule(best.rule, current).totalPoints,
+          targets: matched.map((m) => ({ contextType: m.t.contextType, contextId: m.t.contextId, contextName: m.t.contextName, ruleId: m.t.ruleId, label: m.t.label })),
+          primary: best.contextId + "|" + best.ruleId,
+          checked: true,
+        });
       });
     });
-    const changed = devices.filter((d) => d.delta !== 0); // only surface what's new/changed
     const manual = buildStillToLog();
-    if (!changed.length && !manual.length) return null;
-    return { at: new Date().toISOString(), devices: changed, manual };
+    if (!devices.length && !manual.length) return null;
+    return { at: new Date().toISOString(), devices, manual };
   }
 
   // Remember the current value of one source/metric so its next delta is measured from here.
@@ -7931,28 +7943,32 @@
   // "Log selected": for each CHECKED device row, set every rule using that source+metric (across
   // personal systems AND communities) to its current daily total, fill/refresh-only — a rule
   // with a hand-logged value today is left untouched. Manual still-to-log uses its own Log ›.
+  // "Log selected": write each checked device metric's CURRENT total to the rule the user
+  // chose for it (its "log to" selector). The viaSource flag makes it set the rule to that
+  // total (never adds the delta → no double-count), refresh-not-stack, and it's skipped if the
+  // rule already has a hand-logged value today (never overwrite a manual entry).
   function logSelectedCatchUp() {
     const catchUp = state.catchUp;
     if (!catchUp) return;
-    const index = syncedRuleIndexAllSources();
     const touched = new Set();
     let logged = 0;
     (catchUp.devices || []).forEach((d) => {
       if (!d.checked) return;
+      const target = (d.targets || []).find((t) => (t.contextId + "|" + t.ruleId) === d.primary) || (d.targets || [])[0];
+      if (!target) return;
+      if (ruleHasManualEntryToday(target.contextType, target.contextId, target.ruleId)) return;
+      const resolved = resolveQuickLogRule(target.contextType, target.contextId, target.ruleId);
+      if (!resolved) return;
+      const value = numberOrDefault(d.value, 0);
+      if (value <= 0) return;
       logged += 1;
-      (index[d.source + "::" + d.metric] || []).forEach((entry) => {
-        if (entry.rule.allowManualOverride === false) return;
-        if (ruleHasManualEntryToday(entry.contextType, entry.contextId, entry.rule.id)) return;
-        const value = syncedValueForRule(entry.rule, { userId: "me", date: todayIso, scope: entry.contextType });
-        if (value === null || value <= 0) return;
-        if (entry.contextType === "community") {
-          const community = (state.communities || []).find((c) => c.id === entry.contextId);
-          if (community) materializeCommunitySynced(community, entry.rule, value, d.source);
-        } else {
-          const system = (state.systems || []).find((s) => s.id === entry.contextId);
-          if (system) { materializePersonalSynced(system, entry.rule, value, d.source); touched.add(system.id); }
-        }
-      });
+      if (target.contextType === "community") {
+        const community = (state.communities || []).find((c) => c.id === target.contextId);
+        if (community) materializeCommunitySynced(community, resolved.rule, value, d.source);
+      } else {
+        const system = (state.systems || []).find((s) => s.id === target.contextId);
+        if (system) { materializePersonalSynced(system, resolved.rule, value, d.source); touched.add(system.id); }
+      }
     });
     (state.systems || []).forEach((system) => {
       if (touched.has(system.id)) { syncDraftInputsFromEntries(system); autoSaveToday(system); }
@@ -7989,9 +8005,10 @@
     const deviceRows = devices.map((d, i) => {
       const deltaText = d.delta > 0 ? `+${formatValue(d.delta)} · ` : (d.delta < 0 ? `${formatValue(d.delta)} · ` : "");
       const ptsClass = d.points >= 0 ? "positive" : "negative";
-      const ctx = d.contexts.length > 1
-        ? `<select class="catchup-context" data-catchup-context="${i}" aria-label="Where to log ${escapeHtml(d.label)}">${d.contexts.map((c) => `<option value="${escapeHtml(c.contextId + "|" + c.ruleId)}"${(c.contextId + "|" + c.ruleId) === d.primary ? " selected" : ""}>${escapeHtml(c.contextName)}</option>`).join("")}</select>`
-        : `<span class="catchup-context-name">→ ${escapeHtml(d.contexts[0].contextName)}</span>`;
+      const optLabel = (t) => `${t.label} · ${t.contextName}`;
+      const ctx = d.targets.length > 1
+        ? `<span class="catchup-log-to">Log to</span><select class="catchup-context" data-catchup-context="${i}" aria-label="Where to log ${escapeHtml(d.label)}">${d.targets.map((t) => `<option value="${escapeHtml(t.contextId + "|" + t.ruleId)}"${(t.contextId + "|" + t.ruleId) === d.primary ? " selected" : ""}>${escapeHtml(optLabel(t))}</option>`).join("")}</select>`
+        : `<span class="catchup-context-name">→ ${escapeHtml(optLabel(d.targets[0]))}</span>`;
       return `
         <div class="catchup-row">
           <input type="checkbox" class="catchup-check" data-catchup-check="${i}"${d.checked ? " checked" : ""} aria-label="Include ${escapeHtml(d.label)}">

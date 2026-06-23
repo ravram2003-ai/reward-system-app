@@ -516,6 +516,60 @@
     }
   }
 
+  // Upload a world cover / app icon to the PRIVATE "world-media" bucket under the owner's
+  // own "<uid>/<world_id>/…" folder (RLS: only the authenticated owner may write there; the
+  // anon key never can — supabase/world-media.sql). Returns { error, path }. The path is saved
+  // to communities/public_systems.cover_url|icon_url and resolved to a signed URL on read.
+  async function uploadWorldMedia(file, uid, worldId) {
+    var sb = getClient();
+    if (!sb || !sb.storage) return { error: { message: "Photo upload needs a connection." } };
+    if (!file) return { error: { message: "No photo selected." } };
+    if (!uid || !worldId) return { error: { message: "Sign in to set this photo." } };
+    try {
+      var ext = "jpg";
+      if (file.name && file.name.indexOf(".") > -1) {
+        var raw = file.name.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (raw) ext = raw;
+      } else if (file.type && file.type.indexOf("/") > -1) {
+        ext = file.type.split("/").pop().replace(/[^a-z0-9]/g, "") || "jpg";
+      }
+      var safeWorld = String(worldId).replace(/[^a-zA-Z0-9_-]/g, "");
+      var path = String(uid).replace(/\/+$/, "") + "/" + safeWorld + "/" + Date.now() + "-" + Math.random().toString(36).slice(2, 8) + "." + ext;
+      var res = await sb.storage.from("world-media").upload(path, file, { contentType: file.type || "image/jpeg", upsert: false });
+      if (res.error) return { error: { message: res.error.message || "Photo upload failed." } };
+      return { error: null, path: path };
+    } catch (e) {
+      return { error: { message: "Couldn't upload the photo." } };
+    }
+  }
+
+  // Short-lived signed URL for a world-media object (the bucket is private; the SELECT policy
+  // decides who's allowed). Returns "" when not permitted — callers fall back to the gradient.
+  async function worldMediaSignedUrl(path) {
+    var sb = getClient();
+    if (!sb || !sb.storage || !path) return "";
+    try {
+      var res = await sb.storage.from("world-media").createSignedUrl(path, 3600);
+      return (res && res.data && res.data.signedUrl) ? res.data.signedUrl : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // Save cover_url/icon_url onto a community row. RLS (communities "update own") permits this
+  // only for the owner; a non-owner / anon write is rejected by the database. patch is
+  // { cover_url?, icon_url? }. Returns { error }.
+  async function updateCommunityMedia(communityId, patch) {
+    var sb = getClient();
+    if (!sb || !communityId) return { error: { message: "Couldn't save the photo." } };
+    try {
+      var res = await sb.from("communities").update(patch || {}).eq("id", communityId);
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
   // Resolve { id, display_name, handle, avatar_url } cards for a set of peer ids the
   // caller is already allowed to see (public / friends / existing thread). Used to
   // show peer avatars + names in Chats, which is built from the signals table and has
@@ -1147,6 +1201,9 @@
     uploadEntryPhoto: uploadEntryPhoto,
     getEntryPhotoSignedUrl: getEntryPhotoSignedUrl,
     uploadAvatar: uploadAvatar,
+    uploadWorldMedia: uploadWorldMedia,
+    worldMediaSignedUrl: worldMediaSignedUrl,
+    updateCommunityMedia: updateCommunityMedia,
     getProfileCards: getProfileCards,
     likeEntry: likeEntry,
     unlikeEntry: unlikeEntry,

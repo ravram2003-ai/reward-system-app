@@ -9168,6 +9168,118 @@ body.onboarding-locked .coach-panel { display: none; }
   .world-ghost { transform: none; }
 }
 
+/* ── World detail (style D: cover banner + airy body) — community + personal ──────── */
+.world-detail-view { padding: 0 !important; }
+.world-banner {
+  position: relative; height: 112px; border-radius: 0; overflow: hidden;
+  background: linear-gradient(135deg, #1c5a43, #123a52 70%, #1a2336);
+}
+.world-banner.is-personal { background: linear-gradient(135deg, #3a2a6b, #5a2a52 70%, #231a36); }
+.world-banner-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.world-banner.has-photo { background: #0a0f0d; }
+.world-banner-pill {
+  position: absolute; top: 12px; z-index: 2; display: inline-flex; align-items: center; gap: 3px;
+  font-size: 0.7rem; color: #eafff8; background: rgba(0, 0, 0, 0.4); border: none; border-radius: 20px;
+  padding: 5px 12px; cursor: pointer; backdrop-filter: blur(2px);
+}
+.world-banner-back { left: 14px; }
+.world-cover-edit { right: 14px; }
+.world-cover-add {
+  position: absolute; top: 12px; right: 14px; z-index: 2; font-size: 0.7rem; color: #cfe9df;
+  background: rgba(0, 0, 0, 0.28); border: 1px dashed #3a5a4d; border-radius: 20px; padding: 5px 13px; cursor: pointer;
+}
+
+.world-detail-body { padding: 0 16px 22px; max-width: 560px; margin: 0 auto; }
+/* Only the ICON overlaps the banner. The negative margin-top makes the icon's margin box
+   shorter than the name block, so the NAME defines the row height + sits fully below the banner
+   edge (flex-end bottom-aligns both); the icon alone rides up into the banner. */
+.world-head { display: flex; align-items: flex-end; gap: 13px; margin-bottom: 14px; }
+.world-icon { margin-top: -30px; }
+.world-icon {
+  position: relative; flex: 0 0 auto; width: 60px; height: 60px; border-radius: 20px;
+  border: 3px solid var(--bg, #08100d); overflow: visible;
+  background: linear-gradient(135deg, #16382c, #1a2b3a); display: flex; align-items: center; justify-content: center;
+}
+.world-icon.is-personal { background: linear-gradient(135deg, #2a2342, #3a1a36); }
+.world-icon-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 17px; }
+.world-icon.has-photo .world-icon-fallback { display: none; }
+.world-icon-fallback { font-size: 1.3rem; font-weight: 600; color: #cfe9df; }
+.world-icon.is-personal .world-icon-fallback { color: #d8cdf2; }
+.world-icon-edit {
+  position: absolute; bottom: -4px; right: -4px; z-index: 2; width: 24px; height: 24px; padding: 0;
+  border-radius: 50%; border: 2px solid var(--bg, #08100d); background: #1c4d3b; color: #eafff8;
+  font-size: 0.72rem; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.world-icon.is-personal .world-icon-edit { background: #3a2a52; }
+.world-head-main { flex: 1 1 auto; min-width: 0; padding-bottom: 0; }
+.world-name { display: block; font-size: 1.12rem; font-weight: 600; color: #f3f6f4; line-height: 1.1; overflow-wrap: anywhere; }
+.world-subtitle { font-size: 0.68rem; color: #7c8d87; margin: 2px 0 0; }
+.world-edit-btn { flex: 0 0 auto; margin-bottom: 3px; font-size: 0.7rem; padding: 6px 15px; border-radius: 22px; background: transparent; color: #d8cdf2; border: 1px solid #4a3d6e; cursor: pointer; }
+
+.world-actions { display: flex; gap: 8px; margin-bottom: 14px; }
+.world-action { flex: 1 1 auto; font-size: 0.73rem; padding: 9px; border-radius: 22px; background: transparent; color: #cfd8d4; border: 1px solid #25302c; cursor: pointer; }
+.world-action.primary { background: #1c4d3b; color: #9bf3cf; border: none; }
+.world-invite-options { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+
+.world-photo-empty { background: #0e1714; border: 1px dashed #233029; border-radius: 14px; padding: 14px; text-align: center; margin-bottom: 16px; }
+.world-photo-empty-title { font-size: 0.78rem; color: #cfd8d4; margin: 0 0 3px; }
+.world-photo-empty-sub { font-size: 0.68rem; color: #7c8d87; margin: 0 0 11px; }
+.world-photo-empty .world-action { flex: 0 0 auto; display: inline-block; padding: 7px 18px; }
+
+.world-chips { display: flex; gap: 8px; margin-bottom: 18px; }
+.world-chip { flex: 1 1 0; text-align: center; background: #10211b; border-radius: 13px; padding: 9px 4px; min-width: 0; }
+.world-detail-view.is-personal-world .world-chip { background: #19132e; }
+.world-chip-value { font-size: 0.95rem; font-weight: 600; color: #eafff8; margin: 0; }
+.world-detail-view.is-personal-world .world-chip-value { color: #efe7ff; }
+.world-chip-label { font-size: 0.56rem; color: #7fc7b0; margin: 1px 0 0; }
+.world-detail-view.is-personal-world .world-chip-label { color: #9a86c9; }
+
+.world-section { margin-bottom: 20px; padding-top: 18px; border-top: 1px solid #141d19; }
+.world-detail-view.is-personal-world .world-section { border-top-color: #1a1530; }
+.world-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 13px; }
+.world-section-title { font-size: 0.81rem; font-weight: 600; color: #dfe7e4; }
+.world-period-tabs { margin-bottom: 12px; }
+
+/* Clean leaderboard rows (no progress bars). */
+.world-leaderboard { display: grid; gap: 2px; }
+.world-lb-detail-row { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; background: transparent; border: none; padding: 8px 4px; cursor: pointer; border-radius: 10px; }
+.world-lb-detail-row:hover { background: rgba(255, 255, 255, 0.03); }
+.world-lb-detail-row.is-me { background: #0e2c22; }
+.world-detail-view.is-personal-world .world-lb-detail-row.is-me { background: #1c1535; }
+.world-lb-detail-rank { width: 14px; font-size: 0.8rem; color: #8aa39a; font-variant-numeric: tabular-nums; }
+.world-lb-detail-row.is-me .world-lb-detail-rank { color: #3ddc97; }
+.world-lb-detail-av { width: 32px; height: 32px; flex: 0 0 auto; }
+.world-lb-detail-name { flex: 1 1 auto; min-width: 0; font-size: 0.88rem; color: #f3f6f4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.world-lb-detail-row.is-me .world-lb-detail-name { color: #7fe9c0; }
+.world-lb-detail-pts { font-size: 0.92rem; color: #f3f6f4; font-variant-numeric: tabular-nums; }
+.world-lb-detail-row.is-me .world-lb-detail-pts { color: #3ddc97; }
+
+/* Personal "Today's rules" with per-rule progress bars. */
+.world-rules { display: grid; gap: 14px; }
+.world-rule-row { display: flex; align-items: center; gap: 12px; }
+.world-rule-icon { font-size: 1rem; flex: 0 0 auto; }
+.world-rule-main { flex: 1 1 auto; min-width: 0; }
+.world-rule-name { font-size: 0.81rem; color: #f3f6f4; margin: 0; }
+.world-rule-track { height: 5px; border-radius: 3px; background: #241c3a; margin-top: 6px; overflow: hidden; }
+.world-rule-fill { height: 100%; border-radius: 3px; background: #9a7fe0; }
+.world-rule-value { flex: 0 0 auto; font-size: 0.72rem; color: #b6a3e6; font-variant-numeric: tabular-nums; }
+
+.world-posts .community-feed-list { display: grid; gap: 14px; }
+
+/* Collapsible trends. */
+.world-trends { margin-bottom: 22px; }
+.world-trends-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; font-size: 0.78rem; color: #7fc7b0; background: transparent; border: none; padding: 4px 0; cursor: pointer; }
+.world-detail-view.is-personal-world .world-trends-toggle { color: #b6a3e6; }
+.world-trends-caret { transition: transform 160ms ease; }
+.world-trends.is-open .world-trends-caret { transform: rotate(180deg); }
+.world-trends-body { margin-top: 14px; }
+
+@media (prefers-reduced-motion: reduce) { .world-trends-caret { transition: none; } }
+@media (max-width: 400px) {
+  .world-detail-body { padding: 0 13px 20px; }
+  .world-chip-label { font-size: 0.52rem; }
+}
+
 /* ── Build-a-Community: clearer "rule added → add another" flow ─────────── */
 .cc-rule-collapsed{display:flex;flex-direction:column;align-items:center;gap:14px;padding:6px 0 4px;text-align:center}
 .cc-rule-added-banner{display:inline-flex;align-items:center;gap:10px;padding:11px 20px;border-radius:999px;

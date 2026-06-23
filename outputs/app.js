@@ -2878,10 +2878,31 @@
       "communitySearchForm",
       "communityList",
       "communityFeed",
-      "communityDetailTitle",
-      "communityMeta",
-      "communityDescription",
-      "communityStatus",
+      "worldBanner",
+      "worldBannerImg",
+      "worldCoverEdit",
+      "worldCoverAdd",
+      "worldIcon",
+      "worldIconImg",
+      "worldIconFallback",
+      "worldIconEdit",
+      "worldName",
+      "worldSubtitle",
+      "worldEditButton",
+      "worldHeadActions",
+      "worldActions",
+      "worldPhotoEmpty",
+      "worldAddPhotosButton",
+      "worldChips",
+      "personalRulesPanel",
+      "personalRules",
+      "worldPostsPanel",
+      "worldPosts",
+      "worldTrendsPanel",
+      "worldTrendsToggle",
+      "worldTrendsBody",
+      "worldCoverInput",
+      "worldIconInput",
       "backToCommunitiesButton",
       "inviteButton",
       "communitySettingsButton",
@@ -2891,7 +2912,6 @@
       "copyInviteCodeButton",
       "sendInviteTextButton",
       "sendInviteEmailButton",
-      "communityLeader",
       "backFromCommunitySettingsButton",
       "communitySettingsTitle",
       "communitySettingsMode",
@@ -3281,6 +3301,7 @@
     els.editSystemButton.addEventListener("click", editSystemFromScore);
     els.backToCommunitiesButton.addEventListener("click", returnToCommunities);
     els.communitySettingsButton.addEventListener("click", openCommunitySettings);
+    bindWorldDetail();
     els.backFromCommunitySettingsButton.addEventListener("click", returnToCommunityDetail);
     els.backFromMemberActivityButton.addEventListener("click", returnToCommunityDetail);
     els.backFromFindCommunitiesButton.addEventListener("click", returnToCommunities);
@@ -3599,6 +3620,7 @@
   }
 
   function returnToCommunityDetail() {
+    state.worldDetailType = "community";
     state.activeView = "community-detail";
     saveState();
     render();
@@ -3617,7 +3639,9 @@
   function openCommunityFromScore() {
     const context = getActiveScoreContext();
     if (context.type !== "community" || !context.community) return;
+    state.worldDetailType = "community";
     state.selectedCommunityId = context.community.id;
+    state.worldDetailType = "community";
     state.activeView = "community-detail";
     saveState();
     render();
@@ -3643,6 +3667,7 @@
     const context = getActiveScoreContext();
     if (context.type !== "community" || !context.community) return;
     state.selectedCommunityId = context.community.id;
+    state.worldDetailType = "community";
     state.activeView = "community-detail";
     saveState();
     render();
@@ -4745,17 +4770,24 @@
 
   function openWorldCommunity(id) {
     if (!(state.communities || []).some((c) => c.id === id)) return;
+    state.worldDetailType = "community";
     state.scoreContext = "community:" + id;
     saveState();
     openCommunityFromScore(); // sets selectedCommunityId + community-detail view + renders
   }
 
+  // A personal world opens the SAME detail view (branched to the personal body) — tap a tile to
+  // VIEW it; logging stays on the "+" FAB / Coach.
   function openWorldPersonal(id) {
     if (!(state.systems || []).some((s) => s.id === id)) return;
+    state.detailSystemId = id;
     state.scoreContext = "personal";
     state.trackerSystemId = id;
+    state.activeView = "community-detail";
+    state.worldDetailType = "personal"; // assert AFTER the view set so it wins
     saveState();
-    openAddEntryPage(); // opens that system's surface (guards no-rules with a toast)
+    render();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }
 
   function openAddWorld() {
@@ -6957,6 +6989,7 @@
       button.addEventListener("click", () => {
         state.selectedCommunityId = button.dataset.communityId;
         state.communityDraftInputs = {};
+        state.worldDetailType = "community";
         state.activeView = "community-detail";
         saveState();
         render();
@@ -7240,6 +7273,17 @@
   // Pull like/comment counts (+ liked_by_me + latest-comment preview) for the visible
   // posts in one call; re-render once when they arrive. The fetched-set guards against
   // a refetch loop (the re-render re-enters here with every id already requested).
+  // The feed-post component is reused on the Feed tab AND the world-detail page; these resolve
+  // the live surface so social refreshes/in-place card swaps target the one on screen.
+  function activeFeedRoot() {
+    if (state.activeView === "community-detail") { const w = currentDetailWorld(); if (w && w.type === "community" && els.worldPosts) return els.worldPosts; }
+    return els.communityFeed;
+  }
+  function refreshActiveFeedSurface() {
+    if (state.activeView === "community-detail") { const w = currentDetailWorld(); if (w && w.type === "community") { renderWorldPosts(w); return; } }
+    renderActiveFeed();
+  }
+
   function fetchFeedSocial() {
     if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.getEntriesSocial !== "function") return;
     const missing = feedItems
@@ -7261,7 +7305,7 @@
           any = true;
         }
       });
-      if (any) renderActiveFeed();
+      if (any) refreshActiveFeedSurface();
     }).catch(() => {});
   }
 
@@ -7417,10 +7461,11 @@
   // Re-render a single feed card in place so other cards' comment inputs keep their
   // text/focus; preserves an already-loaded photo to avoid a re-fetch flash.
   function replaceFeedCard(entryId) {
-    if (!els.communityFeed) return;
-    const card = els.communityFeed.querySelector(`[data-feed-entry="${entryId}"]`);
+    const root = activeFeedRoot();
+    if (!root) return;
+    const card = root.querySelector(`[data-feed-entry="${entryId}"]`);
     const item = feedItemById(entryId);
-    if (!card || !item) { renderActiveFeed(); return; }
+    if (!card || !item) { refreshActiveFeedSurface(); return; }
     // Preserve this card's half-typed comment (+ focus) and its already-loaded photo.
     const oldInput = card.querySelector("[data-feed-comment-input]");
     const draftVal = oldInput ? oldInput.value : "";
@@ -7606,68 +7651,297 @@
     render();
   }
 
+  // ── World detail (style D) — one view for both world types, body branched by type ──
+  // Banner (cover_url / default gradient) + overlapping icon + name/subtitle + action row +
+  // stat chips + body (community leaderboard OR personal rules) + recent-posts feed + a
+  // collapsible "See trends & breakdown". Reuses communityStandings / renderCommunityAnalytics
+  // / renderFeedPost / the invite+settings handlers; security stays in the DB.
   function renderCommunityDetail() {
-    const community = getSelectedCommunity();
-    if (!community) {
-      els.communityDetailTitle.textContent = "Community";
-      els.communityMeta.textContent = "";
-      els.communityDescription.textContent = "";
-      els.communityStatus.textContent = "Private";
-      els.communityStatus.className = "visibility-pill private";
-      els.communityLeader.textContent = "-";
-      els.leaderboardList.innerHTML = "";
-      els.communityPeriodTabs.innerHTML = "";
-      els.communityAnalytics.innerHTML = "";
+    const world = currentDetailWorld();
+    if (!world) {
+      if (els.worldName) els.worldName.textContent = "World";
+      ["leaderboardList", "communityPeriodTabs", "communityAnalytics", "worldPosts", "personalRules", "worldChips"].forEach((k) => { if (els[k]) els[k].innerHTML = ""; });
       return;
     }
+    renderWorldChrome(world);
+    if (world.type === "personal") renderPersonalWorldDetail(world);
+    else renderCommunityWorldDetail(world);
+  }
 
+  // The world the detail view shows: a personal system (worldDetailType "personal" + a valid
+  // system) or the selected community. Carries owner flag + cover/icon storage paths.
+  function currentDetailWorld() {
+    if (state.worldDetailType === "personal") {
+      const sys = (state.systems || []).find((s) => s.id === state.detailSystemId);
+      if (sys) return { type: "personal", id: sys.id, name: sys.title || "System", system: sys, ownerIsMe: true, coverPath: sys.coverUrl || "", iconPath: sys.iconUrl || "" };
+    }
+    const c = getSelectedCommunity();
+    if (c) return { type: "community", id: c.id, name: c.name || "Community", community: c, ownerIsMe: isCommunityAdmin(c), coverPath: c.coverUrl || c.cover_url || "", iconPath: c.iconUrl || c.icon_url || "" };
+    return null;
+  }
+
+  function worldPersonalStreak(system) {
+    try { return coachContextStreak({ type: "personal", id: system.id, system: system }); } catch (e) { return 0; }
+  }
+
+  // Shared chrome: banner gradient/cover, icon, name, subtitle, action visibility, owner photo
+  // controls, stat chips. Cover/icon images are painted async (signed URLs) by paintWorldMedia.
+  function renderWorldChrome(world) {
+    const personal = world.type === "personal";
+    if (els.communityDetailView) els.communityDetailView.classList.toggle("is-personal-world", personal);
+    if (els.worldBanner) els.worldBanner.classList.toggle("is-personal", personal);
+    if (els.worldIcon) els.worldIcon.classList.toggle("is-personal", personal);
+    if (els.worldName) els.worldName.textContent = world.name;
+    if (els.worldIconFallback) els.worldIconFallback.textContent = (getInitials(world.name) || "W").slice(0, 2);
+    if (els.worldSubtitle) {
+      if (personal) {
+        const streak = worldPersonalStreak(world.system);
+        els.worldSubtitle.textContent = streak > 0 ? `Personal · 🔥 ${streak}-day streak` : "Personal";
+      } else {
+        const vis = communityVisibility(world.community);
+        const lock = vis === "public" ? "🌐" : (vis === "request_to_join" ? "🙋" : "🔒");
+        els.worldSubtitle.textContent = `${lock} ${visibilityLabel(vis)} · ${plural(getCommunityMemberCount(world.community), "member")}`;
+      }
+    }
+    // Actions: community → Invite + Settings; personal → Edit only.
+    if (els.worldActions) els.worldActions.hidden = personal;
+    if (els.inviteButton) els.inviteButton.hidden = personal;
+    if (els.communitySettingsButton) els.communitySettingsButton.hidden = personal;
+    if (els.worldEditButton) els.worldEditButton.hidden = !personal;
+    if (els.inviteOptions) els.inviteOptions.hidden = true;
+    if (els.personalRulesPanel) els.personalRulesPanel.hidden = !personal;
+    // Owner-only photo controls + empty-state nudge (non-owners see the default gradient).
+    const owner = world.ownerIsMe, hasCover = !!world.coverPath, hasIcon = !!world.iconPath;
+    if (els.worldCoverEdit) els.worldCoverEdit.hidden = !(owner && hasCover);
+    if (els.worldCoverAdd) els.worldCoverAdd.hidden = !(owner && !hasCover);
+    if (els.worldIconEdit) els.worldIconEdit.hidden = !owner;
+    if (els.worldPhotoEmpty) els.worldPhotoEmpty.hidden = !(owner && !hasCover && !hasIcon);
+    renderWorldChips(world);
+    paintWorldMedia(world);
+  }
+
+  // 3 stat chips. Community = members / group-today / your streak; personal = today / week / streak.
+  function renderWorldChips(world) {
+    if (!els.worldChips) return;
+    let chips;
+    if (world.type === "personal") {
+      const sys = normalizeSystem(world.system);
+      const today = roundScore(numberOrDefault(calculateDashboardSummary(sys, todayValuesForSystem(sys)).total, 0));
+      const todayKey = getTodayKey();
+      const week = currentWeekDateKeys().reduce((sum, d) => { if (d > todayKey) return sum; const e = findEntry(d, world.id); return sum + (e ? numberOrDefault(e.total, 0) : 0); }, 0);
+      const streak = worldPersonalStreak(world.system);
+      chips = [[formatPoints(today), "today"], [formatPoints(roundScore(week)), "this week"], [(streak > 0 ? "🔥" : "") + streak, "streak"]];
+    } else {
+      const community = world.community;
+      const standings = (function () { try { return communityStandings(community, "daily", "points"); } catch (e) { return []; } })();
+      const groupToday = standings.reduce((s, m) => s + numberOrDefault(m.today, 0), 0);
+      const myStreak = (function () { try { return coachContextStreak({ type: "community", id: community.id, community: community }); } catch (e) { return 0; } })();
+      chips = [[String(getCommunityMemberCount(community)), "members"], [formatPoints(roundScore(groupToday)), "group today"], [(myStreak > 0 ? "🔥" : "") + myStreak, "streak"]];
+    }
+    els.worldChips.innerHTML = chips.map(([v, l]) => `<div class="world-chip"><p class="world-chip-value">${escapeHtml(String(v))}</p><p class="world-chip-label">${escapeHtml(l)}</p></div>`).join("");
+  }
+
+  function renderCommunityWorldDetail(world) {
+    const community = world.community;
     community.system.rules = community.system.rules.map(scoring.normalizeRule);
     saveCommunitySummaryForMember(community, "me");
-    if (!state.selectedCommunityMemberId || !community.members.some((memberItem) => memberItem.id === state.selectedCommunityMemberId)) {
-      state.selectedCommunityMemberId = "me";
-    }
-
+    if (!state.selectedCommunityMemberId || !community.members.some((m) => m.id === state.selectedCommunityMemberId)) state.selectedCommunityMemberId = "me";
     const analytics = normalizeCommunityAnalytics(community);
     const target = communityTarget(community);
-    const period = COMMUNITY_PERIODS.some((item) => item.id === state.communityLeaderboardPeriod)
-      ? state.communityLeaderboardPeriod
-      : analytics.defaultPeriod;
-    const visibility = communityVisibility(community);
+    const period = COMMUNITY_PERIODS.some((i) => i.id === state.communityLeaderboardPeriod) ? state.communityLeaderboardPeriod : analytics.defaultPeriod;
 
-    els.inviteOptions.hidden = true;
-    els.communityDetailTitle.textContent = community.name;
-    els.communityMeta.textContent = `${plural(getCommunityMemberCount(community), "member")} · ${visibilityLabel(visibility)}`;
-    els.communityDescription.textContent = community.description || "";
-    els.communityStatus.textContent = visibilityLabel(visibility);
-    els.communityStatus.className = `visibility-pill ${visibility === "request_to_join" ? "request" : visibility}`;
-
-    els.communityLeaderboardPanel.hidden = !analytics.modules.leaderboard;
+    if (els.communityLeaderboardPanel) els.communityLeaderboardPanel.hidden = !analytics.modules.leaderboard;
     if (analytics.modules.leaderboard) {
       const standings = communityStandings(community, period, analytics.metric);
-      const leader = standings[0];
-      const metricLabel = analytics.metric === "completion" ? "goal completion" : "points";
-      els.communityLeader.textContent = leader
-        ? `${leader.name.split(" ")[0]} leads · ${communityPeriod(period).label.toLowerCase()} ${metricLabel}`
-        : "Community points";
-      els.communityPeriodTabs.innerHTML = COMMUNITY_PERIODS.map((item) => `
-        <button class="segmented-button${item.id === period ? " active" : ""}" type="button" role="tab" aria-selected="${item.id === period ? "true" : "false"}" data-cc-period="${item.id}">${escapeHtml(item.label)}</button>
-      `).join("");
-      Array.from(els.communityPeriodTabs.querySelectorAll("[data-cc-period]")).forEach((button) => {
-        button.addEventListener("click", () => {
-          state.communityLeaderboardPeriod = button.dataset.ccPeriod;
-          saveState();
-          renderCommunityDetail();
-        });
-      });
-      els.leaderboardList.innerHTML = standings.map(renderLeaderboardRow).join("");
+      els.communityPeriodTabs.innerHTML = COMMUNITY_PERIODS.map((item) => `<button class="segmented-button${item.id === period ? " active" : ""}" type="button" role="tab" aria-selected="${item.id === period ? "true" : "false"}" data-cc-period="${item.id}">${escapeHtml(item.label)}</button>`).join("");
+      Array.from(els.communityPeriodTabs.querySelectorAll("[data-cc-period]")).forEach((b) => b.addEventListener("click", () => { state.communityLeaderboardPeriod = b.dataset.ccPeriod; saveState(); renderCommunityDetail(); }));
+      els.leaderboardList.innerHTML = standings.map((m, i) => renderWorldLbRow(m, i, analytics.metric)).join("");
       bindLeaderboardRows();
-    } else {
-      els.communityPeriodTabs.innerHTML = "";
-      els.leaderboardList.innerHTML = "";
-      els.communityLeader.textContent = "";
+    } else if (els.communityPeriodTabs) {
+      els.communityPeriodTabs.innerHTML = ""; els.leaderboardList.innerHTML = "";
     }
-
+    renderWorldPosts(world);
+    if (els.worldTrendsPanel) els.worldTrendsPanel.hidden = !(analytics.modules.groupTrends || analytics.modules.individualTrends);
     renderCommunityAnalytics(community, analytics, period, target);
+    applyWorldTrendsCollapsed();
+  }
+
+  function renderPersonalWorldDetail(world) {
+    renderPersonalRules(world.system);
+    renderWorldPosts(world);
+    if (els.worldTrendsPanel) els.worldTrendsPanel.hidden = false;
+    renderPersonalTrends(world.system);
+    applyWorldTrendsCollapsed();
+  }
+
+  // Clean leaderboard row: rank · avatar · name · points, your row highlighted, NO progress bar.
+  // Keeps data-community-member-id so the existing bindLeaderboardRows drill-down still works.
+  function renderWorldLbRow(m, index, metric) {
+    const me = m.id === "me";
+    const periodPoints = m.periodPoints != null ? m.periodPoints : m.today;
+    const value = metric === "completion" ? `${m.completion || 0}%` : formatPoints(periodPoints);
+    return `<button class="world-lb-detail-row${me ? " is-me" : ""}" type="button" data-community-member-id="${escapeHtml(m.id)}">
+        <span class="world-lb-detail-rank">${index + 1}</span>
+        ${renderAvatar({ className: "member-avatar world-lb-detail-av", name: m.name, color: m.color, avatarUrl: m.avatarUrl })}
+        <span class="world-lb-detail-name">${me ? "You" : escapeHtml(m.name || "Member")}</span>
+        <strong class="world-lb-detail-pts">${escapeHtml(value)}</strong>
+      </button>`;
+  }
+
+  // Personal "Today's rules" — icon + name + a per-rule progress bar + value (no leaderboard).
+  function renderPersonalRules(system) {
+    if (!els.personalRules) return;
+    const sys = normalizeSystem(system);
+    const values = todayValuesForSystem(sys);
+    const rules = (sys.rules || []).map(scoring.normalizeRule).filter((r) => r.simpleStyle !== "penalty");
+    if (!rules.length) { els.personalRules.innerHTML = emptyState("No rules yet — add some in Build."); return; }
+    els.personalRules.innerHTML = rules.map((rule) => {
+      const total = numberOrDefault(values[rule.id], 0);
+      const goal = goalAmountForRule(rule) || 0;
+      const pct = rule.simpleStyle === "yesNo" ? (total > 0 ? 100 : 0) : (goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : (total > 0 ? 100 : 0));
+      const label = rule.simpleStyle === "yesNo" ? (total > 0 ? "Done" : "—") : `${formatValue(total)}/${formatValue(goal)}`;
+      return `<div class="world-rule-row">
+          <span class="world-rule-icon" aria-hidden="true">${draftRuleIcon(rule)}</span>
+          <div class="world-rule-main">
+            <p class="world-rule-name">${escapeHtml(rule.label || "Rule")}</p>
+            <div class="world-rule-track" aria-hidden="true"><div class="world-rule-fill" style="width:${pct}%"></div></div>
+          </div>
+          <span class="world-rule-value">${escapeHtml(label)}</span>
+        </div>`;
+    }).join("");
+  }
+
+  // Personal trend: your points over the last COMMUNITY_TREND_DAYS, rendered with the same
+  // bar chart the community trends use. Encouraging empty state when there's no history.
+  function renderPersonalTrends(system) {
+    if (!els.communityAnalytics) return;
+    const days = COMMUNITY_TREND_DAYS;
+    const series = [];
+    for (let i = days - 1; i >= 0; i--) { const d = offsetDate(-i); const e = findEntry(d, system.id); series.push({ date: d, value: e ? numberOrDefault(e.total, 0) : 0 }); }
+    const weekTotal = series.slice(-7).reduce((s, p) => s + p.value, 0);
+    els.communityAnalytics.innerHTML = series.some((p) => p.value > 0)
+      ? `<section class="tool-panel cc-panel"><div class="panel-heading tight"><div><h3>Your trend</h3><span>Points · last ${days} days</span></div><strong class="cc-stat">${escapeHtml(formatPoints(roundScore(weekTotal)))} this week</strong></div>${renderCommunityTrendChart(series, { ariaLabel: "Your points over time" })}</section>`
+      : emptyState("Log a few days and your trend will fill in here. 📈");
+  }
+
+  // Recent-posts feed scoped to this world. Community → the shared feed-post component (with
+  // like/comment/cheer); personal → your own captioned/photo check-ins (lightweight cards).
+  function renderWorldPosts(world) {
+    if (!els.worldPosts) return;
+    if (world.type === "community") {
+      const community = world.community;
+      const items = (state.communityEntries || []).filter((e) => e.communityId === world.id).map((entry) => {
+        const member = (community.members || []).find((m) => m.id === entry.userId);
+        if (!member) return null;
+        const rule = (community.system.rules || []).map(scoring.normalizeRule).find((r) => r.id === entry.ruleId);
+        return { entry: entry, community: community, member: member, rule: rule, when: entry.timestamp || entry.dateKey || entry.date || "" };
+      }).filter(Boolean).sort((a, b) => String(b.when).localeCompare(String(a.when))).slice(0, 12);
+      if (!items.length) { els.worldPosts.innerHTML = emptyState("No posts yet — log a community day and it'll show up here."); return; }
+      feedItems = items; // so the shared feed handlers (like/comment/cheer) resolve each card by id
+      els.worldPosts.innerHTML = `<div class="community-feed-list">${items.map(renderFeedPost).join("")}</div>`;
+      bindWorldFeedDelegation();
+      bindEntryPhotos(els.worldPosts);
+      fetchFeedSocial();
+      return;
+    }
+    const posts = (state.quickEntries || []).filter((e) => e.systemId === world.id && (e.message || e.photoPath || e.photo_path))
+      .slice().sort((a, b) => String(b.timestamp || b.dateKey || b.date || "").localeCompare(String(a.timestamp || a.dateKey || a.date || ""))).slice(0, 12);
+    if (!posts.length) { els.worldPosts.innerHTML = emptyState("Your check-ins with a note or photo will show up here."); return; }
+    els.worldPosts.innerHTML = `<div class="community-feed-list">${posts.map(renderPersonalPost).join("")}</div>`;
+    bindEntryPhotos(els.worldPosts);
+  }
+
+  function renderPersonalPost(entry) {
+    const when = entry.timestamp || entry.dateKey || entry.date || "";
+    const rel = (window.PointwellSignals && typeof window.PointwellSignals.formatRelativeTime === "function") ? (window.PointwellSignals.formatRelativeTime(when, Date.now()) || "") : "";
+    const relText = rel && rel !== "just now" ? rel + " ago" : (rel || "");
+    const photoPath = entry.photoPath || entry.photo_path || "";
+    const photoHtml = photoPath ? `<div class="ig-photo" data-entry-photo="${escapeHtml(photoPath)}" role="img" aria-label="Post photo"><img alt="" loading="lazy"></div>` : "";
+    const msg = entry.message ? escapeHtml(String(entry.message)) : "";
+    return `<article class="ig-card">
+        <div class="ig-card-header">
+          <div class="ig-author ig-author-static">${renderAvatar({ name: state.profile.name, avatarUrl: state.profile.avatarUrl, color: "#355d91" })}<div class="ig-head-main"><span class="ig-head-name">You</span><span class="ig-head-sub">${escapeHtml(relText)}</span></div></div>
+        </div>
+        ${photoHtml}
+        ${msg ? `<div class="ig-caption"><span class="ig-name">You</span>${msg}</div>` : ""}
+      </article>`;
+  }
+
+  function bindWorldFeedDelegation() {
+    const root = els.worldPosts;
+    if (!root || root.dataset.feedBound === "1") return;
+    root.dataset.feedBound = "1";
+    root.addEventListener("click", onFeedClick);
+    root.addEventListener("input", onFeedInput);
+    root.addEventListener("submit", onFeedSubmit);
+  }
+
+  function applyWorldTrendsCollapsed() {
+    const open = !!state.worldTrendsOpen;
+    if (els.worldTrendsBody) els.worldTrendsBody.hidden = !open;
+    if (els.worldTrendsToggle) els.worldTrendsToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    if (els.worldTrendsPanel) els.worldTrendsPanel.classList.toggle("is-open", open);
+  }
+
+  // ── World cover/icon: paint signed URLs (private bucket) or fall back to the gradient ──
+  let worldMediaPaintSeq = 0;
+  function paintWorldMedia(world) {
+    const seq = ++worldMediaPaintSeq; // drop stale paints when the user navigates between worlds
+    paintWorldMediaSlot(world.coverPath, els.worldBanner, els.worldBannerImg, seq);
+    paintWorldMediaSlot(world.iconPath, els.worldIcon, els.worldIconImg, seq);
+  }
+  function paintWorldMediaSlot(path, container, img, seq) {
+    if (!container || !img) return;
+    if (!path || !signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.worldMediaSignedUrl !== "function") {
+      img.hidden = true; img.removeAttribute("src"); container.classList.remove("has-photo");
+      return;
+    }
+    Promise.resolve(window.PointwellSignals.worldMediaSignedUrl(path)).then((url) => {
+      if (seq !== worldMediaPaintSeq) return; // a newer world is showing → ignore
+      if (url) { img.src = url; img.hidden = false; container.classList.add("has-photo"); }
+      else { img.hidden = true; img.removeAttribute("src"); container.classList.remove("has-photo"); }
+    }).catch(() => { if (seq === worldMediaPaintSeq) { img.hidden = true; container.classList.remove("has-photo"); } });
+  }
+
+  // ── Owner cover/icon upload (reuses the image picker; uploads to world-media; saves path) ──
+  async function chooseWorldMedia(file, kind) {
+    const world = currentDetailWorld();
+    if (!world || !world.ownerIsMe || !file) return;
+    if (!/^image\//i.test(file.type || "")) { showToast("That's not an image — choose a photo"); return; }
+    if (file.size > ENTRY_PHOTO_MAX_BYTES) { showToast("Photo is too big (max 5 MB) — pick a smaller one"); return; }
+    const uid = state.account && state.account.userId;
+    if (!signalsReady() || !uid || !window.PointwellSignals || typeof window.PointwellSignals.uploadWorldMedia !== "function") { showToast("Sign in to set a photo"); return; }
+    showToast(kind === "cover" ? "Uploading cover…" : "Uploading icon…");
+    const up = await Promise.resolve(window.PointwellSignals.uploadWorldMedia(file, uid, world.id)).catch(() => ({ error: { message: "upload failed" } }));
+    if (!up || up.error || !up.path) { showToast((up && up.error && up.error.message) || "Couldn't upload the photo"); return; }
+    const col = kind === "cover" ? "cover_url" : "icon_url";
+    if (world.type === "community") {
+      // RLS lets only the owner write this; reflected locally regardless of network result.
+      if (window.PointwellSignals && typeof window.PointwellSignals.updateCommunityMedia === "function") {
+        const res = await Promise.resolve(window.PointwellSignals.updateCommunityMedia(world.id, { [col]: up.path })).catch(() => ({ error: { message: "save failed" } }));
+        if (res && res.error) { showToast(communityDbError(res.error, "Couldn't save the photo")); return; }
+      }
+      const c = (state.communities || []).find((x) => x.id === world.id);
+      if (c) { if (kind === "cover") c.coverUrl = up.path; else c.iconUrl = up.path; }
+    } else {
+      const sys = (state.systems || []).find((s) => s.id === world.id);
+      if (sys) { if (kind === "cover") sys.coverUrl = up.path; else sys.iconUrl = up.path; }
+    }
+    saveState();
+    showToast(kind === "cover" ? "Cover updated" : "Icon updated");
+    renderCommunityDetail();
+  }
+
+  function bindWorldDetail() {
+    const pick = (input) => { if (input) input.click(); };
+    if (els.worldCoverEdit) els.worldCoverEdit.addEventListener("click", () => pick(els.worldCoverInput));
+    if (els.worldCoverAdd) els.worldCoverAdd.addEventListener("click", () => pick(els.worldCoverInput));
+    if (els.worldAddPhotosButton) els.worldAddPhotosButton.addEventListener("click", () => pick(els.worldCoverInput));
+    if (els.worldIconEdit) els.worldIconEdit.addEventListener("click", () => pick(els.worldIconInput));
+    if (els.worldCoverInput) els.worldCoverInput.addEventListener("change", () => { const f = els.worldCoverInput.files && els.worldCoverInput.files[0]; els.worldCoverInput.value = ""; if (f) chooseWorldMedia(f, "cover"); });
+    if (els.worldIconInput) els.worldIconInput.addEventListener("change", () => { const f = els.worldIconInput.files && els.worldIconInput.files[0]; els.worldIconInput.value = ""; if (f) chooseWorldMedia(f, "icon"); });
+    if (els.worldTrendsToggle) els.worldTrendsToggle.addEventListener("click", () => { state.worldTrendsOpen = !state.worldTrendsOpen; saveState(); applyWorldTrendsCollapsed(); });
+    if (els.worldEditButton) els.worldEditButton.addEventListener("click", editSystemFromScore); // personal → Build editor
   }
 
   function trendDayLabel(dateKey) {
@@ -15413,6 +15687,7 @@
     communityDraftMethod = "";
     editingCommunityDraftRuleId = "";
     state.selectedCommunityId = res.data.id;
+    state.worldDetailType = "community";
     state.activeView = "community-detail";
     await loadCommunitiesFromDb();
     // If the freshly-created community didn't come back from the DB, don't show a
@@ -15432,6 +15707,7 @@
     const existing = state.communities.find((community) => community.id === communityId);
     if (existing) {
       state.selectedCommunityId = existing.id;
+      state.worldDetailType = "community";
       state.activeView = "community-detail";
       saveState();
       render();
@@ -15443,6 +15719,7 @@
     state.communities.unshift(joinedCommunity);
     seedJoinedCommunityEntries(joinedCommunity);
     state.selectedCommunityId = joinedCommunity.id;
+    state.worldDetailType = "community";
     state.activeView = "community-detail";
     state.communityDraftInputs = {};
     saveState();
@@ -16394,6 +16671,7 @@
     const res = await window.PointwellSignals.joinCommunity(communityId, state.account.userId, "member");
     if (res.error) { showToast(communityDbError(res.error, "Couldn't join that community")); return; }
     state.selectedCommunityId = communityId;
+    state.worldDetailType = "community";
     state.activeView = "community-detail";
     communityCodeResult = null;
     state.communitySearchQuery = "";

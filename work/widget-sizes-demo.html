@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — widget sizes (clean grid, no bleed)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; justify-content:center; padding:24px 12px; }
+  .home { width:100%; max-width:420px; background:#070b0a; border:1px solid #161f1c; border-radius:20px; padding:14px; }
+  /* 2-column base grid on mobile; sizes map to clean spans (no overlap) */
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .s-small  { grid-column: span 1; }
+  .s-medium { grid-column: span 2; }
+  .s-large  { grid-column: span 2; }
+  .tile { border-radius:16px; padding:13px; }
+  .green  { background:linear-gradient(155deg,#133c2d,#0a1a15); border:1px solid #1f5240; }
+  .greenL { background:linear-gradient(160deg,#133c2d,#091713); border:1px solid #1f5240; }
+  .purple { background:linear-gradient(155deg,#1d1633,#100c1f); border:1px solid #352a55; }
+  .ring { position:relative; flex-shrink:0; }
+  .ring .hole { position:absolute; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:600; }
+  .cap { font-size:8.5px; letter-spacing:.4px; color:#5f8576; }
+  .swap { font-size:10px; color:#5fd8b4; cursor:pointer; }
+  .lbrow { display:flex; gap:8px; font-size:10px; }
+  .slot { background:#0d231b; border-radius:9px; padding:8px; }
+  .bars { display:flex; align-items:flex-end; gap:3px; height:22px; margin-top:5px; }
+  .bars div { flex:1; background:#1d6e54; border-radius:2px; }
+  .center { text-align:center; }
+</style>
+</head>
+<body>
+<div class="home">
+  <div class="grid">
+
+    <!-- LARGE: full width, tall — stacked sections -->
+    <div class="tile greenL s-large">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:11px;">
+        <div class="ring" style="width:38px;height:38px;"><div style="width:38px;height:38px;border-radius:50%;background:conic-gradient(#3ddc97 44%,#16382c 0);"></div><div class="hole" style="inset:5px;background:#0e2820;font-size:9px;color:#eafff8;">4/9</div></div>
+        <div style="flex:1;"><strong style="font-size:14px;">THE BOYS</strong><p style="font-size:9.5px;color:#7fc7b0;margin:0;">Rank #1 · large</p></div><span style="font-size:13px;color:#7fc7b0;">⤡</span>
+      </div>
+      <p class="cap" style="margin:0 0 5px;">LEADERBOARD</p>
+      <div class="lbrow" style="color:#eef2f0;padding:3px 7px;border-radius:7px;background:#0e2c22;margin-bottom:2px;"><span style="color:#3ddc97;">1</span> You<span style="margin-left:auto;color:#3ddc97;">4</span></div>
+      <div class="lbrow" style="color:#cfe0d9;padding:3px 7px;margin-bottom:9px;"><span>2</span> Jacob<span style="margin-left:auto;color:#9fb0aa;">2</span></div>
+      <p class="cap" style="margin:0 0 5px;">RECENT POSTS</p>
+      <div style="display:flex;gap:8px;align-items:center;background:#0d231b;border-radius:8px;padding:6px 8px;"><div style="width:24px;height:24px;border-radius:6px;background:linear-gradient(135deg,#1e3a30,#243a52);"></div><span style="font-size:9.5px;"><strong>Jacob</strong> · lifting 🦵</span></div>
+    </div>
+
+    <!-- MEDIUM: full width, two swappable slots -->
+    <div class="tile greenL s-medium">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:11px;">
+        <div class="ring" style="width:34px;height:34px;"><div style="width:34px;height:34px;border-radius:50%;background:conic-gradient(#3ddc97 25%,#16382c 0);"></div><div class="hole" style="inset:4px;background:#0e2820;font-size:8px;color:#eafff8;">1/4</div></div>
+        <div style="flex:1;"><strong style="font-size:13px;">Work on App</strong><p style="font-size:9px;color:#7fc7b0;margin:0;">Rank #2 · medium</p></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="slot"><div style="display:flex;justify-content:space-between;"><span class="cap">STANDINGS</span><span class="swap" title="Swap section">⇄</span></div><p style="font-size:10px;margin:5px 0 0;">1 Jacob · 1</p><p style="font-size:10px;color:#cfe0d9;margin:1px 0 0;">2 You · 1</p></div>
+        <div class="slot"><div style="display:flex;justify-content:space-between;"><span class="cap">TREND</span><span class="swap" title="Swap section">⇄</span></div><div class="bars"><div style="height:50%"></div><div style="height:80%"></div><div style="height:40%"></div><div style="height:95%"></div><div style="height:70%"></div></div></div>
+      </div>
+    </div>
+
+    <!-- SMALL x2 -->
+    <div class="tile green s-small center"><div class="ring" style="width:32px;height:32px;margin:0 auto 6px;"><div style="width:32px;height:32px;border-radius:50%;background:conic-gradient(#3ddc97 0%,#16382c 0);"></div><div class="hole" style="inset:4px;background:#0e2820;font-size:8px;color:#eafff8;">0/6</div></div><span style="font-size:11px;color:#cfd8d4;">the boys</span></div>
+    <div class="tile purple s-small center"><div class="ring" style="width:32px;height:32px;margin:0 auto 6px;"><div style="width:32px;height:32px;border-radius:50%;background:conic-gradient(#9a7fe0 50%,#2a2342 0);"></div><div class="hole" style="inset:4px;background:#160f2a;font-size:8px;color:#efe7ff;">3/6</div></div><span style="font-size:11px;color:#cfd8d4;">Fitness</span></div>
+
+    <!-- another small row to show 2-up tiling -->
+    <div class="tile green s-small center"><div class="ring" style="width:32px;height:32px;margin:0 auto 6px;"><div style="width:32px;height:32px;border-radius:50%;background:conic-gradient(#3ddc97 0%,#16382c 0);"></div><div class="hole" style="inset:4px;background:#0e2820;font-size:8px;color:#eafff8;">0/6</div></div><span style="font-size:11px;color:#cfd8d4;">hi</span></div>
+    <div class="tile s-small center" style="background:#0b100e;border:1px dashed #2c3a35;display:flex;flex-direction:column;align-items:center;justify-content:center;"><span style="font-size:17px;color:#5fd8b4;">+</span><span style="font-size:10px;color:#8fa39d;">New</span></div>
+
+  </div>
+  <p style="text-align:center;font-size:11px;color:#6f807a;margin:12px 0 0;">Clean grid · small = 1 col · medium &amp; large = full width (no bleed at 390px) · medium = 2 swappable slots (⇄)</p>
+</div>
+</body>
+</html>

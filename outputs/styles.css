@@ -8630,3 +8630,27 @@ body.onboarding-locked .fab-add { display: none; }
 .checkin-row-main strong { color: var(--ink); font-weight: 750; font-size: 0.86rem; overflow-wrap: anywhere; }
 .checkin-row-main span { color: var(--muted); font-size: 0.76rem; }
 .checkin-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+/* "Catch up your day" — source-agnostic: device deltas (checkbox + source badge + log-to
+   selector) and manual still-to-log. Reuses .checkin-card / .point-pill / .via-source-tag. */
+.catchup-card { max-width: 460px; }
+.catchup-section { display: grid; gap: 7px; }
+.catchup-section-label {
+  font-size: 0.62rem; font-weight: 850; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted);
+}
+.catchup-row { display: flex; align-items: flex-start; gap: 10px; }
+.catchup-check { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--accent); flex-shrink: 0; }
+.catchup-row-main { flex: 1 1 auto; min-width: 0; display: grid; gap: 3px; }
+.catchup-row-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.catchup-row-title strong { color: var(--ink); font-weight: 750; font-size: 0.86rem; overflow-wrap: anywhere; }
+.catchup-row-title .via-source-tag { margin-left: 0; }
+.catchup-row-main > span { color: var(--muted); font-size: 0.76rem; }
+.catchup-row-context { margin-top: 1px; }
+.catchup-context {
+  max-width: 100%; height: 30px; padding: 0 8px; font-size: 0.76rem;
+  color: var(--ink); background: var(--field-bg); border: 1px solid var(--line); border-radius: 8px;
+}
+.catchup-context-name { color: var(--accent-strong); font-size: 0.74rem; font-weight: 700; }
+.catchup-row-manual { align-items: center; }
+.catchup-row-manual .catchup-row-main strong { font-size: 0.86rem; color: var(--ink); }

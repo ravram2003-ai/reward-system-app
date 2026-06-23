@@ -281,7 +281,7 @@
     knownWorkoutIds: [],   // wearable workout/exercise session ids we've already seen
     pendingWorkout: null,  // a newly-detected workout awaiting the "log it?" prompt
     wearableLastSeen: {},  // { provider: { metric: { value, dateKey } } } — for sync deltas
-    checkIn: null,         // the pending "since your last check-in" card
+    catchUp: null,         // the pending "Catch up your day" card
     systems: [
       {
         id: "life-core",
@@ -3041,7 +3041,7 @@
     if (els.createFab) els.createFab.addEventListener("click", openAddEntryPage);
     bindQuickLogControls();
     bindWearablePrompt();
-    bindCheckInCard();
+    bindCatchUpCard();
     els.backToDashboardButton.addEventListener("click", returnToDashboard);
     els.customizeTopCardButton.addEventListener("click", openCustomizeTopCardPage);
     els.cancelTopCardButton.addEventListener("click", cancelTopCardCustomization);
@@ -3368,7 +3368,7 @@
     renderProfilePage();
     renderProfile();
     renderNotifications();
-    renderCheckInCard();
+    renderCatchUpCard();
     renderWearablePrompt();
     pushMyBehindStatus();
     // Load signed-URL thumbnails for any entry photos rendered this pass (the helper
@@ -7384,7 +7384,7 @@
       });
     });
     Array.from(els.integrationList.querySelectorAll("[data-sync-integration]")).forEach((button) => {
-      button.addEventListener("click", () => syncWearable(button.dataset.syncIntegration));
+      button.addEventListener("click", () => syncAllConnectedAndCatchUp({ manual: true }));
     });
     Array.from(els.integrationList.querySelectorAll("[data-confirm-integration]")).forEach((button) => {
       button.addEventListener("click", () => confirmMockIntegration(button.dataset.confirmIntegration));
@@ -7569,38 +7569,55 @@
     return updated;
   }
 
+  // Sync one real wearable via its API: pull metrics, fan them out to every rule, detect new
+  // workouts. The "Catch up your day" card is built once after all sources sync (runCatchUp).
   async function syncWearable(provider, options = {}) {
     const api = window.PointwellWearables;
-    if (!api) return;
+    if (!api) return false;
     if (!options.silent) showToast(`Syncing ${wearableShortLabel(provider)}…`);
     const res = await api.sync(provider);
     if (res.error) {
       if (!options.silent) showToast(res.error.message || "Couldn't sync right now.");
-      return;
+      return false;
     }
     const result = res.data && res.data.providers && res.data.providers[provider];
     const changed = applyWearableMetrics(res.data && res.data.providers);
-    // Fan out to every allowing rule across personal systems + communities (fill-empty-only:
-    // hand-logged values are never overwritten). updated = rules that got a value today.
-    const updated = changed ? fanOutSyncedMetricsToContexts(provider) : 0;
-    // Detect any new Fitbit workout/exercise sessions → queue a one-time, dismissible prompt.
+    if (changed) fanOutSyncedMetricsToContexts(provider);
     detectNewWorkouts(provider, result && result.workouts);
-    // Build the "since your last check-in" card from the per-metric deltas (Part A). It's the
-    // non-blocking confirmation (no auto-posting); the toast is only the fallback.
-    const checkIn = changed ? buildCheckIn(provider) : null;
-    if (checkIn) state.checkIn = checkIn;
+    if (result && result.error === "reconnect" && !options.silent) {
+      showToast(`Reconnect ${wearableShortLabel(provider)} to keep syncing.`);
+    }
+    saveState();
+    if (!options.deferRender) render();
+    return changed;
+  }
+
+  // Sync ALL connected integrations (source-agnostic: real wearables hit their API; mock
+  // sources already hold data), then surface the unified "Catch up your day" card.
+  async function syncAllConnectedAndCatchUp(options = {}) {
+    const api = window.PointwellWearables;
+    if (api) {
+      if (options.manual) showToast("Syncing your devices…");
+      const real = Object.keys(state.integrations || {}).filter((id) => isRealWearable(id) && integrationStatus(id) === "connected");
+      await Promise.all(real.map((p) => syncWearable(p, { silent: true, deferRender: true })));
+    }
+    runCatchUp(options);
+  }
+
+  // Show the catch-up card at most once per login session (an explicit "Sync now" re-evaluates).
+  let catchUpShownThisSession = false;
+  function runCatchUp(options = {}) {
+    if (options.login && catchUpShownThisSession) { render(); return; }
+    const card = buildCatchUp();
+    if (card) {
+      state.catchUp = card;
+      catchUpShownThisSession = true;
+    } else {
+      state.catchUp = null; // nothing new — clear any stale persisted card
+      if (options.manual) showToast("You're all caught up — nothing new to log.");
+    }
     saveState();
     render();
-    if (result && result.error === "reconnect") {
-      if (!options.silent) showToast(`Reconnect ${wearableShortLabel(provider)} to keep syncing.`);
-    } else if (checkIn) {
-      // The check-in card is the confirmation — no toast.
-    } else if (updated > 0 && !options.silent) {
-      showToast(`Synced from ${wearableShortLabel(provider)} · updated ${plural(updated, "rule")}`);
-    } else if (!options.silent) {
-      if (changed) showToast(`${wearableShortLabel(provider)} synced`);
-      else showToast(`No new ${wearableShortLabel(provider)} data yet today.`);
-    }
   }
 
   // Merge connector results into local state. Returns true if any value landed.
@@ -7637,24 +7654,25 @@
   let wearablesBootstrapped = false;
   function initWearables() {
     const api = window.PointwellWearables;
-    if (!api) return;
+    // Even with no wearable API, surface the catch-up card for manual still-to-log rules.
+    if (!api) { if (!wearablesBootstrapped) { wearablesBootstrapped = true; runCatchUp({ login: true }); } return; }
     completeWearableRedirect().catch(() => {});
     if (wearablesBootstrapped) return;
     wearablesBootstrapped = true;
     api.status().then((res) => {
-      if (res.error || !res.data) return;
-      const connections = res.data.connections || [];
-      if (!connections.length) return;
-      const providers = {};
-      connections.forEach((c) => {
-        providers[c.provider] = { metrics: c.last_metrics || {}, last_synced_at: c.last_synced_at };
-      });
-      applyWearableMetrics(providers);
-      saveState();
-      render();
-      // Then refresh each connected device live in the background.
-      connections.forEach((c) => syncWearable(c.provider, { silent: true }));
-    }).catch(() => {});
+      const connections = (res && res.data && res.data.connections) || [];
+      if (connections.length) {
+        const providers = {};
+        connections.forEach((c) => {
+          providers[c.provider] = { metrics: c.last_metrics || {}, last_synced_at: c.last_synced_at };
+        });
+        applyWearableMetrics(providers);
+        saveState();
+        render();
+      }
+      // Refresh every connected device live, then show ONE unified catch-up card.
+      syncAllConnectedAndCatchUp({ login: true });
+    }).catch(() => runCatchUp({ login: true }));
   }
 
   async function completeWearableRedirect() {
@@ -7787,14 +7805,16 @@
   }
 
   // ── PART A — "since your last check-in" sync card ────────────────────────────
-  // Every loggable rule for `provider`, grouped by the sourceMetric it reads, across the
-  // user's personal systems AND every community they're in. Drives the delta card + Log all.
-  function syncedRuleIndexForProvider(provider) {
+  // Every loggable EXTERNAL-synced rule (any source — Fitbit/Whoop/Apple Health/bank/…),
+  // grouped by "<source>::<metric>", across the user's personal systems AND communities.
+  // Source-agnostic so a new integration flows in with no special-casing. Drives the card.
+  function syncedRuleIndexAllSources() {
     const index = {};
     const add = (rawRule, contextType, contextId, contextName) => {
       const rule = scoring.normalizeRule(rawRule);
-      if (rule.dataSource !== provider || !rule.sourceMetric) return;
-      (index[rule.sourceMetric] = index[rule.sourceMetric] || []).push({ rule, contextType, contextId, contextName });
+      if (!isExternalRuleSynced(rule) || !rule.sourceMetric) return; // any source except manual/calculated
+      const key = rule.dataSource + "::" + rule.sourceMetric;
+      (index[key] = index[key] || []).push({ rule, contextType, contextId, contextName });
     };
     (state.systems || []).forEach((s) => (s.rules || []).forEach((r) => add(r, "personal", s.id, s.title || "System")));
     (state.communities || []).forEach((c) => {
@@ -7815,166 +7835,216 @@
       e.systemId === contextId && e.ruleId === ruleId && (e.dateKey || e.date) === today && !e.viaSource);
   }
 
-  // Build the check-in card: per-metric current total + change since last seen (daily reset
-  // aware) + the points the first rule using that metric earns. Returns null if nothing changed.
-  function buildCheckIn(provider) {
-    const data = (state.mockSyncData && state.mockSyncData[provider]) || {};
-    const index = syncedRuleIndexForProvider(provider);
-    const seenAll = (state.wearableLastSeen && state.wearableLastSeen[provider]) || {};
+  // Has this manual rule been logged on a PRIOR day (so it's one the user "usually logs")?
+  function ruleHasPriorLog(systemId, ruleId, today) {
+    if ((state.quickEntries || []).some((e) => e.systemId === systemId && e.ruleId === ruleId && (e.dateKey || e.date) !== today)) return true;
+    return (state.entries || []).some((e) => (e.systemId === systemId || e.rewardSystemId === systemId)
+      && (e.dateKey || e.date) !== today && e.values && numberOrDefault(e.values[ruleId], 0) > 0);
+  }
+
+  // "Still to log": manual rules (no data feed) the user usually logs but hasn't yet today.
+  // This is how the card covers things NOT synced through a device — so it works no matter what.
+  function buildStillToLog() {
     const today = getTodayKey();
-    const metrics = [];
-    Object.keys(index).forEach((metric) => {
-      const current = Number(data[metric]);
-      if (!Number.isFinite(current) || current <= 0) return;
-      // Only surface metrics with a rule the card can actually act on (Log all / post skip
-      // manual-locked rules); don't advertise a row whose buttons would be a no-op.
-      const first = index[metric].find((e) => e.rule.allowManualOverride !== false);
-      if (!first) return;
-      const seen = seenAll[metric];
-      // Prior-day (or never-seen) last check-in → the delta is today's whole total.
-      const delta = (!seen || seen.dateKey !== today) ? current : (current - numberOrDefault(seen.value, 0));
-      metrics.push({
-        metric,
-        label: sourceMetricLabel(provider, metric),
-        unit: first.rule.unit || "",
-        current,
-        delta,
-        points: scoring.calculateRule(first.rule, current).totalPoints,
+    const out = [];
+    (state.systems || []).forEach((system) => {
+      (system.rules || []).map(scoring.normalizeRule).forEach((rule) => {
+        if (rule.dataSource !== "manual" || rule.simpleStyle === "penalty") return;
+        const loggedToday = (state.quickEntries || []).some((e) => e.systemId === system.id && e.ruleId === rule.id && (e.dateKey || e.date) === today);
+        if (loggedToday || !ruleHasPriorLog(system.id, rule.id, today)) return;
+        out.push({ ruleId: rule.id, contextType: "personal", contextId: system.id, contextName: system.title || "System", label: rule.label, unit: rule.unit });
       });
     });
-    if (!metrics.length || !metrics.some((m) => m.delta !== 0)) return null;
-    return { provider, at: new Date().toISOString(), metrics };
+    return out.slice(0, 6); // gentle — never a nag wall
   }
 
-  // Remember the current per-metric totals so the next sync's deltas are measured from here.
-  function updateWearableLastSeen(provider) {
+  // Build the "Catch up your day" card: device deltas from EVERY connected source + manual
+  // still-to-log. Each device row carries its source, delta (framing), points, and the
+  // contexts (rules) it can log to. Returns null when there's nothing new/unlogged.
+  function buildCatchUp() {
+    const index = syncedRuleIndexAllSources();
     state.wearableLastSeen = state.wearableLastSeen || {};
-    const data = (state.mockSyncData && state.mockSyncData[provider]) || {};
     const today = getTodayKey();
-    const seen = state.wearableLastSeen[provider] = state.wearableLastSeen[provider] || {};
-    Object.keys(data).forEach((metric) => { seen[metric] = { value: Number(data[metric]) || 0, dateKey: today }; });
+    const devices = [];
+    Object.keys(index).forEach((key) => {
+      const sep = key.indexOf("::");
+      const source = key.slice(0, sep);
+      const metric = key.slice(sep + 2);
+      if (!isSourceConnected(source)) return; // only connected integrations
+      const current = Number((state.mockSyncData?.[source] || {})[metric]);
+      if (!Number.isFinite(current) || current <= 0) return;
+      const contexts = index[key].filter((e) => e.rule.allowManualOverride !== false);
+      if (!contexts.length) return; // nothing the card can act on
+      const seen = (state.wearableLastSeen[source] || {})[metric];
+      // Prior-day (or never-seen) last check-in → the delta is today's whole total (daily reset).
+      const delta = (!seen || seen.dateKey !== today) ? current : (current - numberOrDefault(seen.value, 0));
+      const first = contexts[0];
+      devices.push({
+        source, metric,
+        label: sourceMetricLabel(source, metric),
+        sourceLabel: wearableShortLabel(source),
+        unit: first.rule.unit || "",
+        current, delta,
+        points: scoring.calculateRule(first.rule, current).totalPoints,
+        contexts: contexts.map((c) => ({ contextType: c.contextType, contextId: c.contextId, contextName: c.contextName, ruleId: c.rule.id })),
+        primary: first.contextId + "|" + first.rule.id,
+        checked: true,
+      });
+    });
+    const changed = devices.filter((d) => d.delta !== 0); // only surface what's new/changed
+    const manual = buildStillToLog();
+    if (!changed.length && !manual.length) return null;
+    return { at: new Date().toISOString(), devices: changed, manual };
   }
 
-  // "Log all" materializes the CURRENT synced total for a rule as a committed entry. The
-  // viaSource flag makes it replace the synced base (never adds the delta → no double-count);
+  // Remember the current value of one source/metric so its next delta is measured from here.
+  function updateLastSeenMetric(source, metric) {
+    state.wearableLastSeen = state.wearableLastSeen || {};
+    const seen = state.wearableLastSeen[source] = state.wearableLastSeen[source] || {};
+    seen[metric] = { value: Number((state.mockSyncData?.[source] || {})[metric]) || 0, dateKey: getTodayKey() };
+  }
+  function markCatchUpSeen() {
+    (state.catchUp?.devices || []).forEach((d) => updateLastSeenMetric(d.source, d.metric));
+  }
+
+  // Materialize a synced total as a committed entry. The viaSource flag makes it REPLACE the
+  // synced base (sets the rule to the current total, never adds the delta → no double-count);
   // a stale materialized entry for the same rule/day is refreshed, not stacked.
-  function materializePersonalSynced(system, rule, value, provider) {
+  function materializePersonalSynced(system, rule, value, source) {
     state.quickEntries = (state.quickEntries || []).filter((e) =>
       !(e.viaSource && e.ruleId === rule.id && e.systemId === system.id && (e.dateKey || e.date) === getTodayKey()));
     state.quickEntries.push({
       id: makeId("quick"), date: getTodayKey(), dateKey: getTodayKey(), createdAt: new Date().toISOString(),
       systemId: system.id, rewardSystemId: system.id, ruleId: rule.id, label: rule.label, unit: rule.unit,
-      amount: value, message: "", photoPath: "", source: "manual-adjustment", viaSource: provider,
+      amount: value, message: "", photoPath: "", source: "manual-adjustment", viaSource: source,
     });
   }
-  function materializeCommunitySynced(community, rule, value, provider) {
+  function materializeCommunitySynced(community, rule, value, source) {
     state.communityEntries = (state.communityEntries || []).filter((e) =>
       !(e.viaSource && e.communityId === community.id && e.userId === "me" && e.ruleId === rule.id && (e.dateKey || e.date) === getTodayKey()));
-    addCommunityEntry(community.id, "me", rule, value, "manual-adjustment", "", "", provider);
+    addCommunityEntry(community.id, "me", rule, value, "manual-adjustment", "", "", source);
     saveCommunitySummaryForMember(community, "me");
     // Push the synced total to the shared DB so other members see it in standings/feed.
     Promise.resolve(pushCommunityEntryToDb(community, rule.id, "", "")).catch(() => {});
   }
 
-  // Log all: set EVERY rule using each changed metric (personal + community) to its current
-  // daily total, fill/refresh-only — a rule with a hand-logged value today is left untouched.
-  function logAllCheckIn() {
-    const checkIn = state.checkIn;
-    if (!checkIn) return;
-    const provider = checkIn.provider;
-    const index = syncedRuleIndexForProvider(provider);
+  // "Log selected": for each CHECKED device row, set every rule using that source+metric (across
+  // personal systems AND communities) to its current daily total, fill/refresh-only — a rule
+  // with a hand-logged value today is left untouched. Manual still-to-log uses its own Log ›.
+  function logSelectedCatchUp() {
+    const catchUp = state.catchUp;
+    if (!catchUp) return;
+    const index = syncedRuleIndexAllSources();
     const touched = new Set();
-    checkIn.metrics.forEach((m) => {
-      (index[m.metric] || []).forEach((entry) => {
+    let logged = 0;
+    (catchUp.devices || []).forEach((d) => {
+      if (!d.checked) return;
+      logged += 1;
+      (index[d.source + "::" + d.metric] || []).forEach((entry) => {
         if (entry.rule.allowManualOverride === false) return;
         if (ruleHasManualEntryToday(entry.contextType, entry.contextId, entry.rule.id)) return;
         const value = syncedValueForRule(entry.rule, { userId: "me", date: todayIso, scope: entry.contextType });
         if (value === null || value <= 0) return;
         if (entry.contextType === "community") {
           const community = (state.communities || []).find((c) => c.id === entry.contextId);
-          if (community) materializeCommunitySynced(community, entry.rule, value, provider);
+          if (community) materializeCommunitySynced(community, entry.rule, value, d.source);
         } else {
           const system = (state.systems || []).find((s) => s.id === entry.contextId);
-          if (system) { materializePersonalSynced(system, entry.rule, value, provider); touched.add(system.id); }
+          if (system) { materializePersonalSynced(system, entry.rule, value, d.source); touched.add(system.id); }
         }
       });
     });
     (state.systems || []).forEach((system) => {
       if (touched.has(system.id)) { syncDraftInputsFromEntries(system); autoSaveToday(system); }
     });
-    updateWearableLastSeen(provider);
-    state.checkIn = null;
+    markCatchUpSeen();
+    state.catchUp = null;
     saveState();
     render();
-    showToast(`Logged your ${wearableShortLabel(provider)} check-in`);
+    showToast(logged ? `Logged ${plural(logged, "metric")} from your devices` : "Nothing selected to log");
   }
 
-  function dismissCheckIn() {
-    if (state.checkIn) updateWearableLastSeen(state.checkIn.provider);
-    state.checkIn = null;
+  function dismissCatchUp() {
+    markCatchUpSeen();
+    state.catchUp = null;
     saveState();
-    renderCheckInCard();
+    renderCatchUpCard();
   }
 
-  // "Add photo & caption" on the card → open the composer (Part B) pre-filled with the first
-  // changed metric's rule + value, tagged so the post keeps a "via Fitbit" badge.
-  function checkInAddPost() {
-    const checkIn = state.checkIn;
-    if (!checkIn || !checkIn.metrics.length) return;
-    const provider = checkIn.provider;
-    const index = syncedRuleIndexForProvider(provider);
-    for (const m of checkIn.metrics) {
-      const entry = (index[m.metric] || []).find((e) => e.rule.allowManualOverride !== false);
-      if (entry) {
-        const value = syncedValueForRule(entry.rule, { userId: "me", date: todayIso, scope: entry.contextType });
-        updateWearableLastSeen(provider);
-        state.checkIn = null;
-        upgradeSyncedEntryToPost(entry.contextType, entry.contextId, entry.rule.id, value, provider);
-        return;
-      }
-    }
-    showToast("No rule to post this to yet.");
+  // "Log ›" on a manual still-to-log row → open the existing composer in that rule's context.
+  function catchUpLogManual(contextType, contextId, ruleId) {
+    state.catchUp = null;
+    const resolved = resolveQuickLogRule(contextType, contextId, ruleId);
+    const amount = resolved ? suggestedEntryAmount(resolved.rule) : 1;
+    if (!prefillComposerFromQuickLog({ contextType, contextId, ruleId, amount })) showToast("Couldn't open that rule");
   }
 
-  function renderCheckInCard() {
+  function renderCatchUpCard() {
     const mount = els.checkInCard;
     if (!mount) return;
-    const checkIn = state.checkIn;
-    if (!checkIn || !checkIn.metrics.length) { mount.hidden = true; mount.innerHTML = ""; return; }
-    const rows = checkIn.metrics.map((m) => {
-      const deltaText = m.delta > 0 ? `+${formatValue(m.delta)} · ` : (m.delta < 0 ? `${formatValue(m.delta)} · ` : "");
-      const ptsClass = m.points >= 0 ? "positive" : "negative";
+    const catchUp = state.catchUp;
+    const devices = (catchUp && catchUp.devices) || [];
+    const manual = (catchUp && catchUp.manual) || [];
+    if (!catchUp || (!devices.length && !manual.length)) { mount.hidden = true; mount.innerHTML = ""; return; }
+    const deviceRows = devices.map((d, i) => {
+      const deltaText = d.delta > 0 ? `+${formatValue(d.delta)} · ` : (d.delta < 0 ? `${formatValue(d.delta)} · ` : "");
+      const ptsClass = d.points >= 0 ? "positive" : "negative";
+      const ctx = d.contexts.length > 1
+        ? `<select class="catchup-context" data-catchup-context="${i}" aria-label="Where to log ${escapeHtml(d.label)}">${d.contexts.map((c) => `<option value="${escapeHtml(c.contextId + "|" + c.ruleId)}"${(c.contextId + "|" + c.ruleId) === d.primary ? " selected" : ""}>${escapeHtml(c.contextName)}</option>`).join("")}</select>`
+        : `<span class="catchup-context-name">→ ${escapeHtml(d.contexts[0].contextName)}</span>`;
       return `
-        <div class="checkin-row">
-          <div class="checkin-row-main">
-            <strong>${escapeHtml(m.label)}</strong>
-            <span>${escapeHtml(deltaText)}now ${escapeHtml(formatValue(m.current))} ${escapeHtml(m.unit)}</span>
+        <div class="catchup-row">
+          <input type="checkbox" class="catchup-check" data-catchup-check="${i}"${d.checked ? " checked" : ""} aria-label="Include ${escapeHtml(d.label)}">
+          <div class="catchup-row-main">
+            <div class="catchup-row-title"><span class="via-source-tag">${escapeHtml(d.sourceLabel)}</span><strong>${escapeHtml(d.label)}</strong></div>
+            <span>${escapeHtml(deltaText)}now ${escapeHtml(formatValue(d.current))} ${escapeHtml(d.unit)}</span>
+            <div class="catchup-row-context">${ctx}</div>
           </div>
-          <span class="point-pill ${ptsClass}">${m.points >= 0 ? "+" : ""}${escapeHtml(formatPoints(m.points))} pts</span>
+          <span class="point-pill ${ptsClass}">${d.points >= 0 ? "+" : ""}${escapeHtml(formatPoints(d.points))} pts</span>
         </div>`;
     }).join("");
+    const manualRows = manual.map((m) => `
+        <div class="catchup-row catchup-row-manual">
+          <div class="catchup-row-main">
+            <strong>${escapeHtml(m.label)}</strong>
+            <span>${escapeHtml(m.contextName)} · not logged yet</span>
+          </div>
+          <button type="button" class="ghost-button small" data-catchup-manual="${escapeHtml(m.contextType + "|" + m.contextId + "|" + m.ruleId)}">Log ›</button>
+        </div>`).join("");
     mount.hidden = false;
     mount.innerHTML = `
-      <div class="checkin-card">
-        <div class="checkin-card-head">
-          <span class="via-source-tag">via ${escapeHtml(wearableShortLabel(checkIn.provider))}</span>
-          <strong>Since your last check-in</strong>
-        </div>
-        <div class="checkin-rows">${rows}</div>
+      <div class="checkin-card catchup-card">
+        <div class="checkin-card-head"><strong>Catch up your day</strong></div>
+        ${devices.length ? `<div class="catchup-section"><span class="catchup-section-label">From your devices</span><div class="checkin-rows">${deviceRows}</div></div>` : ""}
+        ${manual.length ? `<div class="catchup-section"><span class="catchup-section-label">Still to log</span><div class="checkin-rows">${manualRows}</div></div>` : ""}
         <div class="checkin-actions">
-          <button type="button" class="ghost-button small" data-checkin-dismiss>Not now</button>
-          <button type="button" class="ghost-button small" data-checkin-post>Add photo &amp; caption</button>
-          <button type="button" class="primary-button small" data-checkin-log>Log all</button>
+          <button type="button" class="ghost-button small" data-catchup-dismiss>Not now</button>
+          ${devices.length ? `<button type="button" class="primary-button small" data-catchup-log>Log selected</button>` : ""}
         </div>
       </div>`;
   }
 
-  function bindCheckInCard() {
+  function bindCatchUpCard() {
     if (!els.checkInCard) return;
     els.checkInCard.addEventListener("click", (event) => {
-      if (event.target.closest("[data-checkin-dismiss]")) { dismissCheckIn(); return; }
-      if (event.target.closest("[data-checkin-post]")) { checkInAddPost(); return; }
-      if (event.target.closest("[data-checkin-log]")) { logAllCheckIn(); return; }
+      if (event.target.closest("[data-catchup-dismiss]")) { dismissCatchUp(); return; }
+      if (event.target.closest("[data-catchup-log]")) { logSelectedCatchUp(); return; }
+      const manualBtn = event.target.closest("[data-catchup-manual]");
+      if (manualBtn) {
+        const parts = String(manualBtn.dataset.catchupManual).split("|");
+        catchUpLogManual(parts[0], parts[1], parts[2]);
+      }
+    });
+    els.checkInCard.addEventListener("change", (event) => {
+      const check = event.target.closest("[data-catchup-check]");
+      if (check && state.catchUp && state.catchUp.devices[Number(check.dataset.catchupCheck)]) {
+        state.catchUp.devices[Number(check.dataset.catchupCheck)].checked = check.checked;
+        return;
+      }
+      const ctx = event.target.closest("[data-catchup-context]");
+      if (ctx && state.catchUp && state.catchUp.devices[Number(ctx.dataset.catchupContext)]) {
+        state.catchUp.devices[Number(ctx.dataset.catchupContext)].primary = ctx.value;
+      }
     });
   }
 

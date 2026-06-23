@@ -379,6 +379,8 @@
   let communityDraftStep = 0;
   let communityDraftMethod = "";
   let editingCommunityDraftRuleId = "";
+  let communityDraftRuleFormOpen = false;   // is the rule-builder form expanded?
+  let communityDraftJustAddedId = "";        // id of the rule just added (flash + banner)
   let authConfigured = false;
   const els = {};
   let toastTimer = null;
@@ -2934,6 +2936,10 @@
       "ccEditorPanel",
       "ccAiPanel",
       "ccRulesPanel",
+      "ccRuleCollapsed",
+      "ccRuleAddedBanner",
+      "ccRuleAddedText",
+      "ccAddAnotherRuleButton",
       "ccAiGoalsInput",
       "ccAiRewardInput",
       "ccAiPenalizeInput",
@@ -3269,12 +3275,15 @@
       requestAnimationFrame(() => els.ccAiGoalsInput?.focus());
     });
     els.communityDraftRuleForm.addEventListener("submit", saveCommunityDraftRule);
+    els.ccAddAnotherRuleButton.addEventListener("click", openCommunityDraftRuleForm);
     els.ccRuleTypeInput.addEventListener("change", updateCcRuleBuilderVisibility);
     els.ccRuleDataSourceInput.addEventListener("change", () => {
       els.ccRuleSourceMetricInput.innerHTML = renderSourceMetricOptionHtml(els.ccRuleDataSourceInput.value || "manual", "");
     });
     els.cancelCcRuleEditButton.addEventListener("click", () => {
       editingCommunityDraftRuleId = "";
+      communityDraftRuleFormOpen = false;
+      communityDraftJustAddedId = "";
       resetCommunityDraftRuleForm();
       renderCreateCommunity();
     });
@@ -12936,6 +12945,9 @@
       }
     }
     communityDraftStep = Math.min(Math.max(communityDraftStep + delta, 0), createCommunitySteps.length - 1);
+    communityDraftJustAddedId = "";        // don't carry the "added" banner across steps
+    communityDraftRuleFormOpen = false;
+    editingCommunityDraftRuleId = "";
     saveState();
     renderCreateCommunity();
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -12944,6 +12956,9 @@
   function goToCreateCommunityStep(step) {
     syncCommunityDraftFromForm();
     communityDraftStep = Math.min(Math.max(Number(step) || 0, 0), createCommunitySteps.length - 1);
+    communityDraftJustAddedId = "";
+    communityDraftRuleFormOpen = false;
+    editingCommunityDraftRuleId = "";
     renderCreateCommunity();
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }
@@ -13017,6 +13032,14 @@
     Array.from(els.communityDraftRuleList.querySelectorAll("[data-cc-delete-rule]")).forEach((button) => {
       button.addEventListener("click", () => deleteCommunityDraftRule(button.dataset.ccDeleteRule));
     });
+    // Once a rule exists, collapse the (tall) builder into a clear "added → add
+    // another" state: the list + confirmation come together into view, and the
+    // next step is one obvious button. The form re-opens for the first rule, an
+    // edit, or an explicit "Add another rule".
+    const showForm = Boolean(editingCommunityDraftRuleId) || communityDraftRuleFormOpen || rules.length === 0;
+    els.communityDraftRuleForm.hidden = !showForm;
+    els.ccRuleCollapsed.hidden = showForm;
+    els.ccRuleAddedBanner.hidden = !(communityDraftJustAddedId && !showForm);
   }
 
   function renderCommunityDraftRuleRow(item) {
@@ -13025,8 +13048,9 @@
       ? item.penaltyPoints
       : (item.simpleStyle === "yesNo" ? item.yesNoPoints : (item.goalPoints || item.everyPoints));
     const tone = primaryPoints >= 0 ? "positive" : "negative";
+    const flash = item.id === communityDraftJustAddedId ? " cc-rule-row-flash" : "";
     return `
-      <div class="rule-row">
+      <div class="rule-row${flash}" data-cc-rule-id="${escapeHtml(item.id)}">
         <div class="rule-main">
           <strong>${escapeHtml(item.label)}</strong>
           <div class="rule-summary-lines">
@@ -13193,14 +13217,37 @@
       draft.rules.push(rule);
     }
     editingCommunityDraftRuleId = "";
+    communityDraftRuleFormOpen = false;        // collapse to the "add another" state
+    communityDraftJustAddedId = rule.id;       // flash this row + show the banner
     resetCommunityDraftRuleForm();
     saveState();
     renderCreateCommunity();
-    showToast(editing ? "Rule updated" : "Rule added");
+    if (els.ccRuleAddedText) els.ccRuleAddedText.textContent = editing ? "Rule updated!" : "Rule added — nice work!";
+    showToast(editing ? "✓ Rule updated" : "✓ Rule added");
+    // Bring the freshly added rule + the confirmation into view together.
+    requestAnimationFrame(() => {
+      const row = els.communityDraftRuleList &&
+        els.communityDraftRuleList.querySelector('[data-cc-rule-id="' + rule.id + '"]');
+      (row || els.ccRuleCollapsed || els.communityDraftRuleList)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  }
+
+  // Re-open a fresh, empty builder for the next rule (distinct from editing).
+  function openCommunityDraftRuleForm() {
+    editingCommunityDraftRuleId = "";
+    communityDraftJustAddedId = "";
+    communityDraftRuleFormOpen = true;
+    resetCommunityDraftRuleForm();
+    renderCreateCommunity();
+    requestAnimationFrame(() => {
+      els.ccRuleLabelInput?.focus();
+      els.communityDraftRuleForm?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
   }
 
   function editCommunityDraftRule(id) {
     editingCommunityDraftRuleId = id;
+    communityDraftJustAddedId = "";
     renderCreateCommunity();
     requestAnimationFrame(() => {
       els.ccRuleLabelInput?.focus();
@@ -13215,6 +13262,7 @@
       editingCommunityDraftRuleId = "";
       resetCommunityDraftRuleForm();
     }
+    communityDraftJustAddedId = "";
     saveState();
     renderCreateCommunity();
     showToast("Rule deleted");

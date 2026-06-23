@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260625-coach2">
+    <link rel="stylesheet" href="styles.css?v=20260625-rulebuilder2">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -996,6 +996,18 @@
                   <span id="ccRuleSubmitLabel">Add rule</span>
                 </button>
               </form>
+
+              <div class="cc-rule-collapsed wide-field" id="ccRuleCollapsed" hidden>
+                <div class="cc-rule-added-banner" id="ccRuleAddedBanner" hidden>
+                  <span class="cc-rule-added-check" aria-hidden="true">✓</span>
+                  <span id="ccRuleAddedText">Rule added — nice work!</span>
+                </div>
+                <button class="primary-button add-another-rule-button wide-field" type="button" id="ccAddAnotherRuleButton">
+                  <span aria-hidden="true">＋</span>
+                  <span>Add another rule</span>
+                </button>
+                <p class="cc-rule-done-hint">All set? Tap <strong>Next: Review</strong> below to finish.</p>
+              </div>
               </div>
             </section>
 
@@ -1409,13 +1421,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260625-coach2"></script>
-    <script src="auth-helpers.js?v=20260625-coach2"></script>
-    <script src="scoring.js?v=20260625-coach2"></script>
-    <script src="insight.js?v=20260625-coach2"></script>
-    <script src="signals.js?v=20260625-coach2"></script>
-    <script src="wearables.js?v=20260625-coach2"></script>
-    <script type="module" src="auth.js?v=20260625-coach2"></script>
-    <script src="app.js?v=20260625-coach2"></script>
+    <script src="supabase-config.js?v=20260625-rulebuilder2"></script>
+    <script src="auth-helpers.js?v=20260625-rulebuilder2"></script>
+    <script src="scoring.js?v=20260625-rulebuilder2"></script>
+    <script src="insight.js?v=20260625-rulebuilder2"></script>
+    <script src="signals.js?v=20260625-rulebuilder2"></script>
+    <script src="wearables.js?v=20260625-rulebuilder2"></script>
+    <script type="module" src="auth.js?v=20260625-rulebuilder2"></script>
+    <script src="app.js?v=20260625-rulebuilder2"></script>
   </body>
 </html>

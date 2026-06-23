@@ -44,6 +44,14 @@ you know what's live in production.
   community-discovery + public-systems + friends — needs `is_community_member`,
   `profile_is_public`, and the `request_to_join` visibility tier)*. **The upcoming world-detail
   cover/icon UI won't work until this is run and the bucket exists.**
+- [x] **17. popular-communities.sql** — (re)creates the `popular_communities(lim)` SECURITY
+  DEFINER function (public-only, ranked by member count) that onboarding's "Communities to
+  join" fallback calls. It's defined in community-discovery.sql §3b but the live DB predates
+  that block, so the RPC is missing and the fallback always renders empty. *(after
+  community-discovery — needs `join_requests`, `community_members`, `is_community_member`)*.
+  **Until this runs, `sb.rpc("popular_communities", …)` errors and the fallback stays empty.**
+  ⚠ Re-running #7 community-discovery.sql later silently revokes anon's EXECUTE on this
+  function (its §3b grants authenticated only) — re-run #17 afterward to restore it.
 
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).

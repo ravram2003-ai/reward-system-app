@@ -5247,7 +5247,7 @@
   // Re-render whichever search surface is live (Build panel and/or header view) when an async
   // people/community query lands or a "view details" toggles.
   function refreshSearchSurfaces() {
-    refreshSearchSurfaces();
+    renderBuildSearchResults();
     if (state.activeView === "search") renderHeaderSearchResults();
   }
 

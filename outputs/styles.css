@@ -5659,6 +5659,216 @@ body.onboarding-locked {
   }
 }
 
+/* ───────────────────────────────────────────────────────────────────────────
+   ONBOARDING REDESIGN — matches work/onboarding-demo.html. Everything here is
+   scoped under .onboarding-card so the demo palette never leaks into the app.
+   ─────────────────────────────────────────────────────────────────────────── */
+.onboarding-card {
+  --ob-card: #0b0f0e;
+  --ob-line: #1c2a25;
+  --ob-line-soft: #1d2724;
+  --ob-eyebrow: #5fd8b4;
+  --ob-h: #f3f6f4;
+  --ob-sub: #7c8d87;
+  --ob-cap: #5f706a;
+  --ob-cta-a: #7af0c4;
+  --ob-cta-b: #3ddc97;
+  --ob-cta-ink: #03150f;
+  --ob-green-a: #1d9e75;
+  --ob-green-b: #0f6e56;
+  --ob-green-ink: #eafff8;
+  --ob-purple-a: #6b4ab0;
+  --ob-purple-b: #3a2f5a;
+  --ob-purple-ink: #efe7ff;
+  --ob-feat-a: #10241c;
+  --ob-feat-b: #0c1714;
+  --ob-feat-line: #235741;
+  --ob-chip-line: #243029;
+  --ob-chip-ink: #9fb0aa;
+  background: var(--ob-card);
+  border: 1px solid var(--ob-line);
+  border-radius: 22px;
+  padding: 22px;
+}
+.onboarding-screen { overflow-y: auto; }
+
+/* eyebrows · headings · sub · captions */
+.onboarding-card .eyebrow {
+  font-size: 0.625rem;
+  letter-spacing: 0.12em;
+  color: var(--ob-eyebrow);
+  font-weight: 500;
+  text-transform: uppercase;
+  margin: 0 0 4px;
+}
+.onboarding-card .onboard-screen h2 {
+  font-size: 1.31rem;
+  color: var(--ob-h);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+.onboarding-card .onboard-sub {
+  font-size: 0.81rem;
+  color: var(--ob-sub);
+  line-height: 1.5;
+}
+.onboarding-card .onboard-accent { color: var(--ob-eyebrow); }
+.onboarding-card .onboard-group-label {
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  color: var(--ob-cap);
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+/* gradient-green CTAs */
+.onboarding-card .primary-button {
+  background: linear-gradient(135deg, var(--ob-cta-a), var(--ob-cta-b));
+  color: var(--ob-cta-ink);
+  border: none;
+  border-radius: 13px;
+  font-weight: 600;
+  box-shadow: none;
+}
+.onboarding-card .primary-button:hover { filter: brightness(1.05); }
+.onboarding-card .secondary-button { border-radius: 11px; }
+
+/* selected chips → green gradient; niche group → purple gradient */
+.onboarding-card .onboard-chip {
+  border: 1px solid var(--ob-chip-line);
+  color: var(--ob-chip-ink);
+  border-radius: 20px;
+  background: transparent;
+}
+.onboarding-card .onboard-chip.is-selected,
+.onboarding-card .onboard-chip[aria-pressed="true"],
+.onboarding-card .onboard-chip.is-selected:hover,
+.onboarding-card .onboard-chip[aria-pressed="true"]:hover {
+  background: linear-gradient(135deg, var(--ob-green-a), var(--ob-green-b));
+  color: var(--ob-green-ink);
+  border-color: transparent;
+}
+.onboarding-card .onboard-chip-niche.is-selected,
+.onboarding-card .onboard-chip-niche[aria-pressed="true"],
+.onboarding-card .onboard-chip-niche.is-selected:hover,
+.onboarding-card .onboard-chip-niche[aria-pressed="true"]:hover {
+  background: linear-gradient(135deg, var(--ob-purple-a), var(--ob-purple-b));
+  color: var(--ob-purple-ink);
+}
+
+/* segmented level — green gradient active */
+.onboarding-card .segmented-button.active {
+  background: linear-gradient(135deg, var(--ob-green-a), var(--ob-green-b));
+  color: var(--ob-green-ink);
+}
+
+/* feat / hero block (welcome crew + system card) */
+.onboarding-card .onboard-feat {
+  background: linear-gradient(150deg, var(--ob-feat-a), var(--ob-feat-b));
+  border: 1px solid var(--ob-feat-line);
+  border-radius: 14px;
+  padding: 13px;
+  display: grid;
+  gap: 6px;
+}
+.onboarding-card .onboard-feat-head { display: flex; align-items: center; gap: 9px; margin-bottom: 3px; }
+.onboarding-card .onboard-feat-tag { font-size: 0.69rem; color: #7fe9c0; font-weight: 500; }
+.onboarding-card .onboard-feat-line { font-size: 0.78rem; margin: 0; color: #d7e2dd; }
+.onboarding-card .onboard-feat-avatars { display: inline-flex; }
+.onboarding-card .onboard-av { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--ob-feat-a); display: inline-block; }
+.onboarding-card .onboard-av-b, .onboarding-card .onboard-av-c { margin-left: -7px; }
+.onboarding-card .onboard-av-a { background: #2f7a5c; }
+.onboarding-card .onboard-av-b { background: #355d91; }
+.onboarding-card .onboard-av-c { background: #6b4a9a; }
+
+/* welcome screen */
+.onboarding-card .onboard-welcome { gap: 14px; }
+.onboarding-card .onboard-logo {
+  width: 40px; height: 40px; border-radius: 13px;
+  background: linear-gradient(135deg, var(--ob-cta-a), var(--ob-green-a));
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ob-cta-ink); font-weight: 700; font-size: 1rem;
+}
+.onboarding-card .onboard-step { display: flex; gap: 13px; align-items: flex-start; font-size: 0.81rem; color: #d7e2dd; }
+.onboarding-card .onboard-step span:last-child { margin-top: 2px; }
+.onboarding-card .onboard-step-num {
+  width: 26px; height: 26px; flex-shrink: 0; border-radius: 9px;
+  background: #15211d; color: var(--ob-eyebrow);
+  display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 600;
+}
+.onboarding-card .onboard-welcome .onboard-skip { justify-self: center; color: var(--ob-cap); }
+
+/* gradient rounded-square avatars (profile + community/system) */
+.onboarding-card .onboard-avatar-square {
+  width: 84px; height: 84px; border-radius: 24px;
+  background: linear-gradient(135deg, var(--ob-green-a), var(--ob-green-b));
+  color: var(--ob-green-ink);
+  font-size: 1.5rem;
+}
+.onboarding-card .onboard-avatar-row { flex-direction: column; align-items: center; text-align: center; gap: 8px; }
+.onboarding-card .profile-avatar-edit { background: var(--ob-cta-b); color: var(--ob-cta-ink); border-color: var(--ob-card); }
+.onboarding-card .onboard-result-av {
+  width: 38px; height: 38px; flex: 0 0 auto; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.8rem; font-weight: 600;
+  background: linear-gradient(135deg, var(--ob-green-a), var(--ob-green-b)); color: var(--ob-green-ink);
+}
+.onboarding-card .onboard-result-av-purple {
+  background: linear-gradient(135deg, var(--ob-purple-a), var(--ob-purple-b)); color: var(--ob-purple-ink);
+}
+/* Compact demo row (avatar · text · Join) — overrides the app's ≤390px column-stack rule
+   for .find-community-card so onboarding community rows stay on one line, like the demo. */
+.onboarding-card .onboard-community-card { display: flex; flex-direction: row; align-items: center; gap: 12px; }
+.onboarding-card .onboard-community-card .find-community-main { flex: 1 1 auto; min-width: 0; }
+.onboarding-card .onboard-community-card .primary-button.small,
+.onboarding-card .onboard-community-card .secondary-button.small { width: auto; flex: 0 0 auto; }
+
+/* featured "Your system" card → rule chips */
+.onboarding-card .onboard-system-feat { gap: 12px; padding: 14px; }
+.onboarding-card .onboard-system-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.onboarding-card .onboard-system-head strong { font-size: 0.9rem; color: var(--ob-h); }
+.onboarding-card .onboard-system-spark { color: var(--ob-eyebrow); }
+.onboarding-card .onboard-rule-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.onboarding-card .onboard-rule-chip {
+  font-size: 0.72rem; padding: 6px 11px; border-radius: 20px;
+  border: 1px solid var(--ob-chip-line); color: #dfe7e4; background: rgba(0, 0, 0, 0.18);
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.onboarding-card .onboard-rule-chip-pts { color: var(--ob-eyebrow); font-weight: 600; }
+.onboarding-card .onboard-system-feat .primary-button,
+.onboarding-card .onboard-system-feat .secondary-button { width: 100%; justify-content: center; }
+
+/* visibility cards: selected = green feat fill */
+.onboarding-card .onboard-card { border: 1px solid var(--ob-line-soft); border-radius: 14px; background: transparent; }
+.onboarding-card .onboard-card-primary {
+  border: 1.5px solid var(--ob-cta-b);
+  background: linear-gradient(150deg, var(--ob-feat-a), var(--ob-feat-b));
+}
+.onboarding-card .onboard-card-primary strong { color: #7fe9c0; }
+.onboarding-card .onboard-card-icon { background: #15211d; color: var(--ob-eyebrow); }
+.onboarding-card .onboard-card-primary .onboard-card-icon { background: rgba(95, 216, 180, 0.16); }
+
+/* handle field accent */
+.onboarding-card .onboard-handle-field { border-color: var(--ob-feat-line); border-radius: 12px; }
+.onboarding-card .onboard-handle-status.is-available { color: var(--ob-eyebrow); }
+
+/* welcome entrance animation (keyframes copied from the demo) */
+@keyframes onboardUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes onboardGlow { 0%, 100% { box-shadow: 0 0 0 rgba(61, 220, 151, 0); } 50% { box-shadow: 0 0 26px rgba(61, 220, 151, 0.4); } }
+@keyframes onboardFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+.onboarding-card .onboard-welcome .pwrow { opacity: 0; animation: onboardUp 0.55s ease forwards; }
+.onboarding-card .onboard-welcome .onboard-logo { animation: onboardFloat 3.5s ease-in-out infinite; }
+.onboarding-card .onboard-welcome .onboard-cta-glow {
+  opacity: 0;
+  animation: onboardUp 0.55s ease 0.5s forwards, onboardGlow 2.8s ease-in-out 1.7s infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-card .onboard-welcome .pwrow,
+  .onboarding-card .onboard-welcome .onboard-cta-glow { opacity: 1 !important; animation: none !important; }
+  .onboarding-card .onboard-welcome .onboard-logo { animation: none !important; }
+}
+
 /* People search results (real accounts) */
 .person-result-card {
   align-items: center;

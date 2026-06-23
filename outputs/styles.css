@@ -8850,3 +8850,17 @@ body.onboarding-locked .coach-panel { display: none; }
   position: fixed; z-index: 200; margin: 0; pointer-events: none;
   transform: scale(1.03); box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
 }
+
+/* ── Build-a-Community: clearer "rule added → add another" flow ─────────── */
+.cc-rule-collapsed{display:flex;flex-direction:column;align-items:center;gap:14px;padding:6px 0 4px;text-align:center}
+.cc-rule-added-banner{display:inline-flex;align-items:center;gap:10px;padding:11px 20px;border-radius:999px;
+  background:var(--accent-soft);border:1px solid var(--accent);color:var(--accent-strong);
+  font-weight:800;font-size:0.98rem;animation:ccRuleAddedPop .42s cubic-bezier(.2,.9,.3,1.5)}
+.cc-rule-added-check{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;
+  background:var(--accent);color:var(--accent-ink,#04130f);font-size:13px;font-weight:900;line-height:1}
+@keyframes ccRuleAddedPop{0%{opacity:0;transform:translateY(8px) scale(.92)}100%{opacity:1;transform:none}}
+.add-another-rule-button{justify-content:center;gap:8px;font-size:1rem;padding:14px 18px;width:100%}
+.cc-rule-done-hint{margin:0;color:var(--muted);font-size:0.85rem}
+.cc-rule-done-hint strong{color:var(--ink)}
+@keyframes ccRuleRowFlash{0%,12%{box-shadow:0 0 0 2px var(--accent),0 0 18px 2px rgba(58,214,166,.5)}100%{box-shadow:0 0 0 0 rgba(58,214,166,0)}}
+.rule-row.cc-rule-row-flash{animation:ccRuleRowFlash 2.4s ease-out;border-radius:12px}

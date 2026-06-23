@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — world detail redesign options</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; padding:26px 14px; }
+  .row { display:flex; flex-wrap:wrap; gap:26px; justify-content:center; align-items:flex-start; }
+  .panel { width:380px; }
+  .label { font-size:13px; font-weight:600; color:#cfe9df; margin:0 0 4px; }
+  .sub { font-size:11px; color:#7c8d87; margin:0 0 11px; }
+  .card { border-radius:24px; overflow:hidden; }
+  p { margin:0; }
+  strong { font-weight:600; }
+</style>
+</head>
+<body>
+<div class="row">
+
+  <!-- A -->
+  <div class="panel" id="optA">
+    <p class="label">A · Cover banner + app avatar</p>
+    <p class="sub">Profile-style. Photo banner with the app icon overlapping it.</p>
+    <div class="card" style="background:#070b0a;border:1px solid #161f1c;">
+      <div style="position:relative;height:118px;background:linear-gradient(135deg,#1c5a43,#123a52 70%,#1a2336);">
+        <span style="position:absolute;top:12px;left:14px;font-size:11px;color:#eafff8;background:rgba(0,0,0,.35);padding:4px 10px;border-radius:20px;">‹ Back</span>
+        <span style="position:absolute;top:12px;right:14px;font-size:11px;color:#eafff8;background:rgba(0,0,0,.35);padding:4px 10px;border-radius:20px;">✎ Edit cover</span>
+        <span style="position:absolute;bottom:10px;right:14px;font-size:9.5px;color:#cfe9df;background:rgba(0,0,0,.3);padding:3px 9px;border-radius:14px;">🔒 Private</span>
+      </div>
+      <div style="padding:0 15px 15px;">
+        <div style="display:flex;align-items:flex-end;gap:12px;margin-top:-30px;margin-bottom:12px;">
+          <div style="width:62px;height:62px;border-radius:18px;background:linear-gradient(135deg,#1e3a30,#243a52);border:3px solid #070b0a;display:flex;align-items:center;justify-content:center;font-size:22px;">🚀</div>
+          <div style="flex:1;padding-bottom:2px;"><strong style="font-size:17px;color:#f3f6f4;">Work on App</strong><p style="font-size:10.5px;color:#7fc7b0;margin-top:1px;">2 members · Rank #2</p></div>
+          <button style="font-size:11px;padding:6px 14px;border-radius:10px;border:1px solid #2c5a48;background:#16241f;color:#7fe9c0;margin-bottom:2px;">Invite</button>
+        </div>
+        <div style="display:flex;gap:7px;margin-bottom:16px;">
+          <div style="flex:1;text-align:center;background:#10211b;border-radius:12px;padding:9px;"><p style="font-size:15px;font-weight:600;color:#eafff8;">1</p><p style="font-size:8.5px;color:#7fc7b0;margin-top:1px;">your pts today</p></div>
+          <div style="flex:1;text-align:center;background:#10211b;border-radius:12px;padding:9px;"><p style="font-size:15px;font-weight:600;color:#eafff8;">2</p><p style="font-size:8.5px;color:#7fc7b0;margin-top:1px;">group today</p></div>
+          <div style="flex:1;text-align:center;background:#10211b;border-radius:12px;padding:9px;"><p style="font-size:15px;font-weight:600;color:#eafff8;">🔥3</p><p style="font-size:8.5px;color:#7fc7b0;margin-top:1px;">day streak</p></div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;"><strong style="font-size:13px;color:#eef2f0;">Leaderboard</strong><div style="background:#11181a;border-radius:20px;padding:2px;display:flex;"><span style="font-size:9.5px;padding:4px 11px;border-radius:18px;background:#1c4d3b;color:#9bf3cf;">Daily</span><span style="font-size:9.5px;padding:4px 11px;color:#7c8d87;">Weekly</span><span style="font-size:9.5px;padding:4px 11px;color:#7c8d87;">All</span></div></div>
+        <div style="display:flex;align-items:center;gap:11px;padding:7px 4px;"><span style="font-size:12px;color:#7c8d87;width:12px;">1</span><div style="width:30px;height:30px;border-radius:50%;background:#9a4a2c;"></div><span style="flex:1;font-size:13px;color:#eef2f0;">Jacob</span><strong style="font-size:14px;color:#eef2f0;">1</strong></div>
+        <div style="height:1px;background:#171e1c;"></div>
+        <div style="display:flex;align-items:center;gap:11px;padding:7px 4px;margin-bottom:16px;"><span style="font-size:12px;color:#3ddc97;width:12px;">2</span><div style="width:30px;height:30px;border-radius:50%;background:#355d91;"></div><span style="flex:1;font-size:13px;color:#7fe9c0;">You</span><strong style="font-size:14px;color:#3ddc97;">1</strong></div>
+        <strong style="font-size:13px;color:#eef2f0;display:block;margin-bottom:9px;">Recent posts</strong>
+        <div style="border-bottom:1px solid #171e1c;padding-bottom:11px;margin-bottom:11px;"><div style="display:flex;align-items:center;gap:9px;"><div style="width:30px;height:30px;border-radius:50%;background:#355d91;"></div><div style="flex:1;"><p style="font-size:12px;color:#eef2f0;"><strong>You</strong> · My goal is to improve the AI</p><p style="font-size:9px;color:#7c8d87;margin-top:2px;">♥ 1 · 4h ago</p></div><span style="font-size:12px;color:#7fe9c0;">★</span></div></div>
+        <div style="display:flex;align-items:center;gap:9px;"><div style="width:30px;height:30px;border-radius:50%;background:#9a4a2c;"></div><div style="flex:1;"><p style="font-size:12px;color:#eef2f0;"><strong>Jacob</strong> · YO let's both set a major goal</p><p style="font-size:9px;color:#7c8d87;margin-top:2px;">6h ago</p></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- B -->
+  <div class="panel" id="optB">
+    <p class="label">B · Minimal &amp; airy</p>
+    <p class="sub">No card boxes, thin dividers, lots of space. Simplest.</p>
+    <div class="card" style="background:#08100d;padding:20px 18px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:22px;"><span style="font-size:12px;color:#8aa39a;">‹ Back</span><span style="font-size:12px;color:#8aa39a;">Settings</span></div>
+      <div style="text-align:center;margin-bottom:22px;">
+        <div style="width:66px;height:66px;border-radius:22px;background:linear-gradient(135deg,#16382c,#1a2b3a);margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-size:26px;position:relative;">🚀<span style="position:absolute;bottom:-4px;right:-4px;width:22px;height:22px;border-radius:50%;background:#16241f;border:2px solid #08100d;font-size:10px;display:flex;align-items:center;justify-content:center;color:#7fe9c0;">✎</span></div>
+        <strong style="font-size:20px;color:#f3f6f4;">Work on App</strong>
+        <p style="font-size:11px;color:#7c8d87;margin-top:4px;">🔒 Private · 2 members</p>
+        <div style="display:flex;justify-content:center;gap:8px;margin-top:13px;"><button style="font-size:11.5px;padding:7px 20px;border-radius:22px;background:#1c4d3b;color:#9bf3cf;border:none;">Invite</button><button style="font-size:11.5px;padding:7px 20px;border-radius:22px;background:transparent;color:#cfd8d4;border:1px solid #25302c;">Share</button></div>
+      </div>
+      <div style="height:1px;background:#141d19;margin-bottom:20px;"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;"><span style="font-size:13px;color:#dfe7e4;font-weight:600;">Leaderboard</span><span style="font-size:11px;color:#5fae8e;">Daily ▾</span></div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;"><span style="font-size:13px;color:#8aa39a;width:14px;">1</span><div style="width:32px;height:32px;border-radius:50%;background:#9a4a2c;"></div><span style="flex:1;font-size:14px;color:#f3f6f4;">Jacob</span><strong style="font-size:15px;color:#f3f6f4;">1</strong></div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;"><span style="font-size:13px;color:#3ddc97;width:14px;">2</span><div style="width:32px;height:32px;border-radius:50%;background:#355d91;"></div><span style="flex:1;font-size:14px;color:#7fe9c0;">You</span><strong style="font-size:15px;color:#3ddc97;">1</strong></div>
+      <div style="height:1px;background:#141d19;margin-bottom:20px;"></div>
+      <span style="font-size:13px;color:#dfe7e4;font-weight:600;display:block;margin-bottom:16px;">Recent posts</span>
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:18px;"><div style="width:34px;height:34px;border-radius:50%;background:#355d91;flex-shrink:0;"></div><div style="flex:1;"><p style="font-size:13px;color:#f3f6f4;line-height:1.4;"><strong>You</strong> · My goal is to improve the AI</p><div style="display:flex;gap:16px;margin-top:6px;"><span style="font-size:11px;color:#9fb0aa;">♥ 1</span><span style="font-size:11px;color:#9fb0aa;">Reply</span><span style="font-size:11px;color:#7fe9c0;">★ Cheer</span></div></div></div>
+      <div style="display:flex;align-items:flex-start;gap:12px;"><div style="width:34px;height:34px;border-radius:50%;background:#9a4a2c;flex-shrink:0;"></div><div style="flex:1;"><p style="font-size:13px;color:#f3f6f4;line-height:1.4;"><strong>Jacob</strong> · YO let's both set one major goal</p><p style="font-size:10px;color:#7c8d87;margin-top:5px;">6h ago</p></div></div>
+    </div>
+  </div>
+
+  <!-- C -->
+  <div class="panel" id="optC">
+    <p class="label">C · Bold gradient + big ring</p>
+    <p class="sub">Vivid hero, progress ring as the centerpiece, glassy chips.</p>
+    <div class="card" style="background:#070b0a;border:1px solid #161f1c;">
+      <div style="position:relative;background:linear-gradient(165deg,#1a6b4d,#0d3a2c 55%,#0a1f29);padding:16px 16px 20px;">
+        <div style="position:absolute;inset:0;background:linear-gradient(135deg,#2a7d5e88,#15406088);opacity:.5;"></div>
+        <div style="position:relative;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:12px;"><span style="font-size:11px;color:#eafff8;">‹ Back</span><span style="font-size:11px;color:#cfe9df;">🔒 Private · ⚙</span></div>
+          <div style="display:flex;align-items:center;gap:14px;">
+            <div style="position:relative;width:64px;height:64px;"><div style="width:64px;height:64px;border-radius:50%;background:conic-gradient(#5cf3b8 25%,rgba(255,255,255,.12) 0);"></div><div style="position:absolute;inset:7px;border-radius:50%;background:#0c2a20;display:flex;flex-direction:column;align-items:center;justify-content:center;"><strong style="font-size:14px;color:#eafff8;line-height:1;">1</strong><span style="font-size:7px;color:#8fd8bd;">of 4</span></div></div>
+            <div style="flex:1;"><strong style="font-size:19px;color:#fff;">Work on App</strong><p style="font-size:11px;color:#bff0dd;margin-top:3px;">Rank #2 of 2 · 🔥 3-day streak</p></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:15px;">
+            <div style="flex:1;background:rgba(255,255,255,.09);border-radius:13px;padding:9px;text-align:center;"><p style="font-size:15px;font-weight:700;color:#fff;">2</p><p style="font-size:8.5px;color:#cfe9df;margin-top:1px;">members</p></div>
+            <div style="flex:1;background:rgba(255,255,255,.09);border-radius:13px;padding:9px;text-align:center;"><p style="font-size:15px;font-weight:700;color:#fff;">2</p><p style="font-size:8.5px;color:#cfe9df;margin-top:1px;">today</p></div>
+            <button style="flex:1;background:#eafff8;border:none;border-radius:13px;color:#0c2a20;font-size:12px;font-weight:600;">Invite</button>
+          </div>
+        </div>
+      </div>
+      <div style="padding:16px 15px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;"><strong style="font-size:13px;color:#eef2f0;">Leaderboard</strong><div style="background:#11181a;border-radius:20px;padding:2px;display:flex;"><span style="font-size:9.5px;padding:4px 12px;border-radius:18px;background:#1c4d3b;color:#9bf3cf;">Daily</span><span style="font-size:9.5px;padding:4px 12px;color:#7c8d87;">Weekly</span><span style="font-size:9.5px;padding:4px 12px;color:#7c8d87;">All</span></div></div>
+        <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:14px;background:#11181a;margin-bottom:7px;"><span style="font-size:12px;color:#7c8d87;width:12px;">1</span><div style="width:30px;height:30px;border-radius:50%;background:#9a4a2c;"></div><span style="flex:1;font-size:13px;color:#eef2f0;">Jacob</span><strong style="font-size:14px;color:#eef2f0;">1</strong></div>
+        <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:14px;background:linear-gradient(90deg,#12281f,#11181a);border:1px solid #235741;margin-bottom:18px;"><span style="font-size:12px;color:#3ddc97;width:12px;">2</span><div style="width:30px;height:30px;border-radius:50%;background:#355d91;"></div><span style="flex:1;font-size:13px;color:#7fe9c0;">You</span><strong style="font-size:14px;color:#3ddc97;">1</strong></div>
+        <strong style="font-size:13px;color:#eef2f0;display:block;margin-bottom:10px;">Recent posts</strong>
+        <div style="background:#11181a;border-radius:14px;padding:12px;margin-bottom:7px;"><div style="display:flex;align-items:center;gap:9px;"><div style="width:30px;height:30px;border-radius:50%;background:#355d91;"></div><div style="flex:1;"><p style="font-size:12px;color:#eef2f0;"><strong>You</strong> · My goal is to improve the AI</p><p style="font-size:9px;color:#7c8d87;margin-top:2px;">♥ 1 · 4h ago</p></div><span style="font-size:12px;color:#7fe9c0;">★</span></div></div>
+        <div style="background:#11181a;border-radius:14px;padding:12px;"><div style="display:flex;align-items:center;gap:9px;"><div style="width:30px;height:30px;border-radius:50%;background:#9a4a2c;"></div><div style="flex:1;"><p style="font-size:12px;color:#eef2f0;"><strong>Jacob</strong> · YO let's both set a major goal</p><p style="font-size:9px;color:#7c8d87;margin-top:2px;">6h ago</p></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- D community -->
+  <div class="panel" id="optD">
+    <p class="label">D · Banner + airy body (combo) — COMMUNITY</p>
+    <p class="sub">A's photo banner with B's clean body. Recommended base.</p>
+    <div class="card" style="background:#08100d;">
+      <div style="position:relative;height:112px;background:linear-gradient(135deg,#1c5a43,#123a52 70%,#1a2336);">
+        <span style="position:absolute;top:12px;left:14px;font-size:11px;color:#eafff8;background:rgba(0,0,0,.35);padding:4px 11px;border-radius:20px;">‹ Back</span>
+        <span style="position:absolute;top:12px;right:14px;font-size:11px;color:#eafff8;background:rgba(0,0,0,.35);padding:4px 11px;border-radius:20px;">✎ Cover</span>
+      </div>
+      <div style="padding:0 18px 20px;">
+        <div style="display:flex;align-items:flex-end;gap:13px;margin-top:-28px;margin-bottom:14px;">
+          <div style="width:60px;height:60px;border-radius:20px;background:linear-gradient(135deg,#16382c,#1a2b3a);border:3px solid #08100d;display:flex;align-items:center;justify-content:center;font-size:24px;">🚀</div>
+          <div style="flex:1;padding-bottom:3px;"><strong style="font-size:18px;color:#f3f6f4;">Work on App</strong><p style="font-size:10.5px;color:#7c8d87;margin-top:2px;">🔒 Private · 2 members</p></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:22px;"><button style="flex:1;font-size:11.5px;padding:8px;border-radius:22px;background:#1c4d3b;color:#9bf3cf;border:none;">Invite</button><button style="flex:1;font-size:11.5px;padding:8px;border-radius:22px;background:transparent;color:#cfd8d4;border:1px solid #25302c;">Settings</button></div>
+        <div style="height:1px;background:#141d19;margin-bottom:20px;"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;"><span style="font-size:13px;color:#dfe7e4;font-weight:600;">Leaderboard</span><span style="font-size:11px;color:#5fae8e;">Daily ▾</span></div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;"><span style="font-size:13px;color:#8aa39a;width:14px;">1</span><div style="width:32px;height:32px;border-radius:50%;background:#9a4a2c;"></div><span style="flex:1;font-size:14px;color:#f3f6f4;">Jacob</span><strong style="font-size:15px;color:#f3f6f4;">1</strong></div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;"><span style="font-size:13px;color:#3ddc97;width:14px;">2</span><div style="width:32px;height:32px;border-radius:50%;background:#355d91;"></div><span style="flex:1;font-size:14px;color:#7fe9c0;">You</span><strong style="font-size:15px;color:#3ddc97;">1</strong></div>
+        <div style="height:1px;background:#141d19;margin-bottom:20px;"></div>
+        <span style="font-size:13px;color:#dfe7e4;font-weight:600;display:block;margin-bottom:16px;">Recent posts</span>
+        <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:18px;"><div style="width:34px;height:34px;border-radius:50%;background:#355d91;flex-shrink:0;"></div><div style="flex:1;"><p style="font-size:13px;color:#f3f6f4;line-height:1.4;"><strong>You</strong> · My goal is to improve the AI</p><div style="display:flex;gap:16px;margin-top:6px;"><span style="font-size:11px;color:#9fb0aa;">♥ 1</span><span style="font-size:11px;color:#9fb0aa;">Reply</span><span style="font-size:11px;color:#7fe9c0;">★ Cheer</span></div></div></div>
+        <div style="display:flex;align-items:flex-start;gap:12px;"><div style="width:34px;height:34px;border-radius:50%;background:#9a4a2c;flex-shrink:0;"></div><div style="flex:1;"><p style="font-size:13px;color:#f3f6f4;line-height:1.4;"><strong>Jacob</strong> · YO let's both set one major goal</p><p style="font-size:10px;color:#7c8d87;margin-top:5px;">6h ago</p></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Personal D -->
+  <div class="panel" id="optPersonal">
+    <p class="label">D · PERSONAL reward system (purple, solo)</p>
+    <p class="sub">No leaderboard/members. Your rules + your posts instead.</p>
+    <div class="card" style="background:#08100d;">
+      <div style="position:relative;height:112px;background:linear-gradient(135deg,#3a2a6b,#5a2a52 70%,#231a36);">
+        <span style="position:absolute;top:12px;left:14px;font-size:11px;color:#efe7ff;background:rgba(0,0,0,.35);padding:4px 11px;border-radius:20px;">‹ Back</span>
+        <span style="position:absolute;top:12px;right:14px;font-size:11px;color:#efe7ff;background:rgba(0,0,0,.35);padding:4px 11px;border-radius:20px;">✎ Cover</span>
+      </div>
+      <div style="padding:0 18px 20px;">
+        <div style="display:flex;align-items:flex-end;gap:13px;margin-top:-28px;margin-bottom:14px;">
+          <div style="width:60px;height:60px;border-radius:20px;background:linear-gradient(135deg,#2a2342,#3a1a36);border:3px solid #08100d;display:flex;align-items:center;justify-content:center;font-size:24px;">🏋️</div>
+          <div style="flex:1;padding-bottom:3px;"><strong style="font-size:18px;color:#f3f6f4;">Fitness</strong><p style="font-size:10.5px;color:#9a86c9;margin-top:2px;">Personal · 🔥 5-day streak</p></div>
+          <button style="font-size:11px;padding:6px 14px;border-radius:22px;background:transparent;color:#d8cdf2;border:1px solid #4a3d6e;margin-bottom:3px;">Edit</button>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:22px;">
+          <div style="flex:1;text-align:center;background:#19132e;border-radius:13px;padding:9px;"><p style="font-size:15px;font-weight:700;color:#efe7ff;">3</p><p style="font-size:8.5px;color:#9a86c9;margin-top:1px;">today</p></div>
+          <div style="flex:1;text-align:center;background:#19132e;border-radius:13px;padding:9px;"><p style="font-size:15px;font-weight:700;color:#efe7ff;">21</p><p style="font-size:8.5px;color:#9a86c9;margin-top:1px;">this week</p></div>
+          <div style="flex:1;text-align:center;background:#19132e;border-radius:13px;padding:9px;"><p style="font-size:15px;font-weight:700;color:#efe7ff;">🔥5</p><p style="font-size:8.5px;color:#9a86c9;margin-top:1px;">streak</p></div>
+        </div>
+        <div style="height:1px;background:#1a1530;margin-bottom:20px;"></div>
+        <span style="font-size:13px;color:#dfe7e4;font-weight:600;display:block;margin-bottom:14px;">Today's rules</span>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;"><span style="font-size:16px;">🏋️</span><div style="flex:1;"><p style="font-size:13px;color:#f3f6f4;">Workout</p><div style="height:5px;border-radius:3px;background:#241c3a;margin-top:6px;"><div style="width:100%;height:5px;border-radius:3px;background:#9a7fe0;"></div></div></div><span style="font-size:12px;color:#b6a3e6;">2/2</span></div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;"><span style="font-size:16px;">💧</span><div style="flex:1;"><p style="font-size:13px;color:#f3f6f4;">Drink water</p><div style="height:5px;border-radius:3px;background:#241c3a;margin-top:6px;"><div style="width:25%;height:5px;border-radius:3px;background:#9a7fe0;"></div></div></div><span style="font-size:12px;color:#9a86c9;">1/4</span></div>
+        <div style="height:1px;background:#1a1530;margin-bottom:20px;"></div>
+        <span style="font-size:13px;color:#dfe7e4;font-weight:600;display:block;margin-bottom:16px;">Recent posts</span>
+        <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px;"><div style="width:34px;height:34px;border-radius:50%;background:#355d91;flex-shrink:0;"></div><div style="flex:1;"><p style="font-size:13px;color:#f3f6f4;line-height:1.4;"><strong>You</strong> · Leg day done 🦵</p><div style="height:74px;border-radius:10px;background:linear-gradient(135deg,#241c3a,#1a2336);margin-top:8px;"></div><div style="display:flex;gap:16px;margin-top:7px;"><span style="font-size:11px;color:#9fb0aa;">♥ 2</span><span style="font-size:11px;color:#9fb0aa;">💬 1</span></div></div></div>
+        <div style="display:flex;align-items:flex-start;gap:12px;"><div style="width:34px;height:34px;border-radius:50%;background:#355d91;flex-shrink:0;"></div><div style="flex:1;"><p style="font-size:13px;color:#f3f6f4;line-height:1.4;"><strong>You</strong> · Hit my water goal early today</p><p style="font-size:10px;color:#7c8d87;margin-top:5px;">Yesterday</p></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Empty photo state -->
+  <div class="panel" id="optEmpty">
+    <p class="label">Empty photo state (owner-only add)</p>
+    <p class="sub">New world, no cover/icon yet. Members see default gradient.</p>
+    <div class="card" style="background:#08100d;">
+      <div style="position:relative;height:112px;background:linear-gradient(135deg,#10241c,#13202c);display:flex;align-items:center;justify-content:center;">
+        <span style="position:absolute;top:12px;left:14px;font-size:11px;color:#cfe9df;background:rgba(0,0,0,.3);padding:4px 11px;border-radius:20px;">‹ Back</span>
+        <span style="font-size:11px;color:#6f9486;border:1px dashed #2c4a3f;padding:6px 14px;border-radius:20px;">＋ Add cover photo</span>
+      </div>
+      <div style="padding:0 18px 20px;">
+        <div style="display:flex;align-items:flex-end;gap:13px;margin-top:-28px;margin-bottom:14px;">
+          <div style="position:relative;width:60px;height:60px;border-radius:20px;background:#13211b;border:3px solid #08100d;display:flex;align-items:center;justify-content:center;">
+            <span style="font-size:22px;color:#3a5249;">W</span>
+            <span style="position:absolute;bottom:-3px;right:-3px;width:22px;height:22px;border-radius:50%;background:#1c4d3b;border:2px solid #08100d;font-size:10px;display:flex;align-items:center;justify-content:center;">📷</span>
+          </div>
+          <div style="flex:1;padding-bottom:3px;"><strong style="font-size:18px;color:#f3f6f4;">Work on App</strong><p style="font-size:10.5px;color:#7c8d87;margin-top:2px;">🔒 Private · 2 members</p></div>
+        </div>
+        <div style="background:#0e1714;border:1px dashed #233029;border-radius:14px;padding:14px;text-align:center;margin-bottom:20px;">
+          <p style="font-size:12px;color:#cfd8d4;margin-bottom:3px;">Make this world yours</p>
+          <p style="font-size:10.5px;color:#7c8d87;margin-bottom:11px;">Add a cover photo and icon from your library</p>
+          <button style="font-size:11.5px;padding:7px 18px;border-radius:22px;background:#1c4d3b;color:#9bf3cf;border:none;">Add photos</button>
+        </div>
+        <div style="height:1px;background:#141d19;margin-bottom:18px;"></div>
+        <span style="font-size:11px;color:#5f7268;display:block;text-align:center;">↑ Owner-only. Members see the default gradient until you add one.</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -10344,7 +10344,7 @@
     panelOpen: false,   // pop-out panel visibility
     draft: null,        // { entries:[…], clars:[…], routeAll:bool }  awaiting confirm
     draftCardEl: null,  // the live confirm card element (re-rendered in place)
-    post: null,         // { targets:[…], contextId, ruleId, amount, caption, file, previewUrl } awaiting post
+    post: null,         // composer awaiting post: { kind:'personal'|'community', name, alreadyLogged, amount, caption, file, previewUrl } (+ system/rule for personal, contextId/ruleId for community)
     estimate: null,     // { calories, protein, carbs, fat, items, note, file, previewUrl }
     lastLogged: [],     // [{ contextType, contextId, ruleId, amount, isYesNo }] — for the post offer
     posted: {},         // nudge keys already dropped into the thread (post-once)
@@ -11636,8 +11636,11 @@
     coachSayText("No problem — nothing logged.");
   }
 
-  // ── Post composer (photo + caption + post-to community) ──────────────────────
-  function coachHasPostableCommunity() { return (state.communities || []).length > 0; }
+  // ── Post offer → destination picker → composer ───────────────────────────────
+  // After any coach log, offer to turn it into a post. Destinations: the user's OWN feed
+  // (always) + every community they're a member of. Community posts publish through the
+  // existing community_entries path (follower/member-visible today). "Your feed" creates a
+  // LOCAL personal entry only for now — see coachSubmitPersonalPost's TODO.
 
   // A community entry is "mine" if it carries the local "me" id OR my real account uid
   // (community entries reload from the DB keyed by the real uid).
@@ -11647,55 +11650,157 @@
     return !!(state.account && state.account.userId && entry.userId === state.account.userId);
   }
 
-  // Communities that track one of the just-logged rule labels → candidate post targets.
-  function coachPostTargets() {
+  // The personal-feed source for "Your feed": the just-logged personal activity. Prefer an
+  // entry already logged to a personal system (→ enrich it, never re-add the amount, so no
+  // double count); otherwise map the first logged rule's label to a personal rule, falling
+  // back to the primary personal system + the logged rule itself for a fresh local entry.
+  // Returns null only when there is nothing logged or no personal system to store it in.
+  function coachPersonalPostSource() {
+    const logged = coach.lastLogged || [];
+    if (!logged.length) return null;
+    for (let i = 0; i < logged.length; i++) {
+      const l = logged[i];
+      if (l.contextType !== "personal") continue;
+      const sys = (state.systems || []).find((s) => s.id === l.contextId);
+      const r = resolveQuickLogRule("personal", l.contextId, l.ruleId);
+      if (sys && r) return { system: sys, rule: r.rule, amount: l.amount, alreadyLogged: true };
+    }
+    const sys = primaryPersonalSystem();
+    if (!sys) return null;
+    const first = logged[0];
+    const firstResolved = resolveQuickLogRule(first.contextType, first.contextId, first.ruleId);
+    if (!firstResolved) return null;
+    const sysRules = (sys.rules || []).map(scoring.normalizeRule)
+      .filter((r) => r.simpleStyle !== "penalty" && r.dataSource !== "calculated");
+    if (!sysRules.length) return null;
+    const label = String(firstResolved.rule.label || "").toLowerCase();
+    // Always a REAL rule of this system (matching label, else its first loggable rule) — never a
+    // foreign community rule, which would write an orphan ruleId into the personal entries.
+    const rule = sysRules.find((r) => String(r.label || "").toLowerCase() === label) || sysRules[0];
+    return { system: sys, rule: rule, amount: first.amount, alreadyLogged: false };
+  }
+
+  // Resolve a community to a post target: the rule matching a just-logged label if any
+  // (matchedByLabel), else the community's first loggable rule (so "allow any community"
+  // still has somewhere to post). alreadyLogged means the coach just logged THIS rule to
+  // THIS community → enrich, don't re-add. Null when the community has no loggable rule.
+  function coachCommunityTarget(community) {
+    const sys = normalizeSystem(community.system || { rules: [] });
+    const rules = (sys.rules || []).map(scoring.normalizeRule)
+      .filter((r) => r.simpleStyle !== "penalty" && r.dataSource !== "calculated");
+    if (!rules.length) return null;
     const labels = {};
-    (coach.lastLogged || []).forEach((l) => { const lbl = coachRuleLabel(l.contextType, l.contextId, l.ruleId); if (lbl) labels[lbl] = l.amount; });
+    (coach.lastLogged || []).forEach((l) => { const lbl = coachRuleLabel(l.contextType, l.contextId, l.ruleId); if (lbl) labels[lbl.toLowerCase()] = l.amount; });
+    let rule = rules.find((r) => String(r.label || "").toLowerCase() in labels);
+    const matchedByLabel = !!rule;
+    let amount;
+    if (rule) { amount = labels[String(rule.label).toLowerCase()]; }
+    // No matching rule → log a clean default check-in to the first rule, not a clamped-wrong amount.
+    else { rule = rules[0]; amount = suggestedEntryAmount(rule); }
+    const alreadyLogged = (coach.lastLogged || []).some((l) => l.contextType === "community" && l.contextId === community.id && l.ruleId === rule.id);
+    return { contextId: community.id, contextName: community.name || "Community", ruleId: rule.id, label: rule.label, amount: amount, alreadyLogged: alreadyLogged, matchedByLabel: matchedByLabel };
+  }
+
+  // All post destinations for the just-logged activity: your own feed (always, when there's
+  // somewhere to store it) + every community you're a member of, matching ones first.
+  function coachPostDestinations() {
     const out = [];
-    const seen = {};
-    buildLoggableRuleCatalog().forEach((c) => {
-      if (c.contextType !== "community") return;
-      if (!(c.label in labels)) return;
-      const key = c.contextId + "|" + c.id;
-      if (seen[key]) return;
-      seen[key] = true;
-      const logged = (coach.lastLogged || []).find((l) => l.contextId === c.contextId && l.ruleId === c.id);
-      out.push({ contextId: c.contextId, contextName: c.contextName, ruleId: c.id, label: c.label, amount: logged ? logged.amount : labels[c.label], alreadyLogged: !!logged });
+    if (coachPersonalPostSource()) {
+      out.push({ kind: "personal", id: "personal", name: "Your feed", sub: "Only you can see this for now", matching: true });
+    }
+    (state.communities || []).forEach((c) => {
+      const tgt = coachCommunityTarget(c);
+      if (!tgt) return; // no loggable rule → nothing to post to here
+      out.push({ kind: "community", id: c.id, name: c.name || "Community", sub: tgt.matchedByLabel ? `Tracks ${tgt.label}` : "Your community", matching: tgt.matchedByLabel });
     });
+    out.sort((a, b) => (b.matching ? 1 : 0) - (a.matching ? 1 : 0));
     return out;
   }
 
+  // Offer to turn the just-logged entry into a post. Shows whenever there's ≥1 destination
+  // (your own feed always counts). Learns dismissals like the other nudges (coachLearnRecord
+  // + coachShouldPeekType suppression after repeated "Not now").
   function coachOfferPost() {
-    if (!coachHasPostableCommunity()) return;
-    if (!coachPostTargets().length) return;
-    coachSay(`<p>Want to share it? <button type="button" class="coach-inline-btn" data-coach-addpost>📷 Add a photo &amp; caption</button></p>`);
+    if (!(coach.lastLogged || []).length) return;
+    if (!coachPostDestinations().length) return;
+    if (!coachShouldPeekType("post")) return;
+    coachLearnRecord("post", "shown");
+    coachDisableStaleCards();
+    coachSay(`
+      <div class="coach-card coach-postoffer-card is-active" data-coach-postoffer-card>
+        <p class="coach-card-title">Want to turn this into a post?</p>
+        <div class="coach-card-actions">
+          <button type="button" class="ghost-button small" data-coach-postno>Not now</button>
+          <button type="button" class="primary-button small" data-coach-postyes>Yes</button>
+        </div>
+      </div>`);
+    coachScroll();
   }
 
-  function coachOpenPostComposer() {
-    const targets = coachPostTargets();
-    if (!targets.length) {
-      coachSayText("To share this as a post, it needs to be in a community. Join or create one in Build, then snap or tell me again.");
+  // Step 2: "Where would you like to post it?" — single-select list of destinations. Also
+  // the entry point for the "Log & post" shortcuts (which skip the Yes/Not now offer).
+  function coachOpenPostPicker() {
+    const dests = coachPostDestinations();
+    if (!dests.length) {
+      coachSayText("Nowhere to post this yet — add a system or join a community in Build, then tell me again.");
       return;
     }
-    const first = targets[0];
-    coach.post = { targets: targets, contextId: first.contextId, ruleId: first.ruleId, amount: first.amount, alreadyLogged: first.alreadyLogged, caption: "", file: null, previewUrl: "" };
+    coachDisableStaleCards();
+    const rows = dests.map((d) => `
+      <button type="button" class="coach-dest-btn" data-coach-postdest="${escapeHtml(d.kind + ":" + d.id)}">
+        <span class="coach-dest-name">${escapeHtml(d.name)}</span>
+        <span class="coach-dest-sub">${escapeHtml(d.sub)}</span>
+      </button>`).join("");
+    coachSay(`
+      <div class="coach-card coach-postpick-card is-active" data-coach-postpick-card>
+        <p class="coach-card-title">Where would you like to post it?</p>
+        <div class="coach-dest-list">${rows}</div>
+        <div class="coach-card-actions">
+          <button type="button" class="ghost-button small" data-coach-postno>Not now</button>
+        </div>
+      </div>`);
+    coachScroll();
+  }
+  // Back-compat alias: the "Log & post" shortcuts open the destination picker directly.
+  function coachOpenPostComposer() { coachOpenPostPicker(); }
+
+  // Step 3: a destination was picked → open the composer (caption + photo) for it.
+  function coachChooseDestination(kind, id) {
+    let post;
+    if (kind === "personal") {
+      const src = coachPersonalPostSource();
+      if (!src) { coachSayText("I couldn't find your personal activity to post — try logging something first."); return; }
+      post = { kind: "personal", name: "Your feed", system: src.system, rule: src.rule, amount: src.amount, alreadyLogged: src.alreadyLogged };
+    } else {
+      const community = (state.communities || []).find((c) => c.id === id);
+      if (!community) { coachSayText("That community isn't available anymore."); return; }
+      const tgt = coachCommunityTarget(community);
+      if (!tgt) { coachSayText("That community has no rule to post to yet."); return; }
+      post = { kind: "community", name: community.name || "Community", contextId: tgt.contextId, ruleId: tgt.ruleId, amount: tgt.amount, alreadyLogged: tgt.alreadyLogged };
+    }
+    coach.post = Object.assign(post, { caption: "", file: null, previewUrl: "", cardEl: null });
     coachDisableStaleCards();
     const bubble = coachSay(`<div class="coach-card coach-post-card is-active" data-coach-post-card></div>`);
     coach.post.cardEl = bubble.querySelector("[data-coach-post-card]");
     coachRenderPostCard();
   }
 
+  // "Not now" on either the offer or the picker → dismiss cleanly + learn the dismissal.
+  function coachDeclinePost() {
+    coachLearnRecord("post", "dismissed");
+    coach.post = null;
+    coachDisableStaleCards();
+    coachSayText("No problem — logged, not posted.");
+  }
+
   function coachRenderPostCard() {
     if (!coach.post || !coach.post.cardEl || !coach.post.cardEl.isConnected) return;
     const p = coach.post;
-    const toOptions = p.targets.map((t) => `<option value="${escapeHtml(t.contextId + "|" + t.ruleId)}"${t.contextId === p.contextId && t.ruleId === p.ruleId ? " selected" : ""}>${escapeHtml(t.contextName)} · ${escapeHtml(t.label)}</option>`).join("");
     const photoSlot = p.previewUrl
       ? `<div class="coach-post-photo has-photo"><img src="${escapeHtml(p.previewUrl)}" alt="Post photo preview"><button type="button" class="entry-photo-remove" data-coach-post-photo-remove aria-label="Remove photo">×</button></div>`
       : `<button type="button" class="ghost-button small coach-post-addphoto" data-coach-post-photo>📷 Add photo</button>`;
     coach.post.cardEl.innerHTML = `
-      <p class="coach-card-title">Make it a post</p>
-      <label class="coach-field"><span>Post to</span>
-        <select data-coach-post-to>${toOptions}</select></label>
+      <p class="coach-card-title">Post to ${escapeHtml(p.name || "your feed")}</p>
       <label class="coach-field"><span>Caption</span>
         <textarea data-coach-post-caption maxlength="${ENTRY_MESSAGE_MAX}" rows="2" placeholder="Say something… (optional)">${escapeHtml(p.caption || "")}</textarea></label>
       ${photoSlot}
@@ -11717,6 +11822,7 @@
   async function coachSubmitPost() {
     const p = coach.post;
     if (!p) return;
+    if (p.kind === "personal") { coachSubmitPersonalPost(p); return; }
     const community = (state.communities || []).find((c) => c.id === p.contextId);
     if (!community) { coachSayText("That community isn't available anymore."); return; }
     const resolved = resolveQuickLogRule("community", p.contextId, p.ruleId);
@@ -11778,6 +11884,91 @@
     coachFinalizePostCard();
     coach.post = null;
     coachSayText("Okay — logged, not posted.");
+  }
+
+  function coachLatestPersonalEntry(systemId, ruleId, dateKey) {
+    const mine = (state.quickEntries || []).filter((e) => e.systemId === systemId && e.ruleId === ruleId && (e.dateKey || e.date) === dateKey);
+    return mine[mine.length - 1] || null;
+  }
+
+  // "Your feed" post. PLACEHOLDER for this diff: it creates/enriches a LOCAL personal entry
+  // (reusing the exact personal Add Entry path — photo → personal/<uid>, then enrich or
+  // addQuickLogPersonalEntry) so the post shows in the user's OWN app. It is NOT yet visible
+  // to followers.
+  // TODO(personal-feed backend, next diff): persist this to a dedicated personal_posts table
+  // with follow-gated RLS + likes/comments generalized off community_entries.id, so "Your
+  // feed" posts actually reach followers. Do NOT route it through community_entries.
+  async function coachSubmitPersonalPost(p) {
+    const system = p.system;
+    if (!system) { coachSayText("That system isn't available anymore."); return; }
+    const rule = p.rule;
+    const uid = state.account && state.account.userId;
+    const caption = (p.caption || "").trim().slice(0, ENTRY_MESSAGE_MAX);
+
+    let photoPath = "";
+    if (p.file) {
+      if (!signalsReady() || !uid || !window.PointwellSignals || typeof window.PointwellSignals.uploadEntryPhoto !== "function") {
+        coachSayText("Sign in to attach photos — posting without it.");
+      } else {
+        const up = await window.PointwellSignals.uploadEntryPhoto(p.file, "personal/" + uid);
+        if (up.error || !up.path) coachSayText("Couldn't upload the photo — posting without it.");
+        else photoPath = up.path;
+      }
+    }
+
+    const today = getTodayKey();
+    // CRITICAL double-count rule: gate on p.alreadyLogged, NEVER on whether a local row was
+    // found (the community branch does the same). A just-tracked SYNCED metric is already
+    // counted in state.syncProgress and has NO quickEntry — re-adding it would double-count.
+    if (p.alreadyLogged) {
+      const existing = coachLatestPersonalEntry(system.id, rule.id, today);
+      if (existing) {
+        // A hand-logged manual entry already holds the amount → enrich it in place.
+        if (caption) existing.message = caption;
+        if (photoPath) existing.photoPath = photoPath;
+      } else {
+        // Synced metric (lives in syncProgress, not quickEntries) → record the caption/photo as
+        // a viaSource "materialized" entry. todayValuesForSystem EXCLUDES viaSource rows from the
+        // manual total, so the post keeps its content WITHOUT re-adding the already-counted amount.
+        coachAddPersonalPostEntry(system, rule, normalizeAddEntryAmount(p.amount, rule), caption, photoPath);
+      }
+    } else {
+      // No prior entry for this activity → a genuine new local personal log.
+      addQuickLogPersonalEntry(system, rule, normalizeAddEntryAmount(p.amount, rule), caption);
+      if (photoPath) { const t = coachLatestPersonalEntry(system.id, rule.id, today); if (t) t.photoPath = photoPath; }
+    }
+    syncDraftInputsFromEntries(system);
+    saveState();
+
+    coachFinalizePostCard();
+    coach.post = null;
+    render();
+    coachSay(`<p>✅ Added to <strong>your feed</strong>. <span class="coach-post-note">Only you can see this for now — follower sharing is coming soon.</span></p>`);
+  }
+
+  // A "materialized" post of an already-counted synced value: a viaSource quickEntry carrying
+  // the caption/photo. todayValuesForSystem skips viaSource rows (app.js: "if (entry.viaSource)
+  // return") since they're superseded by syncProgress, so this NEVER adds to the rule's total —
+  // it just gives the synced metric a local post. Mirrors the Add Entry "share synced value" path.
+  function coachAddPersonalPostEntry(system, rule, amount, message, photoPath) {
+    state.quickEntries = state.quickEntries || [];
+    state.quickEntries.push({
+      id: makeId("quick"),
+      date: getTodayKey(),
+      dateKey: getTodayKey(),
+      createdAt: new Date().toISOString(),
+      systemId: system.id,
+      rewardSystemId: system.id,
+      ruleId: rule.id,
+      label: rule.label,
+      unit: rule.unit,
+      amount: amount,
+      message: message,
+      photoPath: photoPath,
+      source: "manual-adjustment",
+      viaSource: rule.dataSource && rule.dataSource !== "manual" && rule.dataSource !== "calculated" ? rule.dataSource : "synced",
+    });
+    autoSaveToday(system);
   }
 
   // ── Food photo → calorie/macro estimate ─────────────────────────────────────
@@ -11929,7 +12120,10 @@
     if (toggle) { const e = coachDraftEntryById(toggle.dataset.coachToggle); if (e) { e.amount = e.amount > 0 ? 0 : 1; coachRenderDraftCard(); } return; }
     const clar = t.closest("[data-coach-clar]");
     if (clar) { coachResolveClar(clar.dataset.coachClar); return; }
-    if (t.closest("[data-coach-addpost]")) { coachOpenPostComposer(); return; }
+    if (t.closest("[data-coach-postyes]")) { coachLearnRecord("post", "acted"); coachOpenPostPicker(); return; }
+    if (t.closest("[data-coach-postno]")) { coachDeclinePost(); return; }
+    const postDest = t.closest("[data-coach-postdest]");
+    if (postDest) { const parts = postDest.dataset.coachPostdest.split(":"); coachChooseDestination(parts[0], parts.slice(1).join(":")); return; }
     if (t.closest("[data-coach-post-photo]")) { coachPickPhoto("post"); return; }
     if (t.closest("[data-coach-post-photo-remove]")) { if (coach.post) { if (coach.post.previewUrl) { try { URL.revokeObjectURL(coach.post.previewUrl); } catch (e) { /* ignore */ } } coach.post.file = null; coach.post.previewUrl = ""; coachRenderPostCard(); } return; }
     if (t.closest("[data-coach-post-submit]")) { coachSubmitPost(); return; }
@@ -11979,13 +12173,6 @@
     }
     const fan = event.target.closest("[data-coach-fanout]");
     if (fan && coach.draft) { coach.draft.routeAll = !!fan.checked; return; }
-    const to = event.target.closest("[data-coach-post-to]");
-    if (to && coach.post) {
-      const parts = String(to.value).split("|");
-      const target = (coach.post.targets || []).find((tg) => tg.contextId === parts[0] && tg.ruleId === parts[1]);
-      if (target) { coach.post.contextId = target.contextId; coach.post.ruleId = target.ruleId; coach.post.amount = target.amount; coach.post.alreadyLogged = target.alreadyLogged; }
-      return;
-    }
   }
 
   function renderAddEntryPanel(system) {

@@ -1017,6 +1017,30 @@
     }
   }
 
+  // "Snap a meal" — send a meal photo (base64, no data: prefix) + optional text hint to
+  // the food-estimate Edge Function, which runs the Anthropic vision call server-side.
+  // Mirrors parseLog — sb.functions.invoke handles URL/apikey/JWT. Returns a structured
+  // { error, estimate: { calories, protein, carbs, fat, items, note, confidence } } and
+  // never throws. The numbers are rough ESTIMATES the caller must keep editable.
+  async function estimateFood(imageBase64, mediaType, hint) {
+    var sb = getClient();
+    if (!sb || !sb.functions || typeof sb.functions.invoke !== "function") {
+      return { error: { message: "Food estimates need a connection." } };
+    }
+    try {
+      // Deployed Edge Function slug — must match how food-estimate is deployed in Supabase.
+      var res = await sb.functions.invoke("food-estimate", {
+        body: { image: String(imageBase64 || ""), mediaType: String(mediaType || "image/jpeg"), hint: String(hint || "") }
+      });
+      if (res.error) return { error: res.error };
+      var data = res.data || {};
+      if (data.error) return { error: { message: String(data.error) } };
+      return { error: null, estimate: data };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the AI service." } };
+    }
+  }
+
   // Today's community activity for a friend, gated server-side by friendship +
   // their visibility + our shared communities. forDate = the viewer's local today key.
   // Returns [{ community_id, community_name, rule_id, amount, entry_date }].
@@ -1087,6 +1111,7 @@
     getFriendsActiveToday: getFriendsActiveToday,
     generateRules: generateRules,
     parseLog: parseLog,
+    estimateFood: estimateFood,
     upsertCommunityEntry: upsertCommunityEntry,
     uploadEntryPhoto: uploadEntryPhoto,
     getEntryPhotoSignedUrl: getEntryPhotoSignedUrl,

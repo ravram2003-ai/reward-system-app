@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260623-incsync">
+    <link rel="stylesheet" href="styles.css?v=20260624-coach">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -63,6 +63,9 @@
             <button class="header-icon-btn" type="button" id="headerChatsButton" aria-label="Chats">
               <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg>
               <span class="notif-bell-badge" id="headerChatsBadge" hidden>0</span>
+            </button>
+            <button class="header-icon-btn header-coach-btn" type="button" id="headerCoachButton" aria-label="Coach">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.6 4.2L18 8.8l-4.4 1.6L12 14.6l-1.6-4.2L6 8.8l4.4-1.6L12 3z"/><path d="M18.5 14l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7.7-1.9z"/></svg>
             </button>
           </div>
         </div>
@@ -1287,6 +1290,30 @@
           </div>
         </section>
 
+        <section class="view" id="coachView" aria-labelledby="coachTitle">
+          <div class="view-header">
+            <div>
+              <p class="eyebrow">AI</p>
+              <h2 id="coachTitle">Coach <span class="quick-log-ai-tag">AI</span></h2>
+              <p class="view-subtitle">Tell me what you did or snap a meal — I'll map it to your rules, confirm with you, log it, and help you post it.</p>
+            </div>
+          </div>
+          <div class="coach-shell">
+            <div class="coach-thread" id="coachThread" aria-live="polite"></div>
+            <form class="coach-input-row" id="coachForm">
+              <button type="button" class="coach-icon-btn coach-photo-btn" id="coachPhotoButton" aria-label="Add a photo">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              </button>
+              <button type="button" class="coach-icon-btn coach-mic-btn" id="coachMic" aria-label="Speak your log" aria-pressed="false" hidden>
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><path d="M12 19v4"/></svg>
+              </button>
+              <input type="text" class="coach-input" id="coachInput" placeholder="e.g. ran 5 miles, hit my protein, lifted with the boys" autocomplete="off" aria-label="Tell Coach what you did">
+              <button type="submit" class="primary-button coach-send" id="coachSend">Send</button>
+            </form>
+            <input type="file" accept="image/*" capture="environment" id="coachPhotoInput" hidden>
+          </div>
+        </section>
+
         <section class="view" id="profileView" aria-labelledby="profileTitle">
           <div class="view-header">
             <div>
@@ -1378,13 +1405,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260623-incsync"></script>
-    <script src="auth-helpers.js?v=20260623-incsync"></script>
-    <script src="scoring.js?v=20260623-incsync"></script>
-    <script src="insight.js?v=20260623-incsync"></script>
-    <script src="signals.js?v=20260623-incsync"></script>
-    <script src="wearables.js?v=20260623-incsync"></script>
-    <script type="module" src="auth.js?v=20260623-incsync"></script>
-    <script src="app.js?v=20260623-incsync"></script>
+    <script src="supabase-config.js?v=20260624-coach"></script>
+    <script src="auth-helpers.js?v=20260624-coach"></script>
+    <script src="scoring.js?v=20260624-coach"></script>
+    <script src="insight.js?v=20260624-coach"></script>
+    <script src="signals.js?v=20260624-coach"></script>
+    <script src="wearables.js?v=20260624-coach"></script>
+    <script type="module" src="auth.js?v=20260624-coach"></script>
+    <script src="app.js?v=20260624-coach"></script>
   </body>
 </html>

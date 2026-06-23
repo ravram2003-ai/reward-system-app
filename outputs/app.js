@@ -2700,6 +2700,15 @@
       "quickLogMealInput",
       "quickLogHint",
       "quickLogDraft",
+      "headerCoachButton",
+      "coachView",
+      "coachThread",
+      "coachForm",
+      "coachInput",
+      "coachSend",
+      "coachMic",
+      "coachPhotoButton",
+      "coachPhotoInput",
       "customizeTopCardSystemSelect",
       "customizeChartsSystemSelect",
       "createFab",
@@ -3008,6 +3017,7 @@
       friends: els.friendsView,
       "friend-activity": els.friendActivityView,
       chats: els.chatsView,
+      coach: els.coachView,
       profile: els.profileView,
       "profile-page": els.profilePageView
     };
@@ -3041,6 +3051,7 @@
     // lives in Build). openAddEntryPage guards the no-system / no-rules cases with a toast.
     if (els.createFab) els.createFab.addEventListener("click", openAddEntryPage);
     bindQuickLogControls();
+    bindCoach();
     bindWearablePrompt();
     bindCatchUpCard();
     els.backToDashboardButton.addEventListener("click", returnToDashboard);
@@ -3368,6 +3379,7 @@
     renderFriendActivity();
     renderProfilePage();
     renderProfile();
+    renderCoach();
     renderNotifications();
     renderCatchUpCard();
     renderWearablePrompt();
@@ -3401,6 +3413,7 @@
     paintAvatarNode(els.largeAvatar, state.profile.name, myAvatar);
     if (els.headerFriendsButton) els.headerFriendsButton.classList.toggle("is-active", state.activeView === "friends" || state.activeView === "friend-activity");
     if (els.headerChatsButton) els.headerChatsButton.classList.toggle("is-active", state.activeView === "chats");
+    if (els.headerCoachButton) els.headerCoachButton.classList.toggle("is-active", state.activeView === "coach");
     els.todayLabel.textContent = formatDate(todayIso);
   }
 
@@ -8697,17 +8710,34 @@
     setQuickLogRecording(false);
   }
 
-  // ── PHASE 2 (scaffold): "Snap a meal" → photo → AI calorie/protein estimate ────
-  // The multimodal vision call is NOT wired yet. We do NOT fabricate numbers: surface a
-  // draft for the nutrition rule(s) with blank, clearly-labeled "AI estimate" fields for
-  // the user to fill, and TODO the model call.
-  function startMealEstimate(file) {
+  // ── "Snap a meal" → photo → AI calorie/protein estimate ───────────────────────
+  // Sends the photo to the food-estimate vision Edge Function (same provider + secret as
+  // parse-log) and pre-fills the nutrition rule(s) with the returned ESTIMATE — always
+  // labeled and editable before Confirm. We never fabricate numbers: if the vision call
+  // is unavailable or fails, the rows stay blank for the user to fill in.
+  function nutritionRuleAmount(estimate, label, unit) {
+    if (!estimate) return 0;
+    const t = `${label} ${unit}`;
+    if (/calorie|kcal|energy/i.test(t)) return numberOrDefault(estimate.calories, 0);
+    if (/protein/i.test(t)) return numberOrDefault(estimate.protein, 0);
+    if (/carb/i.test(t)) return numberOrDefault(estimate.carbs, 0);
+    if (/fat/i.test(t)) return numberOrDefault(estimate.fat, 0);
+    return 0;
+  }
+
+  async function startMealEstimate(file) {
     if (!file) return;
-    // TODO(phase-2): upload `file` to a multimodal model (a parse-log-style edge fn) and
-    // pre-fill amounts from { calories, protein } with confidence — kept labeled AI
-    // ESTIMATE and editable before Confirm. Until then we never invent the numbers.
     const nutrition = buildLoggableRuleCatalog().filter((c) => /calorie|protein|nutrition|food|meal|macro|carb|fat/i.test(`${c.label} ${c.unit}`));
     if (!nutrition.length) { setQuickLogHint("Add a calories/protein rule first to use Snap a meal."); return; }
+    let estimate = null;
+    if (signalsReady() && window.PointwellSignals && typeof window.PointwellSignals.estimateFood === "function") {
+      setQuickLogHint("Estimating your meal…");
+      try {
+        const parts = await fileToBase64Parts(file);
+        const res = await window.PointwellSignals.estimateFood(parts.data, parts.mediaType, els.quickLogInput ? els.quickLogInput.value.trim() : "");
+        if (!res.error && res.estimate) estimate = res.estimate;
+      } catch (e) { /* fall back to blank rows the user fills in */ }
+    }
     nutrition.slice(0, 3).forEach((c) => {
       const resolved = resolveQuickLogRule(c.contextType, c.contextId, c.id);
       if (!resolved) return;
@@ -8717,13 +8747,13 @@
         contextId: c.contextId,
         ruleId: c.id,
         isYesNo: resolved.rule.simpleStyle === "yesNo",
-        amount: 0,
+        amount: nutritionRuleAmount(estimate, c.label, c.unit),
         note: "",
-        confidence: 0,
+        confidence: estimate ? numberOrDefault(estimate.confidence, 0.4) : 0,
         isPhotoEstimate: true,
       });
     });
-    setQuickLogHint("Photo estimates aren't wired up yet — enter this meal's values, then Confirm.");
+    setQuickLogHint(estimate ? "AI estimate ready — review the numbers, then Confirm." : "Photo estimate unavailable — enter this meal's values, then Confirm.");
     renderQuickLogDraft();
   }
 
@@ -8750,6 +8780,748 @@
       });
     }
     setupQuickLogMic();
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // COACH — a reactive AI chat that maps what you say / snap to your rules,
+  // confirms, logs, and (optionally) turns it into a post. It is a conversational
+  // WRAPPER: it reuses the same parse-log call + catalog (buildLoggableRuleCatalog),
+  // the same quick-log save path (confirmQuickLog), the same food-estimate vision
+  // call, and the same community post path (addCommunityEntry / pushCommunityEntryToDb).
+  // No parallel logging or post logic lives here. Phase 1 is reactive only — proactive
+  // nudges are stubbed at coachProactiveCheck() below.
+  // ════════════════════════════════════════════════════════════════════════════
+  const coach = {
+    greeted: false,
+    busy: false,
+    draft: null,        // { entries:[…], clars:[…], routeAll:bool }  awaiting confirm
+    draftCardEl: null,  // the live confirm card element (re-rendered in place)
+    post: null,         // { targets:[…], contextId, ruleId, amount, caption, file, previewUrl } awaiting post
+    estimate: null,     // { calories, protein, carbs, fat, items, note, file, previewUrl }
+    lastLogged: [],     // [{ contextType, contextId, ruleId, amount, isYesNo }] — for the post offer
+  };
+
+  // Read an image File into base64 (no data: prefix) + its media type, for the
+  // multimodal food-estimate call. Shared by Coach and the "Snap a meal" quick-log.
+  function fileToBase64Parts(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = String(reader.result || "");
+        const comma = url.indexOf(",");
+        const meta = url.slice(0, comma);
+        const m = meta.match(/data:([^;]+)/);
+        resolve({ data: comma > -1 ? url.slice(comma + 1) : url, mediaType: (m && m[1]) || file.type || "image/jpeg" });
+      };
+      reader.onerror = () => reject(new Error("read failed"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function coachFirstName() {
+    return String((state.profile && state.profile.name) || "there").trim().split(/\s+/)[0] || "there";
+  }
+
+  function coachScroll() {
+    if (els.coachThread) els.coachThread.scrollTop = els.coachThread.scrollHeight;
+  }
+
+  // Append a chat bubble. `html` for coach bubbles is trusted markup built here (any
+  // user-derived text inside MUST already be escaped); user bubbles pass escaped text.
+  function coachAppendBubble(role, html) {
+    if (!els.coachThread) return null;
+    const wrap = document.createElement("div");
+    wrap.className = "message-bubble coach-bubble " + (role === "user" ? "mine" : "theirs");
+    wrap.innerHTML = html;
+    els.coachThread.appendChild(wrap);
+    coachScroll();
+    return wrap;
+  }
+
+  function coachSay(html) { return coachAppendBubble("coach", html); }
+  function coachSayText(text) { return coachAppendBubble("coach", `<p>${escapeHtml(text)}</p>`); }
+  function coachUserText(text) { return coachAppendBubble("user", `<p>${escapeHtml(text)}</p>`); }
+
+  function coachGreet() {
+    if (coach.greeted) return;
+    coach.greeted = true;
+    coachSay(`<p>Hey ${escapeHtml(coachFirstName())} 👋 Tell me what you did — like <em>“ran 5 miles”</em> or <em>“lifted with the boys”</em> — and I'll map it to the right rule and confirm before logging. Tap 📷 to estimate a meal from a photo.</p>`);
+    coachProactiveCheck();
+  }
+
+  // TODO(coach phase 2 — proactive): surface check-ins here without being asked, e.g.
+  // "You usually log steps by now — want me to add them?" or nudging a rule the user
+  // normally hits but hasn't today (reuse buildStillToLog()/buildCatchUp()). Phase 1 is
+  // reactive only, so this is intentionally a no-op hook.
+  function coachProactiveCheck() { /* no-op in Phase 1 */ }
+
+  function openCoach() {
+    state.activeView = "coach";
+    saveState();
+    render();
+    coachGreet();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    requestAnimationFrame(() => { if (els.coachInput) els.coachInput.focus(); });
+  }
+
+  // Called from render(); append-only thread, so this stays idempotent (never rebuilds
+  // existing messages — that would wipe the live confirm/post cards mid-edit).
+  function renderCoach() {
+    if (state.activeView !== "coach") return;
+    if (!coach.greeted) coachGreet();
+  }
+
+  function coachSetupMic() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR || !els.coachMic) return;
+    els.coachMic.hidden = false;
+    let recognition = null;
+    let recording = false;
+    const setRecording = (on) => {
+      recording = on;
+      els.coachMic.classList.toggle("is-recording", on);
+      els.coachMic.setAttribute("aria-pressed", on ? "true" : "false");
+    };
+    els.coachMic.addEventListener("click", () => {
+      if (recording) { if (recognition) { try { recognition.stop(); } catch (e) { /* ignore */ } } setRecording(false); return; }
+      try {
+        recognition = new SR();
+        recognition.lang = "en-US";
+        recognition.interimResults = true;
+        recognition.continuous = false;
+        recognition.onresult = (event) => {
+          let transcript = "";
+          for (let i = 0; i < event.results.length; i++) transcript += event.results[i][0].transcript;
+          if (els.coachInput) els.coachInput.value = transcript.trim();
+        };
+        recognition.onend = () => setRecording(false);
+        recognition.onerror = () => setRecording(false);
+        recognition.start();
+        setRecording(true);
+      } catch (e) { setRecording(false); }
+    });
+  }
+
+  function bindCoach() {
+    if (els.headerCoachButton) els.headerCoachButton.addEventListener("click", openCoach);
+    if (els.coachForm) els.coachForm.addEventListener("submit", (event) => { event.preventDefault(); coachSendText(); });
+    if (els.coachThread) {
+      els.coachThread.addEventListener("click", onCoachThreadClick);
+      els.coachThread.addEventListener("input", onCoachThreadInput);
+      els.coachThread.addEventListener("change", onCoachThreadChange);
+    }
+    if (els.coachPhotoButton) {
+      els.coachPhotoButton.addEventListener("click", () => { coachPickPhoto("meal"); });
+    }
+    if (els.coachPhotoInput) {
+      els.coachPhotoInput.addEventListener("change", () => {
+        const file = els.coachPhotoInput.files && els.coachPhotoInput.files[0];
+        els.coachPhotoInput.value = "";
+        if (file) coachHandlePhoto(file);
+      });
+    }
+    coachSetupMic();
+  }
+
+  let coachPhotoMode = "meal"; // what the next chosen photo means: "meal" estimate | "post" attach
+  function coachPickPhoto(mode) {
+    coachPhotoMode = mode;
+    if (els.coachPhotoInput) els.coachPhotoInput.click();
+  }
+
+  function coachHandlePhoto(file) {
+    if (!/^image\//i.test(file.type || "")) { coachSayText("That's not an image — try a photo."); return; }
+    if (file.size > ENTRY_PHOTO_MAX_BYTES) { coachSayText("That photo's a bit big (max 5 MB) — try a smaller one."); return; }
+    if (coachPhotoMode === "post" && coach.post) { coachAttachPostPhoto(file); return; }
+    coachStartMealEstimate(file);
+  }
+
+  // ── Text in → parse-log → confirm card ──────────────────────────────────────
+  function coachSendText() {
+    const text = els.coachInput ? els.coachInput.value.trim() : "";
+    if (!text || coach.busy) return;
+    els.coachInput.value = "";
+    coachUserText(text);
+    // A reply that just redirects an in-flight draft ("all relevant places" / "just the
+    // boys") adjusts routing rather than starting a new parse.
+    if (coach.draft && coachApplyRoutingReply(text)) return;
+    coachRunParse(text);
+  }
+
+  function coachTextWantsAll(text) {
+    return /\ball\b/.test(text.toLowerCase()) && /\b(relevant|places|systems|everywhere|them)\b/.test(text.toLowerCase())
+      || /\beverywhere\b/.test(text.toLowerCase());
+  }
+
+  function coachApplyRoutingReply(text) {
+    const t = text.toLowerCase().trim();
+    if (!/^(just|only|all|everywhere|both|to)\b/.test(t) && !coachTextWantsAll(t)) return false;
+    if (coachTextWantsAll(t) || /^all\b/.test(t)) {
+      coach.draft.routeAll = true;
+      coachSay(`<p>Got it — I'll log to <strong>every place</strong> that tracks ${escapeHtml(coachDraftLabels())}. Confirm below.</p>`);
+      coachRenderDraftCard(true);
+      return true;
+    }
+    const m = t.match(/^(?:just|only|to)\s+(.+)$/);
+    if (m) {
+      const name = m[1].replace(/[.?!]+$/, "").trim();
+      const ctx = coachFindContextByName(name);
+      if (ctx) {
+        coach.draft.routeAll = false;
+        coach.draft.entries.forEach((e) => {
+          const opt = coachContextOptionFor(e, ctx);
+          if (opt) { e.contextType = opt.contextType; e.contextId = opt.contextId; e.ruleId = opt.id; e.isYesNo = opt.type === "yesNo"; if (e.isYesNo && !(e.amount > 0)) e.amount = 1; }
+        });
+        coachSay(`<p>Okay — just <strong>${escapeHtml(ctx.name)}</strong>. Confirm below.</p>`);
+        coachRenderDraftCard(true);
+        return true;
+      }
+      coachSayText(`I couldn't find a place called “${name}”. Pick one below instead.`);
+      coachRenderDraftCard(true);
+      return true;
+    }
+    return false;
+  }
+
+  function coachDraftLabels() {
+    const labels = [];
+    (coach.draft.entries || []).forEach((e) => { const l = coachRuleLabel(e.contextType, e.contextId, e.ruleId); if (l && labels.indexOf(l) === -1) labels.push(l); });
+    return labels.join(", ") || "these";
+  }
+
+  function coachRuleLabel(contextType, contextId, ruleId) {
+    const r = resolveQuickLogRule(contextType, contextId, ruleId);
+    return r ? r.rule.label : "";
+  }
+
+  // Match a spoken place name ("the boys") to a system/community in the catalog.
+  function coachFindContextByName(name) {
+    const n = name.toLowerCase();
+    const seen = {};
+    const places = [];
+    buildLoggableRuleCatalog().forEach((c) => {
+      const key = c.contextType + ":" + c.contextId;
+      if (seen[key]) return;
+      seen[key] = true;
+      places.push({ contextType: c.contextType, contextId: c.contextId, name: c.contextName });
+    });
+    let hit = places.find((p) => p.name.toLowerCase() === n);
+    if (!hit) hit = places.find((p) => { const pn = p.name.toLowerCase(); return pn.indexOf(n) > -1 || n.indexOf(pn) > -1; });
+    return hit || null;
+  }
+
+  // The catalog option (rule) for a given draft entry's rule LABEL inside a chosen context.
+  function coachContextOptionFor(entry, ctx) {
+    const label = coachRuleLabel(entry.contextType, entry.contextId, entry.ruleId);
+    if (!label) return null;
+    return buildLoggableRuleCatalog().find((c) => c.contextId === ctx.contextId && c.contextType === ctx.contextType && c.label === label) || null;
+  }
+
+  function coachRunParse(text) {
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.parseLog !== "function") {
+      coachSayText("Sign in to use Coach — then I can read your logs and map them to your rules.");
+      return;
+    }
+    const catalog = buildLoggableRuleCatalog();
+    if (!catalog.length) { coachSayText("Add a rule to a system or community first, then I can log to it."); return; }
+    coach.busy = true;
+    const thinking = coachSay(`<p class="coach-thinking">Reading that…</p>`);
+    Promise.resolve(window.PointwellSignals.parseLog(text, catalog)).then((res) => {
+      if (thinking) thinking.remove();
+      if (res.error) { coachSayText((res.error && res.error.message) || "Coach is unavailable right now."); return; }
+      const entries = (res.entries || []).map(normalizeQuickLogEntry).filter(Boolean);
+      const clars = (res.clarifications || []).map((c, i) => Object.assign({}, c, { _id: "cclar-" + i }));
+      if (!entries.length && !clars.length) {
+        coachSayText("I couldn't match that to a rule. Try naming the metric — e.g. “8000 steps” or “30 min lifting”.");
+        return;
+      }
+      coach.draft = { entries: entries, clars: clars, routeAll: coachTextWantsAll(text) };
+      coach.draftCardEl = null;
+      coachRenderDraftCard();
+    }).catch(() => {
+      if (thinking) thinking.remove();
+      coachSayText("That didn't go through — try again.");
+    }).finally(() => { coach.busy = false; });
+  }
+
+  function coachDraftCardHtml() {
+    const d = coach.draft;
+    const catalog = buildLoggableRuleCatalog();
+    const rows = d.entries.map((e) => coachDraftRow(e, catalog)).filter(Boolean).join("");
+    const clars = (d.clars || []).map(coachClarRow).join("");
+    const anyFanout = d.entries.some((e) => { const l = coachRuleLabel(e.contextType, e.contextId, e.ruleId); return l && catalog.filter((c) => c.label === l).length > 1; });
+    const fan = anyFanout ? `<label class="coach-fanout"><input type="checkbox" data-coach-fanout${d.routeAll ? " checked" : ""}> Log everywhere this is tracked</label>` : "";
+    const canLog = d.entries.length > 0;
+    return `
+      <p class="coach-card-title">Here's what I'll log — review &amp; confirm:</p>
+      ${clars ? `<div class="coach-clars">${clars}</div>` : ""}
+      <div class="coach-rows">${rows}</div>
+      ${fan}
+      <div class="coach-card-actions">
+        <button type="button" class="ghost-button small" data-coach-cancel>Cancel</button>
+        <button type="button" class="secondary-button small" data-coach-log-post${canLog ? "" : " disabled"}>Log &amp; post 📷</button>
+        <button type="button" class="primary-button small" data-coach-log${canLog ? "" : " disabled"}>Log it</button>
+      </div>`;
+  }
+
+  // Render (or re-render in place) the live confirm card so edits don't spawn new bubbles.
+  function coachRenderDraftCard() {
+    if (!coach.draft) return;
+    const html = coachDraftCardHtml();
+    if (coach.draftCardEl && coach.draftCardEl.isConnected) {
+      coach.draftCardEl.innerHTML = html;
+    } else {
+      coachDisableStaleCards();
+      const bubble = coachSay(`<div class="coach-card coach-draft-card is-active" data-coach-card></div>`);
+      coach.draftCardEl = bubble.querySelector("[data-coach-card]");
+      coach.draftCardEl.innerHTML = html;
+    }
+    coachScroll();
+  }
+
+  function coachDraftRow(e, catalog) {
+    const resolved = resolveQuickLogRule(e.contextType, e.contextId, e.ruleId);
+    if (!resolved) return "";
+    const rule = resolved.rule;
+    const label = escapeHtml(rule.label);
+    const pts = scoring.calculateRule(rule, e.amount).totalPoints;
+    const opts = catalog.filter((c) => c.label === rule.label);
+    const ctxControl = opts.length > 1
+      ? `<select class="coach-ctx" data-coach-ctx="${escapeHtml(e._id)}" aria-label="Where to log ${label}">${opts.map((o) => `<option value="${escapeHtml(o.contextId + "|" + o.id)}"${o.contextId === e.contextId && o.id === e.ruleId ? " selected" : ""}>${escapeHtml(o.contextName)}</option>`).join("")}</select>`
+      : `<span class="coach-ctx-name">${escapeHtml(resolved.contextName)}</span>`;
+    const amtControl = e.isYesNo
+      ? `<button type="button" class="coach-done${e.amount > 0 ? " is-on" : ""}" data-coach-toggle="${escapeHtml(e._id)}" aria-pressed="${e.amount > 0 ? "true" : "false"}">${e.amount > 0 ? "Done ✓" : "Mark done"}</button>`
+      : `<input type="number" class="coach-amt" data-coach-amt="${escapeHtml(e._id)}" value="${escapeHtml(String(e.amount))}" min="0" step="any" inputmode="decimal" aria-label="Amount for ${label}"><span class="coach-unit">${escapeHtml(rule.unit || "")}</span>`;
+    return `
+      <div class="coach-row" data-coach-row="${escapeHtml(e._id)}">
+        <div class="coach-row-main">
+          <strong>${label}</strong>
+          <div class="coach-row-controls">${amtControl}</div>
+          <div class="coach-row-ctx">${ctxControl}</div>
+        </div>
+        <span class="point-pill ${pts < 0 ? "negative" : "positive"}" data-coach-pill="${escapeHtml(e._id)}">${pts >= 0 ? "+" : ""}${escapeHtml(formatPoints(pts))} pts</span>
+      </div>`;
+  }
+
+  function coachClarRow(c) {
+    const chips = (c.options || []).map((o) =>
+      `<button type="button" class="signal-preset-chip coach-clar-chip" data-coach-clar="${escapeHtml(c._id + "::" + o.contextId + "|" + o.ruleId)}">${escapeHtml(o.contextName)}</button>`
+    ).join("");
+    return `<div class="coach-clar-item"><span class="coach-clar-q">${escapeHtml(c.question)}</span><div class="signal-presets">${chips}</div></div>`;
+  }
+
+  function coachDraftEntryById(id) { return coach.draft ? coach.draft.entries.find((e) => e._id === id) : null; }
+
+  function coachResolveClar(token) {
+    if (!coach.draft) return;
+    const sep = token.indexOf("::");
+    if (sep === -1) return;
+    const clarId = token.slice(0, sep);
+    const idPart = token.slice(sep + 2).split("|");
+    const clar = (coach.draft.clars || []).find((c) => c._id === clarId);
+    if (clar) {
+      const option = (clar.options || []).find((o) => o.contextId === idPart[0] && o.ruleId === idPart[1]);
+      if (option) {
+        const entry = normalizeQuickLogEntry({ contextType: option.contextType, contextId: idPart[0], ruleId: idPart[1], amount: clar.amount, done: clar.done });
+        if (entry && !coach.draft.entries.some((d) => d.contextId === idPart[0] && d.ruleId === idPart[1])) coach.draft.entries.push(entry);
+      }
+    }
+    coach.draft.clars = (coach.draft.clars || []).filter((c) => c._id !== clarId);
+    coachRenderDraftCard();
+  }
+
+  function coachDisableStaleCards() {
+    if (!els.coachThread) return;
+    Array.from(els.coachThread.querySelectorAll(".coach-card.is-active")).forEach((card) => {
+      card.classList.remove("is-active");
+      card.classList.add("is-done");
+      Array.from(card.querySelectorAll("button, input, select, textarea")).forEach((el) => { el.disabled = true; });
+    });
+  }
+
+  // Build a quickLogDraft-shaped entry so we can hand off to confirmQuickLog (the SAME
+  // save path the quick-log panel uses). `place` is a catalog rule {contextType,contextId,id,type}.
+  function coachToQuickEntry(e, place) {
+    const isYesNo = place.type === "yesNo";
+    return {
+      _id: makeId("qlog"),
+      contextType: place.contextType, contextId: place.contextId, ruleId: place.id,
+      isYesNo: isYesNo,
+      amount: isYesNo ? (e.amount > 0 ? 1 : 0) : e.amount,
+      note: "", confidence: numberOrDefault(e.confidence, 0.6),
+    };
+  }
+
+  function coachConfirmLog(wantPost) {
+    const d = coach.draft;
+    if (!d || !d.entries.length) return;
+    const catalog = buildLoggableRuleCatalog();
+    const built = [];
+    d.entries.forEach((e) => {
+      if (d.routeAll) {
+        const label = coachRuleLabel(e.contextType, e.contextId, e.ruleId);
+        const places = label ? catalog.filter((c) => c.label === label) : [];
+        const targets = places.length ? places : [{ contextType: e.contextType, contextId: e.contextId, id: e.ruleId, type: e.isYesNo ? "yesNo" : "number" }];
+        targets.forEach((p) => built.push(coachToQuickEntry(e, p)));
+      } else {
+        built.push(coachToQuickEntry(e, { contextType: e.contextType, contextId: e.contextId, id: e.ruleId, type: e.isYesNo ? "yesNo" : "number" }));
+      }
+    });
+    // De-dupe one entry per context+rule so a fan-out never double-counts.
+    const seen = {};
+    const finalDraft = [];
+    built.forEach((b) => { const k = b.contextId + "|" + b.ruleId; if (!seen[k]) { seen[k] = true; finalDraft.push(b); } });
+    if (!finalDraft.length) { coachSayText("Nothing to log — set an amount first."); return; }
+
+    coach.lastLogged = finalDraft.map((b) => ({ contextType: b.contextType, contextId: b.contextId, ruleId: b.ruleId, amount: b.amount, isYesNo: b.isYesNo }));
+    // Hand off to the existing batch save (personal + community + DB push + toast).
+    quickLogDraft = finalDraft;
+    quickLogClarifications = [];
+    confirmQuickLog();
+
+    coachFinalizeDraftCard();
+    coach.draft = null;
+    coach.draftCardEl = null;
+    coachSay(`<p>✅ Logged ${escapeHtml(coachLoggedSummary(finalDraft))}.</p>`);
+    if (wantPost) coachOpenPostComposer();
+    else coachOfferPost();
+  }
+
+  function coachFinalizeDraftCard() {
+    if (coach.draftCardEl && coach.draftCardEl.isConnected) {
+      coach.draftCardEl.classList.remove("is-active");
+      coach.draftCardEl.classList.add("is-done");
+      Array.from(coach.draftCardEl.querySelectorAll("button, input, select, textarea")).forEach((el) => { el.disabled = true; });
+    }
+  }
+
+  function coachLoggedSummary(draft) {
+    const parts = draft.slice(0, 4).map((b) => {
+      const r = resolveQuickLogRule(b.contextType, b.contextId, b.ruleId);
+      if (!r) return "";
+      const amt = b.isYesNo ? "done" : `${formatPoints(b.amount)} ${r.rule.unit || ""}`.trim();
+      return `${r.rule.label} (${amt}) → ${r.contextName}`;
+    }).filter(Boolean);
+    let text = parts.join(", ");
+    if (draft.length > 4) text += `, +${draft.length - 4} more`;
+    return text || "your entry";
+  }
+
+  function coachCancelDraft() {
+    coachFinalizeDraftCard();
+    coach.draft = null;
+    coach.draftCardEl = null;
+    coachSayText("No problem — nothing logged.");
+  }
+
+  // ── Post composer (photo + caption + post-to community) ──────────────────────
+  function coachHasPostableCommunity() { return (state.communities || []).length > 0; }
+
+  // A community entry is "mine" if it carries the local "me" id OR my real account uid
+  // (community entries reload from the DB keyed by the real uid).
+  function coachIsMine(entry) {
+    if (!entry) return false;
+    if (entry.userId === "me") return true;
+    return !!(state.account && state.account.userId && entry.userId === state.account.userId);
+  }
+
+  // Communities that track one of the just-logged rule labels → candidate post targets.
+  function coachPostTargets() {
+    const labels = {};
+    (coach.lastLogged || []).forEach((l) => { const lbl = coachRuleLabel(l.contextType, l.contextId, l.ruleId); if (lbl) labels[lbl] = l.amount; });
+    const out = [];
+    const seen = {};
+    buildLoggableRuleCatalog().forEach((c) => {
+      if (c.contextType !== "community") return;
+      if (!(c.label in labels)) return;
+      const key = c.contextId + "|" + c.id;
+      if (seen[key]) return;
+      seen[key] = true;
+      const logged = (coach.lastLogged || []).find((l) => l.contextId === c.contextId && l.ruleId === c.id);
+      out.push({ contextId: c.contextId, contextName: c.contextName, ruleId: c.id, label: c.label, amount: logged ? logged.amount : labels[c.label], alreadyLogged: !!logged });
+    });
+    return out;
+  }
+
+  function coachOfferPost() {
+    if (!coachHasPostableCommunity()) return;
+    if (!coachPostTargets().length) return;
+    coachSay(`<p>Want to share it? <button type="button" class="coach-inline-btn" data-coach-addpost>📷 Add a photo &amp; caption</button></p>`);
+  }
+
+  function coachOpenPostComposer() {
+    const targets = coachPostTargets();
+    if (!targets.length) {
+      coachSayText("To share this as a post, it needs to be in a community. Join or create one in Build, then snap or tell me again.");
+      return;
+    }
+    const first = targets[0];
+    coach.post = { targets: targets, contextId: first.contextId, ruleId: first.ruleId, amount: first.amount, alreadyLogged: first.alreadyLogged, caption: "", file: null, previewUrl: "" };
+    coachDisableStaleCards();
+    const bubble = coachSay(`<div class="coach-card coach-post-card is-active" data-coach-post-card></div>`);
+    coach.post.cardEl = bubble.querySelector("[data-coach-post-card]");
+    coachRenderPostCard();
+  }
+
+  function coachRenderPostCard() {
+    if (!coach.post || !coach.post.cardEl || !coach.post.cardEl.isConnected) return;
+    const p = coach.post;
+    const toOptions = p.targets.map((t) => `<option value="${escapeHtml(t.contextId + "|" + t.ruleId)}"${t.contextId === p.contextId && t.ruleId === p.ruleId ? " selected" : ""}>${escapeHtml(t.contextName)} · ${escapeHtml(t.label)}</option>`).join("");
+    const photoSlot = p.previewUrl
+      ? `<div class="coach-post-photo has-photo"><img src="${escapeHtml(p.previewUrl)}" alt="Post photo preview"><button type="button" class="entry-photo-remove" data-coach-post-photo-remove aria-label="Remove photo">×</button></div>`
+      : `<button type="button" class="ghost-button small coach-post-addphoto" data-coach-post-photo>📷 Add photo</button>`;
+    coach.post.cardEl.innerHTML = `
+      <p class="coach-card-title">Make it a post</p>
+      <label class="coach-field"><span>Post to</span>
+        <select data-coach-post-to>${toOptions}</select></label>
+      <label class="coach-field"><span>Caption</span>
+        <textarea data-coach-post-caption maxlength="${ENTRY_MESSAGE_MAX}" rows="2" placeholder="Say something… (optional)">${escapeHtml(p.caption || "")}</textarea></label>
+      ${photoSlot}
+      <div class="coach-card-actions">
+        <button type="button" class="ghost-button small" data-coach-post-cancel>Not now</button>
+        <button type="button" class="primary-button small" data-coach-post-submit>Post</button>
+      </div>`;
+    coachScroll();
+  }
+
+  function coachAttachPostPhoto(file) {
+    if (!coach.post) return;
+    if (coach.post.previewUrl) { try { URL.revokeObjectURL(coach.post.previewUrl); } catch (e) { /* ignore */ } }
+    coach.post.file = file;
+    coach.post.previewUrl = URL.createObjectURL(file);
+    coachRenderPostCard();
+  }
+
+  async function coachSubmitPost() {
+    const p = coach.post;
+    if (!p) return;
+    const community = (state.communities || []).find((c) => c.id === p.contextId);
+    if (!community) { coachSayText("That community isn't available anymore."); return; }
+    const resolved = resolveQuickLogRule("community", p.contextId, p.ruleId);
+    if (!resolved) { coachSayText("That rule isn't available anymore."); return; }
+    const rule = resolved.rule;
+    const uid = state.account && state.account.userId;
+    const caption = (p.caption || "").trim().slice(0, ENTRY_MESSAGE_MAX);
+
+    let photoPath = "";
+    if (p.file) {
+      if (!signalsReady() || !uid || !window.PointwellSignals || typeof window.PointwellSignals.uploadEntryPhoto !== "function") {
+        coachSayText("Sign in to attach photos — posting without it.");
+      } else {
+        const up = await window.PointwellSignals.uploadEntryPhoto(p.file, community.id + "/" + uid);
+        if (up.error || !up.path) coachSayText("Couldn't upload the photo — posting without it.");
+        else photoPath = up.path;
+      }
+    }
+
+    const today = getTodayKey();
+    // The amount was logged exactly once during confirmQuickLog. `p.alreadyLogged` (captured
+    // when the composer opened) is the source of truth for whether THIS community already has
+    // that log — NOT a runtime scan, which can mis-fire after a DB reload aggregates entries.
+    if (p.alreadyLogged) {
+      // ENRICH today's entry with the caption/photo — never add amount (would double-count).
+      // Match "mine" by either the local "me" id or my real uid (after a DB reload). If none
+      // is found we still push the message/photo to the aggregated DB row below.
+      const mine = (state.communityEntries || []).filter((e) => e.communityId === community.id && coachIsMine(e) && e.ruleId === rule.id && (e.dateKey || e.date) === today);
+      const target = mine[mine.length - 1];
+      if (target) {
+        if (caption) target.message = caption;
+        if (photoPath) target.photoPath = photoPath;
+      }
+    } else {
+      // Sharing to a community we did NOT log to yet → this is a legitimate new log there.
+      const amt = normalizeAddEntryAmount(p.amount, rule);
+      addCommunityEntry(community.id, "me", rule, amt, isRuleSynced(rule) ? "manual-adjustment" : "manual", caption, photoPath, "");
+    }
+    rebaselineRuleSync(rule); // keep the sync baseline current whether we logged or enriched
+    saveCommunitySummaryForMember(community, "me");
+    saveState();
+    Promise.resolve(pushCommunityEntryToDb(community, rule.id, caption, photoPath)).then((r) => { if (r && r.error) showToast("Posted here, but the community didn't sync"); }).catch(() => {});
+
+    coachFinalizePostCard();
+    coach.post = null;
+    render();
+    coachSay(`<p>✅ Posted to <strong>${escapeHtml(community.name || "your community")}</strong>. <button type="button" class="coach-inline-btn" data-coach-viewfeed>View in feed</button></p>`);
+  }
+
+  function coachFinalizePostCard() {
+    if (coach.post && coach.post.cardEl && coach.post.cardEl.isConnected) {
+      coach.post.cardEl.classList.remove("is-active");
+      coach.post.cardEl.classList.add("is-done");
+      Array.from(coach.post.cardEl.querySelectorAll("button, input, select, textarea")).forEach((el) => { el.disabled = true; });
+    }
+  }
+
+  function coachCancelPost() {
+    coachFinalizePostCard();
+    coach.post = null;
+    coachSayText("Okay — logged, not posted.");
+  }
+
+  // ── Food photo → calorie/macro estimate ─────────────────────────────────────
+  async function coachStartMealEstimate(file) {
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.estimateFood !== "function") {
+      coachSayText("Sign in to use meal-photo estimates. You can still tell me the numbers — e.g. “logged 600 cal, 40g protein”.");
+      return;
+    }
+    const previewUrl = URL.createObjectURL(file);
+    coachAppendBubble("user", `<div class="coach-photo-sent"><img src="${escapeHtml(previewUrl)}" alt="Meal photo"></div>`);
+    coach.busy = true;
+    const thinking = coachSay(`<p class="coach-thinking">Looking at your meal…</p>`);
+    try {
+      const parts = await fileToBase64Parts(file);
+      const res = await window.PointwellSignals.estimateFood(parts.data, parts.mediaType, "");
+      if (thinking) thinking.remove();
+      if (res.error || !res.estimate) { coachSayText((res.error && res.error.message) || "I couldn't read that photo — tell me the numbers and I'll log them."); return; }
+      coach.estimate = Object.assign({ file: file, previewUrl: previewUrl }, res.estimate);
+      coachRenderEstimateCard();
+    } catch (e) {
+      if (thinking) thinking.remove();
+      coachSayText("That photo didn't go through — try again.");
+    } finally { coach.busy = false; }
+  }
+
+  function coachRenderEstimateCard() {
+    const est = coach.estimate;
+    if (!est) return;
+    const items = (est.items || []).length ? `<p class="coach-est-items">${escapeHtml(est.items.join(", "))}</p>` : "";
+    const note = est.note ? `<p class="coach-est-note">${escapeHtml(est.note)}</p>` : "";
+    const field = (key, label, val) => `<label class="coach-est-field"><span>${escapeHtml(label)}</span><input type="number" min="0" step="any" inputmode="decimal" data-coach-est="${key}" value="${escapeHtml(String(numberOrDefault(val, 0)))}"></label>`;
+    coachDisableStaleCards();
+    const bubble = coachSay(`<div class="coach-card coach-est-card is-active" data-coach-est-card></div>`);
+    est.cardEl = bubble.querySelector("[data-coach-est-card]");
+    est.cardEl.innerHTML = `
+      <p class="coach-card-title">Here's my estimate <span class="quick-log-estimate-tag">AI estimate</span></p>
+      ${items}
+      <div class="coach-est-grid">
+        ${field("calories", "Calories", est.calories)}
+        ${field("protein", "Protein (g)", est.protein)}
+        ${field("carbs", "Carbs (g)", est.carbs)}
+        ${field("fat", "Fat (g)", est.fat)}
+      </div>
+      ${note}
+      <p class="coach-est-disclaim">Rough estimate — edit any number before logging.</p>
+      <div class="coach-card-actions">
+        <button type="button" class="ghost-button small" data-coach-est-cancel>Cancel</button>
+        <button type="button" class="primary-button small" data-coach-est-log>Log these</button>
+      </div>`;
+    coachScroll();
+  }
+
+  function coachLogEstimate() {
+    const est = coach.estimate;
+    if (!est) return;
+    const catalog = buildLoggableRuleCatalog();
+    const wanted = [
+      { keys: /calorie|kcal|energy/i, val: est.calories },
+      { keys: /protein/i, val: est.protein },
+      { keys: /carb/i, val: est.carbs },
+      { keys: /fat/i, val: est.fat },
+    ];
+    const built = [];
+    const usedRules = {};
+    wanted.forEach((w) => {
+      if (!(numberOrDefault(w.val, 0) > 0)) return;
+      const c = catalog.find((cc) => w.keys.test(`${cc.label} ${cc.unit}`) && !usedRules[cc.contextId + "|" + cc.id]);
+      if (!c) return;
+      const resolved = resolveQuickLogRule(c.contextType, c.contextId, c.id);
+      if (!resolved) return;
+      usedRules[c.contextId + "|" + c.id] = true;
+      built.push({ _id: makeId("qlog"), contextType: c.contextType, contextId: c.contextId, ruleId: c.id, isYesNo: resolved.rule.simpleStyle === "yesNo", amount: numberOrDefault(w.val, 0), note: "", confidence: numberOrDefault(est.confidence, 0.4) });
+    });
+    if (!built.length) { coachSayText("I don't see a calories/protein rule to log this to. Add one in Build, then snap again."); return; }
+    coach.lastLogged = built.map((b) => ({ contextType: b.contextType, contextId: b.contextId, ruleId: b.ruleId, amount: b.amount, isYesNo: b.isYesNo }));
+    quickLogDraft = built;
+    quickLogClarifications = [];
+    confirmQuickLog();
+    coachFinalizeEstimateCard();
+    coach.estimate = null;
+    coachSay(`<p>✅ Logged ${escapeHtml(coachLoggedSummary(built))}.</p>`);
+    coachOfferPost();
+  }
+
+  function coachFinalizeEstimateCard() {
+    const est = coach.estimate;
+    if (est && est.cardEl && est.cardEl.isConnected) {
+      est.cardEl.classList.remove("is-active");
+      est.cardEl.classList.add("is-done");
+      Array.from(est.cardEl.querySelectorAll("button, input, select, textarea")).forEach((el) => { el.disabled = true; });
+    }
+  }
+
+  function coachCancelEstimate() {
+    coachFinalizeEstimateCard();
+    coach.estimate = null;
+    coachSayText("No worries — nothing logged.");
+  }
+
+  // ── Delegated thread handlers ───────────────────────────────────────────────
+  function onCoachThreadClick(event) {
+    const t = event.target;
+    if (t.closest("[data-coach-cancel]")) { coachCancelDraft(); return; }
+    if (t.closest("[data-coach-log-post]")) { coachConfirmLog(true); return; }
+    if (t.closest("[data-coach-log]")) { coachConfirmLog(false); return; }
+    const toggle = t.closest("[data-coach-toggle]");
+    if (toggle) { const e = coachDraftEntryById(toggle.dataset.coachToggle); if (e) { e.amount = e.amount > 0 ? 0 : 1; coachRenderDraftCard(); } return; }
+    const clar = t.closest("[data-coach-clar]");
+    if (clar) { coachResolveClar(clar.dataset.coachClar); return; }
+    if (t.closest("[data-coach-addpost]")) { coachOpenPostComposer(); return; }
+    if (t.closest("[data-coach-post-photo]")) { coachPickPhoto("post"); return; }
+    if (t.closest("[data-coach-post-photo-remove]")) { if (coach.post) { if (coach.post.previewUrl) { try { URL.revokeObjectURL(coach.post.previewUrl); } catch (e) { /* ignore */ } } coach.post.file = null; coach.post.previewUrl = ""; coachRenderPostCard(); } return; }
+    if (t.closest("[data-coach-post-submit]")) { coachSubmitPost(); return; }
+    if (t.closest("[data-coach-post-cancel]")) { coachCancelPost(); return; }
+    if (t.closest("[data-coach-est-log]")) { coachLogEstimate(); return; }
+    if (t.closest("[data-coach-est-cancel]")) { coachCancelEstimate(); return; }
+    if (t.closest("[data-coach-viewfeed]")) { state.activeView = "feed"; saveState(); render(); if (typeof loadCommunitiesFromDb === "function") loadCommunitiesFromDb(); return; }
+  }
+
+  function onCoachThreadInput(event) {
+    const amt = event.target.closest("[data-coach-amt]");
+    if (amt) {
+      const e = coachDraftEntryById(amt.dataset.coachAmt);
+      if (!e) return;
+      e.amount = Math.max(0, numberOrDefault(amt.value, 0));
+      const row = amt.closest("[data-coach-row]");
+      const pill = row && row.querySelector("[data-coach-pill]");
+      const resolved = resolveQuickLogRule(e.contextType, e.contextId, e.ruleId);
+      if (pill && resolved) {
+        const pts = scoring.calculateRule(resolved.rule, e.amount).totalPoints;
+        pill.textContent = `${pts >= 0 ? "+" : ""}${formatPoints(pts)} pts`;
+        pill.classList.toggle("negative", pts < 0);
+        pill.classList.toggle("positive", pts >= 0);
+      }
+      return;
+    }
+    const cap = event.target.closest("[data-coach-post-caption]");
+    if (cap && coach.post) { coach.post.caption = cap.value.slice(0, ENTRY_MESSAGE_MAX); return; }
+    const est = event.target.closest("[data-coach-est]");
+    if (est && coach.estimate) { coach.estimate[est.dataset.coachEst] = Math.max(0, numberOrDefault(est.value, 0)); return; }
+  }
+
+  function onCoachThreadChange(event) {
+    const ctx = event.target.closest("[data-coach-ctx]");
+    if (ctx) {
+      const e = coachDraftEntryById(ctx.dataset.coachCtx);
+      if (!e) return;
+      const parts = String(ctx.value).split("|");
+      const match = buildLoggableRuleCatalog().find((c) => c.contextId === parts[0] && c.id === parts[1]);
+      if (match) {
+        e.contextType = match.contextType; e.contextId = parts[0]; e.ruleId = parts[1];
+        e.isYesNo = match.type === "yesNo";
+        if (e.isYesNo) e.amount = 1; else if (!(e.amount > 0)) e.amount = 1;
+      }
+      coachRenderDraftCard();
+      return;
+    }
+    const fan = event.target.closest("[data-coach-fanout]");
+    if (fan && coach.draft) { coach.draft.routeAll = !!fan.checked; return; }
+    const to = event.target.closest("[data-coach-post-to]");
+    if (to && coach.post) {
+      const parts = String(to.value).split("|");
+      const target = (coach.post.targets || []).find((tg) => tg.contextId === parts[0] && tg.ruleId === parts[1]);
+      if (target) { coach.post.contextId = target.contextId; coach.post.ruleId = target.ruleId; coach.post.amount = target.amount; coach.post.alreadyLogged = target.alreadyLogged; }
+      return;
+    }
   }
 
   function renderAddEntryPanel(system) {

@@ -284,8 +284,9 @@
     syncProgress: {},      // { dateKey: { ruleId: { logged, baseline } } } — incremental sync
     catchUp: null,         // the pending "Catch up your day" card
     coachProfile: null,    // code-computed behavioral profile (streaks/usual-times/trends/motivation)
-    coachLearning: { proactiveOff: false, weekKey: "", byType: {}, byHour: {}, shownDay: "", shownCount: 0 }, // nudge feedback loop
+    coachLearning: { proactiveOff: false, weekKey: "", byType: {}, byHour: {}, byRule: {}, shownDay: "", shownCount: 0 }, // nudge feedback loop (by type + per rule)
     coachLastPeekSig: "",  // last proactively-peeked nudge signature (no re-nag across reloads)
+    coachSoftPromptDay: "", // YYYY-MM-DD the soft "want to log anything?" invite last showed (once/day)
     systems: [
       {
         id: "life-core",
@@ -8526,6 +8527,28 @@
     render();
   }
 
+  // Re-sync + rebuild catch-up when the app regains focus, so data that lands while the user is
+  // away — last night's sleep, ready when they open the app after waking — surfaces WITHOUT a
+  // manual sync (the old code only synced at login). Throttled so flipping tabs doesn't hammer
+  // the connectors; runCatchUp itself stays quiet when there's genuinely nothing new.
+  let lastAutoResyncAt = 0;
+  let autoResyncBound = false;
+  function maybeAutoResync() {
+    if (!wearablesBootstrapped) return;             // wait for the initial bootstrap/login sync
+    if (!state.account) return;                     // signed out → no background sync or nudges over the auth screen
+    if (typeof document !== "undefined" && document.hidden) return;
+    const now = Date.now();
+    if (now - lastAutoResyncAt < 5 * 60 * 1000) return; // at most once / 5 min
+    lastAutoResyncAt = now;
+    syncAllConnectedAndCatchUp({ background: true });
+  }
+  function bindAutoResync() {
+    if (autoResyncBound || typeof document === "undefined") return;
+    autoResyncBound = true;
+    document.addEventListener("visibilitychange", maybeAutoResync);
+    window.addEventListener("focus", maybeAutoResync);
+  }
+
   // Merge connector results into local state. Returns true if any value landed.
   function applyWearableMetrics(providers) {
     if (!providers || typeof providers !== "object") return false;
@@ -8559,6 +8582,7 @@
   // refresh status + pull a fresh snapshot for any already-connected device.
   let wearablesBootstrapped = false;
   function initWearables() {
+    bindAutoResync();
     const api = window.PointwellWearables;
     // Even with no wearable API, surface the catch-up card for manual still-to-log rules.
     if (!api) { if (!wearablesBootstrapped) { wearablesBootstrapped = true; runCatchUp({ login: true }); } return; }
@@ -8749,23 +8773,40 @@
       e.systemId === contextId && e.ruleId === ruleId && (e.dateKey || e.date) === today && !e.viaSource);
   }
 
-  // Has this manual rule been logged on a PRIOR day (so it's one the user "usually logs")?
-  function ruleHasPriorLog(systemId, ruleId, today) {
-    if ((state.quickEntries || []).some((e) => e.systemId === systemId && e.ruleId === ruleId && (e.dateKey || e.date) !== today)) return true;
-    return (state.entries || []).some((e) => (e.systemId === systemId || e.rewardSystemId === systemId)
-      && (e.dateKey || e.date) !== today && e.values && numberOrDefault(e.values[ruleId], 0) > 0);
+  // Is this manual rule logged on a MEANINGFUL share of recent days (frequency-based, not just
+  // "ever logged once")? Counts distinct days with a hand-log in the last 14 and requires it on
+  // ≥50% of the days it's been around — min 3 logged days, so a one-off or rare habit never
+  // qualifies (that was the noisy "you usually log X" bug).
+  function ruleLoggedFrequently(systemId, ruleId, today) {
+    const WINDOW = 14;
+    const agoOf = {}; // dateKey -> days ago (1..WINDOW)
+    for (let i = 1; i <= WINDOW; i++) agoOf[offsetDate(-i)] = i;
+    const loggedAgo = new Set();
+    const consider = (dateKey) => { if (agoOf[dateKey]) loggedAgo.add(agoOf[dateKey]); };
+    (state.quickEntries || []).forEach((e) => { if (e.systemId === systemId && e.ruleId === ruleId) consider(e.dateKey || e.date); });
+    (state.entries || []).forEach((e) => {
+      if ((e.systemId === systemId || e.rewardSystemId === systemId) && e.values && numberOrDefault(e.values[ruleId], 0) > 0) consider(e.dateKey || e.date);
+    });
+    const loggedDays = loggedAgo.size;
+    if (loggedDays < 3) return false;                                            // too small a sample to call it a habit
+    const span = Math.max.apply(null, Array.from(loggedAgo));                    // days since the oldest log in the window
+    return loggedDays / Math.min(WINDOW, span) >= 0.5;
   }
 
-  // "Still to log": manual rules (no data feed) the user usually logs but hasn't yet today.
-  // This is how the card covers things NOT synced through a device — so it works no matter what.
-  function buildStillToLog() {
+  // "Still to log": manual rules (no data feed) the user FREQUENTLY logs but hasn't yet today.
+  // Frequency-gated so it never nags about something logged only once; PROACTIVE callers also drop
+  // rules the user has repeatedly dismissed (direct "what's left?" answers stay complete).
+  function buildStillToLog(opts) {
+    const proactive = !!(opts && opts.proactive);
     const today = getTodayKey();
     const out = [];
     (state.systems || []).forEach((system) => {
       (system.rules || []).map(scoring.normalizeRule).forEach((rule) => {
         if (rule.dataSource !== "manual" || rule.simpleStyle === "penalty") return;
         const loggedToday = (state.quickEntries || []).some((e) => e.systemId === system.id && e.ruleId === rule.id && (e.dateKey || e.date) === today);
-        if (loggedToday || !ruleHasPriorLog(system.id, rule.id, today)) return;
+        if (loggedToday) return;
+        if (!ruleLoggedFrequently(system.id, rule.id, today)) return;
+        if (proactive && coachRuleSuppressed(system.id, rule.id)) return;
         out.push({ ruleId: rule.id, contextType: "personal", contextId: system.id, contextName: system.title || "System", label: rule.label, unit: rule.unit });
       });
     });
@@ -8869,9 +8910,40 @@
     return { increment: Math.max(0, current - numberOrDefault(p.baseline, 0)), current, unknown: false };
   }
 
+  // ── No-rule synced metrics: surface them so device data is never silently ignored ──
+  // wearableLastSeen holds the last value we've SHOWN-AND-HANDLED per source+metric+day, so a
+  // metric the user isn't tracking yet (no matching rule) still surfaces once per NEW value — and
+  // never re-nags the same number. (Matched rules already dedupe via the syncProgress baseline.)
+  function wearableValueSeen(source, metric, current, today) {
+    const seen = ((state.wearableLastSeen || {})[source] || {})[metric];
+    return !!(seen && seen.dateKey === today && Number(seen.value) === Number(current));
+  }
+  function markWearableSeen(source, metric, value) {
+    const map = state.wearableLastSeen || (state.wearableLastSeen = {});
+    (map[source] = map[source] || {})[metric] = { value: Number(value), dateKey: getTodayKey() };
+  }
+  // Only offer to start tracking movement/sleep/energy metrics — not bank-balance / stat noise.
+  const TRACKABLE_OFFER_METRICS = /^(steps|sleep|sleep-hours|active-calories|calories|total-calories|distance|exercise-minutes|workout-minutes)$/;
+  function canOfferTracking(metric) { return TRACKABLE_OFFER_METRICS.test(metric); }
+  function primaryPersonalSystem() { return (state.systems || [])[0] || null; }
+  // Sensible starter config for a brand-new tracking rule created from a synced metric.
+  function trackingConfigForMetric(metric, fallback) {
+    const m = String(metric || "").toLowerCase();
+    const label = (fallback && fallback.label) || sourceMetricLabel((fallback && fallback.source) || "", metric) || "Metric";
+    if (/step/.test(m)) return { label: "Steps", category: "Fitness", unit: "steps", target: 10000, every: 1000, max: 20000, step: 100 };
+    if (/sleep/.test(m)) return { label: "Sleep", category: "Wellness", unit: "hours", target: 8, every: 1, max: 12, step: 0.5 };
+    if (/calorie/.test(m)) return { label: label, category: "Fitness", unit: "cal", target: 500, every: 100, max: 2000, step: 10 };
+    if (/distance/.test(m)) return { label: "Distance", category: "Fitness", unit: "mi", target: 3, every: 1, max: 26, step: 0.5 };
+    if (/minute|exercise|workout/.test(m)) return { label: label, category: "Fitness", unit: "minutes", target: 30, every: 10, max: 180, step: 5 };
+    const cur = Math.max(1, Math.round(numberOrDefault(fallback && fallback.current, 1)));
+    return { label: label, category: "General", unit: (fallback && fallback.unit) || "units", target: cur, every: 1, max: Math.max(10, cur * 2), step: 1 };
+  }
+
   function buildCatchUp() {
     const targets = loggableRuleTargets();
+    const today = getTodayKey();
     const devices = [];
+    const offers = []; // synced metrics with NO matching rule yet — "start tracking?" rows
     Object.keys(state.mockSyncData || {}).forEach((source) => {
       if (source === "manual" || source === "calculated" || !isSourceConnected(source)) return;
       const data = state.mockSyncData[source] || {};
@@ -8882,28 +8954,46 @@
         // Match the metric to any rule it could log to (exact metric, then label). Skip stat noise.
         const matched = targets.map((t) => ({ t, score: ruleMatchScore(t, source, metric) }))
           .filter((m) => m.score > 0).sort((a, b) => b.score - a.score);
-        if (!matched.length) return;
-        const best = matched[0].t;
-        const preview = syncIncrementPreview(best.rule);
-        if (!preview) return;
-        if (!preview.unknown && preview.increment === 0) return; // nothing new since last time
-        devices.push({
-          source, metric,
+        if (matched.length) {
+          const best = matched[0].t;
+          const preview = syncIncrementPreview(best.rule);
+          if (!preview) return;
+          if (!preview.unknown && preview.increment === 0) return; // nothing new since last time
+          devices.push({
+            source, metric,
+            label: sourceMetricLabel(source, metric),
+            sourceLabel: wearableShortLabel(source),
+            unit: best.rule.unit || "",
+            current, increment: preview.increment, unknown: !!preview.unknown,
+            conflictMine: preview.unknown ? manualSumTodayForRule(best.rule.id) : 0,
+            points: preview.unknown ? 0 : scoring.calculateRule(best.rule, preview.increment).totalPoints,
+            targets: matched.map((m) => ({ contextType: m.t.contextType, contextId: m.t.contextId, contextName: m.t.contextName, ruleId: m.t.ruleId, label: m.t.label })),
+            primary: best.contextId + "|" + best.ruleId,
+            checked: !preview.unknown,
+          });
+          return;
+        }
+        // No rule maps to this metric yet — THIS was the bug: such metrics were dropped, so
+        // synced sleep/steps were ignored and Coach fell back to the manual list. Surface it once
+        // per new value (deduped via wearableLastSeen) with an offer to start tracking it.
+        if (!canOfferTracking(metric)) return;
+        if (wearableValueSeen(source, metric, current, today)) return;
+        if (!primaryPersonalSystem()) return; // nowhere to add a rule → stay quiet
+        offers.push({
+          source, metric, noRule: true,
           label: sourceMetricLabel(source, metric),
           sourceLabel: wearableShortLabel(source),
-          unit: best.rule.unit || "",
-          current, increment: preview.increment, unknown: !!preview.unknown,
-          conflictMine: preview.unknown ? manualSumTodayForRule(best.rule.id) : 0,
-          points: preview.unknown ? 0 : scoring.calculateRule(best.rule, preview.increment).totalPoints,
-          targets: matched.map((m) => ({ contextType: m.t.contextType, contextId: m.t.contextId, contextName: m.t.contextName, ruleId: m.t.ruleId, label: m.t.label })),
-          primary: best.contextId + "|" + best.ruleId,
-          checked: !preview.unknown,
+          unit: trackingConfigForMetric(metric, { source, current, label: sourceMetricLabel(source, metric) }).unit,
+          current, increment: current, unknown: false, conflictMine: 0, points: 0,
+          targets: [], primary: "", checked: false,
         });
       });
     });
-    const manual = buildStillToLog();
-    if (!devices.length && !manual.length) return null;
-    return { at: new Date().toISOString(), devices, manual };
+    // Device deltas take PRIORITY over manual nudges; cap "start tracking" offers so it never nags.
+    const allDevices = devices.concat(offers.slice(0, 2));
+    const manual = buildStillToLog({ proactive: true });
+    if (!allDevices.length && !manual.length) return null;
+    return { at: new Date().toISOString(), devices: allDevices, manual };
   }
 
   // Advance every device target's baseline to the current reading (so dismissed/handled rows
@@ -9644,6 +9734,31 @@
     coachSay(`<p>Hey ${escapeHtml(coachFirstName())} 👋 Tell me what you did — like <em>“ran 5 miles”</em> or <em>“lifted with the boys”</em> — and I'll map it to the right rule and confirm before logging. Tap 📷 to log a meal or workout from a photo.</p>`);
   }
 
+  // Graceful fallback: when the user opens Coach and there's genuinely nothing to surface (no
+  // device deltas, nothing FREQUENTLY-logged still outstanding), offer a soft, dismissable invite
+  // instead of a canned/irrelevant list — at most once a day, and never if they keep waving it off.
+  function coachMaybeSoftPrompt() {
+    if (coachActiveNudgeCount()) return;            // real nudges are already in the thread
+    if (coachLearning().proactiveOff) return;       // off switch
+    if (!coachShouldPeekType("soft")) return;       // keeps dismissing it → stay quiet
+    const today = getTodayKey();
+    if (state.coachSoftPromptDay === today) return; // at most once / day
+    state.coachSoftPromptDay = today;
+    saveState();
+    coachLearnRecord("soft", "shown");
+    coachSay(`
+      <div class="coach-card coach-nudge-card is-active">
+        <p class="coach-card-title">Want to log anything? Tell me what you did, or tap 📷 to snap a photo.</p>
+        <div class="coach-card-actions">
+          <button type="button" class="ghost-button small" data-coach-softdismiss>Not now</button>
+        </div>
+      </div>`);
+  }
+  function coachSoftDismiss(cardEl) {
+    coachLearnRecord("soft", "dismissed");
+    coachFinalizeCard(cardEl);
+  }
+
   // ── Floating launcher (bottom-left) + pop-out panel ─────────────────────────
   function openCoachPanel() {
     if (!els.coachPanel) return;
@@ -9654,8 +9769,10 @@
     coachHidePeek();
     coachProfileFresh();   // refresh the behavioral profile (streaks/trends/usual times) for tailored answers
     renderCoachProactiveToggle();
+    const greetedBefore = coach.greeted;
     coachGreet();
     coachRenderNudges();   // drop any pending proactive nudges into the thread
+    if (greetedBefore) coachMaybeSoftPrompt(); // idle re-open with nothing to surface → soft invite
     renderCoachLauncher(); // clears the badge now that you're looking
     coachScroll();
     requestAnimationFrame(() => { if (els.coachInput) els.coachInput.focus(); });
@@ -9696,8 +9813,9 @@
   // (3) An easy OFF switch (state.coachLearning.proactiveOff). Always dismissable; never nags.
   // ════════════════════════════════════════════════════════════════════════════
   function coachLearning() {
-    state.coachLearning = state.coachLearning || { proactiveOff: false, weekKey: "", byType: {}, byHour: {}, shownDay: "", shownCount: 0 };
-    return state.coachLearning;
+    const L = state.coachLearning = state.coachLearning || { proactiveOff: false, weekKey: "", byType: {}, byHour: {}, byRule: {}, shownDay: "", shownCount: 0 };
+    L.byType = L.byType || {}; L.byHour = L.byHour || {}; L.byRule = L.byRule || {}; // defensive for older saves
+    return L;
   }
   function coachHourBucket(h) { return h < 6 ? "night" : h < 12 ? "morning" : h < 18 ? "afternoon" : "evening"; }
   function coachNowHour() { try { return new Date().getHours(); } catch (e) { return 12; } }
@@ -9714,7 +9832,7 @@
     if (!type || ["shown", "acted", "dismissed"].indexOf(outcome) === -1) return;
     const L = coachLearning();
     const wk = coachWeekKey();
-    if (L.weekKey !== wk) { L.weekKey = wk; coachDecayCounters(L.byType); coachDecayCounters(L.byHour); }
+    if (L.weekKey !== wk) { L.weekKey = wk; coachDecayCounters(L.byType); coachDecayCounters(L.byHour); coachDecayCounters(L.byRule); }
     const bucket = coachHourBucket(coachNowHour());
     const bump = (map, key) => { const c = map[key] = map[key] || { shown: 0, acted: 0, dismissed: 0 }; c[outcome] = (c[outcome] || 0) + 1; };
     bump(L.byType, type);
@@ -9729,6 +9847,23 @@
     const h = L.byHour[type + "@" + coachHourBucket(coachNowHour())];
     if (h && h.shown >= 3 && h.dismissed / Math.max(h.shown, 1) >= 0.7) return false;
     return true;
+  }
+  // Per-RULE feedback: stop proactively nudging a SPECIFIC habit the user keeps dismissing or
+  // never acts on (distinct from the by-TYPE suppression above). Recorded when a "behind" nudge
+  // is shown / acted / dismissed; decayed weekly like the others.
+  function coachLearnRule(ruleKey, outcome) {
+    if (!ruleKey || ["shown", "acted", "dismissed"].indexOf(outcome) === -1) return;
+    const L = coachLearning();
+    const c = L.byRule[ruleKey] = L.byRule[ruleKey] || { shown: 0, acted: 0, dismissed: 0 };
+    c[outcome] = (c[outcome] || 0) + 1;
+    saveState();
+  }
+  function coachRuleSuppressed(contextId, ruleId) {
+    const c = coachLearning().byRule[contextId + ":" + ruleId];
+    if (!c) return false;
+    if ((c.dismissed || 0) >= 3 && (c.acted || 0) === 0) return true;                       // dismissed repeatedly, never acted
+    if ((c.shown || 0) >= 4 && (c.dismissed || 0) / Math.max(c.shown, 1) >= 0.6) return true; // high dismiss rate
+    return false;
   }
   // Proactive peeks allowed now? (off switch + at most 3 auto-peeks/day.)
   function coachProactiveAllowed() {
@@ -9885,9 +10020,10 @@
     const lines = [];
     (c.devices || []).forEach((d) => {
       if (lines.length >= 2) return;
-      const type = d.unknown ? "conflict" : "device";
+      const type = d.noRule ? "track" : d.unknown ? "conflict" : "device";
       if (!coachShouldPeekType(type)) return; // user keeps dismissing this type → skip the peek
-      if (d.unknown) lines.push({ type: type, head: d.sourceLabel, text: `${d.label}: you logged ${formatValue(d.conflictMine)}, device shows ${formatValue(d.current)}` });
+      if (d.noRule) lines.push({ type: type, head: d.sourceLabel, text: `${formatValue(d.current)} ${d.unit} ${d.label.toLowerCase()} today — start tracking?` });
+      else if (d.unknown) lines.push({ type: type, head: d.sourceLabel, text: `${d.label}: you logged ${formatValue(d.conflictMine)}, device shows ${formatValue(d.current)}` });
       else lines.push({ type: type, head: d.sourceLabel, text: `+${formatValue(d.increment)} ${d.unit} ${d.label.toLowerCase()} since last time` });
     });
     if (lines.length < 2 && (c.manual || []).length && coachShouldPeekType("behind")) {
@@ -9945,6 +10081,18 @@
 
   function coachPostDeviceNudge(d) {
     const tok = escapeHtml(d.source + "|" + d.metric);
+    if (d.noRule) {
+      coachSay(`
+        <div class="coach-card coach-nudge-card is-active">
+          <div class="coach-nudge-head"><span class="via-source-tag">${escapeHtml(d.sourceLabel)}</span> Not tracked yet</div>
+          <p class="coach-card-title">${escapeHtml(d.sourceLabel)} shows ${escapeHtml(formatValue(d.current))} ${escapeHtml(d.unit)} ${escapeHtml(d.label.toLowerCase())} today. Want to start tracking it?</p>
+          <div class="coach-card-actions">
+            <button type="button" class="ghost-button small" data-coach-trackdismiss="${tok}">Not now</button>
+            <button type="button" class="primary-button small" data-coach-track="${tok}">Track it</button>
+          </div>
+        </div>`);
+      return;
+    }
     if (d.unknown) {
       coachSay(`
         <div class="coach-card coach-nudge-card is-active">
@@ -9972,6 +10120,7 @@
   }
 
   function coachPostBehindNudge(manual) {
+    manual.forEach((m) => coachLearnRule(m.contextId + ":" + m.ruleId, "shown"));
     const names = manual.slice(0, 3).map((m) => escapeHtml(m.label)).join(", ") + (manual.length > 3 ? `, +${manual.length - 3} more` : "");
     coachSay(`
       <div class="coach-card coach-nudge-card is-active">
@@ -10031,6 +10180,51 @@
     renderCoachLauncher();
   }
 
+  // "Track it" on a not-yet-tracked synced metric → create a SYNCED rule in the user's primary
+  // system (sane defaults, fully editable in Build), log today's reading as its first increment,
+  // and mark the value seen so it never re-nags. Reuses the same incremental-sync + autosave path
+  // as a normal device nudge; future syncs then auto-map to the new rule.
+  function coachTrackMetric(source, metric, cardEl) {
+    coachLearnRecord("track", "acted");
+    const d = coachDeviceByKey(source, metric);
+    const system = primaryPersonalSystem();
+    if (!d || !system) { coachSayText("Add a system in Build first and I'll track that for you."); coachFinalizeCard(cardEl); return; }
+    const cfg = trackingConfigForMetric(metric, d);
+    const newRule = scoring.createRule({
+      id: makeId("rule"),
+      label: cfg.label, category: cfg.category, unit: cfg.unit,
+      simpleStyle: "every", dailyTarget: cfg.target, everyAmount: cfg.every, everyPoints: 1,
+      inputMethod: "slider", inputMin: 0, inputMax: cfg.max, inputStep: cfg.step,
+      dataSource: source, sourceMetric: metric, allowManualOverride: true,
+    });
+    system.rules = system.rules || [];
+    system.rules.push(newRule);
+    markWearableSeen(source, metric, d.current);
+    // Apply today's reading as the first synced increment (baseline 0 → logs the whole total).
+    const target = { contextType: "personal", contextId: system.id, contextName: system.title || "System", ruleId: newRule.id, label: newRule.label };
+    applyDeviceRowToTarget(target, source, new Set());
+    syncDraftInputsFromEntries(system);
+    autoSaveToday(system);
+    coach.lastLogged = [{ contextType: "personal", contextId: system.id, ruleId: newRule.id, amount: d.current, isYesNo: false }];
+    const cur = d.current, unit = newRule.unit, label = newRule.label, srcLabel = d.sourceLabel;
+    coachRemoveDeviceNudge(source, metric);
+    saveState();
+    render();
+    coachFinalizeCard(cardEl);
+    coachSay(`<p>✅ Now tracking <strong>${escapeHtml(label)}</strong> from ${escapeHtml(srcLabel)} — logged ${escapeHtml(formatValue(cur))} ${escapeHtml(unit)} today. Edit it anytime in Build.</p>`);
+    coachOfferPost();
+  }
+
+  function coachTrackDismiss(source, metric, cardEl) {
+    coachLearnRecord("track", "dismissed");
+    const d = coachDeviceByKey(source, metric);
+    if (d) markWearableSeen(source, metric, d.current); // remember this value so it never re-nags
+    coachRemoveDeviceNudge(source, metric);
+    saveState();
+    coachFinalizeCard(cardEl);
+    renderCoachLauncher();
+  }
+
   // Conflict (unknown baseline) → reuse the catch-up resolver (it advances the baseline).
   function coachConflict(source, metric, choice, cardEl) {
     coachLearnRecord("conflict", "acted");
@@ -10047,9 +10241,13 @@
   // "Catch me up" → turn the still-to-log habits into an editable confirm draft (reuses the
   // same manual confirm/save flow). Rebuilt LIVE from buildStillToLog so a rule already logged
   // elsewhere since the nudge appeared is never re-drafted (no double-log).
-  function coachBehindCatchUp(cardEl) {
+  function coachBehindCatchUp(cardEl, opts) {
+    // The proactive NUDGE card drafts the same (suppression-filtered) set it offered; a DIRECT
+    // "Log these" answer drafts everything it named (suppression must not silently drop a listed rule).
+    const proactive = !opts || opts.proactive !== false;
     coachLearnRecord("behind", "acted");
-    const stillBehind = buildStillToLog();
+    const stillBehind = buildStillToLog({ proactive: proactive });
+    stillBehind.forEach((m) => coachLearnRule(m.contextId + ":" + m.ruleId, "acted"));
     if (state.catchUp) { state.catchUp.manual = []; if (!coachActiveNudgeCount()) state.catchUp = null; saveState(); }
     coachFinalizeCard(cardEl);
     renderCoachLauncher();
@@ -10068,6 +10266,7 @@
 
   function coachBehindDismiss(cardEl) {
     coachLearnRecord("behind", "dismissed");
+    ((state.catchUp && state.catchUp.manual) || []).forEach((m) => coachLearnRule(m.contextId + ":" + m.ruleId, "dismissed"));
     if (state.catchUp) { state.catchUp.manual = []; if (!coachActiveNudgeCount()) state.catchUp = null; saveState(); }
     coachFinalizeCard(cardEl);
     renderCoachLauncher();
@@ -10562,7 +10761,7 @@
 
   // Action chips on answer bubbles → run the REAL (confirm-gated) flow, never auto-log.
   function coachAnswerAction(action) {
-    if (action === "catchup") { coachBehindCatchUp(null); return; }
+    if (action === "catchup") { coachBehindCatchUp(null, { proactive: false }); return; }
     if (action.indexOf("log:") === 0) {
       const parts = action.slice(4).split("|");
       const resolved = resolveQuickLogRule(parts[0], parts[1], parts[2]);
@@ -11047,12 +11246,17 @@
     if (devPost) { const p = devPost.dataset.coachDevpost.split("|"); coachDeviceLog(p[0], p[1], card(), { post: true }); return; }
     const devDismiss = t.closest("[data-coach-devdismiss]");
     if (devDismiss) { const p = devDismiss.dataset.coachDevdismiss.split("|"); coachDeviceDismiss(p[0], p[1], card()); return; }
+    const devTrack = t.closest("[data-coach-track]");
+    if (devTrack) { const p = devTrack.dataset.coachTrack.split("|"); coachTrackMetric(p[0], p[1], card()); return; }
+    const devTrackDismiss = t.closest("[data-coach-trackdismiss]");
+    if (devTrackDismiss) { const p = devTrackDismiss.dataset.coachTrackdismiss.split("|"); coachTrackDismiss(p[0], p[1], card()); return; }
     const confKeep = t.closest("[data-coach-confkeep]");
     if (confKeep) { const p = confKeep.dataset.coachConfkeep.split("|"); coachConflict(p[0], p[1], "keep", card()); return; }
     const confUpdate = t.closest("[data-coach-confupdate]");
     if (confUpdate) { const p = confUpdate.dataset.coachConfupdate.split("|"); coachConflict(p[0], p[1], "update", card()); return; }
     if (t.closest("[data-coach-behind]")) { coachBehindCatchUp(card()); return; }
     if (t.closest("[data-coach-behinddismiss]")) { coachBehindDismiss(card()); return; }
+    if (t.closest("[data-coach-softdismiss]")) { coachSoftDismiss(card()); return; }
     if (t.closest("[data-coach-cancel]")) { coachCancelDraft(); return; }
     if (t.closest("[data-coach-log-post]")) { coachConfirmLog(true); return; }
     if (t.closest("[data-coach-log]")) { coachConfirmLog(false); return; }

@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260623-coachqa">
+    <link rel="stylesheet" href="styles.css?v=20260626-buildmerge">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -324,6 +324,36 @@
             </div>
           </div>
 
+          <section class="build-intent-home" id="buildIntentHome" aria-label="What do you want to build?">
+            <div class="build-intent-hero">
+              <p class="eyebrow">Builder</p>
+              <h2 class="build-intent-title">What do you want to build?</h2>
+              <p class="build-intent-lead">Tell us a goal in your own words. We'll spin up a reward system, find a public one that fits, or start you from scratch.</p>
+              <form class="build-intent-box" id="buildIntentForm">
+                <span class="build-intent-spark" aria-hidden="true">✦</span>
+                <input id="buildIntentInput" type="text" autocomplete="off" aria-label="Describe your goal" placeholder="e.g. Run 3 times a week with the boys…">
+                <button class="primary-button build-intent-go" type="submit" id="buildIntentSubmit">Build it <span aria-hidden="true">→</span></button>
+              </form>
+              <div class="build-intent-chips" id="buildIntentChips">
+                <button class="build-intent-chip" type="button" data-intent="Run 3 times a week">🏃 Run 3x a week</button>
+                <button class="build-intent-chip" type="button" data-intent="Study for finals">📚 Study for finals</button>
+                <button class="build-intent-chip" type="button" data-intent="Sleep before midnight">😴 Sleep before midnight</button>
+                <button class="build-intent-chip" type="button" data-intent="10,000 steps daily">👟 10k steps daily</button>
+                <button class="build-intent-chip" type="button" data-intent="Gym 4 times a week">💪 Gym 4x a week</button>
+              </div>
+              <div class="build-intent-routes" id="buildIntentLinks">
+                <button class="build-intent-route" type="button" data-intent-route="ai"><span aria-hidden="true">✦</span> AI builds it for you</button>
+                <button class="build-intent-route" type="button" data-intent-route="search"><span aria-hidden="true">⌕</span> Find a public template</button>
+                <button class="build-intent-route" type="button" data-intent-route="scratch"><span aria-hidden="true">＋</span> Or start from scratch</button>
+              </div>
+            </div>
+            <div class="build-intent-divider"></div>
+            <div class="build-intent-builds">
+              <h3 class="build-intent-builds-title">Your builds <span class="build-intent-count" id="buildYourBuildsCount">0</span></h3>
+              <div class="system-list" id="buildYourBuildsList"></div>
+            </div>
+          </section>
+
           <section class="build-start-panel" id="buildStartPanel" aria-label="Build options">
             <button class="build-option-card" type="button" data-build-start="search">
               <span class="build-option-icon" aria-hidden="true">&#8981;</span>
@@ -404,6 +434,8 @@
             </form>
             <div class="ai-draft-review" id="aiDraftReview" hidden></div>
           </section>
+
+          <section class="build-panel build-draft-editor" id="buildDraftEditor" aria-label="AI draft editor" hidden></section>
 
           <div class="systems-layout">
             <section class="system-list-wrap" aria-labelledby="savedSystemsTitle">
@@ -1429,13 +1461,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260623-coachqa"></script>
-    <script src="auth-helpers.js?v=20260623-coachqa"></script>
-    <script src="scoring.js?v=20260623-coachqa"></script>
-    <script src="insight.js?v=20260623-coachqa"></script>
-    <script src="signals.js?v=20260623-coachqa"></script>
-    <script src="wearables.js?v=20260623-coachqa"></script>
-    <script type="module" src="auth.js?v=20260623-coachqa"></script>
-    <script src="app.js?v=20260623-coachqa"></script>
+    <script src="supabase-config.js?v=20260626-buildmerge"></script>
+    <script src="auth-helpers.js?v=20260626-buildmerge"></script>
+    <script src="scoring.js?v=20260626-buildmerge"></script>
+    <script src="insight.js?v=20260626-buildmerge"></script>
+    <script src="signals.js?v=20260626-buildmerge"></script>
+    <script src="wearables.js?v=20260626-buildmerge"></script>
+    <script type="module" src="auth.js?v=20260626-buildmerge"></script>
+    <script src="app.js?v=20260626-buildmerge"></script>
   </body>
 </html>

@@ -4288,33 +4288,6 @@
     renderWorldGrid();
   }
 
-  // A MEDIUM tile shows ONE section (its primary = sections[0]); "swap" replaces it. We reuse
-  // the same homeLayout.sections list, so the chosen section persists and carries over if the
-  // tile is later enlarged (it becomes the first section of the large widget).
-  function worldPrimarySection(t) {
-    const list = worldSectionsFor(t);
-    if (list.length) return list[0];
-    return t.type === "community" ? "lb" : "schedule";
-  }
-  function setWorldPrimarySection(key, sec) {
-    const t = worldTileFromKey(key);
-    if (!t || !worldSectionApplies(t, sec)) return;
-    const list = worldSectionsFor(t).filter((k) => k !== sec);
-    list.unshift(sec);
-    worldLayout().sections[key] = list;
-    saveState();
-    renderWorldGrid();
-  }
-  function closeWorldSwapMenus() {
-    if (!els.worldGrid) return false;
-    const open = els.worldGrid.querySelector(".world-swap-menu:not([hidden])");
-    if (!open) return false;
-    els.worldGrid.querySelectorAll(".world-swap-menu").forEach((m) => { m.hidden = true; });
-    els.worldGrid.querySelectorAll("[data-world-swap-toggle]").forEach((b) => b.setAttribute("aria-expanded", "false"));
-    els.worldGrid.querySelectorAll(".world-tile.world-menu-open").forEach((el) => el.classList.remove("world-menu-open"));
-    return true;
-  }
-
   // Compact "Xh ago" for a post timestamp or dateKey (reuses entry timestamps; no new data).
   function worldAgo(ts) {
     if (!ts) return "";
@@ -4415,7 +4388,7 @@
               <span class="world-tile-stat">${renderWorldStat(t, false)}</span>
             </div>
           </div>
-          ${renderWorldMediumSection(t)}
+          ${renderWorldMediumSlots(t)}
         </div>`;
     }
     return `<div class="world-tile ${typeClass} size-small" ${attrs} ${open}>
@@ -4455,24 +4428,56 @@
     return "";
   }
 
-  // Medium tile's ONE section + a "swap" pill that opens a picker to replace it.
-  function renderWorldMediumSection(t) {
-    const sec = worldPrimarySection(t);
+  // MEDIUM tile = header + TWO swappable mini-slots side by side. Each slot shows one section
+  // and its ⇄ opens a dropdown to pick a different one. The two slots are sections[0] and
+  // sections[1] (reuses the same homeLayout.sections list as the large widget), so the picks
+  // persist and carry over when the tile is enlarged.
+  function worldMediumSlots(t) {
+    const applicable = WORLD_SECTION_ORDER.filter((k) => worldSectionApplies(t, k));
+    const slots = worldSectionsFor(t).filter((k) => applicable.indexOf(k) > -1).slice(0, 2);
+    applicable.forEach((k) => { if (slots.length < 2 && slots.indexOf(k) === -1) slots.push(k); });
+    while (slots.length < 2) slots.push(applicable[0] || "lb"); // degenerate: fewer than 2 applicable
+    return slots.slice(0, 2);
+  }
+  // Pick a section for one slot from its dropdown (the menu already excludes the other slot's
+  // section, so the two can never duplicate). Persists; keeps any large-only extra sections.
+  function setWorldSlot(key, idx, sec) {
+    const t = worldTileFromKey(key);
+    if (!t || !worldSectionApplies(t, sec)) return;
+    const slots = worldMediumSlots(t);
+    if (slots[idx] === sec) return;
+    slots[idx] = sec;
+    const rest = worldSectionsFor(t).filter((k) => worldSectionApplies(t, k) && k !== slots[0] && k !== slots[1]);
+    worldLayout().sections[key] = slots.concat(rest);
+    saveState();
+    renderWorldGrid();
+  }
+  function closeWorldSlotMenus() {
+    if (!els.worldGrid) return false;
+    if (!els.worldGrid.querySelector(".world-slot-menu:not([hidden])")) return false;
+    els.worldGrid.querySelectorAll(".world-slot-menu").forEach((m) => { m.hidden = true; });
+    els.worldGrid.querySelectorAll("[data-world-slot-toggle]").forEach((b) => b.setAttribute("aria-expanded", "false"));
+    els.worldGrid.querySelectorAll(".world-tile.world-menu-open").forEach((el) => el.classList.remove("world-menu-open"));
+    return true;
+  }
+  function renderWorldMediumSlots(t) {
+    const applicable = WORLD_SECTION_ORDER.filter((k) => worldSectionApplies(t, k));
+    const slots = worldMediumSlots(t);
+    return `<div class="world-med-slots">${slots.map((sec, i) => renderWorldSlot(t, sec, i, applicable, slots[1 - i])).join("")}</div>`;
+  }
+  function renderWorldSlot(t, sec, idx, applicable, otherSec) {
     const def = WORLD_SECTION_DEFS[sec];
-    if (!def) return "";
-    const opts = WORLD_SECTION_ORDER.filter((k) => worldSectionApplies(t, k));
-    const menu = opts.map((k) => `<button type="button" class="world-swap-opt${k === sec ? " is-current" : ""}" data-world-swap-sec="${k}">${escapeHtml(WORLD_SECTION_DEFS[k].label)}${k === sec ? `<span class="world-swap-check" aria-hidden="true">✓</span>` : ""}</button>`).join("");
+    if (!def) return `<div class="world-slot"></div>`;
+    // Pickable options = applicable sections minus the OTHER slot's (current always included).
+    const opts = applicable.filter((k) => k === sec || k !== otherSec);
     const swap = opts.length > 1
-      ? `<div class="world-swap" data-world-swap>
-          <button type="button" class="world-swap-btn" data-world-swap-toggle aria-haspopup="true" aria-expanded="false">⇄ swap</button>
-          <div class="world-swap-menu" hidden>${menu}</div>
+      ? `<div class="world-slot-swapwrap" data-world-slot-swap>
+          <button type="button" class="world-slot-swap" data-world-slot-toggle aria-haspopup="true" aria-expanded="false" aria-label="Swap this slot" title="Swap section">⇄</button>
+          <div class="world-slot-menu" hidden>${opts.map((k) => `<button type="button" class="world-slot-opt${k === sec ? " is-current" : ""}" data-world-slot-pick-idx="${idx}" data-world-slot-pick-sec="${k}">${escapeHtml(WORLD_SECTION_DEFS[k].label)}${k === sec ? `<span class="world-slot-check" aria-hidden="true">✓</span>` : ""}</button>`).join("")}</div>
         </div>`
       : "";
-    return `<div class="world-med-section" data-world-sec="${sec}">
-        <div class="world-section-head">
-          <p class="world-cap">${escapeHtml(def.label)}</p>
-          ${swap}
-        </div>
+    return `<div class="world-slot" data-world-slot="${idx}">
+        <div class="world-slot-head"><span class="world-cap">${escapeHtml(def.label)}</span>${swap}</div>
         ${worldSectionBody(t, sec, true)}
       </div>`;
   }
@@ -4571,20 +4576,19 @@
       if (tile) setWorldTileSize(tile.dataset.worldKey, WORLD_SIZES[(WORLD_SIZES.indexOf(tile.dataset.worldSize) + 1) % WORLD_SIZES.length]);
       return;
     }
-    // Medium-tile "swap" picker: toggle open without re-rendering; pick a section to replace it.
-    const swapToggle = t.closest("[data-world-swap-toggle]");
-    if (swapToggle) {
-      const wrap = swapToggle.parentNode, menu = wrap && wrap.querySelector(".world-swap-menu");
+    // Medium-tile slot "⇄" → toggle its dropdown; pick a section to set that slot.
+    const slotToggle = t.closest("[data-world-slot-toggle]");
+    if (slotToggle) {
+      const wrap = slotToggle.parentNode, menu = wrap && wrap.querySelector(".world-slot-menu");
       const willOpen = menu && menu.hidden;
-      closeWorldSwapMenus();
-      if (willOpen) { menu.hidden = false; swapToggle.setAttribute("aria-expanded", "true"); const tile = swapToggle.closest(".world-tile"); if (tile) tile.classList.add("world-menu-open"); }
+      closeWorldSlotMenus();
+      if (willOpen) { menu.hidden = false; slotToggle.setAttribute("aria-expanded", "true"); const tile = slotToggle.closest(".world-tile"); if (tile) tile.classList.add("world-menu-open"); }
       return;
     }
-    const swapSec = t.closest("[data-world-swap-sec]");
-    if (swapSec) { const tile = swapSec.closest("[data-world-key]"); if (tile) setWorldPrimarySection(tile.dataset.worldKey, swapSec.dataset.worldSwapSec); return; }
-    if (t.closest("[data-world-swap]")) return; // clicks inside the open menu's chrome — ignore
-    // Any other click closes an open swap menu first (a tap to dismiss, not to open the world).
-    if (closeWorldSwapMenus()) return;
+    const slotPick = t.closest("[data-world-slot-pick-sec]");
+    if (slotPick) { const tile = slotPick.closest("[data-world-key]"); if (tile) setWorldSlot(tile.dataset.worldKey, Number(slotPick.dataset.worldSlotPickIdx) || 0, slotPick.dataset.worldSlotPickSec); return; }
+    if (t.closest("[data-world-slot-swap]")) return; // inside the swap wrap/menu chrome — contained
+    if (closeWorldSlotMenus()) return; // any other tap closes an open menu (don't open the world)
     const addSec = t.closest("[data-world-add-sec]");
     if (addSec) { const tile = addSec.closest("[data-world-key]"); if (tile) addWorldSection(tile.dataset.worldKey, addSec.dataset.worldAddSec); return; }
     const rmSec = t.closest("[data-world-rm-sec]");
@@ -4602,7 +4606,7 @@
     if (event.key !== "Enter" && event.key !== " " && event.key !== "Spacebar") return;
     const t = event.target;
     if (!t.closest) return;
-    if (t.closest("[data-world-size-cycle],[data-world-add-sec],[data-world-rm-sec],[data-world-swap]")) return;
+    if (t.closest("[data-world-size-cycle],[data-world-add-sec],[data-world-rm-sec],[data-world-slot-swap]")) return;
     const tile = t.closest(".world-tile");
     if (!tile) return;
     event.preventDefault();
@@ -4692,7 +4696,7 @@
   function onWorldGridPointerDown(event) {
     if (event.button != null && event.button !== 0) return; // primary / touch only
     // Editing controls (resize / add / remove / swap) are taps, never drag handles.
-    if (event.target.closest && event.target.closest("[data-world-size-cycle],[data-world-add-sec],[data-world-rm-sec],[data-world-swap]")) return;
+    if (event.target.closest && event.target.closest("[data-world-size-cycle],[data-world-add-sec],[data-world-rm-sec],[data-world-slot-swap]")) return;
     const tile = event.target.closest && event.target.closest(".world-tile[data-world-key]");
     if (!tile) return; // the Add tile (no data-world-key) and empty space fall through to click
     worldDrag.key = tile.dataset.worldKey;

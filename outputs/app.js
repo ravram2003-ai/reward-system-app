@@ -2765,6 +2765,14 @@
       "todaySavedLabel",
       "newSystemButton",
       "buildStartPanel",
+      "buildIntentHome",
+      "buildIntentForm",
+      "buildIntentInput",
+      "buildIntentSubmit",
+      "buildIntentChips",
+      "buildIntentLinks",
+      "buildYourBuildsList",
+      "buildYourBuildsCount",
       "buildAudiencePanel",
       "buildCommunitiesWrap",
       "buildCommunityList",
@@ -2772,6 +2780,7 @@
       "buildPublicSearchInput",
       "buildPublicSearchResults",
       "buildAiPanel",
+      "buildDraftEditor",
       "buildAiForm",
       "aiGoalsInput",
       "aiRewardHabitsInput",
@@ -3168,6 +3177,31 @@
       renderBuildSearchResults();
     });
     els.buildAiForm.addEventListener("submit", generateAiDraftSystem);
+    if (els.buildIntentForm) els.buildIntentForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      generateDraftFromIntent(els.buildIntentInput ? els.buildIntentInput.value : "");
+    });
+    if (els.buildIntentChips) els.buildIntentChips.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-intent]"); if (!b) return;
+      if (els.buildIntentInput) els.buildIntentInput.value = b.dataset.intent;
+      generateDraftFromIntent(b.dataset.intent);
+    });
+    if (els.buildIntentLinks) els.buildIntentLinks.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-intent-route]"); if (!b) return;
+      const route = b.dataset.intentRoute;
+      if (route === "ai") { els.buildIntentInput?.focus(); }
+      else if (route === "search") setBuildMode("search");
+      else if (route === "scratch") setBuildMode("scratch");
+    });
+    if (els.buildDraftEditor) {
+      els.buildDraftEditor.addEventListener("pointerdown", onDialPointerDown);
+      els.buildDraftEditor.addEventListener("wheel", onDialWheel, { passive: false });
+      els.buildDraftEditor.addEventListener("keydown", onDialKeyDown);
+      els.buildDraftEditor.addEventListener("click", onDraftEditorClick);
+      els.buildDraftEditor.addEventListener("input", onDraftEditorInput);
+      document.addEventListener("pointermove", onDialPointerMove);
+      document.addEventListener("pointerup", onDialPointerUp);
+    }
     els.duplicateSystemButton.addEventListener("click", duplicateSelectedSystem);
     els.deleteSystemButton.addEventListener("click", deleteSelectedSystem);
     els.setupBackButton.addEventListener("click", () => moveSetupStep(-1));
@@ -4508,15 +4542,23 @@
     const isEditorOpen = Boolean(state.systemEditorOpen);
     const isBuildSubpage = !isEditorOpen && (state.buildMode === "search" || state.buildMode === "ai");
     const choosingAudience = !isEditorOpen && !isBuildSubpage && Boolean(pendingBuildMode);
+    const isBuildHome = !isEditorOpen && !isBuildSubpage && !choosingAudience;
     els.systemsView.classList.toggle("is-editing-system", isEditorOpen);
     els.systemsView.classList.toggle("is-build-subpage", isBuildSubpage || choosingAudience);
-    els.buildStartPanel.hidden = isEditorOpen || isBuildSubpage || choosingAudience;
+    els.systemsView.classList.toggle("is-intent-home", isBuildHome);
+    if (els.buildIntentHome) els.buildIntentHome.hidden = !isBuildHome;
+    els.buildStartPanel.hidden = true; // superseded by the intent home (kept in DOM for refs)
     if (els.buildAudiencePanel) els.buildAudiencePanel.hidden = !choosingAudience;
     els.buildSearchPanel.hidden = isEditorOpen || state.buildMode !== "search";
-    els.buildAiPanel.hidden = isEditorOpen || state.buildMode !== "ai";
+    // When an AI draft exists, the new sentence-card editor (Screen 2) replaces the
+    // classic generate form/review; otherwise the form shows for prompt entry.
+    const hasAiDraft = !isEditorOpen && state.buildMode === "ai" && Boolean(state.aiDraftSystem);
+    els.buildAiPanel.hidden = isEditorOpen || state.buildMode !== "ai" || hasAiDraft;
+    if (els.buildDraftEditor) els.buildDraftEditor.hidden = !hasAiDraft;
     els.buildPublicSearchInput.value = state.buildSearchQuery || "";
     renderBuildSearchResults();
     renderAiDraftReview();
+    renderDraftEditor();
     // "Your Communities" shows on the build home only (hidden in the editor/subpages).
     if (els.buildCommunitiesWrap) els.buildCommunitiesWrap.hidden = isEditorOpen || isBuildSubpage || choosingAudience;
     renderBuildCommunities();
@@ -4549,6 +4591,7 @@
     Array.from(els.systemList.querySelectorAll("[data-turn-community-id]")).forEach((button) => {
       button.addEventListener("click", () => turnSystemIntoCommunity(button.dataset.turnCommunityId));
     });
+    renderBuildYourBuilds();
     const system = getSelectedSystem();
     els.systemEditorPanel.hidden = !state.systemEditorOpen;
     const hasSystem = Boolean(system);
@@ -4910,6 +4953,499 @@
       showToast("Draft generated");
     } finally {
       aiGenerating = false;
+    }
+  }
+
+  // Intent-home submit: one plain-English sentence → the SAME AI draft path as the
+  // 3-field form (no parallel generator). The sentence maps to `goals`; everything
+  // else takes the existing defaults so the Edge Function contract is unchanged.
+  async function generateDraftFromIntent(sentence) {
+    if (aiGenerating) return;
+    const text = String(sentence || "").trim();
+    if (!isMeaningfulText(text)) { showToast("Type a goal first"); els.buildIntentInput?.focus(); return; }
+    const inputs = { goals: text, rewards: "", penalties: "", categories: "", strictness: "balanced", targets: "" };
+    if (els.aiGoalsInput) els.aiGoalsInput.value = text; // keep the classic form in sync for round-trip
+    const group = intentImpliesGroup(text);
+    draftAudience = group ? "community" : "personal"; // default the audience toggle from the wording
+    aiGenerating = true;
+    showToast("Generating with AI…");
+    try {
+      state.aiDraftInputs = inputs;
+      state.aiDraftAdjustments = blankAiAdjustments();
+      state.aiDraftRawSystem = null;
+      state.aiDraftChat = [];
+      aiImproveOpen = false;
+      draftOpenBlank = -1;
+      state.aiDraftSystem = await aiGenerateDraft(inputs, state.aiDraftAdjustments, group ? "community" : "personal");
+      state.buildMode = "ai";
+      saveState();
+      renderSystems();
+      showToast("Draft generated");
+    } finally {
+      aiGenerating = false;
+    }
+  }
+
+  // Intent-home "Your builds" = personal systems + communities in one list, reusing
+  // the exact same card renderers + actions as the classic Build lists.
+  function renderBuildYourBuilds() {
+    if (!els.buildYourBuildsList) return;
+    const systems = state.systems || [];
+    const communities = Array.isArray(state.communities) ? state.communities : [];
+    const cards = systems.map(renderSystemCard).join("") + communities.map(renderBuildCommunityCard).join("");
+    els.buildYourBuildsList.innerHTML = cards || emptyState("Nothing yet — describe a goal above to build your first one.");
+    if (els.buildYourBuildsCount) els.buildYourBuildsCount.textContent = String(systems.length + communities.length);
+    bindBuildCardActions(els.buildYourBuildsList);
+  }
+
+  // Reuse the standard system/community card button behavior inside any container.
+  function bindBuildCardActions(container) {
+    if (!container) return;
+    Array.from(container.querySelectorAll("[data-edit-system-id]")).forEach((b) => b.addEventListener("click", () => {
+      state.selectedSystemId = b.dataset.editSystemId; state.editingRuleId = ""; state.systemSetupStep = 0;
+      state.systemEditorOpen = true; saveState(); renderSystems(); openSelectedSystemEditor();
+    }));
+    Array.from(container.querySelectorAll("[data-delete-system-id]")).forEach((b) => b.addEventListener("click", () => {
+      state.selectedSystemId = b.dataset.deleteSystemId; deleteSelectedSystem();
+    }));
+    Array.from(container.querySelectorAll("[data-turn-community-id]")).forEach((b) => b.addEventListener("click", () => turnSystemIntoCommunity(b.dataset.turnCommunityId)));
+    Array.from(container.querySelectorAll("[data-edit-community-id]")).forEach((b) => b.addEventListener("click", () => openBuildCommunity(b.dataset.editCommunityId, "settings")));
+    Array.from(container.querySelectorAll("[data-open-community-id]")).forEach((b) => b.addEventListener("click", () => openBuildCommunity(b.dataset.openCommunityId, "detail")));
+  }
+
+  // ── Screen 2: AI draft editor (sentence cards + scrub-dial pills) ──────────
+  // Renders state.aiDraftSystem — the SAME draft the 4-step editor edits — so it
+  // round-trips. Pills map onto canonical rule fields; negative points route to
+  // the penalty path exactly like buildRuleFromForm / aiRuleFromAiSpec.
+  function draftPrimaryPoints(rule) {
+    return rule.simpleStyle === "penalty" ? rule.penaltyPoints
+      : (rule.simpleStyle === "yesNo" ? rule.yesNoPoints : (rule.goalPoints || rule.everyPoints));
+  }
+  function dialPointsLabel(v) {
+    if (v === 0) return "0 pts";
+    return (v < 0 ? "−" : "+") + formatPoints(Math.abs(v)) + " " + (Math.abs(v) === 1 ? "pt" : "pts");
+  }
+  function dialUnitStep(unit) {
+    var u = String(unit || "").toLowerCase();
+    if (/step/.test(u)) return 500;
+    if (/gram|protein/.test(u) || u === "g") return 5;
+    return 1;
+  }
+  function dialNumberLabel(v, unit) {
+    var n = Number(v || 0).toLocaleString();
+    var u = String(unit || "").trim();
+    if (!u) return n;
+    return /^(g|kg|lb|lbs)$/i.test(u) ? n + u : n + " " + u;
+  }
+  function draftRuleIcon(rule) {
+    var s = ((rule.label || "") + " " + (rule.category || "")).toLowerCase();
+    if (/run|jog|marathon/.test(s)) return "🏃";
+    if (/step|walk/.test(s)) return "👟";
+    if (/gym|lift|workout|strength|muscle/.test(s)) return "💪";
+    if (/sleep|bed|rest/.test(s)) return "😴";
+    if (/study|read|learn|class|exam|focus/.test(s)) return "📚";
+    if (/protein|eat|meal|cal|food|diet/.test(s)) return "🍗";
+    if (/water|hydrat|drink/.test(s)) return "💧";
+    if (/cycle|bike|ride/.test(s)) return "🚴";
+    if (/meditat|mindful|calm/.test(s)) return "🧘";
+    if (/money|budget|save|spend/.test(s)) return "💰";
+    return "◆";
+  }
+  function dialPillHtml(kind, ruleIndex, field, value, opts) {
+    opts = opts || {};
+    var step = kind === "points" ? 0.5 : (opts.step || 1);
+    var min = kind === "points" ? -10 : 0;
+    var max = kind === "points" ? 10 : (opts.max || 1000000);
+    var tone = kind === "points" ? (value > 0 ? "pos" : (value < 0 ? "neg" : "zero")) : "num";
+    var text = kind === "points" ? dialPointsLabel(value) : dialNumberLabel(value, opts.unit);
+    return '<span class="scrub-dial ' + kind + '-dial ' + tone + '" role="spinbutton" tabindex="0"'
+      + ' data-rule-index="' + ruleIndex + '" data-field="' + field + '" data-kind="' + kind + '"'
+      + ' data-step="' + step + '" data-min="' + min + '" data-max="' + max + '" data-value="' + value + '"'
+      + ' data-unit="' + escapeHtml(opts.unit || "") + '"'
+      + ' aria-valuenow="' + value + '" aria-valuemin="' + min + '" aria-valuemax="' + max + '"'
+      + ' aria-label="' + escapeHtml(opts.label || field) + '" title="Drag, scroll, or use arrow keys">'
+      + escapeHtml(text) + "</span>";
+  }
+  function renderDraftRuleCard(rule, index) {
+    var pts = numberOrDefault(draftPrimaryPoints(rule), 0);
+    var isPenalty = rule.simpleStyle === "penalty" || pts < 0;
+    var verb = '<span class="bde-verb" data-rule-index="' + index + '">' + (pts < 0 ? "Take away" : "Give me") + "</span>";
+    var unit = rule.unit || "times";
+    var ptsPill = dialPillHtml("points", index, "points", pts, { label: "Points for " + rule.label });
+    var body;
+    if (rule.simpleStyle === "yesNo") {
+      body = verb + " " + ptsPill + " when I " + conditionBlankHtml(rule, index);
+    } else if (rule.simpleStyle === "penalty") {
+      var minPill = dialPillHtml("number", index, "goal", numberOrDefault(rule.minimumRequired, 0), { unit: unit, step: dialUnitStep(unit), label: "Minimum " + unit });
+      body = "Take away " + ptsPill + " when I fall below " + minPill;
+    } else if (rule.simpleStyle === "every") {
+      var everyPill = dialPillHtml("number", index, "every", numberOrDefault(rule.everyAmount, 1), { unit: unit, step: dialUnitStep(unit), label: "Every " + unit });
+      body = verb + " " + ptsPill + " every " + everyPill;
+    } else {
+      var goalPill = dialPillHtml("number", index, "goal", numberOrDefault(rule.dailyTarget, 0), { unit: unit, step: dialUnitStep(unit), label: "Goal " + unit });
+      body = verb + " " + ptsPill + " when I hit " + goalPill;
+    }
+    return '<div class="bde-card' + (isPenalty ? " is-penalty" : "") + '" data-rule-index="' + index + '">'
+      + '<div class="bde-card-head"><span class="bde-card-icon" aria-hidden="true">' + draftRuleIcon(rule) + "</span>"
+      + '<strong class="bde-card-label">' + escapeHtml(rule.label) + "</strong>"
+      + '<button class="bde-remove" type="button" data-remove-rule="' + index + '" aria-label="Remove ' + escapeHtml(rule.label) + '">✕</button></div>'
+      + '<p class="bde-sentence">' + body + "</p>"
+      + (draftOpenBlank === index ? renderBlankHelper(rule, index) : "")
+      + "</div>";
+  }
+  // The optional AI fields (condition/uncertain/suggestions) live on the raw AI
+  // shape only (display-only, dropped on save). Absent until the Edge Function is
+  // redeployed — everything below falls back gracefully when they're missing.
+  function draftRawRule(index) {
+    var raw = state.aiDraftRawSystem;
+    return raw && Array.isArray(raw.rules) ? raw.rules[index] : null;
+  }
+  function conditionBlankHtml(rule, index) {
+    var raw = draftRawRule(index);
+    var condition = raw && typeof raw.condition === "string" ? raw.condition.trim() : "";
+    var shown = condition || String(rule.label || "").trim();
+    var blank = (raw && raw.uncertain === true) || !shown || /^(new habit|untitled|habit|rule|entry)$/i.test(shown);
+    return '<button class="bde-blank ' + (blank ? "empty" : "filled") + '" type="button" data-blank-rule="' + index + '"'
+      + ' aria-haspopup="true" aria-expanded="' + (draftOpenBlank === index) + '" aria-label="What should count as done">'
+      + (blank ? '______ <span class="bde-blank-spark" aria-hidden="true">✦</span>' : escapeHtml(shown))
+      + "</button>";
+  }
+  function conditionSuggestions(rule, index) {
+    var raw = draftRawRule(index);
+    if (raw && Array.isArray(raw.suggestions) && raw.suggestions.length) {
+      return raw.suggestions.slice(0, 4).map(function (x) { return String(x); });
+    }
+    var s = ((rule.label || "") + " " + (rule.category || "")).toLowerCase();
+    if (/gym|lift|workout|strength|muscle/.test(s)) return ["complete a workout", "train 45+ minutes", "hit every set"];
+    if (/run|jog/.test(s)) return ["finish my run", "run without walking", "log 3+ km"];
+    if (/step|walk/.test(s)) return ["hit my step goal", "walk after dinner", "take the stairs"];
+    if (/sleep|bed/.test(s)) return ["in bed by my target", "sleep 7+ hours", "no screens before bed"];
+    if (/study|read|learn|exam|focus/.test(s)) return ["study 1+ focused hour", "finish the day's reading", "no phone while studying"];
+    if (/protein|eat|meal|diet|cal|food/.test(s)) return ["hit my protein target", "eat a home-cooked meal", "no late-night snacking"];
+    if (/water|hydrat/.test(s)) return ["drink my water goal", "a glass with each meal"];
+    return ["do it today", "complete it fully", "show up consistently"];
+  }
+  function renderBlankHelper(rule, index) {
+    var sugg = conditionSuggestions(rule, index);
+    return '<div class="bde-helper">'
+      + '<div class="bde-helper-title">What should count as done?</div>'
+      + '<div class="bde-helper-chips">'
+      + sugg.map(function (x) { return '<button class="bde-helper-chip" type="button" data-fill-rule="' + index + '" data-fill-text="' + escapeHtml(x) + '">' + escapeHtml(x) + "</button>"; }).join("")
+      + "</div>"
+      + '<div class="bde-helper-ask">'
+      + '<input class="bde-helper-input" id="bdeHelperInput' + index + '" type="text" placeholder="…or describe it / ask AI" aria-label="Describe what counts">'
+      + '<button class="ghost-button small bde-helper-ai" type="button" data-ask-ai-rule="' + index + '" title="Ask AI to phrase it">✦ Ask AI</button>'
+      + '<button class="primary-button small bde-helper-set" type="button" data-set-rule="' + index + '">Set</button>'
+      + "</div></div>";
+  }
+  function toggleBlank(index) {
+    draftOpenBlank = draftOpenBlank === index ? -1 : index;
+    renderDraftEditor();
+    if (draftOpenBlank === index && els.buildDraftEditor) {
+      requestAnimationFrame(function () { var i = els.buildDraftEditor.querySelector("#bdeHelperInput" + index); if (i) i.focus(); });
+    }
+  }
+  function fillBlank(index, text) {
+    var t = String(text || "").trim(); if (!t) return;
+    setDraftRuleField(index, "label", t);
+    draftOpenBlank = -1;
+    saveState();
+    renderDraftEditor();
+  }
+  function setBlankFromInput(index) {
+    var input = els.buildDraftEditor && els.buildDraftEditor.querySelector("#bdeHelperInput" + index);
+    fillBlank(index, input ? input.value : "");
+  }
+  function askAiBlank(index) {
+    var input = els.buildDraftEditor && els.buildDraftEditor.querySelector("#bdeHelperInput" + index);
+    var text = input ? input.value.trim() : "";
+    var rule = state.aiDraftSystem && state.aiDraftSystem.rules[index];
+    if (!rule) return;
+    if (!text) { showToast("Type what you want first"); return; }
+    if (!signalsReady() || typeof refineAiDraft !== "function") { fillBlank(index, text); return; }
+    draftOpenBlank = -1;
+    var label = scoring.normalizeRule(rule).label;
+    refineAiDraft('For the rule "' + label + '", change what counts as completing it to express: "' + text + '". Keep every other rule and all points and goals identical.');
+  }
+  function renderDraftEditor() {
+    if (!els.buildDraftEditor) return;
+    var draft = state.aiDraftSystem;
+    if (!draft || els.buildDraftEditor.hidden) { if (!draft) els.buildDraftEditor.innerHTML = ""; return; }
+    var rules = (draft.rules || []).map(scoring.normalizeRule);
+    els.buildDraftEditor.innerHTML =
+      '<div class="bde-head">'
+      + '<div class="bde-badge"><span aria-hidden="true">✦</span> AI drafted · tap any blank to fix it</div>'
+      + '<div class="bde-name-row"><input class="bde-name" id="bdeNameInput" value="' + escapeHtml(draft.title || "") + '" aria-label="System name" placeholder="Name your system"><span class="bde-name-pencil" aria-hidden="true">✎</span></div>'
+      + '<button class="link-button bde-advanced" type="button" id="bdeEditAdvanced">Edit advanced ▸</button>'
+      + "</div>"
+      + '<div class="bde-cards">' + rules.map(renderDraftRuleCard).join("") + "</div>"
+      + '<button class="ghost-button bde-add" type="button" id="bdeAddRule"><span aria-hidden="true">＋</span> Add a habit</button>'
+      + '<div class="bde-tweak">'
+        + '<div class="bde-tweak-label"><span aria-hidden="true">✦</span> Tweak with AI</div>'
+        + '<div class="bde-tweak-chips">'
+          + '<button class="bde-tweak-chip" type="button" data-tweak="stricter">Make it harder</button>'
+          + '<button class="bde-tweak-chip" type="button" data-tweak="easier">Make it easier</button>'
+          + '<button class="bde-tweak-chip" type="button" data-tweak="fewer">Fewer rules</button>'
+          + '<button class="bde-tweak-chip" type="button" data-tweak="penalty">Add a penalty</button>'
+        + '</div>'
+        + '<div class="bde-tweak-ask">'
+          + '<input class="bde-tweak-input" id="bdeTweakInput" type="text" placeholder="Ask AI to change anything…" aria-label="Ask AI to change the draft">'
+          + '<button class="primary-button small bde-tweak-send" type="button" id="bdeTweakSend">Send</button>'
+        + '</div>'
+      + '</div>'
+      + '<div class="bde-audience-row">'
+        + '<div class="bde-audience" role="tablist" aria-label="Who is this for">'
+          + '<button class="bde-aud' + (draftAudience === "personal" ? " active" : "") + '" type="button" role="tab" aria-selected="' + (draftAudience === "personal") + '" data-audience="personal"><span aria-hidden="true">🔒</span> Just me</button>'
+          + '<button class="bde-aud' + (draftAudience === "community" ? " active" : "") + '" type="button" role="tab" aria-selected="' + (draftAudience === "community") + '" data-audience="community"><span aria-hidden="true">👥</span> Community</button>'
+        + '</div>'
+        + '<p class="bde-nudge">' + (draftAudience === "community" ? "Sounds like a group goal — invite people after you create it." : "Make it a community to keep each other accountable — invite people after.") + '</p>'
+      + '</div>'
+      + '<div class="bde-foot"><div class="bde-total" id="bdeTotal"></div>'
+      + '<button class="primary-button bde-create" type="button" id="bdeCreate">' + (draftAudience === "community" ? "Create community" : "Create system") + '</button></div>';
+    updateDraftTotal();
+  }
+  function updateDraftTotal() {
+    if (!els.buildDraftEditor) return;
+    var total = els.buildDraftEditor.querySelector("#bdeTotal");
+    if (!total || !state.aiDraftSystem) return;
+    var sys = normalizeSystem(state.aiDraftSystem);
+    var best = numberOrDefault(calculateTargetSummary(sys).total, 0);
+    var hasPenalty = (sys.rules || []).some(function (r) { return numberOrDefault(draftPrimaryPoints(scoring.normalizeRule(r)), 0) < 0; });
+    total.classList.toggle("has-penalty", hasPenalty);
+    total.innerHTML = "<strong>" + formatSigned(best) + "</strong> <span>best day</span>";
+  }
+  function setDraftRuleField(index, field, value) {
+    var draft = state.aiDraftSystem;
+    if (!draft || !draft.rules[index]) return;
+    var rule = scoring.normalizeRule(draft.rules[index]);
+    var patch = Object.assign({}, rule);
+    if (field === "points") {
+      if (value < 0) {
+        patch.simpleStyle = "penalty";
+        patch.penaltyEnabled = true;
+        patch.penaltyMode = "fixed";
+        patch.penaltyPoints = -(Math.abs(value) || 0.5);
+        if (!numberOrDefault(patch.minimumRequired, 0)) patch.minimumRequired = numberOrDefault(rule.dailyTarget, 0);
+      } else if (rule.simpleStyle === "penalty") {
+        patch.simpleStyle = "goal"; patch.penaltyEnabled = false; patch.goalPoints = value;
+        patch.dailyTarget = numberOrDefault(rule.minimumRequired, rule.dailyTarget);
+      } else if (rule.simpleStyle === "yesNo") {
+        patch.yesNoPoints = value;
+      } else if (rule.simpleStyle === "every") {
+        patch.everyPoints = value;
+      } else {
+        patch.goalPoints = value;
+      }
+    } else if (field === "goal") {
+      if (rule.simpleStyle === "penalty") patch.minimumRequired = value; else patch.dailyTarget = value;
+    } else if (field === "every") {
+      patch.everyAmount = Math.max(value, 1);
+    } else if (field === "unit") {
+      patch.unit = value;
+    } else if (field === "label") {
+      patch.label = value;
+    }
+    draft.rules[index] = scoring.createRule(patch);
+  }
+
+  // ── Scrub-dial interaction (drag / wheel / arrow keys) ────────────────────
+  var draftDialDrag = null;
+  var draftOpenBlank = -1;   // rule index whose tap-to-fix helper is open (-1 = none)
+  var draftAudience = "personal";   // "personal" | "community" — drives the Create CTA
+  var draftCommitTimer = null;
+  var draftSaveTimer = null;
+  function dialClamp(v, min, max, step) {
+    v = Math.max(min, Math.min(max, v));
+    v = Math.round(v / step) * step;
+    return Math.round(v * 100) / 100;
+  }
+  function dialLiveUpdate(dial, v) {
+    var kind = dial.dataset.kind;
+    dial.dataset.value = String(v);
+    dial.setAttribute("aria-valuenow", String(v));
+    dial.textContent = kind === "points" ? dialPointsLabel(v) : dialNumberLabel(v, dial.dataset.unit);
+    if (kind === "points") {
+      dial.classList.remove("pos", "neg", "zero");
+      dial.classList.add(v > 0 ? "pos" : (v < 0 ? "neg" : "zero"));
+      var verb = els.buildDraftEditor.querySelector('.bde-verb[data-rule-index="' + dial.dataset.ruleIndex + '"]');
+      if (verb) verb.textContent = v < 0 ? "Take away" : "Give me";
+    }
+    setDraftRuleField(parseInt(dial.dataset.ruleIndex, 10), dial.dataset.field, v);
+    updateDraftTotal();
+  }
+  function dialCommit() {
+    var active = document.activeElement;
+    var refocus = active && active.classList && active.classList.contains("scrub-dial")
+      ? { idx: active.dataset.ruleIndex, field: active.dataset.field } : null;
+    saveState();
+    renderDraftEditor();
+    if (refocus && els.buildDraftEditor) {
+      var el = els.buildDraftEditor.querySelector('.scrub-dial[data-rule-index="' + refocus.idx + '"][data-field="' + refocus.field + '"]');
+      if (el) el.focus();
+    }
+  }
+  function scheduleDialCommit() { clearTimeout(draftCommitTimer); draftCommitTimer = setTimeout(dialCommit, 320); }
+  function scheduleDraftSave() { clearTimeout(draftSaveTimer); draftSaveTimer = setTimeout(function () { saveState(); }, 400); }
+  function onDialPointerDown(e) {
+    var dial = e.target.closest && e.target.closest(".scrub-dial"); if (!dial) return;
+    e.preventDefault();
+    try { dial.setPointerCapture(e.pointerId); } catch (err) {}
+    draftDialDrag = { dial: dial, pointerId: e.pointerId, startY: e.clientY,
+      startValue: parseFloat(dial.dataset.value) || 0, step: parseFloat(dial.dataset.step) || 1,
+      min: parseFloat(dial.dataset.min), max: parseFloat(dial.dataset.max) };
+    dial.classList.add("dragging");
+    dial.focus();
+  }
+  function onDialPointerMove(e) {
+    if (!draftDialDrag || e.pointerId !== draftDialDrag.pointerId) return;
+    var steps = Math.round((draftDialDrag.startY - e.clientY) / 15);
+    var v = dialClamp(draftDialDrag.startValue + steps * draftDialDrag.step, draftDialDrag.min, draftDialDrag.max, draftDialDrag.step);
+    if (v !== (parseFloat(draftDialDrag.dial.dataset.value) || 0)) dialLiveUpdate(draftDialDrag.dial, v);
+  }
+  function onDialPointerUp(e) {
+    if (!draftDialDrag) return;
+    draftDialDrag.dial.classList.remove("dragging");
+    try { draftDialDrag.dial.releasePointerCapture(e.pointerId); } catch (err) {}
+    draftDialDrag = null;
+    dialCommit();
+  }
+  function dialStep(dial, dir) {
+    var step = parseFloat(dial.dataset.step) || 1;
+    var v = dialClamp((parseFloat(dial.dataset.value) || 0) + dir * step, parseFloat(dial.dataset.min), parseFloat(dial.dataset.max), step);
+    dialLiveUpdate(dial, v);
+    scheduleDialCommit();
+  }
+  function onDialWheel(e) {
+    var dial = e.target.closest && e.target.closest(".scrub-dial"); if (!dial) return;
+    e.preventDefault();
+    dialStep(dial, e.deltaY < 0 ? 1 : -1);
+  }
+  function onDialKeyDown(e) {
+    var hinput = e.target.closest && e.target.closest(".bde-helper-input");
+    if (hinput && e.key === "Enter") { e.preventDefault(); setBlankFromInput(parseInt(hinput.id.replace("bdeHelperInput", ""), 10)); return; }
+    var tinput = e.target.closest && e.target.closest("#bdeTweakInput");
+    if (tinput && e.key === "Enter") { e.preventDefault(); sendTweak(); return; }
+    var dial = e.target.closest && e.target.closest(".scrub-dial"); if (!dial) return;
+    if (e.key === "ArrowUp" || e.key === "ArrowRight") { e.preventDefault(); dialStep(dial, 1); }
+    else if (e.key === "ArrowDown" || e.key === "ArrowLeft") { e.preventDefault(); dialStep(dial, -1); }
+  }
+  function onDraftEditorClick(e) {
+    var blank = e.target.closest("[data-blank-rule]");
+    if (blank) { toggleBlank(parseInt(blank.dataset.blankRule, 10)); return; }
+    var fill = e.target.closest("[data-fill-rule]");
+    if (fill) { fillBlank(parseInt(fill.dataset.fillRule, 10), fill.dataset.fillText); return; }
+    var setBtn = e.target.closest("[data-set-rule]");
+    if (setBtn) { setBlankFromInput(parseInt(setBtn.dataset.setRule, 10)); return; }
+    var ask = e.target.closest("[data-ask-ai-rule]");
+    if (ask) { askAiBlank(parseInt(ask.dataset.askAiRule, 10)); return; }
+    var tweak = e.target.closest("[data-tweak]");
+    if (tweak) { doTweak(tweak.dataset.tweak); return; }
+    if (e.target.closest("#bdeTweakSend")) { sendTweak(); return; }
+    var aud = e.target.closest("[data-audience]");
+    if (aud) { setDraftAudience(aud.dataset.audience); return; }
+    if (e.target.closest("#bdeCreate")) { if (draftAudience === "community") createCommunityFromDraft(); else createSystemFromDraft(); return; }
+    if (e.target.closest("#bdeEditAdvanced")) { useAiDraftSystem(); return; }
+    if (e.target.closest("#bdeAddRule")) { addDraftRule(); return; }
+    var rem = e.target.closest("[data-remove-rule]");
+    if (rem) { removeDraftRule(parseInt(rem.dataset.removeRule, 10)); return; }
+  }
+  function onDraftEditorInput(e) {
+    var name = e.target.closest && e.target.closest("#bdeNameInput");
+    if (name && state.aiDraftSystem) { state.aiDraftSystem.title = name.value; scheduleDraftSave(); }
+  }
+  function addDraftRule() {
+    if (!state.aiDraftSystem) return;
+    draftOpenBlank = -1;
+    state.aiDraftSystem.rules.push(scoring.createRule({
+      id: makeId("rule"), label: "New habit", category: state.aiDraftSystem.category || "Personal habits",
+      unit: "times", simpleStyle: "yesNo", yesNoPoints: 1, dailyTarget: 1
+    }));
+    saveState();
+    renderDraftEditor();
+  }
+  function removeDraftRule(index) {
+    if (!state.aiDraftSystem || !state.aiDraftSystem.rules[index]) return;
+    draftOpenBlank = -1;
+    state.aiDraftSystem.rules.splice(index, 1);
+    saveState();
+    renderDraftEditor();
+  }
+  function createSystemFromDraft() {
+    var draft = state.aiDraftSystem;
+    if (!draft) return;
+    if (!draft.rules || !draft.rules.length) { showToast("Add at least one habit first"); return; }
+    var nameInput = els.buildDraftEditor && els.buildDraftEditor.querySelector("#bdeNameInput");
+    if (nameInput) draft.title = nameInput.value.trim() || draft.title;
+    var sys = cloneSystem(normalizeSystem(draft), draft.title || "AI draft reward system");
+    sys.aiDomain = draft.aiDomain || "general";
+    recordAiSave(normalizeSystem(draft));
+    state.systems.unshift(sys);
+    state.selectedSystemId = sys.id;
+    state.trackerSystemId = sys.id;
+    state.aiDraftSystem = null; state.aiDraftInputs = null; state.aiDraftAdjustments = null;
+    state.aiDraftRawSystem = null; state.aiDraftChat = [];
+    resetBuildHome();
+    saveState();
+    render();
+    showToast("System created");
+  }
+
+  // §8: does the intent sound like a shared/group goal?
+  function intentImpliesGroup(text) {
+    var t = String(text || "");
+    return /\b(we|us|our|team|crew|squad|group|club|friends|the boys|the girls|together|each other|everyone)\b/i.test(t)
+      || /\bwith\s+[A-Z][a-z]+/.test(t);
+  }
+  function setDraftAudience(a) {
+    draftAudience = a === "community" ? "community" : "personal";
+    renderDraftEditor();
+  }
+  // Step 5: "Tweak with AI" — reuse the existing refine path (no new endpoint).
+  function doTweak(kind) {
+    if (!state.aiDraftSystem) return;
+    draftOpenBlank = -1;
+    if (kind === "stricter") refineAiDraft(cannedInstructionForPreset("stricter"), "stricter");
+    else if (kind === "easier") refineAiDraft(cannedInstructionForPreset("easier"), "easier");
+    else if (kind === "fewer") refineAiDraft("Use fewer rules — keep only the most important ones, merge or drop the rest.");
+    else if (kind === "penalty") refineAiDraft("Add one penalty rule that takes away points for a relevant slip-up, and keep the existing rewards.");
+    else return;
+    showToast("Tweaking with AI…");
+  }
+  function sendTweak() {
+    var input = els.buildDraftEditor && els.buildDraftEditor.querySelector("#bdeTweakInput");
+    var t = input ? input.value.trim() : "";
+    if (!t) { showToast("Type a change first"); return; }
+    draftOpenBlank = -1;
+    refineAiDraft(t);
+    showToast("Tweaking with AI…");
+  }
+  // Step 6: Create a COMMUNITY from the draft, reusing finalizeCommunityDraft's DB
+  // writes (createCommunity + owner joinCommunity + reload). Seed the cc-form els it
+  // reads via syncCommunityDraftFromForm.
+  async function createCommunityFromDraft() {
+    var draft = state.aiDraftSystem;
+    if (!draft) return;
+    if (!draft.rules || !draft.rules.length) { showToast("Add at least one habit first"); return; }
+    if (!communitiesAreShared()) {
+      showToast("Sign in to create a community");
+      if (typeof showAuthScreen === "function") showAuthScreen();
+      return;
+    }
+    var nameInput = els.buildDraftEditor && els.buildDraftEditor.querySelector("#bdeNameInput");
+    var name = (nameInput ? nameInput.value.trim() : "") || draft.title || "New community";
+    communityDraft = blankCommunityDraft();
+    communityDraft.rules = draft.rules.map(function (r) { return scoring.createRule(Object.assign({}, scoring.normalizeRule(r), { id: makeId("community-rule") })); });
+    if (els.ccNameInput) els.ccNameInput.value = name;
+    if (els.ccCategoryInput) els.ccCategoryInput.value = draft.category || "Community";
+    if (els.ccDescriptionInput) els.ccDescriptionInput.value = draft.description || "";
+    if (els.ccVisibilityInput) els.ccVisibilityInput.value = draft.visibility || "private";
+    showToast("Creating community…");
+    await finalizeCommunityDraft();
+    if (state.activeView === "community-detail") {
+      state.aiDraftSystem = null; state.aiDraftInputs = null; state.aiDraftAdjustments = null;
+      state.aiDraftRawSystem = null; state.aiDraftChat = [];
+      resetBuildHome();
+      saveState();
     }
   }
 

@@ -40,6 +40,9 @@ RULE MODEL — every rule has:
 - "every": numeric increment for "every" style (0 otherwise).
 - "points": points earned, a small number (0.5–3). For PENALTY rules use a NEGATIVE number.
 - "tier": "core" (essential), "extra" (supporting), "bonus" (stretch), or "penalty".
+- OPTIONAL "condition": for a "yesNo" rule, a short specific phrase for what counts as done (e.g. "do a 45-minute workout"). Omit when the label already says it.
+- OPTIONAL "uncertain": true when you filled in a target or condition the user did NOT specify, so they should confirm it. Omit otherwise.
+- OPTIONAL "suggestions": 1–4 short alternative phrasings for an uncertain "yesNo" condition. Omit when not needed.
 
 GUIDELINES:
 - 4–8 rules total. Lean toward "core" rules; add "extra"/"bonus" for depth.
@@ -48,8 +51,8 @@ GUIDELINES:
 - Honor any numeric targets the user gave.
 - Keep labels concrete and concise. No fluff.
 
-OUTPUT: Respond with ONLY a single minified JSON object, no prose, no markdown code fences. Exact shape:
-{"title":string,"category":string,"description":string,"explanation":string,"rules":[{"label":string,"category":string,"unit":string,"style":"goal"|"every"|"yesNo","goal":number,"every":number,"points":number,"tier":"core"|"extra"|"bonus"|"penalty"}]}
+OUTPUT: Respond with ONLY a single minified JSON object, no prose, no markdown code fences. Exact shape (the last three rule keys are OPTIONAL — include only when useful):
+{"title":string,"category":string,"description":string,"explanation":string,"rules":[{"label":string,"category":string,"unit":string,"style":"goal"|"every"|"yesNo","goal":number,"every":number,"points":number,"tier":"core"|"extra"|"bonus"|"penalty","condition"?:string,"uncertain"?:boolean,"suggestions"?:string[]}]}
 - "title": a short name for the system.
 - "description": one sentence on what it rewards.
 - "explanation": 1–2 sentences on why these rules, for the review screen.`;
@@ -65,9 +68,10 @@ Each rule keeps this shape:
 - "goal": numeric daily target (0 for yesNo). "every": increment for "every" style (0 otherwise).
 - "points": small number 0.5–3; NEGATIVE for a penalty rule.
 - "tier": "core" | "extra" | "bonus" | "penalty".
+- OPTIONAL "condition"/"uncertain"/"suggestions" (as in generation) — preserve them on rules you do not change.
 
-OUTPUT: Respond with ONLY a single minified JSON object — the FULL updated system — in this EXACT shape, no prose, no markdown code fences:
-{"title":string,"category":string,"description":string,"explanation":string,"rules":[{"label":string,"category":string,"unit":string,"style":"goal"|"every"|"yesNo","goal":number,"every":number,"points":number,"tier":"core"|"extra"|"bonus"|"penalty"}]}
+OUTPUT: Respond with ONLY a single minified JSON object — the FULL updated system — in this EXACT shape, no prose, no markdown code fences (the last three rule keys are OPTIONAL):
+{"title":string,"category":string,"description":string,"explanation":string,"rules":[{"label":string,"category":string,"unit":string,"style":"goal"|"every"|"yesNo","goal":number,"every":number,"points":number,"tier":"core"|"extra"|"bonus"|"penalty","condition"?:string,"uncertain"?:boolean,"suggestions"?:string[]}]}
 - Keep "title"/"category" unless the instruction changes the focus.
 - "explanation": ONE short sentence stating what you just changed.`;
 

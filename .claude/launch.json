@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "coach-preview",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-c",
+        "import http.server, socketserver, functools; socketserver.TCPServer.allow_reuse_address = True; H = functools.partial(http.server.SimpleHTTPRequestHandler, directory='/Users/marcavram/Documents/GitHub/reward-system-app/outputs'); socketserver.TCPServer(('127.0.0.1', 8765), H).serve_forever()"
+      ],
+      "port": 8765
+    }
+  ]
+}

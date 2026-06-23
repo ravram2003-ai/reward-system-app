@@ -3083,6 +3083,7 @@
     // feature, down to shrink); order persists in state.homeLayout.order.
     if (els.worldGrid) {
       els.worldGrid.addEventListener("click", onWorldGridClick);
+      els.worldGrid.addEventListener("keydown", onWorldGridKeydown);
       els.worldGrid.addEventListener("pointerdown", onWorldGridPointerDown);
       // move/up on window so the drag keeps tracking outside the grid bounds.
       window.addEventListener("pointermove", onWorldGridPointerMove, { passive: false });
@@ -4191,7 +4192,7 @@
 
   // Order: if the user has dragged tiles (state.homeLayout.order, Phase 2), honor that;
   // otherwise default to communities first (by today's points desc), then personal systems
-  // (by points desc). The top two of the final order are featured/large (worldFeaturedKeys).
+  // (by points desc). Each tile's SIZE is explicit + persisted (worldTileSize), not derived.
   function applyWorldLayout(tiles) {
     const layout = state.homeLayout;
     if (layout && Array.isArray(layout.order) && layout.order.length) {
@@ -4209,10 +4210,125 @@
     });
   }
 
-  // Featured = the top two tiles in the (possibly user-dragged) order. Dragging a tile up
-  // into the top two features it (large); dragging down shrinks it.
-  function worldFeaturedKeys(ordered) {
-    return new Set(ordered.slice(0, 2).map(worldTileKey));
+  // ── Per-tile SIZE (small · medium · large), persisted per user ────────────────
+  // Size is now EXPLICIT (not position-derived): hold-drag reorders, the ⤢ control cycles
+  // size. Default = a single hero (first tile large) + the rest as a compact small grid.
+  const WORLD_SIZES = ["small", "medium", "large"];
+  function worldLayout() {
+    state.homeLayout = state.homeLayout || {};
+    state.homeLayout.sizes = state.homeLayout.sizes || {};
+    state.homeLayout.sections = state.homeLayout.sections || {};
+    return state.homeLayout;
+  }
+  function worldTileSize(key, index) {
+    const saved = worldLayout().sizes[key];
+    if (WORLD_SIZES.indexOf(saved) > -1) return saved;
+    return index === 0 ? "large" : "small";
+  }
+  function setWorldTileSize(key, size) {
+    if (WORLD_SIZES.indexOf(size) === -1) return;
+    worldLayout().sizes[key] = size;
+    saveState();
+    renderWorldGrid();
+  }
+  function worldTileFromKey(key) {
+    return buildWorldTiles().find((t) => worldTileKey(t) === key) || null;
+  }
+
+  // ── Large-widget SECTIONS — default Leaderboard → Recent posts, add/remove inline ──
+  const WORLD_SECTION_DEFS = {
+    lb:       { label: "Leaderboard",      chip: "+ Leaderboard",      types: ["community"] },
+    posts:    { label: "Recent posts",     chip: "+ Posts",            types: ["community"] },
+    members:  { label: "Members",          chip: "+ Members",          types: ["community"] },
+    trend:    { label: "Week trend",       chip: "+ Trend",            types: ["community", "personal"] },
+    schedule: { label: "Today's schedule", chip: "+ Today's schedule", types: ["community", "personal"] },
+  };
+  const WORLD_SECTION_ORDER = ["lb", "posts", "members", "trend", "schedule"];
+  function worldSectionApplies(t, key) {
+    const def = WORLD_SECTION_DEFS[key];
+    if (!def || def.types.indexOf(t.type) === -1) return false;
+    if (key === "lb") {
+      const modules = (t.community && t.community.analytics && t.community.analytics.modules) || {};
+      if (modules.leaderboard === false) return false;
+    }
+    return true;
+  }
+  function worldDefaultSections(t) {
+    return t.type === "community" ? ["lb", "posts"] : ["schedule", "trend"];
+  }
+  function worldSectionsFor(t) {
+    const saved = worldLayout().sections[worldTileKey(t)];
+    const list = Array.isArray(saved) ? saved.slice() : worldDefaultSections(t);
+    return list.filter((k) => worldSectionApplies(t, k));
+  }
+  function addWorldSection(key, sec) {
+    const t = worldTileFromKey(key);
+    if (!t || !worldSectionApplies(t, sec)) return;
+    const list = worldSectionsFor(t);
+    if (list.indexOf(sec) === -1) list.push(sec);
+    worldLayout().sections[key] = list;
+    saveState();
+    renderWorldGrid();
+  }
+  function removeWorldSection(key, sec) {
+    const t = worldTileFromKey(key);
+    if (!t) return;
+    worldLayout().sections[key] = worldSectionsFor(t).filter((k) => k !== sec);
+    saveState();
+    renderWorldGrid();
+  }
+
+  // A MEDIUM tile shows ONE section (its primary = sections[0]); "swap" replaces it. We reuse
+  // the same homeLayout.sections list, so the chosen section persists and carries over if the
+  // tile is later enlarged (it becomes the first section of the large widget).
+  function worldPrimarySection(t) {
+    const list = worldSectionsFor(t);
+    if (list.length) return list[0];
+    return t.type === "community" ? "lb" : "schedule";
+  }
+  function setWorldPrimarySection(key, sec) {
+    const t = worldTileFromKey(key);
+    if (!t || !worldSectionApplies(t, sec)) return;
+    const list = worldSectionsFor(t).filter((k) => k !== sec);
+    list.unshift(sec);
+    worldLayout().sections[key] = list;
+    saveState();
+    renderWorldGrid();
+  }
+  function closeWorldSwapMenus() {
+    if (!els.worldGrid) return false;
+    const open = els.worldGrid.querySelector(".world-swap-menu:not([hidden])");
+    if (!open) return false;
+    els.worldGrid.querySelectorAll(".world-swap-menu").forEach((m) => { m.hidden = true; });
+    els.worldGrid.querySelectorAll("[data-world-swap-toggle]").forEach((b) => b.setAttribute("aria-expanded", "false"));
+    els.worldGrid.querySelectorAll(".world-tile.world-menu-open").forEach((el) => el.classList.remove("world-menu-open"));
+    return true;
+  }
+
+  // Compact "Xh ago" for a post timestamp or dateKey (reuses entry timestamps; no new data).
+  function worldAgo(ts) {
+    if (!ts) return "";
+    const then = /^\d{4}-\d{2}-\d{2}$/.test(String(ts)) ? new Date(ts + "T12:00:00") : new Date(ts);
+    const ms = Date.now() - then.getTime();
+    if (!Number.isFinite(ms)) return "";
+    const min = Math.round(ms / 60000);
+    if (min < 1) return "just now";
+    if (min < 60) return min + "m ago";
+    const hr = Math.round(min / 60);
+    if (hr < 24) return hr + "h ago";
+    return Math.round(hr / 24) + "d ago";
+  }
+
+  // Standings / rank / active-count helpers (reuse communityStandings).
+  function worldStandings(community) {
+    try { return communityStandings(community, COMMUNITY_PERIODS[0].id, "points"); } catch (e) { return []; }
+  }
+  function worldMyRank(community) {
+    const idx = worldStandings(community).findIndex((m) => m.id === "me");
+    return idx >= 0 ? idx + 1 : 0;
+  }
+  function worldActiveToday(community) {
+    return worldStandings(community).filter((m) => numberOrDefault(m.today, 0) > 0).length;
   }
 
   function renderWorldGrid() {
@@ -4220,24 +4336,25 @@
     if (!mount) return;
     if (worldDrag.started) return; // never rebuild mid-drag — it would drop the ghost/placeholder
     const tiles = buildWorldTiles();
-    if (els.worldGridHint) els.worldGridHint.hidden = tiles.length < 2;
-    const addTile = `<button type="button" class="world-tile world-add" data-world-add>
+    if (els.worldGridHint) els.worldGridHint.hidden = tiles.length < 1;
+    const addTile = `<div class="world-tile world-add" role="button" tabindex="0" data-world-add aria-label="Add a world">
         <span class="world-add-plus" aria-hidden="true">+</span>
         <span class="world-add-label">${tiles.length ? "New" : "Create your first world"}</span>
-      </button>`;
+      </div>`;
     if (!tiles.length) { mount.innerHTML = addTile; return; }
-    const featured = worldFeaturedKeys(tiles);
-    mount.innerHTML = tiles.map((t) => renderWorldTile(t, featured.has(worldTileKey(t)))).join("") + addTile;
+    mount.innerHTML = tiles.map((t, i) => renderWorldTile(t, worldTileSize(worldTileKey(t), i))).join("") + addTile;
   }
 
-  function renderWorldRing(t, large) {
+  // The SAME circular progress ring on every tile/size: a donut with "X/Y" centered inside.
+  // Per-type colour comes from CSS (.tile-community / .tile-personal stroke the fill green/purple).
+  function renderWorldRing(t, size) {
     const target = numberOrDefault(t.target, 0);
     const pct = Math.min(Math.max(numberOrDefault(t.percent, 0), 0), 100);
     // No target yet (e.g. a system with no rules) → show just the points, never "X/0".
     const label = target > 0
       ? `${escapeHtml(formatPoints(t.myPoints))}/${escapeHtml(formatPoints(target))}`
-      : `${escapeHtml(formatPoints(t.myPoints))} pts`;
-    return `<div class="score-ring world-ring${large ? " world-ring-lg" : ""}" aria-hidden="true">
+      : `${escapeHtml(formatPoints(t.myPoints))}`;
+    return `<div class="score-ring world-ring world-ring-${size}" aria-hidden="true">
         <svg class="score-ring-svg" viewBox="0 0 44 44">
           <circle class="score-ring-bg" cx="22" cy="22" r="19"></circle>
           <circle class="score-ring-fill" cx="22" cy="22" r="19" pathLength="100" style="stroke-dashoffset:${100 - pct}"></circle>
@@ -4246,62 +4363,248 @@
       </div>`;
   }
 
-  function renderWorldTile(t, large) {
-    const typeClass = t.type === "community" ? "tile-community" : "tile-personal";
-    const ring = renderWorldRing(t, large);
-    let detail;
-    if (large && t.type === "community") {
-      detail = renderWorldLeaderboard(t.community);
-    } else if (large && t.type === "personal") {
-      const toGo = numberOrDefault(t.toGo, 0);
-      detail = `<p class="world-tile-detail">${toGo > 0 ? `${escapeHtml(formatPoints(toGo))} to go` : "Goal hit today 🎉"}</p>`;
-    } else {
-      detail = `<span class="world-tile-sub">${t.type === "community" ? "community" : "personal"}</span>`;
+  // Medium/large top stat: community → rank + active; personal → to-go.
+  function renderWorldStat(t, full) {
+    if (t.type === "community") {
+      const rank = worldMyRank(t.community), active = worldActiveToday(t.community);
+      const bits = [];
+      if (rank) bits.push("Rank #" + rank);
+      if (active) bits.push(active + (full ? " active today" : " active"));
+      return escapeHtml(bits.join(" · ") || "community");
     }
-    // Phase 2 hook: data-world-key is the stable id a drag/reorder handler would move.
-    return `<button type="button" class="world-tile ${typeClass}${large ? " is-large" : ""}" data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(worldTileKey(t))}" aria-label="Open ${escapeHtml(t.name)}">
-        <div class="world-tile-head">
-          ${ring}
-          <strong class="world-tile-name">${escapeHtml(t.name)}</strong>
-        </div>
-        ${detail}
-      </button>`;
+    const toGo = numberOrDefault(t.toGo, 0);
+    return toGo > 0 ? escapeHtml(formatPoints(toGo) + (full ? " to go today" : " to go")) : "Goal hit today 🎉";
   }
 
-  function renderWorldLeaderboard(community) {
-    // Respect the owner's leaderboard module toggle (defaults to on when unset), like
-    // renderMiniLeaderboard does — never surface standings a community has hidden.
-    const modules = (community && community.analytics && community.analytics.modules) || {};
-    if (modules.leaderboard === false) return `<span class="world-tile-sub">community</span>`;
-    let standings = [];
-    try { standings = communityStandings(community, COMMUNITY_PERIODS[0].id, "points").slice(0, 3); } catch (e) { standings = []; }
-    if (!standings.length) return `<span class="world-tile-sub">community</span>`;
-    const rows = standings.map((m, i) => {
+  function renderWorldTile(t, size) {
+    const key = worldTileKey(t);
+    const typeClass = t.type === "community" ? "tile-community" : "tile-personal";
+    const attrs = `data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(key)}" data-world-size="${size}"`;
+    const sizeBtn = `<button type="button" class="world-size-btn" data-world-size-cycle aria-label="Resize ${escapeHtml(t.name)} (small, medium, large)" title="Resize"><span aria-hidden="true">⤢</span></button>`;
+    const open = `role="button" tabindex="0" aria-label="Open ${escapeHtml(t.name)}"`;
+    if (size === "large") {
+      return `<div class="world-tile ${typeClass} size-large" ${attrs} ${open}>
+          ${sizeBtn}
+          <div class="world-tile-head world-large-head">
+            ${renderWorldRing(t, "large")}
+            <div class="world-tile-main">
+              <strong class="world-tile-name">${escapeHtml(t.name)}</strong>
+              <span class="world-tile-stat">${renderWorldStat(t, true)}</span>
+            </div>
+          </div>
+          ${renderWorldSections(t)}
+        </div>`;
+    }
+    if (size === "medium") {
+      return `<div class="world-tile ${typeClass} size-medium" ${attrs} ${open}>
+          ${sizeBtn}
+          <div class="world-tile-head">
+            ${renderWorldRing(t, "medium")}
+            <div class="world-tile-main">
+              <strong class="world-tile-name">${escapeHtml(t.name)}</strong>
+              <span class="world-tile-stat">${renderWorldStat(t, false)}</span>
+            </div>
+          </div>
+          ${renderWorldMediumSection(t)}
+        </div>`;
+    }
+    return `<div class="world-tile ${typeClass} size-small" ${attrs} ${open}>
+        ${sizeBtn}
+        ${renderWorldRing(t, "small")}
+        <strong class="world-tile-name">${escapeHtml(t.name)}</strong>
+      </div>`;
+  }
+
+  // ── Large-widget sections (default Leaderboard → Recent posts) + the inline add bar ──
+  function renderWorldSections(t) {
+    const active = worldSectionsFor(t);
+    const body = active.map((sec) => renderWorldSection(t, sec)).join("");
+    const addable = WORLD_SECTION_ORDER.filter((sec) => worldSectionApplies(t, sec) && active.indexOf(sec) === -1);
+    const chips = addable.map((sec) => `<button type="button" class="world-add-chip" data-world-add-sec="${sec}">${escapeHtml(WORLD_SECTION_DEFS[sec].chip)}</button>`).join("");
+    const addbar = chips ? `<div class="world-addbar">${chips}</div>` : "";
+    return `<div class="world-sections">${body}</div>${addbar}`;
+  }
+
+  function renderWorldSection(t, sec) {
+    const def = WORLD_SECTION_DEFS[sec];
+    return `<div class="world-section" data-world-sec="${sec}">
+        <div class="world-section-head">
+          <p class="world-cap">${escapeHtml(def.label)}</p>
+          <button type="button" class="world-section-rm" data-world-rm-sec="${sec}">remove</button>
+        </div>
+        ${worldSectionBody(t, sec)}
+      </div>`;
+  }
+
+  function worldSectionBody(t, sec, compact) {
+    if (sec === "lb") return worldLbBody(t.community, compact ? 2 : 3);
+    if (sec === "posts") return worldPostsBody(t.community, compact ? 1 : 3);
+    if (sec === "members") return worldMembersBody(t.community);
+    if (sec === "trend") return worldTrendBody(t);
+    if (sec === "schedule") return worldScheduleBody(t, compact ? 2 : 5);
+    return "";
+  }
+
+  // Medium tile's ONE section + a "swap" pill that opens a picker to replace it.
+  function renderWorldMediumSection(t) {
+    const sec = worldPrimarySection(t);
+    const def = WORLD_SECTION_DEFS[sec];
+    if (!def) return "";
+    const opts = WORLD_SECTION_ORDER.filter((k) => worldSectionApplies(t, k));
+    const menu = opts.map((k) => `<button type="button" class="world-swap-opt${k === sec ? " is-current" : ""}" data-world-swap-sec="${k}">${escapeHtml(WORLD_SECTION_DEFS[k].label)}${k === sec ? `<span class="world-swap-check" aria-hidden="true">✓</span>` : ""}</button>`).join("");
+    const swap = opts.length > 1
+      ? `<div class="world-swap" data-world-swap>
+          <button type="button" class="world-swap-btn" data-world-swap-toggle aria-haspopup="true" aria-expanded="false">⇄ swap</button>
+          <div class="world-swap-menu" hidden>${menu}</div>
+        </div>`
+      : "";
+    return `<div class="world-med-section" data-world-sec="${sec}">
+        <div class="world-section-head">
+          <p class="world-cap">${escapeHtml(def.label)}</p>
+          ${swap}
+        </div>
+        ${worldSectionBody(t, sec, true)}
+      </div>`;
+  }
+
+  function worldAvatarMarkup(member) {
+    return renderAvatar({ className: "world-av", name: member && member.name, avatarUrl: member && member.avatarUrl, color: avatarColor((member && member.name) || "Member") });
+  }
+
+  function worldLbBody(community, limit) {
+    const standings = worldStandings(community).slice(0, limit || 3);
+    if (!standings.length) return `<p class="world-section-empty">No standings yet.</p>`;
+    return standings.map((m, i) => {
       const me = m.id === "me";
       return `<div class="world-lb-row${me ? " is-me" : ""}">
           <span class="world-lb-rank">${i + 1}</span>
+          ${worldAvatarMarkup(m)}
           <span class="world-lb-name">${me ? "You" : escapeHtml(m.name || "Member")}</span>
-          <span class="world-lb-pts">${escapeHtml(formatPoints(m.today))}</span>
+          <strong class="world-lb-pts">${escapeHtml(formatPoints(m.today))}</strong>
         </div>`;
     }).join("");
-    return `<div class="world-lb">${rows}</div>`;
+  }
+
+  function worldPostsBody(community, limit) {
+    const posts = (state.communityEntries || [])
+      .filter((e) => e.communityId === community.id)
+      .slice()
+      .sort((a, b) => String(b.timestamp || b.dateKey || b.date || "").localeCompare(String(a.timestamp || a.dateKey || a.date || "")))
+      .slice(0, limit || 3);
+    if (!posts.length) return `<p class="world-section-empty">No posts yet — log a day to start the feed.</p>`;
+    const rules = (community.system && community.system.rules || []).map(scoring.normalizeRule);
+    return posts.map((e) => {
+      const member = (community.members || []).find((m) => m.id === e.userId) || { name: "Member" };
+      const rule = rules.find((r) => r.id === e.ruleId);
+      const who = member.id === "me" ? "You" : (member.name || "Member");
+      const cap = e.message ? e.message : (rule ? rule.label : "logged a day");
+      return `<div class="world-post">
+          ${worldAvatarMarkup(member)}
+          <div class="world-post-main">
+            <p class="world-post-line"><strong>${escapeHtml(who)}</strong> · ${escapeHtml(cap)}</p>
+            <p class="world-post-meta">${escapeHtml(worldAgo(e.timestamp || e.dateKey || e.date))}</p>
+          </div>
+        </div>`;
+    }).join("");
+  }
+
+  function worldMembersBody(community) {
+    const members = (community.members || []).slice(0, 6);
+    if (!members.length) return `<p class="world-section-empty">Just you so far.</p>`;
+    const avs = members.map((m) => `<span class="world-member-av">${worldAvatarMarkup(m)}</span>`).join("");
+    const more = (community.members || []).length > 6 ? `<span class="world-member-more">+${community.members.length - 6}</span>` : "";
+    return `<div class="world-members">${avs}${more}</div>`;
+  }
+
+  function worldTrendBody(t) {
+    const week = currentWeekDateKeys();
+    const me = t.type === "community" ? (t.community.members || []).find((m) => m.id === "me") : null;
+    const vals = week.map((d) => {
+      if (t.type === "community") return me ? numberOrDefault(communityMemberPointsOnDate(t.community, me, d), 0) : 0;
+      const e = findEntry(d, t.id);
+      return e ? numberOrDefault(e.total, 0) : 0;
+    });
+    const max = Math.max.apply(null, vals.concat([1]));
+    const today = getTodayKey();
+    const bars = week.map((d, i) => `<div class="world-bar${d === today ? " is-today" : ""}" style="height:${Math.max(6, Math.round((vals[i] / max) * 100))}%"></div>`).join("");
+    return `<div class="world-bars" aria-hidden="true">${bars}</div>`;
+  }
+
+  function worldScheduleBody(t, limit) {
+    const sys = t.type === "community"
+      ? normalizeSystem(t.community.system || { rules: [] })
+      : normalizeSystem((state.systems || []).find((s) => s.id === t.id) || { rules: [] });
+    const rules = (sys.rules || []).map(scoring.normalizeRule).filter((r) => r.simpleStyle !== "penalty").slice(0, limit || 5);
+    if (!rules.length) return `<p class="world-section-empty">No rules yet.</p>`;
+    const today = getTodayKey();
+    return rules.map((r) => {
+      const done = t.type === "community"
+        ? (state.communityEntries || []).some((e) => e.communityId === t.id && e.userId === "me" && e.ruleId === r.id && (e.dateKey || e.date) === today)
+        : ((state.quickEntries || []).some((e) => e.systemId === t.id && e.ruleId === r.id && (e.dateKey || e.date) === today) || numberOrDefault(syncedContribution(r, { date: todayIso }), 0) > 0);
+      return `<div class="world-sched-row${done ? " is-done" : ""}">
+          <span class="world-sched-check" aria-hidden="true">${done ? "✓" : "○"}</span>
+          <span class="world-sched-name">${escapeHtml(r.label || "Rule")}</span>
+        </div>`;
+    }).join("");
   }
 
   // ── Tile taps → open that world via existing handlers (no new detail views) ──
+  // Editing controls (resize / add-section / remove-section) are handled FIRST and never
+  // open the world. Everything else on a tile = open.
   function onWorldGridClick(event) {
     // A click that follows a drag must not also open the tile.
     if (worldDrag.suppressClick) { worldDrag.suppressClick = false; return; }
-    if (event.target.closest("[data-world-add]")) { openAddWorld(); return; }
-    const tile = event.target.closest("[data-world-id]");
+    const t = event.target;
+    const sizeCycle = t.closest("[data-world-size-cycle]");
+    if (sizeCycle) {
+      const tile = sizeCycle.closest("[data-world-key]");
+      if (tile) setWorldTileSize(tile.dataset.worldKey, WORLD_SIZES[(WORLD_SIZES.indexOf(tile.dataset.worldSize) + 1) % WORLD_SIZES.length]);
+      return;
+    }
+    // Medium-tile "swap" picker: toggle open without re-rendering; pick a section to replace it.
+    const swapToggle = t.closest("[data-world-swap-toggle]");
+    if (swapToggle) {
+      const wrap = swapToggle.parentNode, menu = wrap && wrap.querySelector(".world-swap-menu");
+      const willOpen = menu && menu.hidden;
+      closeWorldSwapMenus();
+      if (willOpen) { menu.hidden = false; swapToggle.setAttribute("aria-expanded", "true"); const tile = swapToggle.closest(".world-tile"); if (tile) tile.classList.add("world-menu-open"); }
+      return;
+    }
+    const swapSec = t.closest("[data-world-swap-sec]");
+    if (swapSec) { const tile = swapSec.closest("[data-world-key]"); if (tile) setWorldPrimarySection(tile.dataset.worldKey, swapSec.dataset.worldSwapSec); return; }
+    if (t.closest("[data-world-swap]")) return; // clicks inside the open menu's chrome — ignore
+    // Any other click closes an open swap menu first (a tap to dismiss, not to open the world).
+    if (closeWorldSwapMenus()) return;
+    const addSec = t.closest("[data-world-add-sec]");
+    if (addSec) { const tile = addSec.closest("[data-world-key]"); if (tile) addWorldSection(tile.dataset.worldKey, addSec.dataset.worldAddSec); return; }
+    const rmSec = t.closest("[data-world-rm-sec]");
+    if (rmSec) { const tile = rmSec.closest("[data-world-key]"); if (tile) removeWorldSection(tile.dataset.worldKey, rmSec.dataset.worldRmSec); return; }
+    if (t.closest("[data-world-add]")) { openAddWorld(); return; }
+    const tile = t.closest("[data-world-id]");
     if (!tile) return;
     if (tile.dataset.worldType === "community") openWorldCommunity(tile.dataset.worldId);
     else openWorldPersonal(tile.dataset.worldId);
   }
 
-  // ── Phase 2: drag to reorder (long-press on touch / click-drag on desktop) ───
-  // The top two tiles in the resulting order are the featured/large ones, so dragging a
-  // tile UP "features" it and dragging it DOWN shrinks it. Order persists in
-  // state.homeLayout.order across sessions (worldFeaturedKeys derives the featured pair).
+  // Keyboard: Enter/Space on a focused tile opens it (it's role="button"). Inner controls are
+  // real <button>s and fire their own click, so skip them here.
+  function onWorldGridKeydown(event) {
+    if (event.key !== "Enter" && event.key !== " " && event.key !== "Spacebar") return;
+    const t = event.target;
+    if (!t.closest) return;
+    if (t.closest("[data-world-size-cycle],[data-world-add-sec],[data-world-rm-sec],[data-world-swap]")) return;
+    const tile = t.closest(".world-tile");
+    if (!tile) return;
+    event.preventDefault();
+    if (tile.hasAttribute("data-world-add")) { openAddWorld(); return; }
+    if (!tile.dataset.worldId) return;
+    if (tile.dataset.worldType === "community") openWorldCommunity(tile.dataset.worldId);
+    else openWorldPersonal(tile.dataset.worldId);
+  }
+
+  // ── Drag to reorder (long-press on touch / click-drag on desktop) ────────────
+  // Reorder only — size is separate (the ⤢ control). Order persists in state.homeLayout.order;
+  // per-tile size in state.homeLayout.sizes; per-widget sections in state.homeLayout.sections.
   function worldTilesInDom() {
     return els.worldGrid ? Array.from(els.worldGrid.querySelectorAll(".world-tile[data-world-key]")) : [];
   }
@@ -4378,6 +4681,8 @@
 
   function onWorldGridPointerDown(event) {
     if (event.button != null && event.button !== 0) return; // primary / touch only
+    // Editing controls (resize / add / remove / swap) are taps, never drag handles.
+    if (event.target.closest && event.target.closest("[data-world-size-cycle],[data-world-add-sec],[data-world-rm-sec],[data-world-swap]")) return;
     const tile = event.target.closest && event.target.closest(".world-tile[data-world-key]");
     if (!tile) return; // the Add tile (no data-world-key) and empty space fall through to click
     worldDrag.key = tile.dataset.worldKey;

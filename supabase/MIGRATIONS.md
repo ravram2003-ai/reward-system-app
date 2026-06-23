@@ -38,6 +38,12 @@ you know what's live in production.
   requests (bell). *(after feed-social + friends)*
 - [ ] **15. wearables.sql** — wearables (Fitbit/Whoop) tokens + RLS. *(independent — run
   anytime; pairs with the `wearables` edge function)*
+- [x] **16. world-media.sql** — world cover photo + app icon: adds `cover_url`/`icon_url` to
+  `communities` + `public_systems`, and a PRIVATE **`world-media` storage bucket** with
+  owner-only write + visibility-gated read (`can_read_world_media`). *(after communities +
+  community-discovery + public-systems + friends — needs `is_community_member`,
+  `profile_is_public`, and the `request_to_join` visibility tier)*. **The upcoming world-detail
+  cover/icon UI won't work until this is run and the bucket exists.**
 
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).
@@ -46,6 +52,7 @@ you know what's live in production.
 - Each needs its LLM/provider secret set in Supabase project settings.
 
 ## Notes
-- Storage buckets needed: **avatars** (profile pictures), and an entry-photo bucket for
-  post images — confirm both exist with correct policies.
+- Storage buckets needed: **avatars** (profile pictures, public), an entry-photo bucket for
+  post images, and **world-media** (world covers/icons, PRIVATE — created by world-media.sql)
+  — confirm all exist with correct policies.
 - When you add a new `.sql` file, append it here in dependency order with an unchecked box.

@@ -8964,6 +8964,18 @@ body.onboarding-locked .coach-panel { display: none; }
   border-radius: 8px; background: var(--field-bg); color: var(--ink); font: inherit;
 }
 .coach-field textarea { resize: vertical; min-height: 44px; }
+/* Post destination picker — full-width list of dark-aware option buttons (mobile-safe). */
+.coach-dest-list { display: flex; flex-direction: column; gap: 8px; }
+.coach-dest-btn {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+  width: 100%; max-width: 100%; text-align: left; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--field-bg); color: var(--ink); font: inherit; cursor: pointer;
+}
+.coach-dest-btn:hover, .coach-dest-btn:focus-visible { border-color: var(--accent-strong); outline: none; }
+.coach-dest-name { font-weight: 800; }
+.coach-dest-sub { font-size: 0.78rem; color: var(--muted); }
+.coach-post-note { color: var(--muted); font-size: 0.82rem; }
 .coach-post-photo { position: relative; display: inline-block; }
 .coach-post-photo.has-photo img { max-width: 160px; border-radius: 12px; display: block; }
 /* The shared .entry-photo-remove is near-black — invisible on a dark photo. Give the

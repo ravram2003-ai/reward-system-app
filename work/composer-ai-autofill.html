@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — feed sort (New first) + AI auto-fill composer on Enter</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; justify-content:center; padding:24px 12px; }
+  .wrap { width:100%; max-width:440px; background:#0b100e; border:1px solid #161f1c; border-radius:20px; padding:15px; }
+  /* reordered sort: New → Hot → Top, New default/active */
+  .sort { display:flex; gap:6px; margin-bottom:13px; }
+  .sort span { font-size:11px; padding:5px 13px; border-radius:16px; color:#8aa39a; cursor:pointer; }
+  .sort span.on { background:#1c4d3b; color:#9bf3cf; font-weight:600; }
+  .composer { background:#0e1412; border:1px solid #2c5a48; border-radius:15px; padding:13px; }
+  .to { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .to .av { width:26px; height:26px; border-radius:50%; background:#355d91; }
+  .to .lbl { font-size:11.5px; color:#cfd8d4; }
+  .to .dest { font-size:11px; color:#9bf3cf; background:#16241f; border:1px solid #2c5a48; border-radius:9px; padding:3px 9px; }
+  textarea { width:100%; background:transparent; border:none; color:#eaf2ee; font-size:13.5px; resize:none; min-height:44px; font-family:inherit; line-height:1.4; outline:none; }
+  /* AI suggestion shown on Enter */
+  .ai { display:none; background:#11201a; border:1px solid #2a5a45; border-radius:12px; padding:11px; margin:4px 0 11px; }
+  .ai .head { display:flex; align-items:center; gap:6px; margin-bottom:8px; }
+  .ai .head span { font-size:11px; color:#9bf3cf; font-weight:600; }
+  .srow { display:flex; align-items:center; gap:8px; }
+  .srow .lbl { font-size:12.5px; color:#eaf2ee; flex:1; } .srow .pts { color:#7fe9c0; }
+  .change { font-size:10.5px; padding:5px 11px; border-radius:9px; background:transparent; color:#cfd8d4; border:1px solid #2c3a35; cursor:pointer; }
+  .confirm { font-size:10.5px; font-weight:600; padding:5px 13px; border-radius:9px; background:#1c4d3b; color:#9bf3cf; border:none; cursor:pointer; }
+  .footer { display:flex; align-items:center; gap:9px; }
+  .photo { width:42px; height:42px; border-radius:10px; background:#11181a; border:1px dashed #2c3a35; color:#7fe9c0; font-size:16px; cursor:pointer; }
+  .postbtn { flex:1; border:none; border-radius:12px; font-size:13px; font-weight:600; padding:11px; cursor:not-allowed; background:#173228; color:#6f9486; }
+  .postbtn.ready { background:#1c4d3b; color:#9bf3cf; cursor:pointer; }
+  .note { font-size:11px; color:#6f807a; margin:13px 0 0; text-align:center; line-height:1.5; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- sort: New first, then Hot, then Top (New is default/active) -->
+  <div class="sort"><span class="on">🆕 New</span><span>🔥 Hot</span><span>🏆 Top</span></div>
+
+  <div class="composer">
+    <div class="to"><div class="av"></div><span class="lbl">Posting to</span><span class="dest">👥 Work on App</span></div>
+    <textarea id="cap" onkeydown="onKey(event)" placeholder="What did you do? (press Enter)"></textarea>
+
+    <div class="ai" id="ai">
+      <div class="head"><span style="font-size:13px;">✨</span><span>Log this with your post?</span></div>
+      <div class="srow" id="srow">
+        <span class="lbl"><strong>✅ Daily goals</strong> <span class="pts">+1 pt</span></span>
+        <button class="change" onclick="chg()">Change</button>
+        <button class="confirm" onclick="conf()">Confirm</button>
+      </div>
+    </div>
+
+    <div class="footer">
+      <button class="photo">📷</button>
+      <button class="postbtn" id="post">Press Enter to continue</button>
+    </div>
+  </div>
+
+  <p class="note">Sort reordered: <strong>New → Hot → Top</strong> (New default). Pressing <strong>Enter</strong> runs the AI (parse-log) on the caption + photo, suggests a rule + points to log, and you Confirm or Change before it posts. Confirm logs to your day + the leaderboard and tags the post.</p>
+</div>
+
+<script>
+  function onKey(e){
+    if(e.key==='Enter' && !e.shiftKey){
+      e.preventDefault();
+      if(document.getElementById('cap').value.trim().length<2) return;
+      document.getElementById('ai').style.display='block';
+    }
+  }
+  function conf(){
+    document.getElementById('ai').innerHTML='<div style="display:flex;align-items:center;gap:8px;"><span style="font-size:10.5px;color:#9bf3cf;background:#13281f;border:1px solid #2a5a45;border-radius:8px;padding:5px 10px;">✓ Daily goals +1</span><span style="font-size:10.5px;color:#7fc7b0;">logs to your day &amp; the leaderboard</span></div>';
+    var b=document.getElementById('post'); b.textContent='Post'; b.className='postbtn ready';
+  }
+  function chg(){
+    document.getElementById('srow').innerHTML='<div style="width:100%;display:flex;gap:6px;"><select style="flex:1;background:#0e1714;border:1px solid #243029;border-radius:8px;color:#eaf2ee;font-size:11.5px;padding:6px;"><option>✅ Daily goals (+1)</option><option>🏋️ Workout (+2)</option><option>— No points, just post</option></select><button class="confirm" onclick="conf()">Save</button></div>';
+  }
+</script>
+</body>
+</html>

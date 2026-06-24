@@ -9740,27 +9740,47 @@
         const matched = targets.map((t) => ({ t, score: ruleMatchScore(t, source, metric) }))
           .filter((m) => m.score > 0).sort((a, b) => b.score - a.score);
         if (matched.length) {
-          const best = matched[0].t;
-          const preview = syncIncrementPreview(best.rule);
-          if (!preview) return;
-          if (!preview.unknown && preview.increment === 0) return; // nothing new since last time
-          devices.push({
-            source, metric,
-            label: sourceMetricLabel(source, metric),
-            sourceLabel: wearableShortLabel(source),
-            unit: best.rule.unit || "",
-            current, increment: preview.increment, unknown: !!preview.unknown,
-            conflictMine: preview.unknown ? manualSumTodayForRule(best.rule.id) : 0,
-            points: preview.unknown ? 0 : scoring.calculateRule(best.rule, preview.increment).totalPoints,
-            targets: matched.map((m) => ({ contextType: m.t.contextType, contextId: m.t.contextId, contextName: m.t.contextName, ruleId: m.t.ruleId, label: m.t.label })),
-            primary: best.contextId + "|" + best.ruleId,
-            checked: !preview.unknown,
-          });
+          // Only a rule that's actually device-reconcilable — a synced total-metric rule on a
+          // connected source (syncIncrementPreview non-null) — can receive the incremental delta.
+          // A MANUAL rule that merely matches by LABEL cannot; don't black-hole the metric on it.
+          const reconcilable = matched.filter((m) => syncIncrementPreview(m.t.rule));
+          if (reconcilable.length) {
+            const best = reconcilable[0].t;
+            const preview = syncIncrementPreview(best.rule);
+            if (!preview.unknown && preview.increment === 0) return; // nothing new since last time
+            devices.push({
+              source, metric,
+              label: sourceMetricLabel(source, metric),
+              sourceLabel: wearableShortLabel(source),
+              unit: best.rule.unit || "",
+              current, increment: preview.increment, unknown: !!preview.unknown,
+              conflictMine: preview.unknown ? manualSumTodayForRule(best.rule.id) : 0,
+              points: preview.unknown ? 0 : scoring.calculateRule(best.rule, preview.increment).totalPoints,
+              targets: reconcilable.map((m) => ({ contextType: m.t.contextType, contextId: m.t.contextId, contextName: m.t.contextName, ruleId: m.t.ruleId, label: m.t.label })),
+              primary: best.contextId + "|" + best.ruleId,
+              checked: !preview.unknown,
+            });
+            return;
+          }
+          // A manual rule matches by LABEL but nothing is device-reconcilable yet (e.g. a hand-
+          // logged "Steps" rule + Fitbit steps). Don't drop the metric — offer to CONNECT the
+          // device feed to that existing rule. Deduped once per new value, like the create offer.
+          if (canOfferTracking(metric) && !wearableValueSeen(source, metric, current, today)) {
+            const t0 = matched[0].t;
+            offers.push({
+              source, metric, connect: true,
+              contextType: t0.contextType, contextId: t0.contextId, contextName: t0.contextName, ruleId: t0.ruleId,
+              label: sourceMetricLabel(source, metric), ruleLabel: t0.label,
+              sourceLabel: wearableShortLabel(source),
+              unit: t0.unit || "",
+              current, increment: current, unknown: false, conflictMine: 0, points: 0,
+              targets: [], primary: "", checked: false,
+            });
+          }
           return;
         }
-        // No rule maps to this metric yet — THIS was the bug: such metrics were dropped, so
-        // synced sleep/steps were ignored and Coach fell back to the manual list. Surface it once
-        // per new value (deduped via wearableLastSeen) with an offer to start tracking it.
+        // No rule maps to this metric at all — surface it once per new value with a "start
+        // tracking (create a new rule)" offer (deduped via wearableLastSeen).
         if (!canOfferTracking(metric)) return;
         if (wearableValueSeen(source, metric, current, today)) return;
         if (!primaryPersonalSystem()) return; // nowhere to add a rule → stay quiet
@@ -10805,9 +10825,10 @@
     const lines = [];
     (c.devices || []).forEach((d) => {
       if (lines.length >= 2) return;
-      const type = d.noRule ? "track" : d.unknown ? "conflict" : "device";
+      const type = d.connect ? "connect" : d.noRule ? "track" : d.unknown ? "conflict" : "device";
       if (!coachShouldPeekType(type)) return; // user keeps dismissing this type → skip the peek
-      if (d.noRule) lines.push({ type: type, head: d.sourceLabel, text: `${formatValue(d.current)} ${d.unit} ${d.label.toLowerCase()} today — start tracking?` });
+      if (d.connect) lines.push({ type: type, head: d.sourceLabel, text: `${formatValue(d.current)} ${d.unit} ${d.label.toLowerCase()} today — track with your ${d.ruleLabel} rule?` });
+      else if (d.noRule) lines.push({ type: type, head: d.sourceLabel, text: `${formatValue(d.current)} ${d.unit} ${d.label.toLowerCase()} today — start tracking?` });
       else if (d.unknown) lines.push({ type: type, head: d.sourceLabel, text: `${d.label}: you logged ${formatValue(d.conflictMine)}, device shows ${formatValue(d.current)}` });
       else lines.push({ type: type, head: d.sourceLabel, text: `+${formatValue(d.increment)} ${d.unit} ${d.label.toLowerCase()} since last time` });
     });
@@ -10866,6 +10887,18 @@
 
   function coachPostDeviceNudge(d) {
     const tok = escapeHtml(d.source + "|" + d.metric);
+    if (d.connect) {
+      coachSay(`
+        <div class="coach-card coach-nudge-card is-active">
+          <div class="coach-nudge-head"><span class="via-source-tag">${escapeHtml(d.sourceLabel)}</span> Connect a feed</div>
+          <p class="coach-card-title">${escapeHtml(d.sourceLabel)} shows ${escapeHtml(formatValue(d.current))} ${escapeHtml(d.unit)} ${escapeHtml(d.label.toLowerCase())} today — track it with your ${escapeHtml(d.ruleLabel)} rule?</p>
+          <div class="coach-card-actions">
+            <button type="button" class="ghost-button small" data-coach-connectdismiss="${tok}">Not now</button>
+            <button type="button" class="primary-button small" data-coach-connect="${tok}">Connect</button>
+          </div>
+        </div>`);
+      return;
+    }
     if (d.noRule) {
       coachSay(`
         <div class="coach-card coach-nudge-card is-active">
@@ -11004,6 +11037,93 @@
     coachLearnRecord("track", "dismissed");
     const d = coachDeviceByKey(source, metric);
     if (d) markWearableSeen(source, metric, d.current); // remember this value so it never re-nags
+    coachRemoveDeviceNudge(source, metric);
+    saveState();
+    coachFinalizeCard(cardEl);
+    renderCoachLauncher();
+  }
+
+  // Wire an existing (manual-matched) rule to a device feed on the RAW stored rule so future syncs
+  // auto-map (resolveQuickLogRule returns a normalized copy — must mutate the stored object).
+  function coachConnectRuleFeed(contextType, contextId, ruleId, source, metric) {
+    let rawRule = null;
+    if (contextType === "community") {
+      const c = (state.communities || []).find((x) => x.id === contextId);
+      const sys = c && c.system;
+      rawRule = sys && (sys.rules || []).find((x) => x.id === ruleId);
+    } else {
+      const s = (state.systems || []).find((x) => x.id === contextId);
+      rawRule = s && (s.rules || []).find((x) => x.id === ruleId);
+    }
+    if (!rawRule) return false;
+    rawRule.dataSource = source;
+    rawRule.sourceMetric = metric;
+    // Defensive: scoring.normalizeRule resets a dataSource that isn't in its source allowlist back
+    // to "manual" on every read — which would silently re-drop the metric (the very bug this fixes).
+    // If that would happen for this source, undo and report failure instead of black-holing it.
+    if (scoring.normalizeRule(rawRule).dataSource !== source) {
+      rawRule.dataSource = "manual"; delete rawRule.sourceMetric; return false;
+    }
+    return true;
+  }
+
+  // "Connect" on a device nudge that matched an EXISTING manual rule by label → wire that rule to
+  // the feed (future syncs auto-map), then reconcile today's reading as the first increment via the
+  // SAME incremental path (applyDeviceRowToTarget). If the rule already has a hand-log today, hand
+  // off to the Keep/Update conflict flow instead of blindly adding (no double-count). Mirrors
+  // coachTrackMetric but reuses the existing rule rather than creating one.
+  function coachDeviceConnect(source, metric, cardEl) {
+    coachLearnRecord("connect", "acted");
+    const d = coachDeviceByKey(source, metric);
+    if (!d || !d.ruleId) { coachFinalizeCard(cardEl); return; }
+    if (!coachConnectRuleFeed(d.contextType, d.contextId, d.ruleId, source, metric)) {
+      coachSayText("I couldn't connect that feed to your rule — set its data source on the rule in Build."); coachFinalizeCard(cardEl); return;
+    }
+    markWearableSeen(source, metric, d.current);
+    const resolved = resolveQuickLogRule(d.contextType, d.contextId, d.ruleId);
+    const rule = resolved ? resolved.rule : null;
+    const preview = rule ? syncIncrementPreview(rule) : null;
+    const target = { contextType: d.contextType, contextId: d.contextId, contextName: d.contextName || "", ruleId: d.ruleId, label: d.ruleLabel };
+    if (preview && preview.unknown) {
+      // Already a hand-log today → don't double-count. Re-surface as a Keep/Update conflict (reuses
+      // coachConflict → resolveCatchUpConflict, which advances the baseline either way).
+      coachRemoveDeviceNudge(source, metric);
+      state.catchUp = state.catchUp || { at: new Date().toISOString(), devices: [], manual: [] };
+      const row = { source, metric, unknown: true, label: d.label, sourceLabel: d.sourceLabel,
+        unit: (rule && rule.unit) || d.unit, current: d.current, increment: 0,
+        conflictMine: manualSumTodayForRule(rule.id), points: 0,
+        targets: [target], primary: d.contextId + "|" + d.ruleId, checked: false };
+      state.catchUp.devices.push(row);
+      coach.posted = coach.posted || {};
+      coach.posted[`conf:${source}:${metric}:${formatValue(d.current)}`] = true; // posted manually below
+      saveState();
+      coachFinalizeCard(cardEl);
+      coachSay(`<p>Connected <strong>${escapeHtml(d.ruleLabel)}</strong> to ${escapeHtml(d.sourceLabel)} — you've already logged some ${escapeHtml(d.label.toLowerCase())} today, so keep yours or use the device total:</p>`);
+      coachPostDeviceNudge(row);
+      renderCoachLauncher();
+      return;
+    }
+    // Fresh today → reconcile the whole reading now (baseline 0 → logs the device total). Report
+    // the LIVE device value (not the buildCatchUp snapshot, which may have drifted since the sync).
+    const cur = rule ? numberOrDefault(deviceTotalForRule(rule), d.current) : d.current;
+    const touched = new Set();
+    applyDeviceRowToTarget(target, source, touched);
+    (state.systems || []).forEach((system) => { if (touched.has(system.id)) { syncDraftInputsFromEntries(system); autoSaveToday(system); } });
+    if (target.contextType === "community") { const c = (state.communities || []).find((x) => x.id === target.contextId); if (c) saveCommunitySummaryForMember(c, "me"); }
+    coach.lastLogged = [{ contextType: d.contextType, contextId: d.contextId, ruleId: d.ruleId, amount: cur, isYesNo: false }];
+    const unit = (rule && rule.unit) || d.unit, label = d.ruleLabel, srcLabel = d.sourceLabel, ml = d.label.toLowerCase();
+    coachRemoveDeviceNudge(source, metric);
+    saveState();
+    render();
+    coachFinalizeCard(cardEl);
+    coachSay(`<p>✅ Connected <strong>${escapeHtml(label)}</strong> to ${escapeHtml(srcLabel)} — logged ${escapeHtml(formatValue(cur))} ${escapeHtml(unit)} ${escapeHtml(ml)} today. Future syncs add only what's new.</p>`);
+    coachOfferPost();
+  }
+
+  function coachConnectDismiss(source, metric, cardEl) {
+    coachLearnRecord("connect", "dismissed");
+    const d = coachDeviceByKey(source, metric);
+    if (d) markWearableSeen(source, metric, d.current);
     coachRemoveDeviceNudge(source, metric);
     saveState();
     coachFinalizeCard(cardEl);
@@ -11242,6 +11362,13 @@
   }
 
   function coachClassifyAndRoute(text) {
+    // Device-data questions are answered deterministically from LOCAL state — the edge router has
+    // no view of the live device metrics, so "what's my fitbit data / steps" stays accurate.
+    if (coachLooksLikeQuestion(text) && coachLooksLikeDeviceQuery(text)) {
+      const gm = coachGuessMetric(text);
+      coachAnswer(gm ? { id: "metric_today", metric: gm } : { id: "device_summary" }, text);
+      return;
+    }
     if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.coachChat !== "function") {
       coachFallbackRoute(text, false); // signed out / no router → keyword fallback keeps working
       return;
@@ -11270,6 +11397,10 @@
     const s = t.trim().toLowerCase();
     return /\?\s*$/.test(s) || /^(how|what|whats|what's|when|which|who|why|am i|do i|did i|have i|is |are |where|tell me|show me)/.test(s);
   }
+  // Mentions a connected device / wearable by name → answer from live device metrics, not a rule.
+  function coachLooksLikeDeviceQuery(t) {
+    return /\b(fitbit|whoop|wearable|health connect|apple ?health|google ?health|device data|wearable data|my (device|watch|wearable))\b/.test(String(t || "").toLowerCase());
+  }
 
   function coachKeywordQuery(text) {
     const t = text.toLowerCase();
@@ -11279,6 +11410,7 @@
     if (/\bsleep/.test(t)) return { id: "metric_today", metric: "sleep" };
     if (/\bcalorie|\bcals?\b/.test(t)) return { id: "metric_today", metric: "calories" };
     if (/\bdistance|\bmiles?\b|\bkm\b/.test(t)) return { id: "metric_today", metric: "distance" };
+    if (coachLooksLikeDeviceQuery(t)) return { id: "device_summary" };
     if (/\brank|\blead\b|\bleading\b|first place|\bwinning\b|\bbehind\b|\bahead\b/.test(t)) return { id: "rank" };
     if (/\bleft\b|\bunlogged|\bstill (need|have|to)|\bto do\b|\bremaining\b|haven'?t/.test(t)) return { id: "unlogged" };
     if (/\bweek\b/.test(t)) return { id: "week_summary" };
@@ -11307,6 +11439,7 @@
     let res;
     try {
       if (id === "metric_today") res = coachAnsMetricToday(query.metric, text);
+      else if (id === "device_summary") res = coachAnsDeviceSummary();
       else if (id === "context_score") res = coachAnsContextScore(query.context);
       else if (id === "rule_progress") res = coachAnsRuleProgress(query.rule, query.context);
       else if (id === "rank") res = coachAnsRank(query.context);
@@ -11414,11 +11547,58 @@
   }
 
   // ── The deterministic answer helpers (ALL figures come from these) ──────────
+  // Live device reading for a metric across CONNECTED sources (independent of whether a rule maps
+  // to it) → { source, sourceLabel, metric, label, value } or null.
+  function coachDeviceMetricValue(metric) {
+    const keys = METRIC_SOURCE[metric] || [metric];
+    let best = null;
+    Object.keys(state.mockSyncData || {}).forEach((source) => {
+      if (best || source === "manual" || source === "calculated" || !isSourceConnected(source)) return;
+      const data = state.mockSyncData[source] || {};
+      keys.forEach((k) => {
+        if (best) return;
+        const v = Number(data[k]);
+        if (Number.isFinite(v) && v > 0) best = { source, sourceLabel: wearableShortLabel(source), metric: k, label: sourceMetricLabel(source, k), value: v };
+      });
+    });
+    return best;
+  }
+  // Every connected device's live metrics today → [{ source, sourceLabel, metric, label, value }].
+  function coachConnectedDeviceMetrics() {
+    const out = [];
+    Object.keys(state.mockSyncData || {}).forEach((source) => {
+      if (source === "manual" || source === "calculated" || !isSourceConnected(source)) return;
+      const data = state.mockSyncData[source] || {};
+      Object.keys(data).forEach((metric) => {
+        const v = Number(data[metric]);
+        if (Number.isFinite(v) && v > 0) out.push({ source, sourceLabel: wearableShortLabel(source), metric, label: sourceMetricLabel(source, metric), value: v });
+      });
+    });
+    return out;
+  }
+
   function coachAnsMetricToday(metric, text) {
     const m = String(metric || "").toLowerCase() || coachGuessMetric(text);
     if (!m) return { html: `<p>Which one? I can check your steps, sleep, calories, or distance.</p>` };
-    const found = coachFindMetricRule(m);
-    if (!found) return { html: `<p>I don't see a ${escapeHtml(m)} tracker set up — add one in Build (and connect a device) and I'll track it.</p>` };
+    // The LIVE device number wins over a rule's hand-logged total (the old answer read the rule and
+    // reported 0 for a Fitbit metric matched only to a manual rule). Find a matching rule for the
+    // goal + connect nudge: by feed first, else by label (a manual "Steps" rule).
+    const device = coachDeviceMetricValue(m);
+    let found = coachFindMetricRule(m);
+    if (!found) { const byLabel = coachFindRuleByLabel(m); if (byLabel) found = { rule: byLabel.rule, contextType: byLabel.contextType, contextId: byLabel.contextId, contextName: byLabel.contextName, connected: false }; }
+    if (device) {
+      const label = device.label || m;
+      let line = `Your ${escapeHtml(device.sourceLabel)} shows <strong>${escapeHtml(formatValue(device.value))} ${escapeHtml(String(label).toLowerCase())}</strong> today`;
+      const goal = found ? goalAmountForRule(found.rule) : 0;
+      if (goal > 0) {
+        const toGo = Math.max(goal - device.value, 0);
+        line += toGo > 0 ? ` — ${escapeHtml(formatValue(toGo))} to go to hit ${escapeHtml(formatValue(goal))}` : ` — past your ${escapeHtml(formatValue(goal))} goal! 🎉`;
+      }
+      line += ".";
+      if (found && !found.connected) line += ` Your <strong>${escapeHtml(found.rule.label)}</strong> rule isn't wired to ${escapeHtml(device.sourceLabel)} yet — I'll offer to connect it the next time it syncs.`;
+      return { html: `<p>${line}</p>` };
+    }
+    if (!found) return { html: `<p>I don't see a ${escapeHtml(m)} tracker set up or a device sending it — add one in Build (and connect a device) and I'll track it.</p>` };
     const r = found.rule;
     const goal = goalAmountForRule(r);
     const label = sourceMetricLabel(r.dataSource, r.sourceMetric) || r.label || m;
@@ -11432,6 +11612,19 @@
       line += toGo > 0 ? ` — ${escapeHtml(formatValue(toGo))} to go to hit ${escapeHtml(formatValue(goal))}.` : ` — past your ${escapeHtml(formatValue(goal))} goal! 🎉`;
     } else line += ".";
     return { html: `<p>${line}</p>` };
+  }
+
+  // "What's my Fitbit/device data" → list every connected device's live metrics today.
+  function coachAnsDeviceSummary() {
+    const all = coachConnectedDeviceMetrics();
+    if (!all.length) return { html: `<p>No connected device is sending data yet — connect Fitbit, Apple Health, or Whoop in Profile and I'll show today's numbers.</p>` };
+    const bySource = {};
+    all.forEach((it) => { (bySource[it.sourceLabel] = bySource[it.sourceLabel] || []).push(it); });
+    const lines = Object.keys(bySource).map((sl) => {
+      const items = bySource[sl].map((it) => `${escapeHtml(formatValue(it.value))} ${escapeHtml(String(it.label).toLowerCase())}`).join(" · ");
+      return `<strong>${escapeHtml(sl)} today:</strong> ${items}`;
+    });
+    return { html: `<p>${lines.join("<br>")}</p>` };
   }
 
   function coachAnsContextScore(name) {
@@ -12226,6 +12419,10 @@
     if (devTrack) { const p = devTrack.dataset.coachTrack.split("|"); coachTrackMetric(p[0], p[1], card()); return; }
     const devTrackDismiss = t.closest("[data-coach-trackdismiss]");
     if (devTrackDismiss) { const p = devTrackDismiss.dataset.coachTrackdismiss.split("|"); coachTrackDismiss(p[0], p[1], card()); return; }
+    const devConnect = t.closest("[data-coach-connect]");
+    if (devConnect) { const p = devConnect.dataset.coachConnect.split("|"); coachDeviceConnect(p[0], p[1], card()); return; }
+    const devConnectDismiss = t.closest("[data-coach-connectdismiss]");
+    if (devConnectDismiss) { const p = devConnectDismiss.dataset.coachConnectdismiss.split("|"); coachConnectDismiss(p[0], p[1], card()); return; }
     const confKeep = t.closest("[data-coach-confkeep]");
     if (confKeep) { const p = confKeep.dataset.coachConfkeep.split("|"); coachConflict(p[0], p[1], "keep", card()); return; }
     const confUpdate = t.closest("[data-coach-confupdate]");

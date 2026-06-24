@@ -7235,6 +7235,8 @@
   const feedSocialCache = new Map();   // entryId -> { like_count, comment_count, liked_by_me, last_comment_name, last_comment_body }
   const feedCommentsCache = new Map(); // entryId -> [ comment rows ]
   const feedCommentsOpen = new Set();  // entryIds whose full thread is expanded
+  const feedCaptionOpen = new Set();   // entryIds whose long caption is expanded ("… more")
+  const feedSavedEntries = new Set();  // entryIds bookmarked this session (local-only, no backend)
   const feedSocialFetched = new Set(); // entryIds already requested (prevents refetch loops)
   let feedItems = [];
   // Discover (ranked public feed) state — fetched once per session via the discover_feed RPC.
@@ -7530,6 +7532,8 @@
 
   const FEED_HEART_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>`;
   const FEED_COMMENT_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg>`;
+  const FEED_SHARE_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>`;
+  const FEED_SAVE_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`;
 
   function renderFeedPost(item) {
     const entry = item.entry;
@@ -7538,9 +7542,6 @@
     const isDiscover = !!item.discover;
     const name = escapeHtml(item.member.name || "Member");
     const points = item.rule ? scoring.calculateRule(item.rule, entry.amount).totalPoints : 0;
-    const summary = isDiscover
-      ? escapeHtml(entryLogText(entry, item.rule))
-      : escapeHtml(entryLogText(entry, item.rule)) + " · " + escapeHtml(formatPoints(points)) + " pts";
     const rel = window.PointwellSignals.formatRelativeTime(item.when, Date.now()) || "";
     const relText = rel === "just now" || !rel ? (rel || "") : rel + " ago";
     const sub = escapeHtml(item.community.name) + (relText ? " · " + escapeHtml(relText) : "");
@@ -7554,9 +7555,18 @@
     const social = feedSocialFor(entryId);
 
     const photoPath = entry.photoPath || entry.photo_path || "";
-    const photoHtml = photoPath
-      ? `<div class="ig-photo" data-entry-photo="${escapeHtml(photoPath)}" role="img" aria-label="Post photo"><img alt="" loading="lazy"></div>`
-      : "";
+    const message = entry.message ? String(entry.message) : "";
+    // Multi-photo marker (dormant until posts carry >1 photo).
+    const carousel = Number(entry.photo_count) > 1 ? `<span class="ig-carousel" aria-hidden="true">⧉</span>` : "";
+    // Media: a photo, or — for a text-only post — the caption rendered large on the rule's gradient.
+    let mediaHtml;
+    if (photoPath) {
+      mediaHtml = `<div class="ig-photo" data-entry-photo="${escapeHtml(photoPath)}" role="img" aria-label="Post photo"><img alt="" loading="lazy">${carousel}</div>`;
+    } else {
+      const mediaText = message || entryLogText(entry, item.rule);
+      const tileColor = dayScheduleColor(entry.ruleId || entry.communityId || entryId);
+      mediaHtml = `<div class="ig-textmedia" style="--tile:${tileColor}"><p>${escapeHtml(mediaText)}</p></div>`;
+    }
 
     const menuHtml = (isMe || isDiscover) ? "" : `
         <div class="ig-menu-wrap" data-feed-menu-wrap>
@@ -7566,31 +7576,43 @@
           </div>
         </div>`;
 
+    // Progress tag in the header (rule glyph + label + signed points), e.g. "🏋️ Workout +2".
+    const tagHtml = item.rule
+      ? `<span class="ig-tag">${draftRuleIcon(item.rule)} ${escapeHtml(item.rule.label)} ${escapeHtml(formatSigned(points))}</span>`
+      : "";
+    const affinityHtml = (isDiscover && item.discover.reason)
+      ? `<span class="ig-affinity">${escapeHtml(item.discover.reason)}</span>`
+      : "";
+
     const likeBtn = canSocial
       ? `<button class="ig-action-btn${social.liked_by_me ? " is-liked" : ""}" type="button" data-feed-like="${escapeHtml(entryId)}" aria-pressed="${social.liked_by_me ? "true" : "false"}" aria-label="${social.liked_by_me ? "Unlike" : "Like"}">${FEED_HEART_SVG}</button>`
       : "";
     const commentBtn = canSocial
       ? `<button class="ig-action-btn" type="button" data-feed-comment-focus="${escapeHtml(entryId)}" aria-label="Comment">${FEED_COMMENT_SVG}</button>`
       : "";
-    // Discover-only: a + Follow button (reuses the follow signal) and the single
-    // strongest affinity reason as a header chip.
+    const shareBtn = `<button class="ig-action-btn" type="button" data-feed-share="${escapeHtml(entryId)}" aria-label="Share">${FEED_SHARE_SVG}</button>`;
+    const saved = feedSavedEntries.has(entryId);
+    const saveBtn = `<button class="ig-action-btn ig-action-save${saved ? " is-saved" : ""}" type="button" data-feed-save="${escapeHtml(entryId)}" aria-pressed="${saved ? "true" : "false"}" aria-label="${saved ? "Saved" : "Save"}">${FEED_SAVE_SVG}</button>`;
+    // Discover-only: a + Follow button (reuses the follow signal).
     const followBtn = (isDiscover && signalsReady() && item.discover.authorId)
       ? (item.discover.following
           ? `<span class="ig-following">Following</span>`
           : `<button class="ig-action-follow" type="button" data-discover-follow="${escapeHtml(item.discover.authorId)}"><span aria-hidden="true">+</span> Follow</button>`)
       : "";
-    const affinityHtml = (isDiscover && item.discover.reason)
-      ? `<span class="ig-affinity">${escapeHtml(item.discover.reason)}</span>`
-      : "";
 
-    const likeCountHtml = (canSocial && social.like_count > 0)
-      ? `<div class="ig-likes">${plural(social.like_count, "like")}</div>`
+    // Like-count line + zero state.
+    const likeLine = canSocial
+      ? (social.like_count > 0
+          ? `<div class="ig-likes">${plural(social.like_count, "like")}</div>`
+          : `<div class="ig-likes-zero">Be the first to like this</div>`)
       : "";
-    const message = entry.message ? String(entry.message) : "";
-    const captionHtml = message
-      ? `<div class="ig-caption"><span class="ig-name">${name}</span>${escapeHtml(message)}</div>`
+    // Caption line — only for photo posts (text-only posts already show the caption as the media),
+    // with a "… more" truncation for long captions.
+    const captionHtml = (photoPath && message)
+      ? `<div class="ig-caption"><span class="ig-name">${name}</span>${captionWithMore(message, entryId)}</div>`
       : "";
     const commentsHtml = renderFeedComments(item, canSocial, social);
+    const timeHtml = relText ? `<div class="ig-time">${escapeHtml(relText.toUpperCase())}</div>` : "";
     const inputHtml = canSocial ? renderFeedCommentInput(entryId) : "";
     // The author avatar+name is tappable → opens their profile (not for your own posts).
     const authorId = item.member && item.member.userId ? String(item.member.userId) : "";
@@ -7609,29 +7631,39 @@
             </div>
           ${authorClose}
           ${viaBadge}
-          ${isDiscover ? affinityHtml : (milestone ? `<span class="ig-milestone-badge">Goal</span>` : "")}
+          ${isDiscover ? affinityHtml : tagHtml}
           ${menuHtml}
         </div>
-        ${photoHtml}
+        ${mediaHtml}
         <div class="ig-actions">
           ${likeBtn}
           ${commentBtn}
+          ${shareBtn}
           ${followBtn}
-          <span class="ig-summary">${summary}</span>
+          ${saveBtn}
         </div>
-        ${likeCountHtml}
+        ${likeLine}
         ${captionHtml}
         ${commentsHtml}
+        ${timeHtml}
         ${inputHtml}
       </article>
     `;
+  }
+
+  // Caption with an Instagram-style "… more" truncation; "more" expands it in place.
+  function captionWithMore(message, entryId) {
+    const LIMIT = 140;
+    const id = String(entryId);
+    if (feedCaptionOpen.has(id) || message.length <= LIMIT) return escapeHtml(message);
+    return escapeHtml(message.slice(0, LIMIT).replace(/\s+\S*$/, "")) + `… <button class="ig-caption-more" type="button" data-feed-caption-expand="${escapeHtml(id)}">more</button>`;
   }
 
   function renderFeedComments(item, canSocial, social) {
     if (!canSocial) return "";
     const entryId = String(item.entry.id);
     const count = social.comment_count || 0;
-    if (!count) return "";
+    if (!count) return `<div class="ig-comments"><div class="ig-nocomment">No comments yet — start the conversation.</div></div>`;
     if (feedCommentsOpen.has(entryId)) {
       const rows = feedCommentsCache.get(entryId);
       if (!rows) return `<div class="ig-comments"><div class="ig-comment">Loading…</div></div>`;
@@ -7702,7 +7734,7 @@
         newPhoto.addEventListener("click", () => { try { window.open(oldSrc, "_blank", "noopener"); } catch (e) { /* ignore */ } });
       }
     } else {
-      bindEntryPhotos(els.communityFeed);
+      bindEntryPhotos(root);
     }
     const newInput = fresh.querySelector("[data-feed-comment-input]");
     if (newInput && draftVal) {
@@ -7715,8 +7747,9 @@
 
   function onFeedClick(event) {
     // Close any open "⋯" menu unless the click is on a menu toggle or inside a menu.
-    if (els.communityFeed && !event.target.closest("[data-feed-menu]") && !event.target.closest(".ig-menu-pop")) {
-      Array.from(els.communityFeed.querySelectorAll(".ig-menu-pop")).forEach((p) => { p.hidden = true; });
+    const menuRoot = activeFeedRoot();
+    if (menuRoot && !event.target.closest("[data-feed-menu]") && !event.target.closest(".ig-menu-pop")) {
+      Array.from(menuRoot.querySelectorAll(".ig-menu-pop")).forEach((p) => { p.hidden = true; });
     }
     const authorBtn = event.target.closest("[data-feed-author]");
     if (authorBtn) { openUserProfile(authorBtn.dataset.feedAuthor); return; }
@@ -7724,6 +7757,12 @@
     if (likeBtn) { toggleFeedLike(likeBtn.dataset.feedLike); return; }
     const commentBtn = event.target.closest("[data-feed-comment-focus]");
     if (commentBtn) { focusFeedComment(commentBtn.dataset.feedCommentFocus); return; }
+    const shareBtn = event.target.closest("[data-feed-share]");
+    if (shareBtn) { sharePost(shareBtn.dataset.feedShare); return; }
+    const saveBtn = event.target.closest("[data-feed-save]");
+    if (saveBtn) { toggleFeedSave(saveBtn.dataset.feedSave); return; }
+    const capMore = event.target.closest("[data-feed-caption-expand]");
+    if (capMore) { feedCaptionOpen.add(String(capMore.dataset.feedCaptionExpand)); replaceFeedCard(capMore.dataset.feedCaptionExpand); return; }
     const followBtn = event.target.closest("[data-discover-follow]");
     if (followBtn) { followFromDiscover(followBtn.dataset.discoverFollow, followBtn); return; }
     const expandBtn = event.target.closest("[data-feed-expand]");
@@ -7771,7 +7810,8 @@
   // Surgical like-button + count update (no full card re-render → no photo re-fetch,
   // no other comment inputs disturbed).
   function updateFeedLikeUi(entryId, social) {
-    const card = els.communityFeed && els.communityFeed.querySelector(`[data-feed-entry="${entryId}"]`);
+    const root = activeFeedRoot();
+    const card = root && root.querySelector(`[data-feed-entry="${entryId}"]`);
     if (!card) return;
     const btn = card.querySelector("[data-feed-like]");
     if (btn) {
@@ -7779,26 +7819,58 @@
       btn.setAttribute("aria-pressed", social.liked_by_me ? "true" : "false");
       btn.setAttribute("aria-label", social.liked_by_me ? "Unlike" : "Like");
     }
-    let likesEl = card.querySelector(".ig-likes");
+    // Like-line: "{n} likes" when > 0, else the "Be the first to like this" zero state.
+    const actions = card.querySelector(".ig-actions");
+    const likesEl = card.querySelector(".ig-likes");
+    const zeroEl = card.querySelector(".ig-likes-zero");
     if (social.like_count > 0) {
+      if (zeroEl) zeroEl.remove();
       const text = plural(social.like_count, "like");
       if (likesEl) likesEl.textContent = text;
-      else {
-        const actions = card.querySelector(".ig-actions");
-        if (actions) {
-          const d = document.createElement("div");
-          d.className = "ig-likes";
-          d.textContent = text;
-          actions.insertAdjacentElement("afterend", d);
-        }
+      else if (actions) {
+        const d = document.createElement("div");
+        d.className = "ig-likes";
+        d.textContent = text;
+        actions.insertAdjacentElement("afterend", d);
       }
-    } else if (likesEl) {
-      likesEl.remove();
+    } else {
+      if (likesEl) likesEl.remove();
+      if (!zeroEl && actions) {
+        const z = document.createElement("div");
+        z.className = "ig-likes-zero";
+        z.textContent = "Be the first to like this";
+        actions.insertAdjacentElement("afterend", z);
+      }
     }
   }
 
+  // Share a post — native share sheet if available, else copy the caption to the clipboard.
+  function sharePost(entryId) {
+    const item = (feedItems || []).find((it) => String(it.entry.id) === String(entryId));
+    const text = item && item.entry && item.entry.message ? String(item.entry.message) : "Check out this post on Pointwell";
+    if (navigator.share) { Promise.resolve(navigator.share({ text: text })).catch(() => {}); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => showToast("Copied to clipboard")).catch(() => showToast("Couldn't share"));
+      return;
+    }
+    showToast("Sharing isn't available here");
+  }
+
+  // Save/bookmark a post — local-only for this session (no backend; the fill is optimistic).
+  function toggleFeedSave(entryId) {
+    const id = String(entryId);
+    if (feedSavedEntries.has(id)) feedSavedEntries.delete(id); else feedSavedEntries.add(id);
+    const saved = feedSavedEntries.has(id);
+    Array.from(document.querySelectorAll("[data-feed-save]")).filter((b) => b.dataset.feedSave === id).forEach((btn) => {
+      btn.classList.toggle("is-saved", saved);
+      btn.setAttribute("aria-pressed", saved ? "true" : "false");
+      btn.setAttribute("aria-label", saved ? "Saved" : "Save");
+    });
+  }
+
   function focusFeedComment(entryId) {
-    const card = els.communityFeed && els.communityFeed.querySelector(`[data-feed-entry="${entryId}"]`);
+    const root = activeFeedRoot();
+    const card = root && root.querySelector(`[data-feed-entry="${entryId}"]`);
     const input = card && card.querySelector("[data-feed-comment-input]");
     if (input) input.focus();
   }
@@ -7818,7 +7890,8 @@
     if (!isDbEntryId(entryId)) return;
     // Clear the live input now so the card rebuild starts the comment box empty
     // (the draft-preservation in replaceFeedCard must not restore the sent text).
-    const liveCard = els.communityFeed && els.communityFeed.querySelector(`[data-feed-entry="${entryId}"]`);
+    const liveRoot = activeFeedRoot();
+    const liveCard = liveRoot && liveRoot.querySelector(`[data-feed-entry="${entryId}"]`);
     const liveInput = liveCard && liveCard.querySelector("[data-feed-comment-input]");
     if (liveInput) liveInput.value = "";
     Promise.resolve(window.PointwellSignals.addEntryComment(entryId, state.account.userId, body)).then((res) => {
@@ -7841,7 +7914,8 @@
     const pop = wrap && wrap.querySelector(".ig-menu-pop");
     if (!pop) return;
     const willOpen = pop.hidden;
-    Array.from(els.communityFeed.querySelectorAll(".ig-menu-pop")).forEach((p) => { p.hidden = true; });
+    const menuRoot = activeFeedRoot() || els.communityFeed;
+    if (menuRoot) Array.from(menuRoot.querySelectorAll(".ig-menu-pop")).forEach((p) => { p.hidden = true; });
     pop.hidden = !willOpen;
     menuBtn.setAttribute("aria-expanded", willOpen ? "true" : "false");
   }
@@ -9597,8 +9671,12 @@
     const counts = parts.length ? `<span class="profile-tile-counts">${parts.join(" · ")}</span>` : "";
     const photoPath = p.photo_path || "";
     if (photoPath) {
+      // Multi-photo marker (⧉) — shown only when the post carries more than one photo. Posts
+      // are single-photo today, so this stays dormant until that data exists.
+      const carousel = Number(p.photo_count) > 1 ? `<span class="profile-tile-carousel" aria-hidden="true">⧉</span>` : "";
       return `<button class="profile-post-tile profile-tile-photo" type="button" data-profile-post="${entryId}" aria-label="Open post">
           <div class="ig-photo profile-tile-img" data-entry-photo="${escapeHtml(photoPath)}" role="img" aria-label="Post photo"><img alt="" loading="lazy"></div>
+          ${carousel}
           ${counts}
         </button>`;
     }

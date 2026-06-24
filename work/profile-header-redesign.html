@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — profile header redesign + follower/following privacy</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; flex-direction:column; align-items:center; gap:18px; padding:26px 14px; }
+  .panel { width:100%; max-width:440px; }
+  .label { font-size:12px; font-weight:600; color:#cfe9df; margin:0 0 8px; }
+  .card { background:#0e1412; border:1px solid #1b2a24; border-radius:20px; padding:16px; position:relative; }
+  .gear { position:absolute; top:13px; right:13px; width:32px; height:32px; border-radius:10px; background:#15211c; border:1px solid #284a3c; color:#9bf3cf; font-size:14px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .top { display:flex; gap:14px; align-items:flex-start; margin-bottom:14px; padding-right:38px; }
+  .avatar { width:66px; height:66px; border-radius:18px; background:linear-gradient(135deg,#2f7a5c,#244a6e); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:24px; color:#eafff8; font-weight:700; }
+  .name { font-size:19px; color:#f3f6f4; letter-spacing:-.3px; display:block; }
+  .handle { font-size:12.5px; color:#7c8d87; }
+  .bio { font-size:12.5px; color:#cfd8d4; margin:7px 0 0; line-height:1.4; }
+  .stats { display:flex; gap:8px; }
+  .stat { flex:1; background:#13201b; border:1px solid #20342b; border-radius:13px; padding:10px; text-align:center; cursor:pointer; }
+  .stat .num { font-size:18px; font-weight:700; color:#f3f6f4; margin:0; }
+  .stat .cap { font-size:10.5px; color:#8aa39a; margin:2px 0 0; }
+  .stat.accent .num { color:#7fe9c0; }
+  /* list rows */
+  .lt { font-size:14px; color:#f3f6f4; display:block; margin-bottom:11px; }
+  .row { display:flex; align-items:center; gap:11px; margin-bottom:11px; }
+  .row:last-child { margin-bottom:0; }
+  .row .av { width:38px; height:38px; border-radius:50%; }
+  .row .who p { margin:0; } .row .who .n { font-size:13px; color:#f3f6f4; } .row .who .h { font-size:11px; color:#7c8d87; margin-top:1px; }
+  .btn { font-size:11px; padding:6px 14px; border-radius:18px; border:none; cursor:pointer; }
+  .btn.solid { background:#1c4d3b; color:#9bf3cf; }
+  .btn.ghost { background:transparent; color:#cfd8d4; border:1px solid #2c3a35; }
+  .note { font-size:11px; margin:0 0 10px; font-weight:600; }
+  .locked { text-align:center; padding:18px 12px; }
+</style>
+</head>
+<body>
+
+  <!-- header (own profile: gear + bio + bold tappable stats) -->
+  <div class="panel">
+    <p class="label">Profile header — own view (gear top-right, bio, bold tappable stats)</p>
+    <div class="card">
+      <button class="gear" aria-label="Settings">⚙</button>
+      <div class="top">
+        <div class="avatar">R</div>
+        <div style="flex:1;min-width:0;">
+          <strong class="name">Robert A</strong>
+          <span class="handle">@robert</span>
+          <p class="bio">Building Pointwell 🛠️ · chasing 10k steps &amp; cleaner code. Lifting + study accountability.</p>
+        </div>
+      </div>
+      <div class="stats">
+        <button class="stat"><p class="num">1</p><p class="cap">Followers ›</p></button>
+        <button class="stat"><p class="num">0</p><p class="cap">Following ›</p></button>
+        <button class="stat accent"><p class="num">1</p><p class="cap">Communities</p></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- other person's header variant (Follow/Message instead of gear) -->
+  <div class="panel">
+    <p class="label">Someone else's profile — Follow / Message instead of gear</p>
+    <div class="card">
+      <div class="top" style="padding-right:0;">
+        <div class="avatar" style="background:linear-gradient(135deg,#9a4a2c,#6e3a24);">J</div>
+        <div style="flex:1;min-width:0;">
+          <strong class="name">Jacob</strong>
+          <span class="handle">@jacobavram6</span>
+          <p class="bio">Lifting heavy, posting daily. Let's both hit one major goal.</p>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:14px;">
+        <button class="btn solid" style="flex:1;padding:9px;border-radius:12px;font-size:12.5px;">Follow</button>
+        <button class="btn ghost" style="flex:1;padding:9px;border-radius:12px;font-size:12.5px;">Message</button>
+      </div>
+      <div class="stats">
+        <button class="stat"><p class="num">128</p><p class="cap">Followers ›</p></button>
+        <button class="stat"><p class="num">86</p><p class="cap">Following ›</p></button>
+        <button class="stat accent"><p class="num">3</p><p class="cap">Communities</p></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- public list open -->
+  <div class="panel">
+    <p class="label">Followers list — PUBLIC profile (open to anyone)</p>
+    <div class="card">
+      <p class="note" style="color:#7fe9c0;">PUBLIC · list is open</p>
+      <strong class="lt">Followers</strong>
+      <div class="row"><div class="av" style="background:#9a4a2c;"></div><div class="who" style="flex:1;"><p class="n">Jacob</p><p class="h">@jacobavram6</p></div><button class="btn solid">Follow</button></div>
+      <div class="row"><div class="av" style="background:#2f7a5c;"></div><div class="who" style="flex:1;"><p class="n">Ravram26</p><p class="h">@ravram26</p></div><button class="btn ghost">Following</button></div>
+    </div>
+  </div>
+
+  <!-- private list locked -->
+  <div class="panel">
+    <p class="label">Followers list — PRIVATE profile you don't follow (locked)</p>
+    <div class="card">
+      <p class="note" style="color:#9a86c9;">PRIVATE · you don't follow them</p>
+      <div class="locked">
+        <div style="font-size:26px;margin-bottom:8px;">🔒</div>
+        <strong style="font-size:14px;color:#eef2f0;display:block;margin-bottom:4px;">Followers are private</strong>
+        <p style="font-size:12px;color:#8aa39a;margin:0 0 13px;line-height:1.4;">Follow Robert to see who follows them and who they follow.</p>
+        <button class="btn solid" style="padding:8px 22px;border-radius:20px;font-size:12.5px;">Request to follow</button>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

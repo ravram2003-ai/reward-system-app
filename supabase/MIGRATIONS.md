@@ -52,6 +52,12 @@ you know what's live in production.
   **Until this runs, `sb.rpc("popular_communities", …)` errors and the fallback stays empty.**
   ⚠ Re-running #7 community-discovery.sql later silently revokes anon's EXECUTE on this
   function (its §3b grants authenticated only) — re-run #17 afterward to restore it.
+- [x] **18. profile-bio-connections.sql** — profile-redesign foundation: adds `profiles.bio`
+  (text, ≤280 via CHECK) + SECURITY DEFINER `profile_followers(target)` / `profile_following(target)`
+  returning `{id, display_name, handle, avatar_url, viewer_follows}`, privacy-gated by the existing
+  `can_view_profile` (public/self/approved-follower; private → 0 rows; anon can't enumerate private
+  connections). Granted anon + authenticated, read-only. *(after profile-view — needs
+  `can_view_profile`; also `follows`, `profiles`, `profile_is_public`, `are_friends`)*.
 
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).

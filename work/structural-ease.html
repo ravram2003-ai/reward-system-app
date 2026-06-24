@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — structural ease-of-use: header 4→3 · fast-start onboarding · empty states · add friend</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; flex-direction:column; align-items:center; gap:20px; padding:24px 12px; }
+  .panel { width:100%; max-width:430px; }
+  .label { font-size:12.5px; color:#cfe9df; font-weight:700; margin:0 0 9px; }
+  .card { background:#0b100e; border:1px solid #161f1c; border-radius:20px; padding:16px; }
+  .note { font-size:10.5px; color:#7c8d87; margin:13px 0 0; text-align:center; line-height:1.5; }
+</style>
+</head>
+<body>
+
+  <!-- HEADER 4 -> 3 -->
+  <div class="panel">
+    <p class="label">Header: 4 → 3 (drop standalone Friends; keep Chats separate)</p>
+    <div class="card">
+      <div style="background:#0e1412;border:1px solid #1e2826;border-radius:12px;padding:11px 13px;display:flex;align-items:center;gap:10px;margin-bottom:6px;"><span style="font-size:10px;color:#e0857f;width:42px;">before</span><div style="flex:1;display:flex;gap:11px;justify-content:flex-end;color:#9fb0aa;font-size:15px;"><span>🔍</span><span>🔔</span><span>👥</span><span>💬</span></div></div>
+      <div style="background:#10201a;border:1px solid #235741;border-radius:12px;padding:11px 13px;display:flex;align-items:center;gap:10px;margin-bottom:16px;"><span style="font-size:10px;color:#7fe9c0;width:42px;">after</span><div style="flex:1;display:flex;gap:14px;justify-content:flex-end;color:#cfe9df;font-size:15px;"><span>🔍</span><span style="position:relative;">🔔<span style="position:absolute;top:-4px;right:-6px;width:14px;height:14px;border-radius:50%;background:#ff5a6e;color:#fff;font-size:8px;display:flex;align-items:center;justify-content:center;">3</span></span><span>💬</span></div></div>
+      <p style="font-size:11px;color:#5f8576;letter-spacing:.4px;margin:0 0 9px;">WHERE EACH THING LIVES</p>
+      <div style="display:flex;align-items:center;gap:11px;background:#11181a;border:1px solid #1e2826;border-radius:12px;padding:11px;margin-bottom:7px;"><span style="font-size:17px;">🔔</span><div style="flex:1;"><p style="font-size:12.5px;color:#f3f6f4;margin:0;">Activity (the bell)</p><p style="font-size:10.5px;color:#8aa39a;margin:1px 0 0;">likes · comments · <strong style="color:#cfd8d4;">friend requests</strong> · kudos</p></div></div>
+      <div style="display:flex;align-items:center;gap:11px;background:#11181a;border:1px solid #1e2826;border-radius:12px;padding:11px;margin-bottom:7px;"><span style="font-size:17px;">💬</span><div style="flex:1;"><p style="font-size:12.5px;color:#f3f6f4;margin:0;">Chats (kept, separate)</p><p style="font-size:10.5px;color:#8aa39a;margin:1px 0 0;">all <strong style="color:#cfd8d4;">direct messages</strong> — never in the bell</p></div></div>
+      <div style="display:flex;align-items:center;gap:11px;background:#11181a;border:1px solid #1e2826;border-radius:12px;padding:11px;"><span style="font-size:17px;">👤</span><div style="flex:1;"><p style="font-size:12.5px;color:#f3f6f4;margin:0;">Profile</p><p style="font-size:10.5px;color:#8aa39a;margin:1px 0 0;">your <strong style="color:#cfd8d4;">friends / followers / following</strong> (the tappable stats)</p></div></div>
+      <p class="note">Friends icon disappears, not the feature: requests → bell, list → Profile. Messages keep their own Chats icon.</p>
+    </div>
+  </div>
+
+  <!-- ADD FRIEND FROM SEARCH -->
+  <div class="panel">
+    <p class="label">Add a friend — from Search (🔍)</p>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:9px;background:#11181a;border:1px solid #2c5a48;border-radius:13px;padding:10px 12px;margin-bottom:13px;"><span style="font-size:14px;color:#8aa39a;">🔍</span><span style="flex:1;font-size:13px;color:#eaf2ee;">jacob</span><span style="font-size:13px;color:#7c8d87;">✕</span></div>
+      <p style="font-size:11px;color:#5f8576;letter-spacing:.4px;margin:0 0 9px;">PEOPLE</p>
+      <div style="display:flex;align-items:center;gap:11px;margin-bottom:12px;"><div style="width:40px;height:40px;border-radius:50%;background:#9a4a2c;"></div><div style="flex:1;"><p style="font-size:13.5px;color:#f3f6f4;margin:0;">Jacob</p><p style="font-size:11px;color:#7c8d87;margin:1px 0 0;">@jacobavram6</p></div><button style="font-size:11.5px;font-weight:600;padding:7px 15px;border-radius:18px;background:#1c4d3b;color:#9bf3cf;border:none;">+ Add friend</button></div>
+      <div style="display:flex;align-items:center;gap:11px;margin-bottom:12px;"><div style="width:40px;height:40px;border-radius:50%;background:#2f7a5c;"></div><div style="flex:1;"><p style="font-size:13.5px;color:#f3f6f4;margin:0;">Ravram26</p><p style="font-size:11px;color:#7c8d87;margin:1px 0 0;">@ravram26</p></div><button style="font-size:11.5px;padding:7px 15px;border-radius:18px;background:transparent;color:#9fb0aa;border:1px solid #2c3a35;">Requested</button></div>
+      <div style="display:flex;align-items:center;gap:11px;"><div style="width:40px;height:40px;border-radius:50%;background:#355d91;"></div><div style="flex:1;"><p style="font-size:13.5px;color:#f3f6f4;margin:0;">Robin</p><p style="font-size:11px;color:#7c8d87;margin:1px 0 0;">@robinavram</p></div><span style="font-size:11px;color:#7fe9c0;">✓ Friends</span></div>
+      <p class="note">Search → "+ Add friend" → they accept from their Activity bell. Also addable from anyone's profile.</p>
+    </div>
+  </div>
+
+  <!-- ONBOARDING fast start -->
+  <div class="panel">
+    <p class="label">Onboarding: let people log before setup</p>
+    <div class="card" style="text-align:center;">
+      <p style="font-size:15px;color:#f3f6f4;font-weight:600;margin:0 0 4px;">Welcome to Pointwell 👋</p>
+      <p style="font-size:11.5px;color:#8aa39a;margin:0 0 14px;line-height:1.4;">Set up a system, or just start tracking — you can do the rest later.</p>
+      <button style="width:100%;background:#1c4d3b;border:none;border-radius:12px;color:#9bf3cf;font-size:13px;font-weight:600;padding:12px;margin-bottom:8px;">Start logging now →</button>
+      <button style="width:100%;background:transparent;border:1px solid #243029;border-radius:12px;color:#cfd8d4;font-size:12.5px;padding:11px;">Set up my profile first</button>
+    </div>
+  </div>
+
+  <!-- EMPTY STATE with action -->
+  <div class="panel">
+    <p class="label">Empty states → a button, not a dead end</p>
+    <div class="card" style="border:1px dashed #243029;text-align:center;padding:20px 16px;">
+      <div style="font-size:24px;margin-bottom:8px;">🎯</div>
+      <p style="font-size:13px;color:#eaf2ee;margin:0 0 3px;">No rules yet</p>
+      <p style="font-size:11px;color:#8aa39a;margin:0 0 13px;">Add one and you can start logging in seconds.</p>
+      <button style="background:#1c4d3b;border:none;border-radius:12px;color:#9bf3cf;font-size:12.5px;font-weight:600;padding:10px 20px;">Create your first rule</button>
+    </div>
+  </div>
+
+</body>
+</html>

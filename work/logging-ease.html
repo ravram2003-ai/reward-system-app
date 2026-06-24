@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — logging ease-of-use: one-tap Today · simplified Add Entry · AI confidence</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; flex-direction:column; align-items:center; gap:20px; padding:24px 12px; }
+  .panel { width:100%; max-width:430px; }
+  .label { font-size:12.5px; color:#cfe9df; font-weight:700; margin:0 0 9px; }
+  .card { background:#0b100e; border:1px solid #161f1c; border-radius:20px; padding:15px; }
+  .row { display:flex; align-items:center; gap:11px; border-radius:14px; padding:12px; margin-bottom:9px; }
+  .note { font-size:10.5px; color:#7c8d87; margin:11px 0 0; text-align:center; line-height:1.5; }
+</style>
+</head>
+<body>
+
+  <!-- 1. ONE-TAP LOGGING FROM TODAY -->
+  <div class="panel">
+    <p class="label">1 · One-tap logging from Today (the headline)</p>
+    <div class="card">
+      <strong style="font-size:16px;color:#f3f6f4;display:block;margin-bottom:3px;">Today · Work on App</strong>
+      <p style="font-size:11px;color:#7c8d87;margin:0 0 14px;">Tap to log — no form needed</p>
+
+      <div class="row" style="background:#11181a;border:1px solid #1e2826;">
+        <span style="font-size:18px;">👟</span>
+        <div style="flex:1;"><p style="font-size:13px;color:#f3f6f4;margin:0;">Steps</p><div style="height:5px;border-radius:3px;background:#0e2c22;margin-top:6px;"><div style="width:62%;height:5px;border-radius:3px;background:#3ddc97;"></div></div></div>
+        <span style="font-size:11px;color:#7c8d87;">6.2k</span>
+        <button style="font-size:12px;font-weight:600;padding:8px 14px;border-radius:11px;background:#1c4d3b;color:#9bf3cf;border:none;">+ Log</button>
+      </div>
+      <div class="row" style="background:#11181a;border:1px solid #1e2826;">
+        <span style="font-size:18px;">📚</span>
+        <div style="flex:1;"><p style="font-size:13px;color:#f3f6f4;margin:0;">Study 1 hr</p><p style="font-size:10px;color:#7c8d87;margin:2px 0 0;">+2 pts</p></div>
+        <button style="font-size:12px;font-weight:600;padding:8px 16px;border-radius:11px;background:#16241f;color:#9bf3cf;border:1px solid #2c5a48;">✓ Done</button>
+      </div>
+      <div class="row" style="background:#10241a;border:1px solid #2f7a5c;">
+        <span style="font-size:18px;">🏋️</span>
+        <div style="flex:1;"><p style="font-size:13px;color:#eaf2ee;margin:0;">Workout <span style="color:#7fe9c0;">✓ logged</span></p><div style="height:5px;border-radius:3px;background:#0e2c22;margin-top:6px;"><div style="width:100%;height:5px;border-radius:3px;background:linear-gradient(90deg,#2f9d6f,#5cf3b8);"></div></div></div>
+        <div style="width:30px;height:30px;border-radius:50%;background:#1c4d3b;display:flex;align-items:center;justify-content:center;color:#5cf3b8;font-size:15px;">✓</div>
+      </div>
+      <p class="note">One tap logs the default · the ring fills + a ✓ animates in · the form is only for editing amounts/photos.</p>
+    </div>
+  </div>
+
+  <!-- 2. SIMPLIFIED ADD ENTRY -->
+  <div class="panel">
+    <p class="label">2 · Simplified Add Entry (auto rule · single stepper · collapsed details)</p>
+    <div class="card" style="background:#0e1412;border:1px solid #1e2826;border-radius:18px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:16px;"><span style="font-size:18px;">👟</span><strong style="font-size:15px;color:#f3f6f4;">Steps</strong><span style="font-size:11px;color:#7c8d87;margin-left:auto;">Work on App</span></div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:18px;margin-bottom:16px;">
+        <button style="width:44px;height:44px;border-radius:14px;background:#11181a;border:1px solid #243029;color:#9bf3cf;font-size:22px;">−</button>
+        <div style="text-align:center;"><p style="font-size:30px;font-weight:700;color:#f3f6f4;margin:0;">5,000</p><p style="font-size:10px;color:#7c8d87;margin:0;">steps</p></div>
+        <button style="width:44px;height:44px;border-radius:14px;background:#11181a;border:1px solid #243029;color:#9bf3cf;font-size:22px;">+</button>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;background:#11181a;border:1px solid #1e2826;border-radius:11px;padding:11px;margin-bottom:13px;"><span style="font-size:12px;color:#9fb0aa;">＋ Add a photo or note</span><span style="font-size:12px;color:#8fa39d;">▾</span></div>
+      <button style="width:100%;background:#1c4d3b;border:none;border-radius:13px;color:#9bf3cf;font-size:14px;font-weight:600;padding:13px;">Post Steps</button>
+    </div>
+    <div class="card" style="background:#0e1412;border:1px solid #1e2826;border-radius:18px;">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:15px;"><span style="font-size:18px;">📚</span><strong style="font-size:15px;color:#f3f6f4;">Study 1 hr</strong><span style="font-size:11px;color:#7fe9c0;margin-left:auto;">+2 pts</span></div>
+      <button style="width:100%;background:#16241f;border:1px solid #2c5a48;border-radius:13px;color:#9bf3cf;font-size:14px;font-weight:600;padding:14px;margin-bottom:11px;">✓ Mark done</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;background:#11181a;border:1px solid #1e2826;border-radius:11px;padding:11px;"><span style="font-size:12px;color:#9fb0aa;">＋ Add a photo or note</span><span style="font-size:12px;color:#8fa39d;">▾</span></div>
+    </div>
+    <p class="note">One rule → no dropdown (label only) · single stepper, not slider+number · photo/note behind "Add details" · clear "Mark done" for yes/no.</p>
+  </div>
+
+  <!-- 3. AI QUICK-LOG CONFIDENCE -->
+  <div class="panel">
+    <p class="label">3 · AI quick-log with confidence + pre-picked clarification</p>
+    <div class="card">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px;"><span style="font-size:13px;color:#eaf2ee;background:#16241f;border:1px solid #2c5a48;border-radius:14px 14px 4px 14px;padding:8px 13px;">ran 5 miles then crushed legs 🦵</span></div>
+      <div style="background:#11201a;border:1px solid #2a5a45;border-radius:14px;padding:13px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:11px;"><span style="font-size:14px;">✨</span><span style="font-size:11.5px;color:#9bf3cf;font-weight:600;">Here's what I'll log — tap to confirm</span></div>
+        <div style="display:flex;align-items:center;gap:9px;background:#0e1714;border-radius:11px;padding:10px;margin-bottom:7px;"><span style="font-size:15px;">🏃</span><div style="flex:1;"><p style="font-size:12.5px;color:#eaf2ee;margin:0;"><strong>Running</strong> · 5 mi</p></div><span style="font-size:9.5px;color:#7fe9c0;background:#13281f;border-radius:7px;padding:2px 7px;">96% sure</span><span style="font-size:13px;color:#3ddc97;">✓</span></div>
+        <div style="display:flex;align-items:center;gap:9px;background:#0e1714;border-radius:11px;padding:10px;margin-bottom:11px;"><span style="font-size:15px;">🏋️</span><div style="flex:1;"><p style="font-size:12.5px;color:#eaf2ee;margin:0;"><strong>Workout</strong> · 1 session</p></div><span style="font-size:9.5px;color:#c9a14a;background:#2a2113;border-radius:7px;padding:2px 7px;">82% sure</span><span style="font-size:13px;color:#3ddc97;">✓</span></div>
+        <p style="font-size:10px;color:#5f8576;margin:0 0 6px;">WHICH SYSTEM? (best guess pre-picked)</p>
+        <div style="display:flex;gap:6px;"><span style="font-size:11px;padding:5px 12px;border-radius:14px;background:#1c4d3b;color:#9bf3cf;font-weight:600;">Fitness ✓</span><span style="font-size:11px;padding:5px 12px;border-radius:14px;color:#8aa39a;border:1px solid #243029;">THE BOYS</span></div>
+      </div>
+      <div style="display:flex;gap:8px;"><button style="flex:1;background:transparent;border:1px solid #243029;border-radius:12px;color:#9fb0aa;font-size:13px;padding:11px;">Edit</button><button style="flex:2;background:#1c4d3b;border:none;border-radius:12px;color:#9bf3cf;font-size:13px;font-weight:600;padding:11px;">Log both →</button></div>
+      <p class="note">Show confidence per match · pre-pick the best system · one tap to "Log both" — the AI path becomes the effortless default.</p>
+    </div>
+  </div>
+
+</body>
+</html>

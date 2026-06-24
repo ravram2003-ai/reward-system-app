@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — community trends redesign (area charts + leader bars + stat strip)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; justify-content:center; padding:24px 12px; }
+  .wrap { width:100%; max-width:440px; background:#0b100e; border:1px solid #161f1c; border-radius:20px; padding:16px; }
+  .thead { display:flex; align-items:center; justify-content:space-between; margin-bottom:3px; }
+  .thead strong { font-size:14px; color:#f3f6f4; }
+  .stat-chip { font-size:10.5px; color:#7fe9c0; background:#13281f; border:1px solid #2a5a45; border-radius:8px; padding:3px 9px; }
+  .sub { font-size:10.5px; color:#7c8d87; margin:0 0 10px; }
+  svg { width:100%; height:auto; display:block; }
+  /* member comparison */
+  .mc-title { font-size:14px; color:#f3f6f4; display:block; margin:18px 0 11px; }
+  .mc { display:flex; align-items:center; gap:10px; margin-bottom:9px; }
+  .mc .medal { font-size:13px; width:13px; }
+  .mc .av { width:26px; height:26px; border-radius:50%; }
+  .mc .nm { font-size:12.5px; width:74px; }
+  .mc .track { flex:1; height:8px; border-radius:5px; background:#11181a; }
+  .mc .fill { height:8px; border-radius:5px; }
+  .mc .val { font-size:12.5px; width:32px; text-align:right; }
+  .fill.leader { background:linear-gradient(90deg,#2f9d6f,#5cf3b8); }
+  .fill.norm { background:#2c6b52; }
+  /* individual trend */
+  .it { background:#11181a; border:1px solid #1e2826; border-radius:14px; padding:13px; margin-top:18px; }
+  .it-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .it-head strong { font-size:13px; color:#f3f6f4; }
+  .picker { display:flex; align-items:center; gap:6px; background:#0e1714; border:1px solid #243029; border-radius:9px; padding:5px 9px; }
+  .picker .av { width:18px; height:18px; border-radius:50%; background:#9a4a2c; }
+  .picker span { font-size:11px; color:#eaf2ee; }
+  .statstrip { display:flex; gap:8px; margin-bottom:11px; }
+  .ss { flex:1; text-align:center; background:#0e1714; border-radius:9px; padding:7px; }
+  .ss p { margin:0; } .ss .n { font-size:14px; font-weight:700; } .ss .c { font-size:8.5px; color:#7c8d87; margin-top:1px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- GROUP TREND: area chart + headline stat -->
+  <div class="thead"><strong>Group trend</strong><span class="stat-chip">▲ 32% vs last week</span></div>
+  <p class="sub">Points · last 14 days · <strong style="color:#cfd8d4;">218 total</strong></p>
+  <svg viewBox="0 0 320 90" style="margin-bottom:0;">
+    <defs><linearGradient id="ga" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#3ddc97" stop-opacity="0.45"/><stop offset="100%" stop-color="#3ddc97" stop-opacity="0"/></linearGradient></defs>
+    <path d="M0,78 L25,74 L50,76 L75,70 L100,72 L125,64 L150,66 L175,52 L200,46 L225,30 L250,16 L275,40 L300,34 L320,22 L320,90 L0,90 Z" fill="url(#ga)"/>
+    <path d="M0,78 L25,74 L50,76 L75,70 L100,72 L125,64 L150,66 L175,52 L200,46 L225,30 L250,16 L275,40 L300,34 L320,22" fill="none" stroke="#3ddc97" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="320" cy="22" r="4" fill="#3ddc97" stroke="#0b100e" stroke-width="2"/>
+  </svg>
+
+  <!-- MEMBER COMPARISON: avatars + leader highlight -->
+  <strong class="mc-title">Member comparison · this week</strong>
+  <div class="mc"><span class="medal">🥇</span><div class="av" style="background:#9a4a2c;"></div><span class="nm" style="color:#f3f6f4;">Robert</span><div class="track"><div class="fill leader" style="width:100%;"></div></div><strong class="val" style="color:#7fe9c0;">17.5</strong></div>
+  <div class="mc"><span class="medal"></span><div class="av" style="background:#355d91;"></div><span class="nm" style="color:#cfd8d4;">Jacob</span><div class="track"><div class="fill norm" style="width:71%;"></div></div><strong class="val" style="color:#cfe0d9;">12.5</strong></div>
+  <div class="mc"><span class="medal"></span><div class="av" style="background:#2f7a5c;"></div><span class="nm" style="color:#cfd8d4;">Ravram26</span><div class="track"><div class="fill norm" style="width:31%;"></div></div><strong class="val" style="color:#cfe0d9;">5.5</strong></div>
+  <div class="mc"><span class="medal"></span><div class="av" style="background:#7a5cc4;"></div><span class="nm" style="color:#8aa39a;">Robinavram</span><div class="track"></div><span class="val" style="color:#5f7268;">0</span></div>
+
+  <!-- INDIVIDUAL TREND: stat strip + area chart -->
+  <div class="it">
+    <div class="it-head"><strong>Individual trend</strong><button class="picker"><div class="av"></div><span>Robert ▾</span></button></div>
+    <div class="statstrip">
+      <div class="ss"><p class="n" style="color:#7fe9c0;">17.5</p><p class="c">this week</p></div>
+      <div class="ss"><p class="n" style="color:#efe7ff;">🔥 7</p><p class="c">streak</p></div>
+      <div class="ss"><p class="n" style="color:#f3f6f4;">2.5</p><p class="c">daily avg</p></div>
+    </div>
+    <svg viewBox="0 0 320 70">
+      <defs><linearGradient id="ia" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#3ddc97" stop-opacity="0.4"/><stop offset="100%" stop-color="#3ddc97" stop-opacity="0"/></linearGradient></defs>
+      <path d="M0,62 L27,58 L54,60 L81,52 L108,54 L135,44 L162,40 L189,30 L216,34 L243,18 L270,10 L297,30 L320,24 L320,70 L0,70 Z" fill="url(#ia)"/>
+      <path d="M0,62 L27,58 L54,60 L81,52 L108,54 L135,44 L162,40 L189,30 L216,34 L243,18 L270,10 L297,30 L320,24" fill="none" stroke="#3ddc97" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="270" cy="10" r="3.5" fill="#5cf3b8" stroke="#11181a" stroke-width="2"/>
+    </svg>
+  </div>
+
+  <p style="font-size:10.5px;color:#7c8d87;margin:14px 0 0;text-align:center;line-height:1.5;">Group trend = smooth area chart + headline stat (▲% vs last week, total) · member comparison = avatars + 🥇 leader highlight · individual trend = stat strip (this week / streak / daily avg) + area chart · same data, reuse the existing values.</p>
+</div>
+</body>
+</html>

@@ -8261,6 +8261,7 @@ body.onboarding-locked .coach-panel { display: none; }
 .ig-menu-pop button:hover { background: var(--soft); }
 
 .ig-photo {
+  position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
   background: var(--soft);
@@ -8269,6 +8270,24 @@ body.onboarding-locked .coach-panel { display: none; }
 }
 .ig-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ig-photo.is-unavailable { display: none; }   /* hide the placeholder if the signed URL is denied */
+.ig-carousel { position: absolute; top: 9px; right: 11px; color: #fff; font-size: 0.95rem; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7); }
+/* Text-only post: the caption rendered large on the rule's gradient, as the "media". */
+.ig-textmedia {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: hidden;
+  background: linear-gradient(150deg, rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.5)), var(--tile, var(--surface));
+}
+.ig-textmedia p {
+  margin: 0; max-width: 100%;
+  font-size: 1.18rem; font-weight: 700; color: #fff; text-align: center; line-height: 1.35;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden;
+}
 
 .ig-actions {
   display: flex;
@@ -8331,14 +8350,24 @@ body.onboarding-locked .coach-panel { display: none; }
 }
 .feed-tabs { margin-bottom: 16px; max-width: 500px; margin-left: auto; margin-right: auto; }
 .feed-discover-loading { max-width: 500px; margin: 8px auto 0; color: var(--muted); text-align: center; font-size: 0.9rem; padding: 18px 0; }
-.ig-summary {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 0.8rem;
-  font-weight: 700;
-  white-space: nowrap;
+/* Header progress tag (rule glyph + label + signed points), e.g. "🏋️ Workout +2". */
+.ig-tag {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 4px;
+  max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 0.72rem; font-weight: 800;
+  color: var(--accent-strong); background: var(--accent-soft);
+  padding: 3px 9px; border-radius: 999px;
 }
+.ig-action-save { margin-left: auto; }
+.ig-action-save.is-saved { color: var(--ink); }
+.ig-action-save.is-saved svg { fill: currentColor; }
 .ig-likes { padding: 2px 14px; font-weight: 750; color: var(--ink); font-size: 0.86rem; }
+.ig-likes-zero { padding: 2px 14px; color: var(--muted); font-size: 0.86rem; }
+.ig-nocomment { color: var(--muted); font-size: 0.84rem; }
+.ig-time { padding: 6px 14px 2px; color: var(--muted); font-size: 0.66rem; letter-spacing: 0.05em; }
+.ig-caption-more { color: var(--muted); background: none; border: 0; padding: 0; cursor: pointer; font: inherit; }
+.ig-caption-more:hover { color: var(--ink); }
 .ig-caption { padding: 2px 14px; color: var(--ink); font-size: 0.88rem; line-height: 1.4; overflow-wrap: anywhere; }
 .ig-caption .ig-name { font-weight: 750; margin-right: 6px; }
 .ig-comments { padding: 2px 14px; display: grid; gap: 4px; }
@@ -8731,19 +8760,21 @@ body.onboarding-locked .coach-panel { display: none; }
 .profile-posts-toggle .segmented-button { padding: 5px 12px; font-size: 0.78rem; }
 
 /* Hybrid post grid: 3 square tiles per row */
-.profile-posts-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+/* Instagram-style grid: tight 2px gaps, square cells, the outer corners rounded by the container. */
+.profile-posts-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; border-radius: 14px; overflow: hidden; }
 .profile-post-tile {
   position: relative;
   aspect-ratio: 1;
   padding: 0;
   border: 0;
-  border-radius: 12px;
+  border-radius: 0;
   overflow: hidden;
   cursor: pointer;
   color: #fff;
   font: inherit;
 }
-.profile-post-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.profile-post-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.profile-tile-carousel { position: absolute; top: 5px; right: 6px; color: #fff; font-size: 0.78rem; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7); }
 /* Photo tile: the image fills the square */
 .profile-tile-photo { background: var(--soft); }
 .profile-tile-photo .profile-tile-img { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }

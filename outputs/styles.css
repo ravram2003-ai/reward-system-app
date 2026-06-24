@@ -6084,19 +6084,16 @@ body.auth-locked {
   gap: 12px;
 }
 
-.cc-stat {
-  color: var(--accent);
-  white-space: nowrap;
-}
-
-.cc-subhead {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 0.74rem;
-  font-weight: 850;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-}
+/* Trend headline (Group/Individual) + responsive area chart — see work/trends-redesign.html. */
+.cc-trend-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cc-trend-head strong { font-size: 0.9rem; color: var(--ink); }
+.cc-stat-chip { flex: 0 0 auto; font-size: 0.66rem; font-weight: 700; border-radius: 8px; padding: 3px 9px; white-space: nowrap; }
+.cc-stat-chip.up { color: #7fe9c0; background: #13281f; border: 1px solid #2a5a45; }
+.cc-stat-chip.down { color: #e0857f; background: #2a1715; border: 1px solid #5a2f2a; }
+.cc-trend-sub { margin: 0; font-size: 0.7rem; color: var(--muted); }
+.cc-trend-sub strong { color: #cfd8d4; font-weight: 700; }
+.cc-area { width: 100%; height: auto; display: block; overflow: visible; }
+.cc-stat { color: var(--accent); white-space: nowrap; }   /* still used by renderPersonalTrends */
 
 .trend-chart {
   display: flex;
@@ -6137,41 +6134,35 @@ body.auth-locked {
   font-weight: 800;
 }
 
-.cc-compare {
-  display: grid;
-  gap: 8px;
-}
+/* Member comparison: avatars + 🥇 leader highlight; bar widths proportional to the leader. */
+.cc-mc-title { display: block; font-size: 0.86rem; font-weight: 700; color: var(--ink); margin: 0; }
+.cc-mc-list { display: grid; gap: 9px; }
+.cc-mc-row { display: flex; align-items: center; gap: 9px; }
+.cc-mc-medal { flex: 0 0 auto; width: 14px; font-size: 0.82rem; text-align: center; }
+.cc-mc-av { width: 26px; height: 26px; border-radius: 50%; flex: 0 0 auto; object-fit: cover; display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: #fff; }
+.cc-mc-name { width: 72px; flex: 0 0 auto; font-size: 0.78rem; color: #cfd8d4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-mc-name.is-leader { color: var(--ink); font-weight: 700; }
+.cc-mc-name.is-zero { color: var(--muted); }
+.cc-mc-track { flex: 1; min-width: 0; height: 8px; border-radius: 5px; background: #11181a; overflow: hidden; }
+.cc-mc-fill { height: 100%; border-radius: 5px; }
+.cc-mc-fill.leader { background: linear-gradient(90deg, #2f9d6f, #5cf3b8); }
+.cc-mc-fill.norm { background: #2c6b52; }
+.cc-mc-val { flex: 0 0 auto; width: 38px; text-align: right; font-size: 0.78rem; color: #cfe0d9; }
+.cc-mc-val.is-leader { color: #7fe9c0; }
+.cc-mc-val.is-zero { color: var(--muted); font-weight: 400; }
 
-.cc-compare-row {
-  display: grid;
-  grid-template-columns: minmax(56px, 84px) minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-}
-
-.cc-compare-name {
-  color: var(--ink);
-  font-size: 0.84rem;
-  font-weight: 800;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cc-compare-track {
-  width: 100%;
-}
-
-.cc-compare-value {
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-
-.cc-member-select {
-  display: grid;
-  gap: 6px;
-  max-width: 280px;
-}
+/* Individual trend: avatar + member-select picker + this-week / streak / daily-avg stat strip. */
+.cc-it-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cc-it-head strong { font-size: 0.86rem; color: var(--ink); }
+.cc-picker { display: flex; align-items: center; gap: 6px; background: #0e1714; border: 1px solid #243029; border-radius: 9px; padding: 3px 6px 3px 8px; }
+.cc-picker-av { width: 18px; height: 18px; border-radius: 50%; flex: 0 0 auto; object-fit: cover; display: flex; align-items: center; justify-content: center; font-size: 0.52rem; color: #fff; }
+.cc-picker-select { background: none; border: 0; color: #eaf2ee; font: inherit; font-size: 0.74rem; padding: 2px 0; cursor: pointer; max-width: 130px; }
+.cc-statstrip { display: flex; gap: 8px; }
+.cc-ss { flex: 1; min-width: 0; text-align: center; background: #0e1714; border-radius: 9px; padding: 7px 4px; }
+.cc-ss-n { margin: 0; font-size: 0.92rem; font-weight: 700; color: var(--ink); }
+.cc-ss-n.accent { color: #7fe9c0; }
+.cc-ss-n.streak { color: #efe7ff; }
+.cc-ss-c { margin: 1px 0 0; font-size: 0.58rem; color: var(--muted); }
 
 .cc-under-list {
   display: grid;

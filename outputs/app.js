@@ -8797,6 +8797,54 @@
     return String(Number(dateKey.split("-")[2]));
   }
 
+  // Smooth area chart (gradient fill + line + a dot on the latest point) from the existing
+  // {date,value} series. Responsive viewBox so it scales cleanly at 390px. Shared by the group
+  // + individual trends. opts.id keeps each chart's gradient <defs> unique.
+  function renderAreaChart(series, opts) {
+    opts = opts || {};
+    const vals = (series || []).map((p) => Math.max(0, numberOrDefault(p.value, 0)));
+    const n = vals.length;
+    const ariaLabel = escapeHtml(opts.ariaLabel || "Points over time");
+    if (!n) return `<svg class="cc-area" viewBox="0 0 320 90" role="img" aria-label="${ariaLabel}"></svg>`;
+    const W = 320, H = opts.height || 90, padTop = 8, padBottom = 6;
+    const usable = H - padTop - padBottom;
+    const max = Math.max(1, ...vals);
+    const xAt = (i) => n === 1 ? W : (i / (n - 1)) * W;
+    const yAt = (v) => padTop + (1 - (v / max)) * usable;
+    const coords = vals.map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`);
+    const line = "M" + coords.join(" L");
+    const area = `${line} L${W},${H} L0,${H} Z`;
+    const gid = "cc-area-grad-" + (opts.id || "x");
+    const lx = xAt(n - 1).toFixed(1), ly = yAt(vals[n - 1]).toFixed(1);
+    return `<svg class="cc-area" viewBox="0 0 ${W} ${H}" role="img" aria-label="${ariaLabel}">
+        <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#3ddc97" stop-opacity="0.42"/><stop offset="100%" stop-color="#3ddc97" stop-opacity="0"/></linearGradient></defs>
+        <path d="${area}" fill="url(#${gid})"/>
+        <path d="${line}" fill="none" stroke="#3ddc97" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+        <circle cx="${lx}" cy="${ly}" r="4" fill="#3ddc97" stroke="#0b100e" stroke-width="2"/>
+      </svg>`;
+  }
+
+  // "▲ {pct}% vs last week" — this week's sum vs last week's, from the existing series.
+  function trendStatChip(thisWeek, lastWeek) {
+    if (lastWeek <= 0) return thisWeek > 0 ? `<span class="cc-stat-chip up">▲ New this week</span>` : "";
+    const pct = Math.round(((thisWeek - lastWeek) / lastWeek) * 100);
+    const up = pct >= 0;
+    return `<span class="cc-stat-chip ${up ? "up" : "down"}">${up ? "▲" : "▼"} ${Math.abs(pct)}% vs last week</span>`;
+  }
+
+  // Consecutive days hitting the daily target, latest-first (today may be unfinished — don't
+  // count it against the streak). Mirrors coachContextStreak; derived from the existing series.
+  function seriesStreak(series, target) {
+    if (!(target > 0) || !series || !series.length) return 0;
+    let streak = 0;
+    for (let i = series.length - 1; i >= 0; i--) {
+      const hit = numberOrDefault(series[i].value, 0) >= target;
+      if (i === series.length - 1 && !hit) continue;
+      if (hit) streak += 1; else break;
+    }
+    return streak;
+  }
+
   function renderCommunityTrendChart(series, options) {
     options = options || {};
     const max = Math.max(1, ...series.map((point) => point.value));
@@ -8823,25 +8871,33 @@
 
     if (modules.groupTrends) {
       const groupSeries = communityGroupSeries(community, COMMUNITY_TREND_DAYS, target);
-      const weekTotal = communityGroupSeries(community, 7, target).reduce((sum, point) => sum + point.value, 0);
+      const total = groupSeries.reduce((s, p) => s + numberOrDefault(p.value, 0), 0);
+      const thisWeek = groupSeries.slice(-7).reduce((s, p) => s + numberOrDefault(p.value, 0), 0);
+      const lastWeek = groupSeries.slice(-14, -7).reduce((s, p) => s + numberOrDefault(p.value, 0), 0);
       const compare = communityStandings(community, period, "points");
-      const maxCompare = Math.max(1, ...compare.map((item) => item.periodPoints));
-      const compareRows = compare.map((item) => `
-        <div class="cc-compare-row">
-          <span class="cc-compare-name">${escapeHtml(item.name.split(" ")[0])}</span>
-          <div class="mini-progress-track cc-compare-track" aria-hidden="true"><div class="mini-progress-fill" style="width:${Math.round((item.periodPoints / maxCompare) * 100)}%"></div></div>
-          <strong class="cc-compare-value">${escapeHtml(formatPoints(item.periodPoints))}</strong>
-        </div>
-      `).join("");
+      const maxCompare = Math.max(1, ...compare.map((m) => numberOrDefault(m.periodPoints, 0)));
+      const compareRows = compare.map((m, i) => {
+        const pts = numberOrDefault(m.periodPoints, 0);
+        const isLeader = i === 0 && pts > 0;       // standings are sorted leader-first
+        const zero = !(pts > 0);
+        const width = Math.max(4, Math.round((pts / maxCompare) * 100));
+        const tone = isLeader ? " is-leader" : (zero ? " is-zero" : "");
+        return `
+          <div class="cc-mc-row">
+            <span class="cc-mc-medal" aria-hidden="true">${isLeader ? "🥇" : ""}</span>
+            ${renderAvatar({ className: "cc-mc-av", name: m.name, color: m.color, avatarUrl: m.avatarUrl })}
+            <span class="cc-mc-name${tone}">${escapeHtml(String(m.name || "Member").split(" ")[0])}</span>
+            <div class="cc-mc-track" aria-hidden="true">${zero ? "" : `<div class="cc-mc-fill ${isLeader ? "leader" : "norm"}" style="width:${width}%"></div>`}</div>
+            <strong class="cc-mc-val${tone}">${escapeHtml(formatPoints(pts))}</strong>
+          </div>`;
+      }).join("");
       parts.push(`
         <section class="tool-panel cc-panel">
-          <div class="panel-heading tight">
-            <div><h3>Group trend</h3><span>Community points · last ${COMMUNITY_TREND_DAYS} days</span></div>
-            <strong class="cc-stat">${escapeHtml(formatPoints(weekTotal))} this week</strong>
-          </div>
-          ${renderCommunityTrendChart(groupSeries, { ariaLabel: "Community points over time" })}
-          <div class="cc-subhead">Member comparison · ${escapeHtml(communityPeriod(period).label.toLowerCase())}</div>
-          <div class="cc-compare">${compareRows}</div>
+          <div class="cc-trend-head"><strong>Group trend</strong>${trendStatChip(thisWeek, lastWeek)}</div>
+          <p class="cc-trend-sub">Points · last ${COMMUNITY_TREND_DAYS} days · <strong>${escapeHtml(formatPoints(roundScore(total)))} total</strong></p>
+          ${renderAreaChart(groupSeries, { id: "group", ariaLabel: "Community points over time" })}
+          <div class="cc-mc-title">Member comparison · ${escapeHtml(communityPeriod(period).label.toLowerCase())}</div>
+          <div class="cc-mc-list">${compareRows}</div>
         </section>
       `);
     }
@@ -8856,15 +8912,26 @@
       const member = community.members.find((item) => item.id === memberId) || community.members[0];
       const memberSeries = member ? communityMemberSeries(community, member, COMMUNITY_TREND_DAYS, target) : [];
       const memberWeek = member ? communityMemberPeriodScore(community, member, "weekly", target) : 0;
+      const streak = seriesStreak(memberSeries, target);
+      const dailyAvg = roundScore(memberWeek / 7);
       const optionsHtml = community.members.map((item) => `<option value="${escapeHtml(item.id)}"${item.id === memberId ? " selected" : ""}>${escapeHtml(item.name)}</option>`).join("");
       parts.push(`
-        <section class="tool-panel cc-panel">
-          <div class="panel-heading tight">
-            <div><h3>Individual trend</h3><span>Last ${COMMUNITY_TREND_DAYS} days</span></div>
+        <section class="tool-panel cc-panel cc-it">
+          <div class="cc-it-head">
+            <strong>Individual trend</strong>
+            <div class="cc-picker">
+              ${member ? renderAvatar({ className: "cc-picker-av", name: member.name, color: member.color, avatarUrl: member.avatarUrl }) : ""}
+              <select id="communityTrendMemberSelect" class="cc-picker-select" aria-label="Member">${optionsHtml}</select>
+            </div>
           </div>
-          <label class="cc-member-select"><span>Member</span><select id="communityTrendMemberSelect">${optionsHtml}</select></label>
-          ${member ? renderCommunityTrendChart(memberSeries, { ariaLabel: `${member.name} points over time` }) : emptyState("No members yet.")}
-          <div class="cc-subhead">${member ? escapeHtml(member.name.split(" ")[0]) : ""} · ${escapeHtml(formatPoints(memberWeek))} this week</div>
+          ${member ? `
+            <div class="cc-statstrip">
+              <div class="cc-ss"><p class="cc-ss-n accent">${escapeHtml(formatPoints(memberWeek))}</p><p class="cc-ss-c">this week</p></div>
+              <div class="cc-ss"><p class="cc-ss-n streak">🔥 ${escapeHtml(String(streak))}</p><p class="cc-ss-c">streak</p></div>
+              <div class="cc-ss"><p class="cc-ss-n">${escapeHtml(formatPoints(dailyAvg))}</p><p class="cc-ss-c">daily avg</p></div>
+            </div>
+            ${renderAreaChart(memberSeries, { id: "member", ariaLabel: `${member.name} points over time` })}`
+          : emptyState("No members yet.")}
         </section>
       `);
     }

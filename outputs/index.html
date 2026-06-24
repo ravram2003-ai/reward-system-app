@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260623-syncconnect">
+    <link rel="stylesheet" href="styles.css?v=20260623-profileredesign">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -1439,6 +1439,10 @@
                 <span>Handle</span>
                 <input id="profileHandleInput" type="text" required>
               </label>
+              <label class="wide-field">
+                <span>Bio</span>
+                <textarea id="profileBioInput" rows="2" maxlength="280" placeholder="A short line about you (optional)"></textarea>
+              </label>
               <label>
                 <span>Profile visibility</span>
                 <select id="profilePrivacyInput">
@@ -1527,13 +1531,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260623-syncconnect"></script>
-    <script src="auth-helpers.js?v=20260623-syncconnect"></script>
-    <script src="scoring.js?v=20260623-syncconnect"></script>
-    <script src="insight.js?v=20260623-syncconnect"></script>
-    <script src="signals.js?v=20260623-syncconnect"></script>
-    <script src="wearables.js?v=20260623-syncconnect"></script>
-    <script type="module" src="auth.js?v=20260623-syncconnect"></script>
-    <script src="app.js?v=20260623-syncconnect"></script>
+    <script src="supabase-config.js?v=20260623-profileredesign"></script>
+    <script src="auth-helpers.js?v=20260623-profileredesign"></script>
+    <script src="scoring.js?v=20260623-profileredesign"></script>
+    <script src="insight.js?v=20260623-profileredesign"></script>
+    <script src="signals.js?v=20260623-profileredesign"></script>
+    <script src="wearables.js?v=20260623-profileredesign"></script>
+    <script type="module" src="auth.js?v=20260623-profileredesign"></script>
+    <script src="app.js?v=20260623-profileredesign"></script>
   </body>
 </html>

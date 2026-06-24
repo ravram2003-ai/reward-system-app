@@ -220,6 +220,8 @@
       name: "Avery Rivera",
       handle: "@avery",
       privacy: "public",
+      // Short profile description (≤280, mirrored to profiles.bio).
+      bio: "",
       accent: "#355d91",
       // Uploaded profile picture (public URL from the "avatars" bucket). "" = use the
       // initials avatar. Mirrored to the server (profiles.avatar_url).
@@ -480,6 +482,7 @@
 
   function init() {
     resetSavedBuildSubpage();
+    state.profileListMode = null; // transient view state — never restore a stale followers/following list
     captureJoinCodeFromUrl();
     cacheElements();
     bindEvents();
@@ -1527,8 +1530,9 @@
       // Reflect server truth for the searchable handle + visibility choice.
       if (flags.handle) state.profile.handle = cleanHandle(flags.handle);
       if (flags.visibility === "public" || flags.visibility === "private") state.profile.privacy = flags.visibility;
-      // Server truth for the uploaded profile picture (so it shows on every device).
+      // Server truth for the uploaded profile picture + bio (so they show on every device).
       state.profile.avatarUrl = flags.avatar_url || "";
+      if (typeof flags.bio === "string") state.profile.bio = flags.bio;
       // Brand-new account that hasn't finished first-run onboarding → show it now.
       // Existing accounts were backfilled onboarding_completed=true (search-onboarding.sql),
       // so they're never re-onboarded. A failed/null fetch is treated as completed.
@@ -3038,6 +3042,7 @@
       "saveProfileButton",
       "profileNameInput",
       "profileHandleInput",
+      "profileBioInput",
       "profilePrivacyInput",
       "backFromProfileEditButton",
       "largeAvatar",
@@ -8545,6 +8550,8 @@
   let profileOverview = null;
   let profileOverviewLoading = false;
   let profileBackView = "";
+  let profileListData = null;       // cached followers/following rows for the list view
+  let profileListLoading = false;
 
   function openUserProfile(userId, communityContextId) {
     const id = String(userId || "");
@@ -8556,6 +8563,8 @@
     state.profileCommunityContextId = communityContextId ? String(communityContextId) : "";
     profileBackView = (state.activeView && state.activeView !== "profile-page") ? state.activeView : "feed";
     state.profileUserId = id;
+    state.profileListMode = null; // always open the profile itself, not a stale followers list
+    profileListData = null;
     profileOverview = null;
     profileOverviewLoading = true; // show the loading state on the first paint, not an error flash
     state.activeView = "profile-page";
@@ -8570,22 +8579,119 @@
     }
     profileOverviewLoading = true;
     renderProfilePage();
-    let row = null, counts = null;
+    let row = null, counts = null, bio = null;
     try {
       const out = await Promise.all([
         Promise.resolve(window.PointwellSignals.getProfileOverview(id)).catch(() => null),
         (typeof window.PointwellSignals.getFollowCounts === "function"
           ? Promise.resolve(window.PointwellSignals.getFollowCounts(id)).catch(() => null)
+          : Promise.resolve(null)),
+        (typeof window.PointwellSignals.profileBio === "function"
+          ? Promise.resolve(window.PointwellSignals.profileBio(id)).catch(() => null)
           : Promise.resolve(null))
       ]);
-      row = out[0]; counts = out[1];
+      row = out[0]; counts = out[1]; bio = out[2];
     } catch (e) { row = null; }
     if (String(state.profileUserId) !== String(id)) return; // navigated away mid-fetch
-    // Attach follower/following counts to the profile row so the hero can show them.
+    // Attach follower/following counts + the gated bio to the profile row for the hero.
     if (row && counts) { row.follower_count = counts.follower_count; row.following_count = counts.following_count; }
+    if (row) row.bio = bio;
     profileOverviewLoading = false;
     profileOverview = row;
     if (state.activeView === "profile-page") renderProfilePage();
+  }
+
+  // ── Followers / Following list (opened by tapping a stat card) ───────────────
+  function openProfileList(mode) {
+    state.profileListMode = mode === "following" ? "following" : "followers";
+    profileListData = null;
+    profileListLoading = true;
+    saveState();
+    renderProfilePage();
+    loadProfileList();
+  }
+
+  async function loadProfileList() {
+    const id = state.profileUserId, mode = state.profileListMode;
+    const sig = window.PointwellSignals;
+    const fnName = mode === "following" ? "profileFollowing" : "profileFollowers";
+    if (!id || !signalsReady() || !sig || typeof sig[fnName] !== "function") {
+      profileListLoading = false; profileListData = []; renderProfilePage(); return;
+    }
+    let rows = [];
+    try { rows = await Promise.resolve(sig[fnName](id)).catch(() => []); } catch (e) { rows = []; }
+    if (String(state.profileUserId) !== String(id) || state.profileListMode !== mode) return; // navigated away
+    profileListLoading = false;
+    profileListData = Array.isArray(rows) ? rows : [];
+    renderProfilePage();
+  }
+
+  // The list view (replaces the profile body). Privacy is server-enforced: the RPC returns [] for a
+  // private profile the viewer can't see — we then show the locked state (chosen by o.can_view, a
+  // presentation decision only; the data itself is already withheld by the DB).
+  function renderProfileListView(o, isOwnProfile) {
+    const root = els.profilePageBody;
+    if (!root) return;
+    const mode = state.profileListMode;
+    const fullName = escapeHtml(o.display_name || "Member");
+    const firstName = escapeHtml(String(o.display_name || "Member").split(" ")[0] || "them");
+    const title = mode === "following" ? "Following" : "Followers";
+    const back = `<button class="ghost-button small profile-page-back" type="button" data-profile-list-back>← ${fullName}</button>`;
+    const list = profileListData || [];
+    let body;
+    if (profileListLoading) {
+      body = `<p class="profile-page-loading">Loading ${escapeHtml(title.toLowerCase())}…</p>`;
+    } else if (list.length) {
+      body = `<div class="profile-list">${list.map(renderProfileListRow).join("")}</div>`;
+    } else if (!o.can_view) {
+      body = `
+        <div class="profile-list-locked">
+          <div class="profile-list-locked-icon" aria-hidden="true">🔒</div>
+          <strong>${mode === "following" ? "Who they follow is private" : "Followers are private"}</strong>
+          <p>Follow ${firstName} to see who follows them and who they follow.</p>
+          ${profileLockedButton(o)}
+        </div>`;
+    } else {
+      body = emptyState(mode === "following"
+        ? `${fullName}${isOwnProfile ? " (you)" : ""} isn't following anyone yet.`
+        : `No ${title.toLowerCase()} yet.`);
+    }
+    root.innerHTML = back + `<section class="profile-section profile-list-section"><h2 class="profile-list-title">${title}</h2>${body}</section>`;
+  }
+
+  function renderProfileListRow(p) {
+    const pName = escapeHtml(p.display_name || "Member");
+    const pHandle = escapeHtml(cleanHandle(p.handle || "") || "@member");
+    const id = escapeHtml(String(p.id));
+    const isMe = !!(state.account && String(p.id) === String(state.account.userId));
+    const action = isMe ? `<span class="profile-rel-status">You</span>`
+      : (p.viewer_follows
+        ? `<button class="ghost-button small profile-following" type="button" data-profile-list-unfollow="${id}">Following</button>`
+        : `<button class="primary-button small" type="button" data-profile-list-follow="${id}"><span aria-hidden="true">+</span> Follow</button>`);
+    return `
+      <div class="profile-list-row">
+        <button class="profile-list-identity" type="button" data-profile-list-open="${id}" aria-label="View ${pName}'s profile">
+          ${renderAvatar({ className: "profile-list-avatar", name: p.display_name || "Member", avatarUrl: p.avatar_url })}
+          <div class="profile-list-who"><strong>${pName}</strong><span>${pHandle}</span></div>
+        </button>
+        ${action}
+      </div>`;
+  }
+
+  // Follow/unfollow a person FROM the list (instant follows table). Optimistic — flip the row's
+  // button + re-render now, revert on error. (Private accounts no-op server-side; self-corrects on
+  // the next list load.)
+  function profileListFollow(id, follow) {
+    const sig = window.PointwellSignals;
+    if (!signalsReady() || !sig) return;
+    const row = (profileListData || []).find((p) => String(p.id) === String(id));
+    if (row) row.viewer_follows = follow;
+    renderProfilePage();
+    const fn = follow ? sig.followUser : sig.unfollowUser;
+    if (typeof fn !== "function") return;
+    Promise.resolve(fn(id)).then((r) => {
+      if (r && r.error) { if (row) row.viewer_follows = !follow; renderProfilePage(); showToast(follow ? "Couldn't follow" : "Couldn't unfollow"); }
+    }).catch(() => {});
   }
 
   function renderProfilePage() {
@@ -8608,25 +8714,42 @@
       centerProfileTodaySchedule(root);
       return;
     }
+    // Tapped a Followers/Following stat → render that list view instead of the profile.
+    if (state.profileListMode === "followers" || state.profileListMode === "following") {
+      renderProfileListView(o, isOwnProfile);
+      return;
+    }
     const name = escapeHtml(o.display_name || "Member");
     const handle = escapeHtml(cleanHandle(o.handle || "") || "@member");
     const canView = !!o.can_view;
-    const isPrivate = o.visibility === "private";
-    const shortLine = canView
-      ? escapeHtml(plural((o.communities || []).length, "public community"))
-      : (isPrivate ? "Private profile" : "Public profile");
+    // Bio: own profile uses local state (reflects unsaved edits); others use the gated server bio.
+    const bio = isOwnProfile ? (state.profile.bio || "") : (o.bio || "");
+    const bioHtml = bio ? `<p class="profile-hero-bio">${escapeHtml(bio)}</p>` : "";
+    const followers = Number(o.follower_count) || 0;
+    const following = Number(o.following_count) || 0;
+    const commCount = (o.communities || []).length + (Number(o.private_count) || 0);
+    // Followers/Following are tappable stat cards (› affordance); Communities is a static stat.
+    const statCard = (mode, num, label) =>
+      `<button class="profile-stat" type="button" data-profile-stat="${mode}"><p class="profile-stat-num">${escapeHtml(formatFollowCount(num))}</p><p class="profile-stat-cap">${label} ›</p></button>`;
+    const actionRow = (!isOwnProfile && canView)
+      ? `<div class="profile-hero-actions-row">${profileRelationshipButton(o)}${profileMessageButton(name)}</div>` : "";
     let html = back + `
-      <section class="profile-hero">
-        ${renderAvatar({ className: "large-avatar profile-hero-avatar", name: o.display_name || "Member", avatarUrl: o.avatar_url })}
-        <div class="profile-hero-main">
-          <h2 class="profile-hero-name">${name}</h2>
-          <span class="profile-hero-handle">${handle}</span>
-          ${renderProfileCounts(o)}
-          <span class="profile-hero-sub">${shortLine}</span>
+      <section class="profile-hero profile-hero-card">
+        ${isOwnProfile ? `<button class="profile-gear" type="button" data-profile-settings aria-label="Edit profile and privacy settings"><span aria-hidden="true">⚙</span></button>` : ""}
+        <div class="profile-hero-top">
+          ${renderAvatar({ className: "large-avatar profile-hero-avatar", name: o.display_name || "Member", avatarUrl: o.avatar_url })}
+          <div class="profile-hero-id">
+            <strong class="profile-hero-name">${name}</strong>
+            <span class="profile-hero-handle">${handle}</span>
+            ${bioHtml}
+          </div>
         </div>
-        ${isOwnProfile
-          ? `<div class="profile-hero-actions">${profileSettingsButton()}</div>`
-          : (canView ? `<div class="profile-hero-actions">${profileRelationshipButton(o)}${profileMessageButton(name)}</div>` : "")}
+        ${actionRow}
+        <div class="profile-hero-stats">
+          ${statCard("followers", followers, "Followers")}
+          ${statCard("following", following, "Following")}
+          <div class="profile-stat profile-stat-accent profile-stat-static"><p class="profile-stat-num">${escapeHtml(formatFollowCount(commCount))}</p><p class="profile-stat-cap">Communities</p></div>
+        </div>
       </section>`;
 
     // "Today in <community>" — community-scoped data the viewer already has as a co-member,
@@ -8718,21 +8841,6 @@
 
   function profileMessageButton(name) {
     return `<button class="secondary-button small" type="button" data-profile-message aria-label="Message ${name}"><span aria-hidden="true">✉</span> Message</button>`;
-  }
-
-  // Shown only on your OWN profile view → opens the existing "Profile & privacy" edit form.
-  function profileSettingsButton() {
-    return `<button class="secondary-button small" type="button" data-profile-settings aria-label="Edit profile and privacy settings"><span aria-hidden="true">⚙</span> Settings</button>`;
-  }
-
-  // Compact follower/following counts under the name/@handle — shown on public AND
-  // private profiles (safe even when the feed is locked). Hidden until counts load.
-  function renderProfileCounts(o) {
-    if (!o || o.follower_count == null) return "";
-    const followers = Number(o.follower_count) || 0;
-    const following = Number(o.following_count) || 0;
-    const fw = followers === 1 ? "follower" : "followers";
-    return `<span class="profile-hero-counts">${escapeHtml(formatFollowCount(followers))} ${fw} · ${escapeHtml(formatFollowCount(following))} following</span>`;
   }
 
   // 128 → "128", 1200 → "1.2k", 12000 → "12k".
@@ -8933,8 +9041,13 @@
   function onProfilePageClick(event) {
     const t = event.target;
     const find = (sel) => t.closest && t.closest(sel);
+    const listBack = find("[data-profile-list-back]"); if (listBack) { state.profileListMode = null; saveState(); renderProfilePage(); return; }
     const back = find("[data-profile-back]"); if (back) { state.activeView = profileBackView || "feed"; saveState(); render(); return; }
     const settings = find("[data-profile-settings]"); if (settings) { openProfile(); return; }
+    const stat = find("[data-profile-stat]"); if (stat) { openProfileList(stat.dataset.profileStat); return; }
+    const listOpen = find("[data-profile-list-open]"); if (listOpen) { openUserProfile(listOpen.dataset.profileListOpen); return; }
+    const listFollow = find("[data-profile-list-follow]"); if (listFollow) { profileListFollow(listFollow.dataset.profileListFollow, true); return; }
+    const listUnfollow = find("[data-profile-list-unfollow]"); if (listUnfollow) { profileListFollow(listUnfollow.dataset.profileListUnfollow, false); return; }
     const follow = find("[data-profile-follow]"); if (follow) { profileFollow(follow.dataset.profileFollow); return; }
     const unfollow = find("[data-profile-unfollow]"); if (unfollow) { profileUnfollow(unfollow.dataset.profileUnfollow); return; }
     const req = find("[data-profile-follow-request]"); if (req) { profileFollowRequest(req.dataset.profileFollowRequest); return; }
@@ -9032,6 +9145,7 @@
   function renderProfile() {
     els.profileNameInput.value = state.profile.name;
     els.profileHandleInput.value = state.profile.handle.replace(/^@/, "");
+    if (els.profileBioInput) els.profileBioInput.value = state.profile.bio || "";
     els.profilePrivacyInput.value = state.profile.privacy;
     if (els.allowMotivationInput) els.allowMotivationInput.checked = state.profile.allowMotivation === true;
     refreshProfileAvatar();
@@ -16521,16 +16635,19 @@
     try {
     const name = els.profileNameInput.value.trim() || "Avery Rivera";
     const handle = cleanHandle(els.profileHandleInput.value.trim() || "avery");
+    const bio = els.profileBioInput ? els.profileBioInput.value.trim().slice(0, 280) : (state.profile.bio || "");
     state.profile.name = name;
     state.profile.handle = handle;
+    state.profile.bio = bio;
     state.profile.privacy = els.profilePrivacyInput.value;
 
-    // Persist the searchable basics + visibility to the DB (RLS allows self-update).
+    // Persist the searchable basics + visibility + bio to the DB (RLS allows self-update).
     // This is what makes you findable by your chosen name/handle and applies your
     // public/private choice server-side — and fixes edits being lost on reload.
     const profilePatch = {
       display_name: name,
       handle: handle,
+      bio: bio,
       visibility: state.profile.privacy === "private" ? "private" : "public"
     };
     // Resolve a pending profile-picture change BEFORE persisting so the picture and

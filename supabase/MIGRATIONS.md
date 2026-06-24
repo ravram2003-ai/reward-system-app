@@ -58,6 +58,10 @@ you know what's live in production.
   `can_view_profile` (public/self/approved-follower; private → 0 rows; anon can't enumerate private
   connections). Granted anon + authenticated, read-only. *(after profile-view — needs
   `can_view_profile`; also `follows`, `profiles`, `profile_is_public`, `are_friends`)*.
+- [x] **19. profile-bio-rpc.sql** — privacy-gated read of another profile's `bio`:
+  SECURITY DEFINER `profile_bio(target)` returning the bio when `can_view_profile` (public/self/
+  approved-follower), else NULL. Granted anon + authenticated, read-only. Powers the redesigned
+  profile header. *(after #18 — needs `profiles.bio`; and profile-view's `can_view_profile`)*.
 
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).

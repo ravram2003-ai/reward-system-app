@@ -181,7 +181,7 @@
     try {
       var res = await sb
         .from("profiles")
-        .select("allow_motivation_when_behind, handle, visibility, onboarding_completed, avatar_url")
+        .select("allow_motivation_when_behind, handle, visibility, onboarding_completed, avatar_url, bio")
         .eq("id", userId)
         .maybeSingle();
       return res.error ? null : (res.data || null);
@@ -200,6 +200,8 @@
     if (typeof fields.display_name === "string") patch.display_name = fields.display_name;
     if (typeof fields.handle === "string") patch.handle = fields.handle;
     if (fields.visibility === "public" || fields.visibility === "private") patch.visibility = fields.visibility;
+    // bio: a short description (≤280, also DB-CHECK enforced). Pass "" to clear it.
+    if (typeof fields.bio === "string") patch.bio = fields.bio.slice(0, 280);
     // avatar_url is set when present; pass null/"" to clear it back to the initials avatar.
     if (Object.prototype.hasOwnProperty.call(fields, "avatar_url")) {
       patch.avatar_url = fields.avatar_url ? String(fields.avatar_url) : null;
@@ -847,6 +849,36 @@
     }
   }
 
+  // Privacy-gated bio for any profile (profile-bio-rpc.sql) — text, or null when locked/blocked.
+  async function profileBio(targetId) {
+    var sb = getClient();
+    if (!sb || !targetId) return null;
+    try {
+      var res = await sb.rpc("profile_bio", { target: targetId });
+      return res.error ? null : (res.data || null);
+    } catch (e) { return null; }
+  }
+
+  // Privacy-gated follower / following LISTS (profile-bio-connections.sql). Each row:
+  // { id, display_name, handle, avatar_url, viewer_follows }. A private profile the caller
+  // can't view returns [] (the locked state) — the gate is server-side, never the client.
+  async function profileFollowers(targetId) {
+    var sb = getClient();
+    if (!sb || !targetId) return [];
+    try {
+      var res = await sb.rpc("profile_followers", { target: targetId });
+      return res.error ? [] : (res.data || []);
+    } catch (e) { return []; }
+  }
+  async function profileFollowing(targetId) {
+    var sb = getClient();
+    if (!sb || !targetId) return [];
+    try {
+      var res = await sb.rpc("profile_following", { target: targetId });
+      return res.error ? [] : (res.data || []);
+    } catch (e) { return []; }
+  }
+
   // Follower / following counts for any profile (SECURITY DEFINER — follows RLS is
   // participant-only). Returns { follower_count, following_count } or null on failure.
   async function getFollowCounts(targetId) {
@@ -1226,6 +1258,9 @@
     followUser: followUser,
     unfollowUser: unfollowUser,
     getProfileOverview: getProfileOverview,
+    profileBio: profileBio,
+    profileFollowers: profileFollowers,
+    profileFollowing: profileFollowing,
     getFollowCounts: getFollowCounts
   };
 

@@ -241,7 +241,7 @@
     feedTab: "friends",
     communityLeaderboardPeriod: "",
     communityHubTab: "feed",
-    communityFeedSort: "hot",
+    communityFeedSort: "new",
     communityTrendMemberId: "",
     dashboardAnalyticsOpen: false,
     inactiveCommunitiesOpen: false,
@@ -7993,8 +7993,8 @@
     { id: "about", label: "About" }
   ];
   const COMMUNITY_FEED_SORTS = [
-    { id: "hot", label: "🔥 Hot" },
     { id: "new", label: "🆕 New" },
+    { id: "hot", label: "🔥 Hot" },
     { id: "top", label: "🏆 Top" }
   ];
 
@@ -8002,6 +8002,10 @@
   let communityComposerOpen = false;
   let communityComposerCaption = "";
   let communityComposerPhoto = null; // { file, previewUrl }
+  // AI auto-fill: "edit" (submit runs parse-log) → "thinking" → "suggest" (Confirm/Change) →
+  // "change" (rule/amount picker) → "ready" (a choice is locked; Post posts).
+  let communityComposerStage = "edit";
+  let communityComposerPick = null;  // { ruleId, amount } to log, or null = no-points / unmatched
   let communityLeaveArmed = false;   // two-tap confirm for the About-tab Leave button
   // User ids I follow — lazily loaded once for the Members tab follow buttons.
   let communityFollowingSet = new Set();
@@ -8039,7 +8043,7 @@
   // Feed sort tabs (Hot / New / Top) — client-side reorder of the already-loaded posts.
   function renderCommunityFeedSort() {
     if (!els.communityFeedSort) return;
-    const active = COMMUNITY_FEED_SORTS.some((s) => s.id === state.communityFeedSort) ? state.communityFeedSort : "hot";
+    const active = COMMUNITY_FEED_SORTS.some((s) => s.id === state.communityFeedSort) ? state.communityFeedSort : "new";
     els.communityFeedSort.innerHTML = COMMUNITY_FEED_SORTS.map((s) =>
       `<button class="community-sort-pill${s.id === active ? " is-active" : ""}" type="button" role="tab" aria-selected="${s.id === active ? "true" : "false"}" data-feed-sort="${escapeHtml(s.id)}">${escapeHtml(s.label)}</button>`).join("");
     Array.from(els.communityFeedSort.querySelectorAll("[data-feed-sort]")).forEach((b) =>
@@ -8050,7 +8054,7 @@
   // recency+engagement blend. Engagement comes from the social cache (populated async by
   // fetchFeedSocial), so Top/Hot sharpen as that warms.
   function sortCommunityFeed(items) {
-    const mode = COMMUNITY_FEED_SORTS.some((s) => s.id === state.communityFeedSort) ? state.communityFeedSort : "hot";
+    const mode = COMMUNITY_FEED_SORTS.some((s) => s.id === state.communityFeedSort) ? state.communityFeedSort : "new";
     const list = items.slice();
     const recency = (it) => String(it.when || "");
     const engagement = (it) => { const s = feedSocialFor(String(it.entry.id)); return (Number(s.like_count) || 0) * 2 + (Number(s.comment_count) || 0); };
@@ -8065,11 +8069,13 @@
     return list;
   }
 
-  // Feed composer — collapsed "Share your progress…" bar that expands to a caption +
-  // optional photo, posting through the EXISTING community-post path (addCommunityEntry +
-  // pushCommunityEntryToDb + uploadEntryPhoto). No parallel write path.
+  // Feed composer — collapsed "Share your progress…" bar that expands to a caption + optional
+  // photo. On submit it runs the EXISTING parse-log AI (+ photo vision) scoped to this
+  // community's rules to suggest a rule + points; Confirm logs via the EXISTING community-entry
+  // path (points + leaderboard) AND posts with the rule tag. No parallel AI or write path.
   function renderCommunityComposer(world) {
     if (!els.communityComposer) return;
+    const community = world && world.community;
     if (!communityComposerOpen) {
       els.communityComposer.innerHTML =
         `<button class="community-composer-bar" type="button" data-composer-open>
@@ -8084,27 +8090,131 @@
     const preview = communityComposerPhoto && communityComposerPhoto.previewUrl
       ? `<div class="community-composer-photo"><img src="${escapeHtml(communityComposerPhoto.previewUrl)}" alt=""><button type="button" class="community-composer-photo-x" data-composer-photo-remove aria-label="Remove photo">×</button></div>`
       : "";
-    // TODO(ai-points): a later diff will AI-suggest the rule + points to attach to this share.
+    const destName = escapeHtml(community ? (community.name || "your community") : "your community");
+    const stage = communityComposerStage;
+    const postLabel = stage === "edit" ? "Continue" : (stage === "thinking" ? "Thinking…" : "Post");
+    const postReady = stage === "ready";
+    const postDisabled = stage === "thinking" || stage === "suggest" || stage === "change";
     els.communityComposer.innerHTML =
       `<div class="community-composer-form">
-        <textarea class="community-composer-input" data-composer-caption maxlength="${ENTRY_MESSAGE_MAX}" rows="3" placeholder="Share your progress…">${escapeHtml(communityComposerCaption)}</textarea>
+        <div class="community-composer-to">
+          ${renderAvatar({ name: state.profile.name, avatarUrl: state.profile.avatarUrl, color: state.profile.accent || "#355d91", className: "community-composer-av sm" })}
+          <span class="community-composer-to-lbl">Posting to</span>
+          <span class="community-composer-dest">👥 ${destName}</span>
+          <button type="button" class="community-composer-x" data-composer-cancel aria-label="Close composer">×</button>
+        </div>
+        <textarea class="community-composer-input" data-composer-caption maxlength="${ENTRY_MESSAGE_MAX}" rows="3" placeholder="What did you do? (press Enter)">${escapeHtml(communityComposerCaption)}</textarea>
         ${preview}
-        <div class="community-composer-actions">
-          <button type="button" class="community-composer-photo-btn" data-composer-photo><span aria-hidden="true">📷</span> Photo</button>
-          <button type="button" class="ghost-button small" data-composer-cancel>Cancel</button>
-          <button type="button" class="primary-button small" data-composer-post>Post</button>
+        ${renderComposerAiBox(community)}
+        <div class="community-composer-footer">
+          <button type="button" class="community-composer-photo-btn" data-composer-photo aria-label="Add photo"><span aria-hidden="true">📷</span></button>
+          <button type="button" class="community-composer-post${postReady ? " is-ready" : ""}" data-composer-post${postDisabled ? " disabled" : ""}>${escapeHtml(postLabel)}</button>
         </div>
       </div>`;
-    const cap = els.communityComposer.querySelector("[data-composer-caption]");
-    if (cap) cap.addEventListener("input", () => { communityComposerCaption = cap.value; });
-    const photoBtn = els.communityComposer.querySelector("[data-composer-photo]");
+    bindCommunityComposer(world);
+  }
+
+  // The stage-dependent AI block above the Post button (see work/composer-ai-autofill.html).
+  function renderComposerAiBox(community) {
+    const stage = communityComposerStage;
+    if (stage === "edit" || !community) return "";
+    if (stage === "thinking") {
+      return `<div class="community-composer-ai"><div class="community-composer-ai-head"><span aria-hidden="true">✨</span> Reading your log…</div></div>`;
+    }
+    if (stage === "ready") {
+      const r = communityComposerPick && resolveQuickLogRule("community", community.id, communityComposerPick.ruleId);
+      if (!r) return `<div class="community-composer-ai is-ready"><span class="community-composer-ai-chip">Just sharing — no points</span></div>`;
+      const pts = scoring.calculateRule(r.rule, communityComposerPick.amount).totalPoints;
+      return `<div class="community-composer-ai is-ready"><span class="community-composer-ai-chip">✓ ${escapeHtml(r.rule.label)} ${escapeHtml(formatSigned(pts))}</span><span class="community-composer-ai-note">logs to your day &amp; the leaderboard</span></div>`;
+    }
+    if (stage === "change") {
+      const rules = (community.system.rules || []).map(scoring.normalizeRule).filter((rl) => rl.simpleStyle !== "penalty" && rl.dataSource !== "calculated");
+      const sel = communityComposerPick ? communityComposerPick.ruleId : "";
+      const opts = rules.map((rl) => {
+        const p = scoring.calculateRule(rl, composerDefaultAmount(rl)).totalPoints;
+        return `<option value="${escapeHtml(rl.id)}"${rl.id === sel ? " selected" : ""}>${escapeHtml(rl.label)} (${escapeHtml(formatSigned(p))})</option>`;
+      }).join("");
+      const amt = communityComposerPick ? communityComposerPick.amount : 1;
+      return `<div class="community-composer-ai">
+          <div class="community-composer-ai-head"><span aria-hidden="true">✨</span> Pick what to log</div>
+          <div class="community-composer-change-row">
+            <select class="community-composer-rulesel" data-composer-rule aria-label="Rule to log">
+              ${opts}
+              <option value="__none__"${communityComposerPick ? "" : " selected"}>— No points, just post</option>
+            </select>
+            <input class="community-composer-amt" data-composer-amt type="number" min="0" step="1" value="${escapeHtml(String(amt))}" aria-label="Amount">
+            <button type="button" class="community-composer-confirm" data-composer-save>Save</button>
+          </div>
+        </div>`;
+    }
+    // suggest
+    const r = communityComposerPick && resolveQuickLogRule("community", community.id, communityComposerPick.ruleId);
+    if (!r) return "";
+    const pts = scoring.calculateRule(r.rule, communityComposerPick.amount).totalPoints;
+    return `<div class="community-composer-ai">
+        <div class="community-composer-ai-head"><span aria-hidden="true">✨</span> Log this with your post?</div>
+        <div class="community-composer-ai-row">
+          <span class="community-composer-ai-lbl"><strong>✅ ${escapeHtml(r.rule.label)}</strong> <span class="community-composer-ai-pts">${escapeHtml(formatSigned(pts))}</span></span>
+          <button type="button" class="community-composer-change" data-composer-change>Change</button>
+          <button type="button" class="community-composer-confirm" data-composer-confirm>Confirm</button>
+        </div>
+      </div>`;
+  }
+
+  function composerDefaultAmount(rule) {
+    if (rule.simpleStyle === "yesNo") return 1;
+    const g = goalAmountForRule(rule);
+    return g > 0 ? g : 1;
+  }
+
+  function bindCommunityComposer(world) {
+    const root = els.communityComposer;
+    if (!root) return;
+    const community = world && world.community;
+    const cap = root.querySelector("[data-composer-caption]");
+    if (cap) {
+      cap.addEventListener("input", () => {
+        communityComposerCaption = cap.value;
+        // Editing invalidates a shown suggestion → drop to "edit" WITHOUT a re-render (keep focus).
+        if (communityComposerStage !== "edit" && communityComposerStage !== "thinking") {
+          communityComposerStage = "edit"; communityComposerPick = null;
+          const ai = root.querySelector(".community-composer-ai"); if (ai) ai.remove();
+          const post = root.querySelector("[data-composer-post]");
+          if (post) { post.textContent = "Continue"; post.classList.remove("is-ready"); post.disabled = false; }
+        }
+      });
+      cap.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); communityComposerCaption = cap.value; submitOrAdvanceComposer(world); }
+      });
+    }
+    const photoBtn = root.querySelector("[data-composer-photo]");
     if (photoBtn) photoBtn.addEventListener("click", () => { if (cap) communityComposerCaption = cap.value; if (els.communityComposerPhoto) els.communityComposerPhoto.click(); });
-    const removeBtn = els.communityComposer.querySelector("[data-composer-photo-remove]");
+    const removeBtn = root.querySelector("[data-composer-photo-remove]");
     if (removeBtn) removeBtn.addEventListener("click", () => { if (cap) communityComposerCaption = cap.value; clearCommunityComposerPhoto(); renderCommunityDetail(); });
-    const cancel = els.communityComposer.querySelector("[data-composer-cancel]");
+    const cancel = root.querySelector("[data-composer-cancel]");
     if (cancel) cancel.addEventListener("click", () => { resetCommunityComposer(); renderCommunityDetail(); });
-    const post = els.communityComposer.querySelector("[data-composer-post]");
-    if (post) post.addEventListener("click", () => { if (cap) communityComposerCaption = cap.value; submitCommunityComposer(world); });
+    const post = root.querySelector("[data-composer-post]");
+    if (post) post.addEventListener("click", () => { if (post.disabled) return; if (cap) communityComposerCaption = cap.value; submitOrAdvanceComposer(world); });
+    const confirmBtn = root.querySelector("[data-composer-confirm]");
+    if (confirmBtn) confirmBtn.addEventListener("click", () => { communityComposerStage = "ready"; renderCommunityDetail(); });
+    const changeBtn = root.querySelector("[data-composer-change]");
+    if (changeBtn) changeBtn.addEventListener("click", () => { communityComposerStage = "change"; renderCommunityDetail(); });
+    const saveBtn = root.querySelector("[data-composer-save]");
+    if (saveBtn) saveBtn.addEventListener("click", () => {
+      const selEl = root.querySelector("[data-composer-rule]");
+      const amtEl = root.querySelector("[data-composer-amt]");
+      const val = selEl ? selEl.value : "__none__";
+      if (val === "__none__" || !val) {
+        communityComposerPick = null;
+      } else {
+        const rl = community ? (community.system.rules || []).map(scoring.normalizeRule).find((x) => x.id === val) : null;
+        if (!rl) { showToast("That rule isn't available anymore"); return; } // stay in the picker, don't lose the choice
+        const amt = rl.simpleStyle === "yesNo" ? 1 : Math.max(0, numberOrDefault(amtEl ? amtEl.value : 1, 1));
+        communityComposerPick = { ruleId: rl.id, amount: amt };
+      }
+      communityComposerStage = "ready";
+      renderCommunityDetail();
+    });
     if (els.communityComposerPhoto) {
       els.communityComposerPhoto.onchange = () => {
         const file = els.communityComposerPhoto.files && els.communityComposerPhoto.files[0];
@@ -8117,6 +8227,59 @@
     }
   }
 
+  // Submit handler shared by Enter and the Post button: run the AI from "edit"; post from "ready".
+  function submitOrAdvanceComposer(world) {
+    if (communityComposerStage === "thinking") return;
+    if (communityComposerStage === "ready") { submitCommunityComposer(world); return; }
+    runCommunityComposerAi(world);
+  }
+
+  async function runCommunityComposerAi(world) {
+    const community = world && world.community;
+    if (!community) return;
+    const caption = (communityComposerCaption || "").trim();
+    const hasPhoto = !!(communityComposerPhoto && communityComposerPhoto.file);
+    if (caption.length < 2 && !hasPhoto) { showToast("Add a caption or photo first"); return; }
+    communityComposerStage = "thinking";
+    communityComposerPick = null;
+    renderCommunityDetail();
+    let best = null;
+    try { best = await suggestCommunityLogEntry(community, caption, hasPhoto ? communityComposerPhoto.file : null); } catch (e) { best = null; }
+    if (communityComposerStage !== "thinking") return; // user edited/closed mid-flight
+    if (best) { communityComposerPick = { ruleId: best.ruleId, amount: best.amount }; communityComposerStage = "suggest"; }
+    else { communityComposerPick = null; communityComposerStage = "ready"; } // no confident match → just post
+    renderCommunityDetail();
+  }
+
+  // Reuse parse-log (text) + the photo vision estimate, scoped to THIS community's rules; return
+  // the single best-matching normalized entry { ruleId, amount, confidence } or null.
+  async function suggestCommunityLogEntry(community, caption, file) {
+    const catalog = buildLoggableRuleCatalog().filter((c) => c.contextType === "community" && c.contextId === community.id);
+    if (!catalog.length) return null;
+    const tasks = [];
+    if (caption && caption.length >= 2 && signalsReady() && window.PointwellSignals && typeof window.PointwellSignals.parseLog === "function") {
+      tasks.push(Promise.resolve(window.PointwellSignals.parseLog(caption, catalog)).then((r) => (r && !r.error ? (r.entries || []) : [])).catch(() => []));
+    } else { tasks.push(Promise.resolve([])); }
+    if (file && signalsReady() && window.PointwellSignals && typeof window.PointwellSignals.estimateFood === "function") {
+      tasks.push(communityPhotoEstimateRows(community, file, caption).catch(() => []));
+    } else { tasks.push(Promise.resolve([])); }
+    const [textEntries, photoRows] = await Promise.all(tasks);
+    const candidates = textEntries.map(normalizeQuickLogEntry).filter(Boolean).concat(photoRows)
+      .filter((e) => e.contextType === "community" && e.contextId === community.id && numberOrDefault(e.amount, 0) > 0);
+    candidates.sort((a, b) => (Number(b.confidence) || 0) - (Number(a.confidence) || 0));
+    return candidates[0] || null;
+  }
+
+  // Photo → the EXISTING vision estimate → draft rows, filtered to this community's rules.
+  async function communityPhotoEstimateRows(community, file, hint) {
+    try {
+      const parts = await fileToBase64Parts(file);
+      const res = await window.PointwellSignals.estimateFood(parts.data, parts.mediaType, hint || "");
+      if (!res || res.error || !res.estimate || res.estimate.kind === "other") return [];
+      return buildEstimateDraftRows(res.estimate).filter((r) => r.contextType === "community" && r.contextId === community.id);
+    } catch (e) { return []; }
+  }
+
   function clearCommunityComposerPhoto() {
     if (communityComposerPhoto && communityComposerPhoto.previewUrl) { try { URL.revokeObjectURL(communityComposerPhoto.previewUrl); } catch (e) { /* ignore */ } }
     communityComposerPhoto = null;
@@ -8124,6 +8287,8 @@
   function resetCommunityComposer() {
     communityComposerOpen = false;
     communityComposerCaption = "";
+    communityComposerStage = "edit";
+    communityComposerPick = null;
     clearCommunityComposerPhoto();
   }
 
@@ -8133,9 +8298,16 @@
     const caption = (communityComposerCaption || "").trim().slice(0, ENTRY_MESSAGE_MAX);
     const hasPhoto = !!(communityComposerPhoto && communityComposerPhoto.file);
     if (!caption && !hasPhoto) { showToast("Add a caption or photo first"); return; }
-    // TODO(ai-points): a later diff will let the AI pick the rule + points. For now a share
-    // attaches to the community's first rule with 0 points (no scoring impact, no double-count).
-    const rule = (community.system.rules || []).map(scoring.normalizeRule)[0];
+    // The locked pick (AI suggestion or the Change picker) decides what to LOG. No pick → a
+    // pure share on the first rule (0 points, no double-count). A pick with amount>0 logs that
+    // rule via the same path the Coach uses (points land + the leaderboard updates).
+    const rules = (community.system.rules || []).map(scoring.normalizeRule);
+    let rule = null, amount = 0;
+    if (communityComposerPick) {
+      const r = resolveQuickLogRule("community", community.id, communityComposerPick.ruleId);
+      if (r) { rule = r.rule; amount = numberOrDefault(communityComposerPick.amount, 0); }
+    }
+    if (!rule) { rule = rules[0]; amount = 0; }
     if (!rule) { showToast("This community has no rules yet"); return; }
     const uid = state.account && state.account.userId;
     let photoPath = "";
@@ -8150,7 +8322,24 @@
         } catch (e) { showToast("Couldn't upload the photo — posting without it."); }
       }
     }
-    addCommunityEntry(community.id, "me", rule, 0, "manual", caption, photoPath, "");
+    // Double-count guard (mirrors the Coach log-and-share path): if this rule is already logged
+    // for me today in this community, enrich that entry/post — never add the amount twice.
+    let didLog = false, enriched = false;
+    if (amount > 0) {
+      const today = getTodayKey();
+      const mine = (state.communityEntries || []).filter((e) => e.communityId === community.id && coachIsMine(e) && e.ruleId === rule.id && (e.dateKey || e.date) === today);
+      const existing = mine[mine.length - 1];
+      if (existing) {
+        if (caption) existing.message = caption;
+        if (photoPath) existing.photoPath = photoPath;
+        enriched = true;
+      } else {
+        addCommunityEntry(community.id, "me", rule, amount, "manual", caption, photoPath, "");
+        didLog = true;
+      }
+    } else {
+      addCommunityEntry(community.id, "me", rule, 0, "manual", caption, photoPath, "");
+    }
     saveCommunitySummaryForMember(community, "me");
     resetCommunityComposer();
     state.communityHubTab = "feed";
@@ -8158,7 +8347,7 @@
     saveState();
     Promise.resolve(pushCommunityEntryToDb(community, rule.id, caption, photoPath)).then((r) => { if (r && r.error) showToast("Posted here, but it didn't sync"); }).catch(() => {});
     renderCommunityDetail();
-    showToast("Shared to " + (community.name || "your community"));
+    showToast(didLog ? ("Logged " + (rule.label || "rule") + " + shared") : (enriched ? "Updated today's log + shared" : ("Shared to " + (community.name || "your community"))));
   }
 
   // Lazily load who I follow (once) so member rows can show Follow vs Following. Privacy-gated

@@ -9026,15 +9026,16 @@ body.onboarding-locked .coach-panel { display: none; }
 }
 .world-tile:hover { transform: translateY(-2px); }
 .world-tile:focus-visible { outline: 2px solid #3ddc97; outline-offset: 2px; }
-.world-tile.size-small  { grid-column: span 1; padding: 13px; min-height: 92px; }
-.world-tile.size-small .world-tile-body { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 7px; }
+.world-tile.size-small  { grid-column: span 1; padding: 0; height: 140px; overflow: hidden; border: none; border-radius: 18px; }
 .world-tile.size-medium { grid-column: span 2; padding: 13px; }
 .world-tile.size-large  { grid-column: span 2; padding: 16px; border-radius: 20px; }
 
 /* Cover strip + overlapping icon (mirrors the world-detail banner) — all tile sizes.
    Full-bleed via negative margins (tile keeps overflow:visible so slot dropdowns aren't clipped). */
 .world-tile-cover {
-  position: relative; overflow: hidden; margin: -13px -13px 0; border-radius: 15px 15px 0 0;
+  /* overflow VISIBLE so the icon can overhang the bottom; the cover IMAGE rounds its own top
+     corners (below) instead of relying on the strip clipping — otherwise the icon gets cut off. */
+  position: relative; overflow: visible; margin: -13px -13px 0; border-radius: 15px 15px 0 0;
   background: linear-gradient(135deg, #1c5a43, #123a52 70%, #1a2336);
 }
 .world-tile.size-large .world-tile-cover { margin: -16px -16px 0; border-radius: 19px 19px 0 0; }
@@ -9042,7 +9043,8 @@ body.onboarding-locked .coach-panel { display: none; }
 .world-tile-cover-large { height: 64px; }
 .tile-personal .world-tile-cover { background: linear-gradient(135deg, #3a2a6b, #5a2a52 70%, #231a36); }
 .world-tile-cover.has-photo { background: #0a0f0d; }
-.world-tile-cover-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.world-tile-cover-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 15px 15px 0 0; }
+.world-tile.size-large .world-tile-cover-img { border-radius: 19px 19px 0 0; }
 .world-tile-icon {
   position: absolute; left: 10px; bottom: -13px; z-index: 2;
   width: 28px; height: 28px; border-radius: 9px; overflow: hidden;
@@ -9056,9 +9058,36 @@ body.onboarding-locked .coach-panel { display: none; }
 .tile-personal .world-tile-icon-fallback { color: #d8cdf2; }
 .world-tile.size-large .world-tile-icon { left: 14px; bottom: -16px; width: 38px; height: 38px; border-radius: 12px; }
 .world-tile.size-large .world-tile-icon-fallback { font-size: 0.78rem; }
+/* Inline icon beside the ring on a no-cover expanded tile (overrides the absolute strip-icon). */
+.world-tile-icon-inline { position: relative; left: auto; bottom: auto; flex: 0 0 auto; width: 28px; height: 28px; border-radius: 9px; border: 1px solid rgba(255, 255, 255, 0.12); }
 /* clear the overhanging icon below the strip */
 .world-tile-body { padding-top: 14px; }
 .world-tile.size-large .world-tile-body { padding-top: 20px; }
+
+/* Small/collapsed tiles: cover-photo-dominant (140px). Overrides the strip layout above to a
+   full-bleed cover + dark bottom scrim + overlaid icon (top-left) / ring (top-right) / name +
+   thin progress bar (bottom). See work/small-tile-cover-design.html. */
+.world-tile.size-small .world-tile-cover { position: absolute; inset: 0; margin: 0; height: auto; border-radius: 0; overflow: hidden; }
+.world-tile.size-small.tile-community .world-tile-cover { background: linear-gradient(155deg, #10241c, #0c1714); }
+.world-tile.size-small.tile-personal  .world-tile-cover { background: linear-gradient(155deg, #18112e, #0f0a1d); }
+.world-tile.size-small .world-tile-cover-img { border-radius: 0; }
+.world-tile-scrim { position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(180deg, rgba(0,0,0,0.04) 30%, rgba(0,0,0,0.5) 64%, rgba(0,0,0,0.86)); }
+.world-tile-inner { position: relative; z-index: 2; height: 100%; padding: 11px; display: flex; flex-direction: column; }
+.world-tile-toprow { display: flex; justify-content: space-between; align-items: flex-start; }
+/* icon top-left, in flow (relative — NOT static — so its absolute-positioned img stays inside
+   the 30px box instead of escaping to .world-tile-inner and covering the whole tile) */
+.world-tile.size-small .world-tile-icon { position: relative; left: auto; bottom: auto; width: 30px; height: 30px; border-radius: 9px; border: 1.5px solid rgba(255, 255, 255, 0.35); }
+.world-tile.size-small .world-tile-icon-fallback { font-size: 0.62rem; color: #eafff8; }
+/* ring top-right, with a dark backing disc so the value reads over the photo */
+.world-tile.size-small .world-ring::before { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: rgba(0, 0, 0, 0.45); }
+.world-tile.size-small .world-ring .score-ring-label { color: #fff; }
+/* name + stat + thin bar at the bottom (meta-scoped so it wins over the generic small-name rule) */
+.world-tile-meta { margin-top: auto; min-width: 0; }
+.world-tile.size-small .world-tile-meta .world-tile-name { font-size: 0.84rem; color: #fff; line-height: 1.15; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.world-tile.size-small .world-tile-meta .world-tile-stat { display: block; font-size: 0.6rem; color: rgba(255, 255, 255, 0.82); margin-top: 1px; }
+.world-tile-add-cover { color: rgba(255, 255, 255, 0.72) !important; font-weight: 700; }
+.world-tile-bar { height: 3.5px; border-radius: 2px; background: rgba(255, 255, 255, 0.25); margin: 7px 24px 0 0; overflow: hidden; }
+.world-tile-bar > i { display: block; height: 100%; border-radius: 2px; }
 
 /* Per-type gradient + ring colours. */
 .tile-community { background: linear-gradient(155deg, #133c2d, #0a1a15); border-color: #1f5240; }
@@ -9100,7 +9129,9 @@ body.onboarding-locked .coach-panel { display: none; }
 }
 .world-size-btn:hover, .world-size-btn:focus-visible { opacity: 1; background: rgba(255, 255, 255, 0.13); outline: none; }
 .tile-personal .world-size-btn { color: #b6a6e8; }
-.world-tile.size-small .world-size-btn { top: 4px; right: 4px; width: 18px; height: 18px; font-size: 0.62rem; opacity: 0.4; }
+/* On the cover-dominant small tile the resize handle sits bottom-right (clears the top-right
+   ring), darkened for legibility over the photo. */
+.world-tile.size-small .world-size-btn { top: auto; bottom: 7px; right: 7px; width: 18px; height: 18px; font-size: 0.62rem; opacity: 0.55; background: rgba(0, 0, 0, 0.4); color: rgba(255, 255, 255, 0.78); }
 
 /* Large-widget sections + caps. */
 .world-sections { display: grid; gap: 12px; }

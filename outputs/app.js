@@ -4251,7 +4251,7 @@
       const me = (community.members || []).find((m) => m.id === "me");
       const target = communityTarget(community);
       const myPoints = me ? communityMemberPointsOnDate(community, me, todayIso) : 0;
-      tiles.push({ type: "community", id: community.id, name: community.name || "Community", myPoints: myPoints, target: target, percent: progressPercent(myPoints, target), community: community, coverPath: community.coverUrl || community.cover_url || "", iconPath: community.iconUrl || community.icon_url || "" });
+      tiles.push({ type: "community", id: community.id, name: community.name || "Community", myPoints: myPoints, target: target, percent: progressPercent(myPoints, target), community: community, coverPath: community.coverUrl || community.cover_url || "", iconPath: community.iconUrl || community.icon_url || "", ownerIsMe: isCommunityAdmin(community) });
     });
     (state.systems || []).forEach((rawSystem) => {
       const system = normalizeSystem(rawSystem);
@@ -4259,7 +4259,7 @@
       const summary = calculateDashboardSummary(system, values);
       const myPoints = roundScore(summary.total);
       const target = numberOrDefault(summary.target && summary.target.total, 0);
-      tiles.push({ type: "personal", id: rawSystem.id, name: rawSystem.title || "System", myPoints: myPoints, target: target, percent: progressPercent(myPoints, target), toGo: Math.max(target - myPoints, 0), coverPath: rawSystem.coverUrl || "", iconPath: rawSystem.iconUrl || "" });
+      tiles.push({ type: "personal", id: rawSystem.id, name: rawSystem.title || "System", myPoints: myPoints, target: target, percent: progressPercent(myPoints, target), toGo: Math.max(target - myPoints, 0), coverPath: rawSystem.coverUrl || "", iconPath: rawSystem.iconUrl || "", ownerIsMe: true });
     });
     return applyWorldLayout(tiles);
   }
@@ -4444,45 +4444,67 @@
     const attrs = `data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(key)}" data-world-size="${size}"`;
     const sizeBtn = `<button type="button" class="world-size-btn" data-world-size-cycle aria-label="Resize ${escapeHtml(t.name)} (small, medium, large)" title="Resize"><span aria-hidden="true">⤢</span></button>`;
     const open = `role="button" tabindex="0" aria-label="Open ${escapeHtml(t.name)}"`;
-    const cover = renderTileCover(t, size);
+    const hasCover = !!t.coverPath;
+    const initials = escapeHtml((getInitials(t.name) || "W").slice(0, 2));
+    // LARGE + MEDIUM: render the cover banner ONLY when the world has a real cover photo. With no
+    // cover we keep the original compact tile (ring + name inline on the solid green/purple
+    // gradient, then sections) — see work/home-widget-demo.html — so the tile stays its old size.
+    // An uploaded icon may still show inline next to the ring; icon-less worlds match the demo 1:1.
+    const inlineIcon = (!hasCover && t.iconPath)
+      ? `<span class="world-tile-icon world-tile-icon-inline"><img class="world-tile-icon-img" alt="" hidden><span class="world-tile-icon-fallback" aria-hidden="true">${initials}</span></span>`
+      : "";
     if (size === "large") {
+      const head = `<div class="world-tile-head world-large-head">${inlineIcon}${renderWorldRing(t, "large")}<div class="world-tile-main"><strong class="world-tile-name">${escapeHtml(t.name)}</strong><span class="world-tile-stat">${renderWorldStat(t, true)}</span></div></div>`;
+      if (hasCover) {
+        return `<div class="world-tile ${typeClass} size-large" ${attrs} ${open}>
+            ${sizeBtn}
+            ${renderTileCover(t, "large")}
+            <div class="world-tile-body">${head}${renderWorldSections(t)}</div>
+          </div>`;
+      }
       return `<div class="world-tile ${typeClass} size-large" ${attrs} ${open}>
           ${sizeBtn}
-          ${cover}
-          <div class="world-tile-body">
-            <div class="world-tile-head world-large-head">
-              ${renderWorldRing(t, "large")}
-              <div class="world-tile-main">
-                <strong class="world-tile-name">${escapeHtml(t.name)}</strong>
-                <span class="world-tile-stat">${renderWorldStat(t, true)}</span>
-              </div>
-            </div>
-            ${renderWorldSections(t)}
-          </div>
+          ${head}
+          ${renderWorldSections(t)}
         </div>`;
     }
     if (size === "medium") {
+      const head = `<div class="world-tile-head">${inlineIcon}${renderWorldRing(t, "medium")}<div class="world-tile-main"><strong class="world-tile-name">${escapeHtml(t.name)}</strong><span class="world-tile-stat">${renderWorldStat(t, false)}</span></div></div>`;
+      if (hasCover) {
+        return `<div class="world-tile ${typeClass} size-medium" ${attrs} ${open}>
+            ${sizeBtn}
+            ${renderTileCover(t, "medium")}
+            <div class="world-tile-body">${head}${renderWorldMediumSlots(t)}</div>
+          </div>`;
+      }
       return `<div class="world-tile ${typeClass} size-medium" ${attrs} ${open}>
           ${sizeBtn}
-          ${cover}
-          <div class="world-tile-body">
-            <div class="world-tile-head">
-              ${renderWorldRing(t, "medium")}
-              <div class="world-tile-main">
-                <strong class="world-tile-name">${escapeHtml(t.name)}</strong>
-                <span class="world-tile-stat">${renderWorldStat(t, false)}</span>
-              </div>
-            </div>
-            ${renderWorldMediumSlots(t)}
-          </div>
+          ${head}
+          ${renderWorldMediumSlots(t)}
         </div>`;
     }
+    // Small/collapsed tiles: cover-photo-dominant (140px). Cover fills the tile, dark bottom
+    // scrim for legibility, icon top-left, ring top-right, name + a thin progress bar at the
+    // bottom. Cover/icon paint async (signed URLs) via paintWorldTilesMedia; gradient + initials
+    // fallback. Owner of a no-cover world sees a subtle "Add a cover ＋" nudge instead of the bar.
+    const pct = Math.min(Math.max(numberOrDefault(t.percent, 0), 0), 100);
+    const fillColor = t.type === "community" ? "#3ddc97" : "#9a7fe0";
+    const metaLine = (!t.coverPath && t.ownerIsMe)
+      ? `<span class="world-tile-stat world-tile-add-cover">Add a cover ＋</span>`
+      : `<span class="world-tile-stat">${renderWorldStat(t, false)}</span><div class="world-tile-bar"><i style="width:${pct}%;background:${fillColor}"></i></div>`;
     return `<div class="world-tile ${typeClass} size-small" ${attrs} ${open}>
         ${sizeBtn}
-        ${cover}
-        <div class="world-tile-body">
-          ${renderWorldRing(t, "small")}
-          <strong class="world-tile-name">${escapeHtml(t.name)}</strong>
+        <div class="world-tile-cover"><img class="world-tile-cover-img" alt="" hidden></div>
+        <div class="world-tile-scrim"></div>
+        <div class="world-tile-inner">
+          <div class="world-tile-toprow">
+            <span class="world-tile-icon"><img class="world-tile-icon-img" alt="" hidden><span class="world-tile-icon-fallback" aria-hidden="true">${initials}</span></span>
+            ${renderWorldRing(t, "small")}
+          </div>
+          <div class="world-tile-meta">
+            <strong class="world-tile-name">${escapeHtml(t.name)}</strong>
+            ${metaLine}
+          </div>
         </div>
       </div>`;
   }
@@ -16825,6 +16847,10 @@
       description: row.description || "",
       visibility: row.visibility === "public" ? "public" : "private",
       inviteCode: row.invite_code,
+      // Carry the world cover/icon paths through (camelCase, as tiles + detail read them) so
+      // they survive a reload — fetchMyCommunities selects *, so the row has these columns.
+      coverUrl: row.cover_url || "",
+      iconUrl: row.icon_url || "",
       system: normalizeSystem(system),
       members: members,
       logs: [],

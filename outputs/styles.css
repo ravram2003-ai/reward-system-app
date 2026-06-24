@@ -9120,18 +9120,24 @@ body.onboarding-locked .coach-panel { display: none; }
 .tile-personal .world-tile-stat { color: #b6a6e8; }
 
 /* Resize control (cycles small ↔ medium ↔ large). Editing chrome, not an Add/Open button. */
+/* Frosted circle that reads on ANY background — the dark translucent base keeps the white icon
+   legible on both the green/purple gradient tiles AND a light or dark photo cover (a light fill
+   washes out over light photos); the light border + drop shadow define the circle on dark
+   surfaces; backdrop-filter frosts it over photos. */
 .world-size-btn {
   position: absolute; top: 7px; right: 7px; z-index: 3;
-  width: 22px; height: 22px; padding: 0; border: none; border-radius: 7px;
-  background: rgba(255, 255, 255, 0.06); color: #7fc7b0;
-  font-size: 0.72rem; line-height: 1; cursor: pointer; opacity: 0.5;
+  width: 28px; height: 28px; padding: 0; border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.42); color: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  font-size: 0.82rem; line-height: 1; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
-.world-size-btn:hover, .world-size-btn:focus-visible { opacity: 1; background: rgba(255, 255, 255, 0.13); outline: none; }
-.tile-personal .world-size-btn { color: #b6a6e8; }
-/* On the cover-dominant small tile the resize handle sits bottom-right (clears the top-right
-   ring), darkened for legibility over the photo. */
-.world-tile.size-small .world-size-btn { top: auto; bottom: 7px; right: 7px; width: 18px; height: 18px; font-size: 0.62rem; opacity: 0.55; background: rgba(0, 0, 0, 0.4); color: rgba(255, 255, 255, 0.78); }
+.world-size-btn:hover { background: rgba(0, 0, 0, 0.58); border-color: rgba(255, 255, 255, 0.5); }
+.world-size-btn:focus-visible { outline: none; border-color: rgba(255, 255, 255, 0.5); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3), 0 0 0 2px rgba(255, 255, 255, 0.45); }
+/* Small/cover tile: same frosted handle, bottom-right (clears the top-right ring), a touch smaller. */
+.world-tile.size-small .world-size-btn { top: auto; bottom: 7px; right: 7px; width: 26px; height: 26px; font-size: 0.74rem; }
 
 /* Large-widget sections + caps. */
 .world-sections { display: grid; gap: 12px; }

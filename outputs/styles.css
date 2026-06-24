@@ -8602,24 +8602,56 @@ body.onboarding-locked .coach-panel { display: none; }
 .profile-page-back { justify-self: start; color: var(--muted); }
 .profile-page-loading { color: var(--muted); text-align: center; padding: 24px 0; }
 
+/* Redesigned profile header: avatar + name/handle/bio, a gear (own) or Follow/Message (other),
+   and a row of bold stat cards (Followers/Following tappable, Communities static). */
 .profile-hero {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 18px;
+  position: relative;
+  display: flex; flex-direction: column; gap: 13px;
+  padding: 16px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 18px;
   background: var(--surface);
 }
+.profile-gear {
+  position: absolute; top: 13px; right: 13px; width: 32px; height: 32px; padding: 0;
+  border-radius: 10px; background: var(--field-bg); border: 1px solid var(--line-strong);
+  color: var(--accent-strong); font-size: 0.9rem; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.profile-gear:hover, .profile-gear:focus-visible { border-color: var(--accent-strong); outline: none; }
+.profile-hero-top { display: flex; gap: 14px; align-items: flex-start; padding-right: 38px; }
 .profile-hero-avatar { flex: 0 0 auto; }
-.profile-hero-main { display: grid; gap: 2px; min-width: 0; flex: 1 1 auto; }
-.profile-hero-name { font-size: 1.3rem; font-weight: 850; color: var(--ink); }
-.profile-hero-handle { color: var(--muted); font-size: 0.9rem; }
-.profile-hero-counts { color: var(--muted); font-size: 0.84rem; font-weight: 700; margin-top: 2px; }
-.profile-hero-sub { color: var(--accent-strong); font-size: 0.82rem; font-weight: 700; margin-top: 2px; }
-.profile-hero-actions { display: flex; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; }
+.profile-hero-id { min-width: 0; flex: 1 1 auto; display: grid; gap: 2px; }
+.profile-hero-name { font-size: 1.18rem; font-weight: 800; color: var(--ink); line-height: 1.15; overflow-wrap: anywhere; }
+.profile-hero-handle { color: var(--muted); font-size: 0.82rem; }
+.profile-hero-bio { font-size: 0.82rem; color: var(--ink); opacity: 0.86; margin: 6px 0 0; line-height: 1.4; overflow-wrap: anywhere; }
+.profile-hero-actions-row { display: flex; gap: 8px; }
+.profile-hero-actions-row > * { flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; }
+.profile-hero-stats { display: flex; gap: 8px; }
+.profile-stat {
+  flex: 1 1 0; min-width: 0; text-align: center; cursor: pointer; font: inherit;
+  background: var(--field-bg); border: 1px solid var(--line); border-radius: 13px; padding: 10px 6px;
+}
+.profile-stat-static { cursor: default; }
+.profile-stat:hover:not(.profile-stat-static), .profile-stat:focus-visible { border-color: var(--accent-strong); outline: none; }
+.profile-stat-num { font-size: 1.1rem; font-weight: 800; color: var(--ink); margin: 0; }
+.profile-stat-cap { font-size: 0.62rem; color: var(--muted); margin: 2px 0 0; font-weight: 700; }
+.profile-stat-accent .profile-stat-num { color: var(--accent-strong); }
 .profile-rel-status { font-size: 0.84rem; font-weight: 750; color: var(--muted); align-self: center; }
+
+/* Followers / Following list view */
+.profile-list-title { font-size: 1.05rem; font-weight: 800; color: var(--ink); margin: 0 0 12px; }
+.profile-list { display: flex; flex-direction: column; gap: 2px; }
+.profile-list-row { display: flex; align-items: center; gap: 11px; padding: 7px 2px; }
+.profile-list-identity { display: flex; align-items: center; gap: 11px; flex: 1 1 auto; min-width: 0; background: none; border: none; padding: 0; cursor: pointer; text-align: left; font: inherit; }
+.profile-list-avatar { width: 40px; height: 40px; flex: 0 0 auto; }
+.profile-list-who { min-width: 0; display: grid; gap: 1px; }
+.profile-list-who strong { font-size: 0.86rem; color: var(--ink); font-weight: 700; overflow-wrap: anywhere; }
+.profile-list-who span { font-size: 0.72rem; color: var(--muted); }
+.profile-list-locked { text-align: center; padding: 28px 14px; }
+.profile-list-locked-icon { font-size: 1.7rem; margin-bottom: 8px; }
+.profile-list-locked strong { display: block; font-size: 0.95rem; color: var(--ink); margin-bottom: 4px; }
+.profile-list-locked p { font-size: 0.8rem; color: var(--muted); margin: 0 0 14px; line-height: 1.4; }
 .profile-following:hover { border-color: var(--danger); color: var(--danger); }
 
 .profile-locked-card {

@@ -8638,6 +8638,13 @@ body.onboarding-locked .coach-panel { display: none; }
 .profile-hero-name { font-size: 1.18rem; font-weight: 800; color: var(--ink); line-height: 1.15; overflow-wrap: anywhere; }
 .profile-hero-handle { color: var(--muted); font-size: 0.82rem; }
 .profile-hero-bio { font-size: 0.82rem; color: var(--ink); opacity: 0.86; margin: 6px 0 0; line-height: 1.4; overflow-wrap: anywhere; }
+/* Own empty profile: a subtle "+ Add a bio" that opens Settings (see work/profile-bio.html). */
+.profile-hero-addbio { display: inline-block; margin: 6px 0 0; padding: 0; background: none; border: 0; font: inherit; font-size: 0.78rem; font-weight: 700; color: #5fae8e; cursor: pointer; }
+.profile-hero-addbio:hover { text-decoration: underline; }
+/* Settings → Bio field: title row with a live counter + helper text. */
+.profile-bio-titlerow { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.profile-bio-counter { font-weight: 600; font-size: 0.66rem; color: var(--muted); }
+.profile-bio-help { font-weight: 600; font-size: 0.68rem; color: var(--muted); }
 .profile-hero-actions-row { display: flex; gap: 8px; }
 .profile-hero-actions-row > * { flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; }
 .profile-hero-stats { display: flex; gap: 8px; }

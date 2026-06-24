@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260624-phototap">
+    <link rel="stylesheet" href="styles.css?v=20260624-bio">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -1455,9 +1455,10 @@
                 <span>Handle</span>
                 <input id="profileHandleInput" type="text" required>
               </label>
-              <label class="wide-field">
-                <span>Bio</span>
-                <textarea id="profileBioInput" rows="2" maxlength="280" placeholder="A short line about you (optional)"></textarea>
+              <label class="wide-field profile-bio-field">
+                <span class="profile-bio-titlerow">Bio<span class="profile-bio-counter" id="profileBioCounter">0 / 150</span></span>
+                <textarea id="profileBioInput" rows="3" maxlength="150" placeholder="A short line about you (optional)"></textarea>
+                <span class="profile-bio-help">A short line about you — shows on your profile.</span>
               </label>
               <label>
                 <span>Profile visibility</span>
@@ -1547,13 +1548,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260624-phototap"></script>
-    <script src="auth-helpers.js?v=20260624-phototap"></script>
-    <script src="scoring.js?v=20260624-phototap"></script>
-    <script src="insight.js?v=20260624-phototap"></script>
-    <script src="signals.js?v=20260624-phototap"></script>
-    <script src="wearables.js?v=20260624-phototap"></script>
-    <script type="module" src="auth.js?v=20260624-phototap"></script>
-    <script src="app.js?v=20260624-phototap"></script>
+    <script src="supabase-config.js?v=20260624-bio"></script>
+    <script src="auth-helpers.js?v=20260624-bio"></script>
+    <script src="scoring.js?v=20260624-bio"></script>
+    <script src="insight.js?v=20260624-bio"></script>
+    <script src="signals.js?v=20260624-bio"></script>
+    <script src="wearables.js?v=20260624-bio"></script>
+    <script type="module" src="auth.js?v=20260624-bio"></script>
+    <script src="app.js?v=20260624-bio"></script>
   </body>
 </html>

@@ -3045,6 +3045,7 @@
       "profileNameInput",
       "profileHandleInput",
       "profileBioInput",
+      "profileBioCounter",
       "profilePrivacyInput",
       "backFromProfileEditButton",
       "largeAvatar",
@@ -3435,6 +3436,7 @@
     });
 
     els.saveProfileButton.addEventListener("click", saveProfile);
+    if (els.profileBioInput) els.profileBioInput.addEventListener("input", updateBioCounter);
     bindProfileAvatarControls();
     if (els.profileSignOutButton) els.profileSignOutButton.addEventListener("click", () => {
       Promise.resolve(window.PointwellAuth && window.PointwellAuth.signOut && window.PointwellAuth.signOut()).catch(() => {});
@@ -9418,7 +9420,9 @@
     const canView = !!o.can_view;
     // Bio: own profile uses local state (reflects unsaved edits); others use the gated server bio.
     const bio = isOwnProfile ? (state.profile.bio || "") : (o.bio || "");
-    const bioHtml = bio ? `<p class="profile-hero-bio">${escapeHtml(bio)}</p>` : "";
+    const bioHtml = bio
+      ? `<p class="profile-hero-bio">${escapeHtml(bio)}</p>`
+      : (isOwnProfile ? `<button class="profile-hero-addbio" type="button" data-profile-settings>+ Add a bio</button>` : "");
     const followers = Number(o.follower_count) || 0;
     const following = Number(o.following_count) || 0;
     const commCount = (o.communities || []).length + (Number(o.private_count) || 0);
@@ -9844,6 +9848,7 @@
     els.profileNameInput.value = state.profile.name;
     els.profileHandleInput.value = state.profile.handle.replace(/^@/, "");
     if (els.profileBioInput) els.profileBioInput.value = state.profile.bio || "";
+    updateBioCounter();
     els.profilePrivacyInput.value = state.profile.privacy;
     if (els.allowMotivationInput) els.allowMotivationInput.checked = state.profile.allowMotivation === true;
     refreshProfileAvatar();
@@ -17331,6 +17336,13 @@
     });
   }
 
+  // Live "{n} / 150" counter under the Bio field; cap matches the textarea maxlength.
+  function updateBioCounter() {
+    if (!els.profileBioCounter) return;
+    const len = els.profileBioInput ? els.profileBioInput.value.length : 0;
+    els.profileBioCounter.textContent = len + " / 150";
+  }
+
   async function saveProfile() {
     if (profileSaving) return; // ignore double-clicks while an avatar upload is in flight
     profileSaving = true;
@@ -17338,7 +17350,7 @@
     try {
     const name = els.profileNameInput.value.trim() || "Avery Rivera";
     const handle = cleanHandle(els.profileHandleInput.value.trim() || "avery");
-    const bio = els.profileBioInput ? els.profileBioInput.value.trim().slice(0, 280) : (state.profile.bio || "");
+    const bio = els.profileBioInput ? els.profileBioInput.value.trim().slice(0, 150) : (state.profile.bio || "");
     state.profile.name = name;
     state.profile.handle = handle;
     state.profile.bio = bio;

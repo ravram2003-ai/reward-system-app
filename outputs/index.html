@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260624-yourbuilds">
+    <link rel="stylesheet" href="styles.css?v=20260624-communityhub">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -1133,6 +1133,14 @@
 
             <div class="world-chips" id="worldChips"></div>
 
+            <!-- Community hub: segmented tab switcher (Feed · Leaderboard · Members · About). Community-only; hidden for personal worlds. -->
+            <div class="segmented community-hub-tabs" id="communityHubTabs" role="tablist" aria-label="Community sections" hidden></div>
+
+            <!-- FEED tab chrome (community-only): a "Share your progress…" composer + Hot/New/Top sort. -->
+            <div class="community-composer" id="communityComposer" hidden></div>
+            <input type="file" accept="image/*" id="communityComposerPhoto" hidden>
+            <div class="community-feed-sort" id="communityFeedSort" role="tablist" aria-label="Sort posts" hidden></div>
+
             <section class="world-section community-leaderboard-panel" id="communityLeaderboardPanel" hidden aria-label="Leaderboard">
               <div class="world-section-head"><span class="world-section-title">Leaderboard</span></div>
               <div class="segmented world-period-tabs" id="communityPeriodTabs" role="tablist" aria-label="Leaderboard period"></div>
@@ -1155,6 +1163,14 @@
                 <div class="community-analytics" id="communityAnalytics"></div>
               </div>
             </section>
+
+            <!-- MEMBERS tab (community-only): avatar · name · role badge · Follow/Following. -->
+            <section class="world-section community-members-panel" id="communityMembersPanel" hidden aria-label="Members">
+              <div class="community-members-list" id="communityMembersList"></div>
+            </section>
+
+            <!-- ABOUT tab (community-only): description · how points work (rules) · meta · Leave. -->
+            <section class="world-section community-about-panel" id="communityAboutPanel" hidden aria-label="About"></section>
           </div>
 
           <input type="file" accept="image/*" id="worldCoverInput" hidden>
@@ -1531,13 +1547,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260624-yourbuilds"></script>
-    <script src="auth-helpers.js?v=20260624-yourbuilds"></script>
-    <script src="scoring.js?v=20260624-yourbuilds"></script>
-    <script src="insight.js?v=20260624-yourbuilds"></script>
-    <script src="signals.js?v=20260624-yourbuilds"></script>
-    <script src="wearables.js?v=20260624-yourbuilds"></script>
-    <script type="module" src="auth.js?v=20260624-yourbuilds"></script>
-    <script src="app.js?v=20260624-yourbuilds"></script>
+    <script src="supabase-config.js?v=20260624-communityhub"></script>
+    <script src="auth-helpers.js?v=20260624-communityhub"></script>
+    <script src="scoring.js?v=20260624-communityhub"></script>
+    <script src="insight.js?v=20260624-communityhub"></script>
+    <script src="signals.js?v=20260624-communityhub"></script>
+    <script src="wearables.js?v=20260624-communityhub"></script>
+    <script type="module" src="auth.js?v=20260624-communityhub"></script>
+    <script src="app.js?v=20260624-communityhub"></script>
   </body>
 </html>

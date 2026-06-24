@@ -240,6 +240,8 @@
     selectedCommunityMemberId: "",
     feedTab: "friends",
     communityLeaderboardPeriod: "",
+    communityHubTab: "feed",
+    communityFeedSort: "hot",
     communityTrendMemberId: "",
     dashboardAnalyticsOpen: false,
     inactiveCommunitiesOpen: false,
@@ -3093,6 +3095,13 @@
       "onboardingScreen",
       "onboardingBody",
       "allowMotivationInput",
+      "communityHubTabs",
+      "communityComposer",
+      "communityComposerPhoto",
+      "communityFeedSort",
+      "communityMembersPanel",
+      "communityMembersList",
+      "communityAboutPanel",
       "toast"
     ];
     ids.forEach((id) => {
@@ -7974,14 +7983,344 @@
     if (els.worldTrendsPanel) els.worldTrendsPanel.hidden = !(analytics.modules.groupTrends || analytics.modules.individualTrends);
     renderCommunityAnalytics(community, analytics, period, target);
     applyWorldTrendsCollapsed();
+    renderCommunityHub(world, analytics);
   }
 
   function renderPersonalWorldDetail(world) {
+    hideCommunityHubChrome();
     renderPersonalRules(world.system);
     renderWorldPosts(world);
     if (els.worldTrendsPanel) els.worldTrendsPanel.hidden = false;
     renderPersonalTrends(world.system);
     applyWorldTrendsCollapsed();
+  }
+
+  // ── Community hub: Feed · Leaderboard · Members · About ──────────────────────
+  // A tabbed shell layered over the existing community detail sections. The leaderboard +
+  // feed reuse their existing render paths unchanged; we add the tab switcher, a Feed
+  // composer + sort, a Members list, and an About panel, then toggle section visibility by
+  // the persisted state.communityHubTab. Personal worlds skip all of this.
+  const COMMUNITY_HUB_TABS = [
+    { id: "feed", label: "Feed" },
+    { id: "leaderboard", label: "Leaderboard" },
+    { id: "members", label: "Members" },
+    { id: "about", label: "About" }
+  ];
+  const COMMUNITY_FEED_SORTS = [
+    { id: "hot", label: "🔥 Hot" },
+    { id: "new", label: "🆕 New" },
+    { id: "top", label: "🏆 Top" }
+  ];
+
+  // Transient composer state (a draft share — not persisted, cleared on post/cancel).
+  let communityComposerOpen = false;
+  let communityComposerCaption = "";
+  let communityComposerPhoto = null; // { file, previewUrl }
+  let communityLeaveArmed = false;   // two-tap confirm for the About-tab Leave button
+  // User ids I follow — lazily loaded once for the Members tab follow buttons.
+  let communityFollowingSet = new Set();
+  let communityFollowingLoaded = false;
+
+  function activeCommunityHubTab() {
+    return COMMUNITY_HUB_TABS.some((t) => t.id === state.communityHubTab) ? state.communityHubTab : "feed";
+  }
+
+  function renderCommunityHub(world, analytics) {
+    renderCommunityHubTabs();
+    renderCommunityComposer(world);
+    renderCommunityFeedSort();
+    renderCommunityMembers(world);
+    renderCommunityAbout(world);
+    applyCommunityHubTab(analytics);
+  }
+
+  // Hide every community-only hub element (personal worlds keep the classic layout). Also
+  // discards any in-progress composer draft — revoking its preview blob URL so it can't leak.
+  function hideCommunityHubChrome() {
+    resetCommunityComposer();
+    ["communityHubTabs", "communityComposer", "communityComposerPhoto", "communityFeedSort", "communityMembersPanel", "communityAboutPanel"].forEach((k) => { if (els[k]) els[k].hidden = true; });
+  }
+
+  function renderCommunityHubTabs() {
+    if (!els.communityHubTabs) return;
+    const active = activeCommunityHubTab();
+    els.communityHubTabs.innerHTML = COMMUNITY_HUB_TABS.map((t) =>
+      `<button class="segmented-button${t.id === active ? " active" : ""}" type="button" role="tab" aria-selected="${t.id === active ? "true" : "false"}" data-hub-tab="${escapeHtml(t.id)}">${escapeHtml(t.label)}</button>`).join("");
+    Array.from(els.communityHubTabs.querySelectorAll("[data-hub-tab]")).forEach((b) =>
+      b.addEventListener("click", () => { state.communityHubTab = b.dataset.hubTab; saveState(); renderCommunityDetail(); }));
+  }
+
+  // Feed sort tabs (Hot / New / Top) — client-side reorder of the already-loaded posts.
+  function renderCommunityFeedSort() {
+    if (!els.communityFeedSort) return;
+    const active = COMMUNITY_FEED_SORTS.some((s) => s.id === state.communityFeedSort) ? state.communityFeedSort : "hot";
+    els.communityFeedSort.innerHTML = COMMUNITY_FEED_SORTS.map((s) =>
+      `<button class="community-sort-pill${s.id === active ? " is-active" : ""}" type="button" role="tab" aria-selected="${s.id === active ? "true" : "false"}" data-feed-sort="${escapeHtml(s.id)}">${escapeHtml(s.label)}</button>`).join("");
+    Array.from(els.communityFeedSort.querySelectorAll("[data-feed-sort]")).forEach((b) =>
+      b.addEventListener("click", () => { state.communityFeedSort = b.dataset.feedSort; saveState(); renderCommunityDetail(); }));
+  }
+
+  // Sort feed items by the active mode. New = recency; Top = most cheers/likes; Hot = a
+  // recency+engagement blend. Engagement comes from the social cache (populated async by
+  // fetchFeedSocial), so Top/Hot sharpen as that warms.
+  function sortCommunityFeed(items) {
+    const mode = COMMUNITY_FEED_SORTS.some((s) => s.id === state.communityFeedSort) ? state.communityFeedSort : "hot";
+    const list = items.slice();
+    const recency = (it) => String(it.when || "");
+    const engagement = (it) => { const s = feedSocialFor(String(it.entry.id)); return (Number(s.like_count) || 0) * 2 + (Number(s.comment_count) || 0); };
+    const ageHours = (it) => { const t = Date.parse(it.when); return isFinite(t) ? Math.max(0, (Date.now() - t) / 3600000) : 9999; };
+    if (mode === "new") {
+      list.sort((a, b) => recency(b).localeCompare(recency(a)));
+    } else if (mode === "top") {
+      list.sort((a, b) => (engagement(b) - engagement(a)) || recency(b).localeCompare(recency(a)));
+    } else {
+      list.sort((a, b) => ((engagement(b) - ageHours(b) * 0.5) - (engagement(a) - ageHours(a) * 0.5)) || recency(b).localeCompare(recency(a)));
+    }
+    return list;
+  }
+
+  // Feed composer — collapsed "Share your progress…" bar that expands to a caption +
+  // optional photo, posting through the EXISTING community-post path (addCommunityEntry +
+  // pushCommunityEntryToDb + uploadEntryPhoto). No parallel write path.
+  function renderCommunityComposer(world) {
+    if (!els.communityComposer) return;
+    if (!communityComposerOpen) {
+      els.communityComposer.innerHTML =
+        `<button class="community-composer-bar" type="button" data-composer-open>
+          ${renderAvatar({ name: state.profile.name, avatarUrl: state.profile.avatarUrl, color: state.profile.accent || "#355d91", className: "community-composer-av" })}
+          <span class="community-composer-placeholder">Share your progress…</span>
+          <span class="community-composer-cam" aria-hidden="true">📷</span>
+        </button>`;
+      const open = els.communityComposer.querySelector("[data-composer-open]");
+      if (open) open.addEventListener("click", () => { communityComposerOpen = true; renderCommunityDetail(); });
+      return;
+    }
+    const preview = communityComposerPhoto && communityComposerPhoto.previewUrl
+      ? `<div class="community-composer-photo"><img src="${escapeHtml(communityComposerPhoto.previewUrl)}" alt=""><button type="button" class="community-composer-photo-x" data-composer-photo-remove aria-label="Remove photo">×</button></div>`
+      : "";
+    // TODO(ai-points): a later diff will AI-suggest the rule + points to attach to this share.
+    els.communityComposer.innerHTML =
+      `<div class="community-composer-form">
+        <textarea class="community-composer-input" data-composer-caption maxlength="${ENTRY_MESSAGE_MAX}" rows="3" placeholder="Share your progress…">${escapeHtml(communityComposerCaption)}</textarea>
+        ${preview}
+        <div class="community-composer-actions">
+          <button type="button" class="community-composer-photo-btn" data-composer-photo><span aria-hidden="true">📷</span> Photo</button>
+          <button type="button" class="ghost-button small" data-composer-cancel>Cancel</button>
+          <button type="button" class="primary-button small" data-composer-post>Post</button>
+        </div>
+      </div>`;
+    const cap = els.communityComposer.querySelector("[data-composer-caption]");
+    if (cap) cap.addEventListener("input", () => { communityComposerCaption = cap.value; });
+    const photoBtn = els.communityComposer.querySelector("[data-composer-photo]");
+    if (photoBtn) photoBtn.addEventListener("click", () => { if (cap) communityComposerCaption = cap.value; if (els.communityComposerPhoto) els.communityComposerPhoto.click(); });
+    const removeBtn = els.communityComposer.querySelector("[data-composer-photo-remove]");
+    if (removeBtn) removeBtn.addEventListener("click", () => { if (cap) communityComposerCaption = cap.value; clearCommunityComposerPhoto(); renderCommunityDetail(); });
+    const cancel = els.communityComposer.querySelector("[data-composer-cancel]");
+    if (cancel) cancel.addEventListener("click", () => { resetCommunityComposer(); renderCommunityDetail(); });
+    const post = els.communityComposer.querySelector("[data-composer-post]");
+    if (post) post.addEventListener("click", () => { if (cap) communityComposerCaption = cap.value; submitCommunityComposer(world); });
+    if (els.communityComposerPhoto) {
+      els.communityComposerPhoto.onchange = () => {
+        const file = els.communityComposerPhoto.files && els.communityComposerPhoto.files[0];
+        els.communityComposerPhoto.value = "";
+        if (!file) return;
+        clearCommunityComposerPhoto();
+        communityComposerPhoto = { file: file, previewUrl: URL.createObjectURL(file) };
+        renderCommunityDetail();
+      };
+    }
+  }
+
+  function clearCommunityComposerPhoto() {
+    if (communityComposerPhoto && communityComposerPhoto.previewUrl) { try { URL.revokeObjectURL(communityComposerPhoto.previewUrl); } catch (e) { /* ignore */ } }
+    communityComposerPhoto = null;
+  }
+  function resetCommunityComposer() {
+    communityComposerOpen = false;
+    communityComposerCaption = "";
+    clearCommunityComposerPhoto();
+  }
+
+  async function submitCommunityComposer(world) {
+    const community = world && world.community;
+    if (!community) return;
+    const caption = (communityComposerCaption || "").trim().slice(0, ENTRY_MESSAGE_MAX);
+    const hasPhoto = !!(communityComposerPhoto && communityComposerPhoto.file);
+    if (!caption && !hasPhoto) { showToast("Add a caption or photo first"); return; }
+    // TODO(ai-points): a later diff will let the AI pick the rule + points. For now a share
+    // attaches to the community's first rule with 0 points (no scoring impact, no double-count).
+    const rule = (community.system.rules || []).map(scoring.normalizeRule)[0];
+    if (!rule) { showToast("This community has no rules yet"); return; }
+    const uid = state.account && state.account.userId;
+    let photoPath = "";
+    if (hasPhoto) {
+      if (!signalsReady() || !uid || !window.PointwellSignals || typeof window.PointwellSignals.uploadEntryPhoto !== "function") {
+        showToast("Sign in to attach photos — posting without it.");
+      } else {
+        try {
+          const up = await window.PointwellSignals.uploadEntryPhoto(communityComposerPhoto.file, community.id + "/" + uid);
+          if (up && !up.error && up.path) photoPath = up.path;
+          else showToast("Couldn't upload the photo — posting without it.");
+        } catch (e) { showToast("Couldn't upload the photo — posting without it."); }
+      }
+    }
+    addCommunityEntry(community.id, "me", rule, 0, "manual", caption, photoPath, "");
+    saveCommunitySummaryForMember(community, "me");
+    resetCommunityComposer();
+    state.communityHubTab = "feed";
+    state.communityFeedSort = "new";
+    saveState();
+    Promise.resolve(pushCommunityEntryToDb(community, rule.id, caption, photoPath)).then((r) => { if (r && r.error) showToast("Posted here, but it didn't sync"); }).catch(() => {});
+    renderCommunityDetail();
+    showToast("Shared to " + (community.name || "your community"));
+  }
+
+  // Lazily load who I follow (once) so member rows can show Follow vs Following. Privacy-gated
+  // server-side; profileFollowing(myUid) returns my full following list.
+  function ensureCommunityFollowing() {
+    if (communityFollowingLoaded) return;
+    communityFollowingLoaded = true;
+    const uid = state.account && state.account.userId;
+    if (!signalsReady() || !uid || !window.PointwellSignals || typeof window.PointwellSignals.profileFollowing !== "function") return;
+    Promise.resolve(window.PointwellSignals.profileFollowing(uid)).then((rows) => {
+      communityFollowingSet = new Set((rows || []).map((r) => String(r.id)));
+      if (state.activeView === "community-detail" && activeCommunityHubTab() === "members") renderCommunityDetail();
+    }).catch(() => {});
+  }
+
+  function renderCommunityMembers(world) {
+    if (!els.communityMembersList) return;
+    ensureCommunityFollowing();
+    const community = world.community;
+    const members = community.members || [];
+    const count = getCommunityMemberCount(community);
+    const ownerId = community.ownerId || "";
+    const cap = `<p class="community-section-cap">${escapeHtml(plural(count, "member").toUpperCase())}</p>`;
+    els.communityMembersList.innerHTML = cap + members.map((m) => renderCommunityMemberRow(m, ownerId)).join("");
+    bindCommunityMemberRows();
+  }
+
+  function renderCommunityMemberRow(m, ownerId) {
+    const isMe = m.id === "me";
+    const isOwner = isMe ? (ownerId === "me") : (!!m.userId && String(m.userId) === String(ownerId));
+    const name = isMe ? "You" : escapeHtml(m.name || "Member");
+    const handle = escapeHtml(cleanHandle(m.handle || "") || "@member");
+    const role = isOwner ? `<span class="community-role owner">Owner</span>` : `<span class="community-role member">Member</span>`;
+    const followed = !!m.userId && communityFollowingSet.has(String(m.userId));
+    const action = (isMe || !m.userId) ? "" : (followed
+      ? `<button class="community-follow-btn is-following" type="button" data-member-unfollow="${escapeHtml(String(m.userId))}">Following</button>`
+      : `<button class="community-follow-btn" type="button" data-member-follow="${escapeHtml(String(m.userId))}"><span aria-hidden="true">+</span> Follow</button>`);
+    const tapOpen = (!isMe && m.userId)
+      ? `<button class="community-member-identity" type="button" data-open-profile-user="${escapeHtml(String(m.userId))}" aria-label="View ${name}'s profile">`
+      : `<div class="community-member-identity is-static">`;
+    const tapClose = (!isMe && m.userId) ? `</button>` : `</div>`;
+    return `<div class="community-member-row">
+        ${tapOpen}
+          ${renderAvatar({ name: m.name, color: m.color, avatarUrl: m.avatarUrl, className: "community-member-av" })}
+          <div class="community-member-who">
+            <div class="community-member-nameline"><strong>${name}</strong>${role}</div>
+            <span class="community-member-handle">${handle}</span>
+          </div>
+        ${tapClose}
+        ${action}
+      </div>`;
+  }
+
+  function bindCommunityMemberRows() {
+    if (!els.communityMembersList) return;
+    Array.from(els.communityMembersList.querySelectorAll("[data-open-profile-user]")).forEach((b) =>
+      b.addEventListener("click", () => openUserProfile(b.dataset.openProfileUser)));
+    Array.from(els.communityMembersList.querySelectorAll("[data-member-follow]")).forEach((b) =>
+      b.addEventListener("click", () => communityMemberFollow(b.dataset.memberFollow, true)));
+    Array.from(els.communityMembersList.querySelectorAll("[data-member-unfollow]")).forEach((b) =>
+      b.addEventListener("click", () => communityMemberFollow(b.dataset.memberUnfollow, false)));
+  }
+
+  // Optimistic follow/unfollow from the members list (mirrors profileListFollow): flip the
+  // local set + re-render now, revert on error. Server enforces public/not-blocked/not-self.
+  function communityMemberFollow(userId, follow) {
+    const sig = window.PointwellSignals;
+    if (!signalsReady() || !sig) { showToast("Sign in to follow"); return; }
+    if (follow) communityFollowingSet.add(String(userId)); else communityFollowingSet.delete(String(userId));
+    renderCommunityDetail();
+    const fn = follow ? sig.followUser : sig.unfollowUser;
+    if (typeof fn !== "function") return;
+    Promise.resolve(fn(userId)).then((r) => {
+      if (r && r.error) {
+        if (follow) communityFollowingSet.delete(String(userId)); else communityFollowingSet.add(String(userId));
+        renderCommunityDetail();
+        showToast(follow ? "Couldn't follow" : "Couldn't unfollow");
+      }
+    }).catch(() => {});
+  }
+
+  // About tab: description · how points work (rules) · meta row · Leave.
+  function renderCommunityAbout(world) {
+    if (!els.communityAboutPanel) return;
+    const community = world.community;
+    const desc = community.description
+      ? `<p class="community-about-desc">${escapeHtml(community.description)}</p>`
+      : `<p class="community-about-desc is-empty">No description yet.</p>`;
+    const rules = (community.system.rules || []).map(scoring.normalizeRule).filter((r) => r.simpleStyle !== "penalty");
+    const rulesHtml = rules.length
+      ? `<p class="community-section-cap">HOW POINTS WORK · ${escapeHtml(plural(rules.length, "rule").toUpperCase())}</p>` + rules.map(renderCommunityAboutRule).join("")
+      : "";
+    const vis = communityVisibility(community);
+    const visIcon = vis === "public" ? "🌐" : (vis === "request_to_join" ? "🙋" : "🔒");
+    const count = getCommunityMemberCount(community);
+    const ownerName = community.ownerId === "me"
+      ? (state.profile.name || "You")
+      : (((community.members || []).find((m) => m.userId && String(m.userId) === String(community.ownerId)) || {}).name || "—");
+    const created = formatCommunityCreated(community.createdAt);
+    const meta = `<div class="community-about-meta">
+        <span>${visIcon} ${escapeHtml(visibilityLabel(vis))}</span>
+        <span>👥 ${escapeHtml(plural(count, "member"))}</span>
+        <span>👑 ${escapeHtml(ownerName)}</span>
+        ${created ? `<span>📅 Created ${escapeHtml(created)}</span>` : ""}
+      </div>`;
+    const leave = world.ownerIsMe ? "" : `<button class="community-leave-btn" type="button" data-community-leave>${communityLeaveArmed ? "Tap again to leave" : "Leave community"}</button>`;
+    els.communityAboutPanel.innerHTML = desc + rulesHtml + meta + leave;
+    const leaveBtn = els.communityAboutPanel.querySelector("[data-community-leave]");
+    if (leaveBtn) leaveBtn.addEventListener("click", () => {
+      if (!communityLeaveArmed) { communityLeaveArmed = true; renderCommunityDetail(); return; }
+      communityLeaveArmed = false;
+      leaveCommunityConfirmed(community);
+    });
+  }
+
+  function renderCommunityAboutRule(rule) {
+    const primaryPoints = rule.simpleStyle === "yesNo" ? rule.yesNoPoints : (rule.goalPoints || rule.everyPoints || 0);
+    return `<div class="community-rule-row">
+        <span class="community-rule-icon" aria-hidden="true">${draftRuleIcon(rule)}</span>
+        <span class="community-rule-label">${escapeHtml(rule.label || "Rule")}</span>
+        <span class="community-rule-points">${escapeHtml(formatSigned(primaryPoints))} pts</span>
+      </div>`;
+  }
+
+  function formatCommunityCreated(iso) {
+    if (!iso) return "";
+    const t = Date.parse(iso);
+    if (!isFinite(t)) return "";
+    try { return new Date(t).toLocaleDateString(undefined, { month: "short", year: "numeric" }); } catch (e) { return ""; }
+  }
+
+  // Toggle which sections are visible for the active tab. Leaderboard/trends still respect
+  // their analytics module flags; the composer/sort/posts ride the Feed tab. Personal rules
+  // never show for a community.
+  function applyCommunityHubTab(analytics) {
+    const tab = activeCommunityHubTab();
+    const lbOn = !!(analytics && analytics.modules && analytics.modules.leaderboard);
+    const trendsOn = !!(analytics && analytics.modules && (analytics.modules.groupTrends || analytics.modules.individualTrends));
+    const show = (key, on) => { if (els[key]) els[key].hidden = !on; };
+    if (els.communityHubTabs) els.communityHubTabs.hidden = false;
+    show("communityComposer", tab === "feed");
+    show("communityFeedSort", tab === "feed");
+    show("worldPostsPanel", tab === "feed");
+    show("communityLeaderboardPanel", tab === "leaderboard" && lbOn);
+    show("worldTrendsPanel", tab === "leaderboard" && trendsOn);
+    show("communityMembersPanel", tab === "members");
+    show("communityAboutPanel", tab === "about");
+    if (els.personalRulesPanel) els.personalRulesPanel.hidden = true;
   }
 
   // Clean leaderboard row: rank · avatar · name · points, your row highlighted, NO progress bar.
@@ -8045,10 +8384,11 @@
         if (!member) return null;
         const rule = (community.system.rules || []).map(scoring.normalizeRule).find((r) => r.id === entry.ruleId);
         return { entry: entry, community: community, member: member, rule: rule, when: entry.timestamp || entry.dateKey || entry.date || "" };
-      }).filter(Boolean).sort((a, b) => String(b.when).localeCompare(String(a.when))).slice(0, 12);
-      if (!items.length) { els.worldPosts.innerHTML = emptyState("No posts yet — log a community day and it'll show up here."); return; }
-      feedItems = items; // so the shared feed handlers (like/comment/cheer) resolve each card by id
-      els.worldPosts.innerHTML = `<div class="community-feed-list">${items.map(renderFeedPost).join("")}</div>`;
+      }).filter(Boolean);
+      const shown = sortCommunityFeed(items).slice(0, 12);
+      if (!shown.length) { els.worldPosts.innerHTML = emptyState("No posts yet — share your progress and it'll show up here."); return; }
+      feedItems = shown; // so the shared feed handlers (like/comment/cheer) resolve each card by id
+      els.worldPosts.innerHTML = `<div class="community-feed-list">${shown.map(renderFeedPost).join("")}</div>`;
       bindWorldFeedDelegation();
       bindEntryPhotos(els.worldPosts);
       fetchFeedSocial();
@@ -17256,6 +17596,7 @@
       : { id: makeId("community-system"), title: (row.name || "") + " rules", category: row.category, rules: [], calculatedTotals: [] };
     return {
       id: row.id,
+      createdAt: row.created_at || "",
       ownerId: ownerIsMe ? "me" : row.owner_user,
       adminIds: ownerIsMe ? ["me"] : [],
       name: row.name,
@@ -17682,6 +18023,8 @@
       selectedCommunityMemberId: saved.selectedCommunityMemberId || seed.selectedCommunityMemberId,
       feedTab: saved.feedTab === "discover" ? "discover" : "friends",
       communityLeaderboardPeriod: saved.communityLeaderboardPeriod || seed.communityLeaderboardPeriod,
+      communityHubTab: saved.communityHubTab || seed.communityHubTab,
+      communityFeedSort: saved.communityFeedSort || seed.communityFeedSort,
       communityTrendMemberId: saved.communityTrendMemberId || seed.communityTrendMemberId,
       dashboardAnalyticsOpen: Boolean(saved.dashboardAnalyticsOpen),
       inactiveCommunitiesOpen: Boolean(saved.inactiveCommunitiesOpen),

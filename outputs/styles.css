@@ -9368,6 +9368,61 @@ body.onboarding-locked .coach-panel { display: none; }
 .world-section-title { font-size: 0.81rem; font-weight: 600; color: #dfe7e4; }
 .world-period-tabs { margin-bottom: 12px; }
 
+/* ── Community hub: tabbed detail (Feed · Leaderboard · Members · About) — see work/community-hub-redesign.html ── */
+.community-hub-tabs { margin: 4px 0 14px; }
+/* Tabbed (community) mode shows one panel at a time: drop the section dividers and the now-redundant
+   section titles (the active tab label already names the section). */
+#communityDetailView:not(.is-personal-world) .world-section { border-top: none; padding-top: 0; margin-bottom: 14px; }
+#communityDetailView:not(.is-personal-world) #worldPostsPanel > .world-section-head,
+#communityDetailView:not(.is-personal-world) #communityLeaderboardPanel > .world-section-head { display: none; }
+.community-section-cap { font-size: 0.6rem; letter-spacing: 0.4px; color: #5f8576; margin: 0 0 9px; font-weight: 700; }
+
+/* Feed composer */
+.community-composer { margin-bottom: 12px; }
+.community-composer-bar { display: flex; align-items: center; gap: 10px; width: 100%; background: #11181a; border: 1px solid #1e2826; border-radius: 13px; padding: 10px 12px; cursor: pointer; text-align: left; }
+.community-composer-av { width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; object-fit: cover; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; color: #fff; }
+.community-composer-placeholder { flex: 1; min-width: 0; font-size: 0.82rem; color: #7c8d87; }
+.community-composer-cam { font-size: 0.95rem; }
+.community-composer-form { background: #11181a; border: 1px solid #1e2826; border-radius: 13px; padding: 11px; }
+.community-composer-input { width: 100%; background: transparent; border: none; resize: vertical; color: #eaf2ee; font-size: 0.9rem; font-family: inherit; outline: none; min-height: 54px; }
+.community-composer-photo { position: relative; margin-top: 9px; }
+.community-composer-photo img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 11px; display: block; }
+.community-composer-photo-x { position: absolute; top: 7px; right: 7px; width: 26px; height: 26px; border-radius: 50%; border: none; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 1rem; line-height: 1; cursor: pointer; }
+.community-composer-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.community-composer-photo-btn { font-size: 0.78rem; padding: 6px 12px; border-radius: 9px; background: #15211c; border: 1px solid #243029; color: #9fb0aa; cursor: pointer; }
+.community-composer-actions .ghost-button { margin-left: auto; }
+
+/* Feed sort pills (Hot / New / Top) */
+.community-feed-sort { display: flex; gap: 6px; margin-bottom: 12px; overflow-x: auto; }
+.community-sort-pill { flex-shrink: 0; font-size: 0.7rem; padding: 4px 12px; border-radius: 16px; background: transparent; border: 1px solid transparent; color: #8aa39a; cursor: pointer; white-space: nowrap; }
+.community-sort-pill.is-active { background: #16241f; color: #9bf3cf; }
+
+/* Members */
+.community-member-row { display: flex; align-items: center; gap: 11px; margin-bottom: 11px; }
+.community-member-identity { display: flex; align-items: center; gap: 11px; flex: 1; min-width: 0; background: transparent; border: none; padding: 0; text-align: left; cursor: pointer; }
+.community-member-identity.is-static { cursor: default; }
+.community-member-av { width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0; object-fit: cover; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; color: #fff; }
+.community-member-who { min-width: 0; }
+.community-member-nameline { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.community-member-nameline strong { font-size: 0.86rem; color: #f3f6f4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.community-member-handle { font-size: 0.72rem; color: #7c8d87; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.community-role { font-size: 0.56rem; border-radius: 6px; padding: 1px 6px; flex-shrink: 0; font-weight: 700; }
+.community-role.owner { color: #c9a14a; background: #2a2113; }
+.community-role.member { color: #8aa39a; background: #15211c; }
+.community-follow-btn { flex-shrink: 0; font-size: 0.72rem; padding: 6px 14px; border-radius: 16px; background: #1c4d3b; color: #9bf3cf; border: none; cursor: pointer; }
+.community-follow-btn.is-following { background: transparent; color: #cfd8d4; border: 1px solid #46594f; }
+
+/* About */
+.community-about-desc { font-size: 0.86rem; color: #eaf2ee; line-height: 1.45; margin: 0 0 14px; }
+.community-about-desc.is-empty { color: #7c8d87; }
+.community-rule-row { display: flex; align-items: center; gap: 9px; background: #11181a; border: 1px solid #1e2826; border-radius: 11px; padding: 9px 11px; margin-bottom: 6px; }
+.community-rule-icon { font-size: 0.95rem; flex-shrink: 0; }
+.community-rule-label { flex: 1; min-width: 0; font-size: 0.82rem; color: #eef2f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.community-rule-points { font-size: 0.76rem; color: #7fe9c0; flex-shrink: 0; }
+.community-about-meta { display: flex; flex-wrap: wrap; gap: 7px 16px; font-size: 0.74rem; color: #8aa39a; border-top: 1px solid #1a2220; padding-top: 12px; margin-top: 13px; }
+.community-leave-btn { width: 100%; margin-top: 14px; font-size: 0.78rem; padding: 9px; border-radius: 11px; background: transparent; color: #e0857f; border: 1px solid #3a2420; cursor: pointer; }
+.community-leave-btn:hover { background: #2a1715; }
+
 /* Clean leaderboard rows (no progress bars). */
 .world-leaderboard { display: grid; gap: 2px; }
 .world-lb-detail-row { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; background: transparent; border: none; padding: 8px 4px; cursor: pointer; border-radius: 10px; }

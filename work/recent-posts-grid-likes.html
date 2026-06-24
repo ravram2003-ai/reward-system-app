@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — Recent posts grid (♥ likes, caption-hero text tiles, counts)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; justify-content:center; padding:24px 12px; }
+  .wrap { width:100%; max-width:440px; background:#0b100e; border:1px solid #161f1c; border-radius:20px; padding:15px; }
+  .head { display:flex; align-items:center; justify-content:space-between; margin-bottom:13px; }
+  .head strong { font-size:16px; color:#f3f6f4; }
+  .toggle { display:flex; background:#11181a; border-radius:10px; padding:2px; }
+  .toggle span { font-size:11px; padding:5px 12px; border-radius:8px; color:#8aa39a; cursor:pointer; }
+  .toggle span.on { background:#1c4d3b; color:#9bf3cf; }
+  .grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:7px; }
+  .cell { position:relative; border-radius:12px; overflow:hidden; aspect-ratio:1; cursor:pointer; }
+  .cell img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  /* text-only post: caption is the hero */
+  .cell .caption { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:9px; }
+  .cell .caption p { font-size:12px; color:#fff; font-weight:600; text-align:center; line-height:1.3; margin:0; }
+  /* counts overlay in a bottom scrim — for BOTH photo and text tiles */
+  .cell .counts { position:absolute; bottom:0; left:0; right:0; background:linear-gradient(transparent,rgba(0,0,0,.55)); padding:6px 7px; }
+  .cell .counts span { font-size:9px; color:#fff; }
+  .note { font-size:10.5px; color:#7c8d87; margin:11px 0 0; text-align:center; line-height:1.5; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <strong>Recent posts</strong>
+    <div class="toggle"><span class="on">Grid</span><span>List</span></div>
+  </div>
+
+  <div class="grid">
+    <!-- photo post -->
+    <div class="cell" style="background:linear-gradient(135deg,#3a4a55,#2a3540);"><div class="counts"><span>♥ 5 · 💬 2</span></div></div>
+    <!-- text post: caption hero -->
+    <div class="cell" style="background:linear-gradient(150deg,#2f7a5c,#1a4a6e);"><div class="caption"><p>14k steps 👟</p></div><div class="counts"><span>♥ 8 · 💬 4</span></div></div>
+    <div class="cell" style="background:linear-gradient(150deg,#5a2a6b,#3a2a52);"><div class="caption"><p>slept 8 hrs 😴</p></div><div class="counts"><span>♥ 3</span></div></div>
+    <div class="cell" style="background:linear-gradient(135deg,#243a52,#3a1a36);"><div class="counts"><span>♥ 12 · 💬 6</span></div></div>
+    <div class="cell" style="background:linear-gradient(150deg,#9a4a2c,#5a2a3a);"><div class="caption"><p>grinding 💪</p></div><div class="counts"><span>♥ 2</span></div></div>
+    <div class="cell" style="background:linear-gradient(150deg,#3a2a6b,#2a2342);"><div class="caption"><p style="font-size:11px;">read 30 pages</p></div><div class="counts"><span>♥ 7 · 💬 1</span></div></div>
+  </div>
+
+  <p class="note">♥ likes (not fire/cheer) · text-only posts show the caption as the hero (no blank sparkle) · ♥/💬 counts in a bottom scrim on every tile · tapping a tile opens the full post (existing openEntryPost — likes + comments).</p>
+</div>
+</body>
+</html>

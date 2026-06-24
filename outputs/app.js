@@ -7730,8 +7730,11 @@
       newImg.src = oldSrc;
       if (newPhoto) {
         newPhoto.dataset.photoBound = "1";
-        // Re-attach the open-in-new-tab affordance (we skipped bindEntryPhotos' re-fetch).
-        newPhoto.addEventListener("click", () => { try { window.open(oldSrc, "_blank", "noopener"); } catch (e) { /* ignore */ } });
+        // Re-attach the open-in-new-tab affordance (we skipped bindEntryPhotos' re-fetch) — but
+        // not when the photo is inside a post-open tile/card, so the tap opens the full post.
+        if (!newPhoto.closest("[data-profile-post]")) {
+          newPhoto.addEventListener("click", () => { try { window.open(oldSrc, "_blank", "noopener"); } catch (e) { /* ignore */ } });
+        }
       }
     } else {
       bindEntryPhotos(root);
@@ -13452,7 +13455,12 @@
       Promise.resolve(window.PointwellSignals.getEntryPhotoSignedUrl(path)).then((url) => {
         if (!url) { thumb.classList.add("is-unavailable"); if (img) img.alt = "Photo unavailable"; return; }
         if (img) img.src = url;
-        thumb.addEventListener("click", () => { try { window.open(url, "_blank", "noopener"); } catch (e) { /* ignore */ } });
+        // Don't hijack the tap when the photo sits inside a post-open tile/card (profile grid +
+        // list) — let the click bubble so the tile opens the full post via openEntryPost. Photos
+        // elsewhere (feed cards) keep the open-in-new-tab affordance.
+        if (!thumb.closest("[data-profile-post]")) {
+          thumb.addEventListener("click", () => { try { window.open(url, "_blank", "noopener"); } catch (e) { /* ignore */ } });
+        }
       }).catch(() => { thumb.classList.add("is-unavailable"); });
     });
   }

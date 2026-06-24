@@ -8592,26 +8592,81 @@
   }
 
   // Personal "Today's rules" — icon + name + a per-rule progress bar + value (no leaderboard).
+  // One-tap logging from a Today/world-detail rule card. Reuses the existing Add Entry log path
+  // (addDailyEntryFromDraft) but stays on the card so it can animate to its logged state.
+  let justLoggedRuleId = ""; // the rule whose card should play the just-logged animation once
+
+  function quickLogRule(ruleId) {
+    const world = currentDetailWorld();
+    if (!world || world.type !== "personal") return;
+    const system = world.system;
+    const rule = (system.rules || []).map(scoring.normalizeRule).find((r) => r.id === ruleId);
+    if (!rule || rule.simpleStyle === "penalty") return;
+    if (isRuleSynced(rule) && rule.allowManualOverride === false) { showToast("Manual logging is off for this rule"); return; }
+    const values = todayValuesForSystem(normalizeSystem(system));
+    if (rule.simpleStyle === "yesNo" && numberOrDefault(values[rule.id], 0) > 0) return; // already done — don't double-log
+    // Point the active score context at this world's system so the existing log path writes here.
+    state.scoreContext = "personal";
+    state.trackerSystemId = system.id;
+    resetAddEntryAttachment();
+    composerSourceTag = "";
+    aiPrefilledComposer = false;
+    addEntryDraft = { ruleId: rule.id, amount: rule.simpleStyle === "yesNo" ? 1 : suggestedEntryAmount(rule) };
+    justLoggedRuleId = rule.id;
+    addDailyEntryFromDraft({ stayInView: true });
+  }
+
+  // Tap the rule card body → open the full Add Entry form pre-pointed at this rule for editing.
+  function openAddEntryForRule(ruleId) {
+    const world = currentDetailWorld();
+    if (!world || world.type !== "personal") return;
+    const system = world.system;
+    const rule = (system.rules || []).map(scoring.normalizeRule).find((r) => r.id === ruleId);
+    if (!rule) return;
+    state.scoreContext = "personal";
+    state.trackerSystemId = system.id;
+    addEntryDraft = { ruleId: rule.id, amount: suggestedEntryAmount(rule) };
+    openAddEntryPage();
+  }
+
   function renderPersonalRules(system) {
     if (!els.personalRules) return;
     const sys = normalizeSystem(system);
     const values = todayValuesForSystem(sys);
     const rules = (sys.rules || []).map(scoring.normalizeRule).filter((r) => r.simpleStyle !== "penalty");
     if (!rules.length) { els.personalRules.innerHTML = emptyState("No rules yet — add some in Build."); return; }
+    const justLogged = justLoggedRuleId; justLoggedRuleId = ""; // consume the one-shot animation flag
     els.personalRules.innerHTML = rules.map((rule) => {
       const total = numberOrDefault(values[rule.id], 0);
       const goal = goalAmountForRule(rule) || 0;
-      const pct = rule.simpleStyle === "yesNo" ? (total > 0 ? 100 : 0) : (goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : (total > 0 ? 100 : 0));
-      const label = rule.simpleStyle === "yesNo" ? (total > 0 ? "Done" : "—") : `${formatValue(total)}/${formatValue(goal)}`;
-      return `<div class="world-rule-row">
-          <span class="world-rule-icon" aria-hidden="true">${draftRuleIcon(rule)}</span>
-          <div class="world-rule-main">
-            <p class="world-rule-name">${escapeHtml(rule.label || "Rule")}</p>
-            <div class="world-rule-track" aria-hidden="true"><div class="world-rule-fill" style="width:${pct}%"></div></div>
-          </div>
-          <span class="world-rule-value">${escapeHtml(label)}</span>
+      const isYesNo = rule.simpleStyle === "yesNo";
+      const pct = isYesNo ? (total > 0 ? 100 : 0) : (goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : (total > 0 ? 100 : 0));
+      const value = isYesNo ? (total > 0 ? "Done" : "—") : `${formatValue(total)}/${formatValue(goal)}`;
+      const logged = isYesNo ? total > 0 : (goal > 0 ? total >= goal : total > 0);
+      const manualOff = isRuleSynced(rule) && rule.allowManualOverride === false;
+      const ruleId = escapeHtml(rule.id);
+      const nameHtml = logged
+        ? `${escapeHtml(rule.label || "Rule")} <span class="world-rule-loggedtag">✓ logged</span>`
+        : escapeHtml(rule.label || "Rule");
+      const action = logged
+        ? `<span class="world-rule-done" aria-hidden="true">✓</span>`
+        : (manualOff ? "" : `<button class="world-rule-log${isYesNo ? " is-yesno" : ""}" type="button" data-quick-log-rule="${ruleId}">${isYesNo ? "✓ Done" : "+ Log"}</button>`);
+      return `<div class="world-rule-row${logged ? " is-logged" : ""}${rule.id === justLogged ? " is-just-logged" : ""}">
+          <button class="world-rule-open" type="button" data-open-entry-rule="${ruleId}" aria-label="Edit ${escapeHtml(rule.label || "rule")} entry">
+            <span class="world-rule-icon" aria-hidden="true">${draftRuleIcon(rule)}</span>
+            <div class="world-rule-main">
+              <p class="world-rule-name">${nameHtml}</p>
+              <div class="world-rule-track" aria-hidden="true"><div class="world-rule-fill" style="width:${pct}%"></div></div>
+            </div>
+            <span class="world-rule-value">${escapeHtml(value)}</span>
+          </button>
+          ${action}
         </div>`;
     }).join("");
+    Array.from(els.personalRules.querySelectorAll("[data-quick-log-rule]")).forEach((b) =>
+      b.addEventListener("click", (e) => { e.stopPropagation(); quickLogRule(b.dataset.quickLogRule); }));
+    Array.from(els.personalRules.querySelectorAll("[data-open-entry-rule]")).forEach((b) =>
+      b.addEventListener("click", () => openAddEntryForRule(b.dataset.openEntryRule)));
   }
 
   // Personal trend: your points over the last COMMUNITY_TREND_DAYS, rendered with the same
@@ -13716,7 +13771,8 @@
     setText("[data-add-entry-button-label]", addEntryButtonLabel(rule, amount));
   }
 
-  async function addDailyEntryFromDraft() {
+  async function addDailyEntryFromDraft(opts) {
+    opts = opts || {};
     const context = getActiveScoreContext();
     const system = context.system;
     if (!system) return;
@@ -13792,7 +13848,9 @@
     resetAddEntryAttachment();
     aiPrefilledComposer = false;
     composerSourceTag = "";
-    state.activeView = "dashboard";
+    // One-tap logging from a rule card stays on the current view (so the card animates to its
+    // logged state); the full Add Entry form returns to the dashboard as before.
+    if (!opts.stayInView) state.activeView = "dashboard";
     saveState();
     render();
     showToast("Entry added");

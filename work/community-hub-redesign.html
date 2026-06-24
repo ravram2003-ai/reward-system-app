@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — community hub (tabbed): Feed · Leaderboard · Members · About</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; justify-content:center; padding:24px 12px; }
+  .app { width:100%; max-width:440px; background:#08100d; border:1px solid #161f1c; border-radius:22px; overflow:hidden; }
+  .cover { height:74px; background:linear-gradient(135deg,#1c6b4d,#15406b 70%,#3a2a6b); }
+  .body { padding:0 15px 15px; }
+  .idrow { display:flex; align-items:flex-end; gap:11px; margin-top:-22px; margin-bottom:11px; }
+  .icon { width:50px; height:50px; border-radius:15px; background:linear-gradient(135deg,#e8b84a,#c47a2a); border:3px solid #08100d; display:flex; align-items:center; justify-content:center; font-size:20px; }
+  .idrow .nm { flex:1; padding-bottom:2px; } .idrow strong { font-size:16px; color:#f3f6f4; } .idrow p { font-size:10px; color:#7c8d87; margin:1px 0 0; }
+  .invite { font-size:10.5px; padding:6px 13px; border-radius:10px; background:#1c4d3b; color:#9bf3cf; border:none; margin-bottom:2px; cursor:pointer; }
+  .tabs { display:flex; gap:3px; background:#11181a; border-radius:13px; padding:3px; margin-bottom:13px; }
+  .tab { flex:1; text-align:center; font-size:11.5px; padding:7px; border-radius:10px; color:#8aa39a; cursor:pointer; }
+  .tab.active { background:#1c4d3b; color:#9bf3cf; font-weight:600; }
+  .panel { display:none; } .panel.active { display:block; }
+  /* feed */
+  .composer { display:flex; align-items:center; gap:9px; background:#11181a; border:1px solid #1e2826; border-radius:13px; padding:10px 12px; margin-bottom:11px; cursor:pointer; }
+  .av { border-radius:50%; flex-shrink:0; }
+  .sort { display:flex; gap:6px; margin-bottom:11px; }
+  .sort span { font-size:10.5px; padding:4px 11px; border-radius:16px; color:#8aa39a; cursor:pointer; }
+  .sort span.on { background:#16241f; color:#9bf3cf; }
+  .post { background:#11181a; border:1px solid #1e2826; border-radius:14px; padding:11px; margin-bottom:9px; }
+  .post .ph { display:flex; align-items:center; gap:9px; margin-bottom:7px; }
+  .tag { font-size:9px; color:#7fe9c0; background:#13281f; border:1px solid #2a5a45; border-radius:6px; padding:2px 7px; }
+  .acts { display:flex; gap:15px; border-top:1px solid #1a2220; padding-top:7px; }
+  .acts span { font-size:11.5px; }
+  .mile { background:linear-gradient(135deg,#16241f,#13202c); border:1px solid #2a5a45; border-radius:14px; padding:11px; text-align:center; }
+  /* leaderboard */
+  .seg { display:flex; gap:5px; margin-bottom:12px; }
+  .seg span { font-size:10px; padding:4px 11px; border-radius:15px; color:#8aa39a; }
+  .seg span.on { background:#16241f; color:#9bf3cf; }
+  .lrow { display:flex; align-items:center; gap:11px; padding:8px 9px; border-radius:11px; margin-bottom:5px; }
+  .lrow.me { background:#13211c; border:1px solid #235741; }
+  .lrow .rk { width:18px; text-align:center; font-size:12px; color:#8aa39a; }
+  /* members */
+  .mrow { display:flex; align-items:center; gap:11px; margin-bottom:11px; }
+  .role { font-size:8.5px; border-radius:6px; padding:1px 6px; }
+  .role.owner { color:#c9a14a; background:#2a2113; } .role.mem { color:#8aa39a; background:#15211c; }
+  .followbtn { font-size:10.5px; padding:6px 14px; border-radius:16px; background:#1c4d3b; color:#9bf3cf; border:none; cursor:pointer; }
+  .followingbtn { font-size:10.5px; padding:6px 13px; border-radius:16px; background:transparent; color:#cfd8d4; border:1px solid #2c3a35; cursor:pointer; }
+  /* about */
+  .rule { display:flex; align-items:center; gap:9px; background:#11181a; border:1px solid #1e2826; border-radius:11px; padding:9px 11px; margin-bottom:5px; }
+  .meta { display:flex; flex-wrap:wrap; gap:7px 16px; font-size:11px; color:#8aa39a; border-top:1px solid #1a2220; padding-top:11px; margin-top:11px; }
+  .leave { width:100%; margin-top:13px; font-size:11.5px; padding:9px; border-radius:11px; background:transparent; color:#e0857f; border:1px solid #3a2420; cursor:pointer; }
+  .cap { font-size:10px; color:#5f8576; letter-spacing:.4px; margin:0 0 8px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="cover"></div>
+  <div class="body">
+    <div class="idrow">
+      <div class="icon">🐉</div>
+      <div class="nm"><strong>THE BOYS</strong><p>🌐 Public · 6 members</p></div>
+      <button class="invite">Invite</button>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="feed" onclick="sw('feed')">Feed</div>
+      <div class="tab" data-tab="lb" onclick="sw('lb')">Leaderboard</div>
+      <div class="tab" data-tab="mem" onclick="sw('mem')">Members</div>
+      <div class="tab" data-tab="about" onclick="sw('about')">About</div>
+    </div>
+
+    <!-- FEED -->
+    <div class="panel active" id="feed">
+      <div class="composer"><div class="av" style="width:28px;height:28px;background:#355d91;"></div><span style="flex:1;font-size:12px;color:#7c8d87;">Share your progress…</span><span style="font-size:14px;">📷</span></div>
+      <div class="sort"><span class="on">🔥 Hot</span><span>🆕 New</span><span>🏆 Top</span></div>
+      <div class="post">
+        <div class="ph"><div class="av" style="width:30px;height:30px;background:#9a4a2c;"></div><div style="flex:1;"><p style="font-size:12px;color:#f3f6f4;margin:0;"><strong>Jacob</strong></p><p style="font-size:9.5px;color:#7c8d87;margin:0;">2h ago</p></div><span class="tag">+2 Workout</span></div>
+        <p style="font-size:12.5px;color:#eaf2ee;margin:0 0 8px;">Leg day done 🦵 who's next</p>
+        <div style="height:90px;border-radius:10px;background:linear-gradient(135deg,#243a52,#3a1a36);margin-bottom:8px;"></div>
+        <div class="acts"><span style="color:#ff7a52;">🔥 8</span><span style="color:#9fb0aa;">💬 4</span><span style="color:#7fe9c0;margin-left:auto;">Cheer</span></div>
+      </div>
+      <div class="mile"><p style="font-size:12px;color:#eaf2ee;margin:0 0 7px;">🔥 <strong>Robert</strong> hit a <strong>7-day streak</strong> — longest this week</p><span style="font-size:10.5px;padding:4px 13px;border-radius:15px;background:#1c4d3b;color:#9bf3cf;">🔥 Cheer · 12</span></div>
+    </div>
+
+    <!-- LEADERBOARD -->
+    <div class="panel" id="lb">
+      <div class="seg"><span class="on">Daily</span><span>Weekly</span><span>Monthly</span><span>All-time</span></div>
+      <div class="lrow" style="background:#16201a;"><span style="font-size:14px;">🥇</span><div class="av" style="width:30px;height:30px;background:#9a4a2c;"></div><div style="flex:1;"><p style="font-size:12.5px;color:#f3f6f4;margin:0;">Jacob</p><p style="font-size:9px;color:#c9a14a;margin:0;">🔥 9-day streak</p></div><strong style="font-size:15px;color:#f3f6f4;">42</strong></div>
+      <div class="lrow me"><span class="rk" style="color:#3ddc97;">2</span><div class="av" style="width:30px;height:30px;background:#355d91;"></div><div style="flex:1;"><p style="font-size:12.5px;color:#7fe9c0;margin:0;">You</p><p style="font-size:9px;color:#c9a14a;margin:0;">🔥 7-day streak</p></div><strong style="font-size:15px;color:#3ddc97;">38</strong></div>
+      <div class="lrow"><span class="rk">3</span><div class="av" style="width:30px;height:30px;background:#2f7a5c;"></div><div style="flex:1;"><p style="font-size:12.5px;color:#eef2f0;margin:0;">Ravram26</p></div><strong style="font-size:14px;color:#cfe0d9;">25</strong></div>
+      <div class="lrow"><span class="rk">4</span><div class="av" style="width:30px;height:30px;background:#7a5cc4;"></div><div style="flex:1;"><p style="font-size:12.5px;color:#eef2f0;margin:0;">Robinavram</p></div><strong style="font-size:14px;color:#cfe0d9;">11</strong></div>
+    </div>
+
+    <!-- MEMBERS -->
+    <div class="panel" id="mem">
+      <p class="cap">6 MEMBERS</p>
+      <div class="mrow"><div class="av" style="width:36px;height:36px;background:#9a4a2c;"></div><div style="flex:1;"><div style="display:flex;align-items:center;gap:6px;"><p style="font-size:13px;color:#f3f6f4;margin:0;">Jacob</p><span class="role owner">Owner</span></div><p style="font-size:10.5px;color:#7c8d87;margin:1px 0 0;">@jacobavram6</p></div><button class="followingbtn">Following</button></div>
+      <div class="mrow"><div class="av" style="width:36px;height:36px;background:#2f7a5c;"></div><div style="flex:1;"><p style="font-size:13px;color:#f3f6f4;margin:0;">Ravram26</p><p style="font-size:10.5px;color:#7c8d87;margin:1px 0 0;">@ravram26</p></div><button class="followbtn">Follow</button></div>
+      <div class="mrow"><div class="av" style="width:36px;height:36px;background:#7a5cc4;"></div><div style="flex:1;"><p style="font-size:13px;color:#f3f6f4;margin:0;">Robinavram</p><p style="font-size:10.5px;color:#7c8d87;margin:1px 0 0;">@robinavram</p></div><button class="followbtn">Follow</button></div>
+      <div class="mrow"><div class="av" style="width:36px;height:36px;background:#355d91;"></div><div style="flex:1;"><div style="display:flex;align-items:center;gap:6px;"><p style="font-size:13px;color:#7fe9c0;margin:0;">You</p><span class="role mem">Member</span></div><p style="font-size:10.5px;color:#7c8d87;margin:1px 0 0;">@robert</p></div></div>
+    </div>
+
+    <!-- ABOUT -->
+    <div class="panel" id="about">
+      <p style="font-size:12.5px;color:#eaf2ee;margin:0 0 13px;line-height:1.45;">Keeping each other accountable — daily movement, study, and not skipping leg day. No excuses. 💪</p>
+      <p class="cap">HOW POINTS WORK · 3 RULES</p>
+      <div class="rule"><span style="font-size:14px;">🏋️</span><span style="flex:1;font-size:12px;color:#eef2f0;">Workout</span><span style="font-size:11px;color:#7fe9c0;">+2 / session</span></div>
+      <div class="rule"><span style="font-size:14px;">📚</span><span style="flex:1;font-size:12px;color:#eef2f0;">Study 1hr</span><span style="font-size:11px;color:#7fe9c0;">+2 / day</span></div>
+      <div class="rule"><span style="font-size:14px;">👟</span><span style="flex:1;font-size:12px;color:#eef2f0;">10k steps</span><span style="font-size:11px;color:#7fe9c0;">+1 / day</span></div>
+      <div class="meta"><span>🌐 Public</span><span>👥 6 members</span><span>👑 Jacob</span><span>📅 Created Apr 2026</span></div>
+      <button class="leave">Leave community</button>
+    </div>
+
+  </div>
+</div>
+<script>
+  function sw(id){
+    document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', t.dataset.tab===id); });
+    document.querySelectorAll('.panel').forEach(function(p){ p.classList.toggle('active', p.id===id); });
+  }
+</script>
+</body>
+</html>

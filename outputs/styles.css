@@ -8291,22 +8291,6 @@ body.onboarding-locked .coach-panel { display: none; }
 .ig-action-btn:hover { color: var(--accent-strong); }
 .ig-action-btn.is-liked { color: var(--like); }
 .ig-action-btn.is-liked svg { fill: currentColor; stroke: currentColor; }
-.ig-action-cheer {
-  margin-left: 4px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font: inherit;
-  font-size: 0.84rem;
-  font-weight: 750;
-  color: var(--accent-strong);
-  background: none;
-  border: 0;
-  padding: 7px 8px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-.ig-action-cheer:hover { background: var(--accent-soft); }
 /* Discover: + Follow button, "Following" label, and the affinity-reason chip. */
 .ig-action-follow {
   margin-left: 4px;
@@ -8747,49 +8731,42 @@ body.onboarding-locked .coach-panel { display: none; }
 .profile-posts-toggle .segmented-button { padding: 5px 12px; font-size: 0.78rem; }
 
 /* Hybrid post grid: 3 square tiles per row */
-.profile-posts-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.profile-posts-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
 .profile-post-tile {
   position: relative;
   aspect-ratio: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 8px;
+  padding: 0;
   border: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
-  text-align: center;
-  color: var(--ink);
+  color: #fff;
   font: inherit;
 }
 .profile-post-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* Photo tile: the image fills the square */
-.profile-tile-photo { padding: 0; background: var(--soft); }
-.profile-tile-photo .profile-tile-img { width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
+.profile-tile-photo { background: var(--soft); }
+.profile-tile-photo .profile-tile-img { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
 .profile-tile-photo .profile-tile-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
-/* Text tile: the category color, darkened so near-white text stays high-contrast */
+/* Text tile: the caption is the hero on the per-post gradient. Darkened + a text-shadow so
+   white text stays high-contrast even on the lighter palette colors (verify contrast rule). */
 .profile-tile-text {
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.32), rgba(0, 0, 0, 0.58)), var(--tile, var(--surface));
+  background: linear-gradient(150deg, rgba(0, 0, 0, 0.34), rgba(0, 0, 0, 0.56)), var(--tile, var(--surface));
 }
-.profile-tile-icon { font-size: 1.05rem; line-height: 1; opacity: 0.95; }
-.profile-tile-label {
-  font-size: 0.78rem; font-weight: 750; line-height: 1.2;
-  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+.profile-tile-caption { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 9px; }
+.profile-tile-caption p {
+  margin: 0; font-size: 0.74rem; font-weight: 700; color: #fff; text-align: center; line-height: 1.3;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
 }
-.profile-tile-sub { font-size: 0.68rem; color: rgba(238, 241, 239, 0.82); }
-/* Like/comment overlay — bottom-anchored on photos, inline on text tiles */
-.profile-tile-overlay {
-  display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap;
-  font-size: 0.7rem; font-weight: 800;
-}
-.profile-tile-photo .profile-tile-overlay {
-  position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 8px 6px; color: #fff;
+/* Counts scrim — bottom-anchored on BOTH photo and text tiles. Starts with a baseline darkness
+   (not fully transparent) + a text-shadow so the white counts stay readable over bright photos. */
+.profile-tile-counts {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 9px 7px 6px;
+  font-size: 0.6rem; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
   background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.62));
 }
-.profile-tile-stat { display: inline-flex; align-items: center; gap: 3px; }
+.profile-tile-photo .profile-tile-counts { background: linear-gradient(180deg, rgba(0, 0, 0, 0.26), rgba(0, 0, 0, 0.66)); }
 
 /* ── Wearable sync: "via Fitbit" badge, synced-row actions, workout prompt ──────── */
 /* Small source badge (feed post header, today's-entry rows, workout prompt). Blue tint

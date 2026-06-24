@@ -7572,9 +7572,6 @@
     const commentBtn = canSocial
       ? `<button class="ig-action-btn" type="button" data-feed-comment-focus="${escapeHtml(entryId)}" aria-label="Comment">${FEED_COMMENT_SVG}</button>`
       : "";
-    const cheerBtn = (!isMe && !isDiscover)
-      ? `<button class="ig-action-cheer" type="button" data-feed-cheer data-feed-member="${escapeHtml(item.member.id)}" data-feed-community="${escapeHtml(item.community.id)}" aria-label="Cheer ${escapeHtml(memberFirstName(item.member))}"><span aria-hidden="true">★</span> Cheer</button>`
-      : "";
     // Discover-only: a + Follow button (reuses the follow signal) and the single
     // strongest affinity reason as a header chip.
     const followBtn = (isDiscover && signalsReady() && item.discover.authorId)
@@ -7619,7 +7616,6 @@
         <div class="ig-actions">
           ${likeBtn}
           ${commentBtn}
-          ${cheerBtn}
           ${followBtn}
           <span class="ig-summary">${summary}</span>
         </div>
@@ -7728,8 +7724,6 @@
     if (likeBtn) { toggleFeedLike(likeBtn.dataset.feedLike); return; }
     const commentBtn = event.target.closest("[data-feed-comment-focus]");
     if (commentBtn) { focusFeedComment(commentBtn.dataset.feedCommentFocus); return; }
-    const cheerBtn = event.target.closest("[data-feed-cheer]");
-    if (cheerBtn) { cheerFromFeed(cheerBtn.dataset.feedCommunity, cheerBtn.dataset.feedMember); return; }
     const followBtn = event.target.closest("[data-discover-follow]");
     if (followBtn) { followFromDiscover(followBtn.dataset.discoverFollow, followBtn); return; }
     const expandBtn = event.target.closest("[data-feed-expand]");
@@ -7807,14 +7801,6 @@
     const card = els.communityFeed && els.communityFeed.querySelector(`[data-feed-entry="${entryId}"]`);
     const input = card && card.querySelector("[data-feed-comment-input]");
     if (input) input.focus();
-  }
-
-  function cheerFromFeed(communityId, memberId) {
-    const community = state.communities.find((item) => item.id === communityId);
-    const member = community && (community.members || []).find((item) => item.id === memberId);
-    if (community && member) {
-      sendChosenSignal(community, member, "kudos", window.PointwellSignals.presetsForType("kudos")[0], null).catch(() => {});
-    }
   }
 
   function expandFeedComments(entryId) {
@@ -9415,24 +9401,24 @@
     const entryId = escapeHtml(String(p.entry_id));
     const likes = Number(p.like_count) || 0;
     const comments = Number(p.comment_count) || 0;
-    const stats = [
-      likes ? `<span class="profile-tile-stat"><span aria-hidden="true">♥</span> ${escapeHtml(formatFollowCount(likes))}</span>` : "",
-      comments ? `<span class="profile-tile-stat"><span aria-hidden="true">💬</span> ${escapeHtml(formatFollowCount(comments))}</span>` : ""
-    ].filter(Boolean).join("");
-    const overlay = stats ? `<span class="profile-tile-overlay">${stats}</span>` : "";
+    // Counts scrim on EVERY tile (photo + text): ♥ likes · 💬 comments, omitting a zero count.
+    const parts = [];
+    if (likes) parts.push(`♥ ${escapeHtml(formatFollowCount(likes))}`);
+    if (comments) parts.push(`💬 ${escapeHtml(formatFollowCount(comments))}`);
+    const counts = parts.length ? `<span class="profile-tile-counts">${parts.join(" · ")}</span>` : "";
     const photoPath = p.photo_path || "";
     if (photoPath) {
       return `<button class="profile-post-tile profile-tile-photo" type="button" data-profile-post="${entryId}" aria-label="Open post">
           <div class="ig-photo profile-tile-img" data-entry-photo="${escapeHtml(photoPath)}" role="img" aria-label="Post photo"><img alt="" loading="lazy"></div>
-          ${overlay}
+          ${counts}
         </button>`;
     }
+    // Text-only check-in → the caption is the hero, centered on the per-post gradient.
     const color = dayScheduleColor(p.rule_id || p.community_id || p.entry_id);
-    const label = escapeHtml((p.message && String(p.message).trim()) || p.community_name || "Check-in");
+    const caption = escapeHtml((p.message && String(p.message).trim()) || p.community_name || "Check-in");
     return `<button class="profile-post-tile profile-tile-text" type="button" data-profile-post="${entryId}" style="--tile:${color}" aria-label="Open post">
-        <span class="profile-tile-icon" aria-hidden="true">✦</span>
-        <span class="profile-tile-label">${label}</span>
-        ${overlay || (p.community_name ? `<span class="profile-tile-sub">${escapeHtml(p.community_name)}</span>` : "")}
+        <span class="profile-tile-caption"><p>${caption}</p></span>
+        ${counts}
       </button>`;
   }
 

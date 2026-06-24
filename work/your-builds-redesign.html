@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — "Edit your builds" redesign</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; justify-content:center; padding:26px 14px; }
+  .wrap { width:100%; max-width:440px; background:#0b100e; border:1px solid #161f1c; border-radius:20px; padding:16px; }
+  .head { display:flex; align-items:center; gap:9px; margin-bottom:14px; }
+  .head strong { font-size:17px; color:#f3f6f4; }
+  .count { font-size:11px; color:#8aa39a; background:#15211c; border-radius:20px; padding:2px 9px; }
+  .build { position:relative; display:flex; align-items:center; gap:12px; border-radius:14px; padding:12px; margin-bottom:9px; }
+  .build.priv { background:#11181a; border:1px solid #1e2826; }
+  .build.pub  { background:#10201a; border:1px solid #235741; }
+  .ico { width:40px; height:40px; border-radius:11px; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
+  .main { flex:1; min-width:0; }
+  .titlerow { display:flex; align-items:center; gap:7px; }
+  .titlerow strong { font-size:14px; color:#f3f6f4; }
+  .pill { font-size:9px; border-radius:7px; padding:1.5px 7px; }
+  .pill.private { color:#c9a14a; background:#2a2113; }
+  .pill.public  { color:#7fe9c0; background:#13281f; border:1px solid #2a5a45; }
+  .meta { font-size:11.5px; color:#8aa39a; margin:2px 0 0; }
+  .edit { font-size:12px; font-weight:600; padding:7px 15px; border-radius:10px; background:#1c4d3b; color:#9bf3cf; border:none; cursor:pointer; }
+  .more { width:30px; height:30px; border-radius:9px; background:#15211c; border:1px solid #243029; color:#9fb0aa; font-size:15px; flex-shrink:0; cursor:pointer; }
+  .more.open { background:#1c2b24; border-color:#2c5a48; color:#9bf3cf; }
+  .menu { position:absolute; top:46px; right:12px; width:148px; background:#16201c; border:1px solid #2a3a33; border-radius:11px; padding:5px; box-shadow:0 8px 22px rgba(0,0,0,.5); z-index:5; }
+  .menu div { font-size:12px; padding:8px 10px; border-radius:7px; }
+  .menu .invite { color:#dfe7e4; } .menu .del { color:#e0857f; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head"><strong>Edit your builds</strong><span class="count">13</span></div>
+
+  <!-- private build -->
+  <div class="build priv">
+    <div class="ico" style="background:linear-gradient(135deg,#1e3a30,#243a52);">🏋️</div>
+    <div class="main">
+      <div class="titlerow"><strong>Fitness baseline</strong><span class="pill private">Private</span></div>
+      <p class="meta">Fitness · 3 rules</p>
+    </div>
+    <button class="edit">Edit</button>
+    <button class="more">⋯</button>
+  </div>
+
+  <!-- private build with overflow menu OPEN -->
+  <div class="build priv">
+    <div class="ico" style="background:linear-gradient(135deg,#2a2342,#243a52);">📚</div>
+    <div class="main">
+      <div class="titlerow"><strong>Study sprint</strong><span class="pill private">Private</span></div>
+      <p class="meta">Study · 3 rules</p>
+    </div>
+    <button class="edit">Edit</button>
+    <button class="more open">⋯</button>
+    <div class="menu">
+      <div class="invite">👥 Invite people</div>
+      <div class="del">🗑 Delete</div>
+    </div>
+  </div>
+
+  <!-- public build -->
+  <div class="build pub">
+    <div class="ico" style="background:linear-gradient(135deg,#2f7a5c,#244a6e);">🌱</div>
+    <div class="main">
+      <div class="titlerow"><strong>Lifestyle baseline</strong><span class="pill public">Public</span></div>
+      <p class="meta">General wellness · 5 rules</p>
+    </div>
+    <button class="edit">Edit</button>
+    <button class="more">⋯</button>
+  </div>
+
+  <p style="font-size:11px;color:#6f807a;margin:12px 0 0;text-align:center;line-height:1.5;">Header “Edit your builds” + count · compact home-style rows (icon tile, name + Private/Public pill, “category · N rules”) · primary Edit · Invite people + Delete moved into a ⋯ overflow menu · public builds tinted green.</p>
+</div>
+</body>
+</html>

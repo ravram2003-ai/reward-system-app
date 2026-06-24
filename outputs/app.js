@@ -5490,16 +5490,118 @@
     }
   }
 
-  // Intent-home "Your builds" = personal systems + communities in one list, reusing
-  // the exact same card renderers + actions as the classic Build lists.
+  // Build-row icon tile: a category glyph on a tinted gradient (public → green, study-ish →
+  // purple, else green-blue). Presentational only — mirrors work/your-builds-redesign.html.
+  function buildIconStyle(category, isPublic) {
+    const c = String(category || "").toLowerCase();
+    let glyph = "🎯";
+    if (/fit|gym|lift|strength|workout|exercise/.test(c)) glyph = "🏋️";
+    else if (/study|academ|school|learn|read|book|class/.test(c)) glyph = "📚";
+    else if (/well|health|lifestyle|mind|habit|balance/.test(c)) glyph = "🌱";
+    else if (/nutri|diet|food|eat|meal/.test(c)) glyph = "🥗";
+    else if (/sleep|rest|recovery/.test(c)) glyph = "😴";
+    else if (/run|cardio|walk|step|mile/.test(c)) glyph = "🏃";
+    else if (/money|financ|budget|spend|save|cash/.test(c)) glyph = "💰";
+    else if (/work|product|focus|deep|career/.test(c)) glyph = "💻";
+    const purple = /study|academ|school|learn|read|book|class/.test(c);
+    const bg = isPublic
+      ? "linear-gradient(135deg, #2f7a5c, #244a6e)"
+      : (purple ? "linear-gradient(135deg, #2a2342, #243a52)" : "linear-gradient(135deg, #1e3a30, #243a52)");
+    return { glyph, bg };
+  }
+
+  // One compact build row: icon + name + visibility pill + meta + a primary Edit + a ⋯ menu.
+  function buildRowShell(opts) {
+    return `
+      <div class="ybuild-row${opts.isPublic ? " is-public" : ""}" ${opts.rootAttr}>
+        <div class="ybuild-icon" style="background:${opts.icon.bg}" aria-hidden="true">${opts.icon.glyph}</div>
+        <div class="ybuild-main">
+          <div class="ybuild-titlerow">
+            <strong class="ybuild-name">${escapeHtml(opts.name)}</strong>
+            <span class="ybuild-pill ${opts.pillClass}">${escapeHtml(opts.pillLabel)}</span>
+          </div>
+          <p class="ybuild-meta">${escapeHtml(opts.meta)}</p>
+        </div>
+        <button class="ybuild-edit" type="button" ${opts.editAttr}>Edit</button>
+        <button class="ybuild-more" type="button" data-ybuild-more aria-haspopup="true" aria-expanded="false" aria-label="More actions for ${escapeHtml(opts.name)}"><span aria-hidden="true">⋯</span></button>
+        <div class="ybuild-menu" role="menu" hidden>${opts.menuItems}</div>
+      </div>`;
+  }
+
+  function renderYourBuildSystemRow(system) {
+    const visibility = system.visibility === "public" ? "public" : "private";
+    const id = escapeHtml(system.id);
+    return buildRowShell({
+      rootAttr: `data-system-id="${id}"`,
+      isPublic: visibility === "public",
+      icon: buildIconStyle(system.category, visibility === "public"),
+      name: system.title || "Untitled system",
+      pillClass: visibility,
+      pillLabel: capitalize(visibility),
+      meta: `${system.category || "No category yet"} · ${plural(system.rules.length, "rule")}`,
+      editAttr: `data-edit-system-id="${id}"`,
+      menuItems: `
+        <button class="ybuild-menu-item" type="button" role="menuitem" data-turn-community-id="${id}"><span aria-hidden="true">👥</span> Invite people</button>
+        <button class="ybuild-menu-item ybuild-menu-del" type="button" role="menuitem" data-delete-system-id="${id}"><span aria-hidden="true">🗑</span> Delete</button>`
+    });
+  }
+
+  function renderYourBuildCommunityRow(community) {
+    const visibility = communityVisibility(community);
+    const isPublic = visibility === "public";
+    const id = escapeHtml(community.id);
+    return buildRowShell({
+      rootAttr: `data-community-id="${id}"`,
+      isPublic,
+      icon: { glyph: "👥", bg: isPublic ? "linear-gradient(135deg, #2f7a5c, #244a6e)" : "linear-gradient(135deg, #1e3a30, #243a52)" },
+      name: community.name || "Community",
+      pillClass: isPublic ? "public" : (visibility === "request_to_join" ? "request" : "private"),
+      pillLabel: visibilityLabel(visibility),
+      meta: `${visibilityLabel(visibility)} · ${plural(getCommunityMemberCount(community), "member")}`,
+      editAttr: `data-edit-community-id="${id}"`,
+      menuItems: `<button class="ybuild-menu-item" type="button" role="menuitem" data-open-community-id="${id}"><span aria-hidden="true">↗</span> Open</button>`
+    });
+  }
+
+  // Intent-home "Edit your builds" = personal systems + communities as compact rows, reusing the
+  // exact same edit/invite/delete/open ACTIONS (same data-* attrs → bindBuildCardActions).
   function renderBuildYourBuilds() {
     if (!els.buildYourBuildsList) return;
     const systems = state.systems || [];
     const communities = Array.isArray(state.communities) ? state.communities : [];
-    const cards = systems.map(renderSystemCard).join("") + communities.map(renderBuildCommunityCard).join("");
-    els.buildYourBuildsList.innerHTML = cards || emptyState("Nothing yet — describe a goal above to build your first one.");
+    const rows = systems.map(renderYourBuildSystemRow).join("") + communities.map(renderYourBuildCommunityRow).join("");
+    els.buildYourBuildsList.innerHTML = rows || emptyState("Nothing yet — describe a goal above to build your first one.");
     if (els.buildYourBuildsCount) els.buildYourBuildsCount.textContent = String(systems.length + communities.length);
     bindBuildCardActions(els.buildYourBuildsList);
+    bindYourBuildsMenus(els.buildYourBuildsList);
+  }
+
+  // ⋯ overflow menu: toggle on tap, close others, close on outside-click / Escape (global
+  // listeners bound once). Invite/Delete/Open inside the menu keep their own data-* handlers.
+  let ybuildMenuGlobalBound = false;
+  function closeAllYbuildMenus() {
+    document.querySelectorAll(".ybuild-menu:not([hidden])").forEach((m) => { m.hidden = true; });
+    document.querySelectorAll(".ybuild-more.is-open").forEach((b) => { b.classList.remove("is-open"); b.setAttribute("aria-expanded", "false"); });
+  }
+  function bindYourBuildsMenus(container) {
+    if (!container) return;
+    Array.from(container.querySelectorAll("[data-ybuild-more]")).forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation(); // keep the document outside-click handler from immediately re-closing it
+        const menu = btn.parentElement.querySelector(".ybuild-menu");
+        if (!menu) return;
+        const willOpen = menu.hidden;
+        closeAllYbuildMenus();
+        if (willOpen) { menu.hidden = false; btn.classList.add("is-open"); btn.setAttribute("aria-expanded", "true"); }
+      });
+    });
+    if (ybuildMenuGlobalBound) return;
+    ybuildMenuGlobalBound = true;
+    document.addEventListener("click", (e) => {
+      if (e.target.closest(".ybuild-more") || e.target.closest(".ybuild-menu")) return; // inside a menu/toggle
+      closeAllYbuildMenus();
+    });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAllYbuildMenus(); });
   }
 
   // Reuse the standard system/community card button behavior inside any container.

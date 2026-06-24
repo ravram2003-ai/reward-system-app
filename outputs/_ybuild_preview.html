@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — "Edit your builds" preview</title>
+<link rel="stylesheet" href="styles.css?v=20260623-yourbuilds">
+<style>
+  /* preview chrome only — not part of the app */
+  body{ margin:0; padding:22px 14px 60px; background:#070b09; }
+  .preview-frame{ width:100%; max-width:430px; margin:0 auto; }
+  .preview-note{ max-width:430px; margin:0 auto 14px; font:600 12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:#6f807a; }
+  .preview-status{ max-width:430px; margin:14px auto 0; min-height:18px; font:500 12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:#7fe9c0; text-align:center; }
+</style>
+</head>
+<body class="app-dark">
+  <p class="preview-note">Local preview of the redesigned “Edit your builds” list (sample data). Tap ⋯ to open a row menu; click elsewhere or press Esc to close. Resize the window to ~390px to check mobile.</p>
+  <div class="preview-frame">
+    <div class="build-intent-builds">
+      <h3 class="build-intent-builds-title">Edit your builds <span class="build-intent-count" id="cnt">5</span></h3>
+      <div class="system-list" id="list"></div>
+    </div>
+  </div>
+  <p class="preview-status" id="status"></p>
+
+<script>
+// ── Mirrors the real outputs/app.js logic (buildIconStyle / buildRowShell /
+//    renderYourBuild*Row / bindYourBuildsMenus) so this preview matches the app. ──
+function escapeHtml(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+  return ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" })[c]; }); }
+function capitalize(s){ s = String(s||""); return s.charAt(0).toUpperCase() + s.slice(1); }
+function plural(n, w){ return n + " " + w + (n === 1 ? "" : "s"); }
+function visibilityLabel(v){ return v === "public" ? "Public" : v === "request_to_join" ? "Request to join" : "Private"; }
+
+function buildIconStyle(category, isPublic){
+  var c = String(category || "").toLowerCase(), glyph = "🎯";
+  if (/fit|gym|lift|strength|workout|exercise/.test(c)) glyph = "🏋️";
+  else if (/study|academ|school|learn|read|book|class/.test(c)) glyph = "📚";
+  else if (/well|health|lifestyle|mind|habit|balance/.test(c)) glyph = "🌱";
+  else if (/nutri|diet|food|eat|meal/.test(c)) glyph = "🥗";
+  else if (/sleep|rest|recovery/.test(c)) glyph = "😴";
+  else if (/run|cardio|walk|step|mile/.test(c)) glyph = "🏃";
+  else if (/money|financ|budget|spend|save|cash/.test(c)) glyph = "💰";
+  else if (/work|product|focus|deep|career/.test(c)) glyph = "💻";
+  var purple = /study|academ|school|learn|read|book|class/.test(c);
+  var bg = isPublic ? "linear-gradient(135deg, #2f7a5c, #244a6e)"
+    : (purple ? "linear-gradient(135deg, #2a2342, #243a52)" : "linear-gradient(135deg, #1e3a30, #243a52)");
+  return { glyph: glyph, bg: bg };
+}
+function buildRowShell(o){
+  return ''
+    + '<div class="ybuild-row' + (o.isPublic ? ' is-public' : '') + '" ' + o.rootAttr + '>'
+    +   '<div class="ybuild-icon" style="background:' + o.icon.bg + '" aria-hidden="true">' + o.icon.glyph + '</div>'
+    +   '<div class="ybuild-main">'
+    +     '<div class="ybuild-titlerow"><strong class="ybuild-name">' + escapeHtml(o.name) + '</strong>'
+    +       '<span class="ybuild-pill ' + o.pillClass + '">' + escapeHtml(o.pillLabel) + '</span></div>'
+    +     '<p class="ybuild-meta">' + escapeHtml(o.meta) + '</p>'
+    +   '</div>'
+    +   '<button class="ybuild-edit" type="button" ' + o.editAttr + '>Edit</button>'
+    +   '<button class="ybuild-more" type="button" data-ybuild-more aria-haspopup="true" aria-expanded="false" aria-label="More actions for ' + escapeHtml(o.name) + '"><span aria-hidden="true">⋯</span></button>'
+    +   '<div class="ybuild-menu" role="menu" hidden>' + o.menuItems + '</div>'
+    + '</div>';
+}
+function renderSystemRow(s){
+  var visibility = s.visibility === "public" ? "public" : "private", id = escapeHtml(s.id);
+  return buildRowShell({
+    rootAttr: 'data-system-id="' + id + '"',
+    isPublic: visibility === "public",
+    icon: buildIconStyle(s.category, visibility === "public"),
+    name: s.title || "Untitled system",
+    pillClass: visibility, pillLabel: capitalize(visibility),
+    meta: (s.category || "No category yet") + " · " + plural(s.rules.length, "rule"),
+    editAttr: 'data-edit-system-id="' + id + '"',
+    menuItems: '<button class="ybuild-menu-item" type="button" role="menuitem" data-turn-community-id="' + id + '"><span aria-hidden="true">👥</span> Invite people</button>'
+      + '<button class="ybuild-menu-item ybuild-menu-del" type="button" role="menuitem" data-delete-system-id="' + id + '"><span aria-hidden="true">🗑</span> Delete</button>'
+  });
+}
+function renderCommunityRow(c){
+  var visibility = c.visibility, isPublic = visibility === "public", id = escapeHtml(c.id);
+  return buildRowShell({
+    rootAttr: 'data-community-id="' + id + '"',
+    isPublic: isPublic,
+    icon: { glyph: "👥", bg: isPublic ? "linear-gradient(135deg, #2f7a5c, #244a6e)" : "linear-gradient(135deg, #1e3a30, #243a52)" },
+    name: c.name || "Community",
+    pillClass: isPublic ? "public" : (visibility === "request_to_join" ? "request" : "private"),
+    pillLabel: visibilityLabel(visibility),
+    meta: visibilityLabel(visibility) + " · " + plural(c.members, "member"),
+    editAttr: 'data-edit-community-id="' + id + '"',
+    menuItems: '<button class="ybuild-menu-item" type="button" role="menuitem" data-open-community-id="' + id + '"><span aria-hidden="true">↗</span> Open</button>'
+  });
+}
+
+// ── sample data exercising every state ──
+var systems = [
+  { id: "s1", title: "Fitness baseline", category: "Fitness", visibility: "private", rules: [1,2,3] },
+  { id: "s2", title: "Study sprint for the very long autumn semester ahead", category: "Study", visibility: "private", rules: [1,2,3] },
+  { id: "s3", title: "Lifestyle baseline", category: "General wellness", visibility: "public", rules: [1,2,3,4,5] },
+  { id: "s4", title: "Sleep & recovery", category: "Sleep", visibility: "private", rules: [1,2] },
+];
+var communities = [
+  { id: "c1", name: "Morning Runners Club", visibility: "public", members: 24 },
+  { id: "c2", name: "Budget Buddies", visibility: "request_to_join", members: 8 },
+];
+
+var list = document.getElementById("list");
+list.innerHTML = systems.map(renderSystemRow).join("") + communities.map(renderCommunityRow).join("");
+document.getElementById("cnt").textContent = String(systems.length + communities.length);
+
+// ── menu behavior (mirrors bindYourBuildsMenus / closeAllYbuildMenus) ──
+function closeAll(){
+  document.querySelectorAll(".ybuild-menu:not([hidden])").forEach(function(m){ m.hidden = true; });
+  document.querySelectorAll(".ybuild-more.is-open").forEach(function(b){ b.classList.remove("is-open"); b.setAttribute("aria-expanded","false"); });
+}
+list.querySelectorAll("[data-ybuild-more]").forEach(function(btn){
+  btn.addEventListener("click", function(e){
+    e.stopPropagation();
+    var menu = btn.parentElement.querySelector(".ybuild-menu");
+    if (!menu) return;
+    var willOpen = menu.hidden;
+    closeAll();
+    if (willOpen){ menu.hidden = false; btn.classList.add("is-open"); btn.setAttribute("aria-expanded","true"); }
+  });
+});
+document.addEventListener("click", function(e){
+  if (e.target.closest(".ybuild-more") || e.target.closest(".ybuild-menu")) return;
+  closeAll();
+});
+document.addEventListener("keydown", function(e){ if (e.key === "Escape") closeAll(); });
+
+// reflect the reused-handler actions (in the app these call edit/invite/delete/open)
+var statusEl = document.getElementById("status");
+function flash(msg){ statusEl.textContent = msg; clearTimeout(flash._t); flash._t = setTimeout(function(){ statusEl.textContent = ""; }, 2200); }
+list.addEventListener("click", function(e){
+  var t = e.target.closest("[data-edit-system-id],[data-edit-community-id],[data-turn-community-id],[data-delete-system-id],[data-open-community-id]");
+  if (!t) return;
+  if (t.dataset.editSystemId) flash("→ opens system editor (" + t.dataset.editSystemId + ")");
+  else if (t.dataset.editCommunityId) flash("→ opens community settings (" + t.dataset.editCommunityId + ")");
+  else if (t.dataset.turnCommunityId) flash("→ Invite people / turn into community (" + t.dataset.turnCommunityId + ")");
+  else if (t.dataset.deleteSystemId) flash("→ Delete system (" + t.dataset.deleteSystemId + ")");
+  else if (t.dataset.openCommunityId) flash("→ Open community (" + t.dataset.openCommunityId + ")");
+});
+</script>
+</body>
+</html>

@@ -33,6 +33,12 @@ repeat them and the app stays consistent.
    references. Don't auto-commit or push unless asked. Work on a branch.
 8. **Always verify.** Run `npm test` and `node --check outputs/app.js`; fix all errors.
    `npm test` only checks syntax + a few units, so also sanity-check the actual flow.
+9. **Always end with a local link + smoke test.** After every change, start the local
+   preview (`npm start`, which runs `node work/serve-app.cjs`) and give me the clickable
+   local URL it prints (e.g. `http://localhost:<port>`). Then run the smoke test in
+   `TESTING.md` — plus the specific flow you just changed — and report what you checked
+   and pass/fail. Never finish a task without (a) the local link and (b) smoke-test
+   results. If the server is already running, just re-share the link.
 
 ## Product decisions (keep consistent with these — don't reintroduce removed things)
 - **Navigation:** bottom tabs = **Today · Feed · Communities · Build**. Top-right header

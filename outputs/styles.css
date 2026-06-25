@@ -9120,6 +9120,10 @@ body.onboarding-locked .coach-panel { display: none; }
 .coach-card { display: flex; flex-direction: column; gap: 10px; }
 .coach-card.is-done { opacity: 0.6; }
 .coach-card-title { margin: 0; font-weight: 800; color: var(--ink); }
+/* Auto-sync recap: the compact "Fitbit synced — added X to today" confirmation + per-context lines. */
+.coach-sync-card { gap: 6px; padding: 10px 12px; border: 1px solid var(--accent); border-left: 3px solid var(--accent); border-radius: 12px; background: var(--accent-soft); }
+.coach-sync-line { color: var(--muted); font-size: 0.85rem; }
+.coach-sync-line strong { color: var(--ink); }
 .coach-rows { display: flex; flex-direction: column; gap: 8px; }
 .coach-row {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;

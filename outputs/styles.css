@@ -7068,29 +7068,31 @@ body.auth-locked {
   margin-left: auto;     /* push the whole cluster to the far right of the header */
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 .header-cluster .header-notif,
 .header-cluster .header-avatar {
   margin-left: 0;        /* the cluster handles the push-right; no per-item auto margins */
 }
+/* Flat line icons: no circle background, no border, neutral grey. The 38px box keeps a
+   comfortable tap target even though the glyph is small. */
 .header-icon-btn {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  background: var(--surface);
-  color: var(--ink);
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--muted);
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  transition: color 0.15s ease;
 }
-.header-icon-btn:hover { border-color: var(--line-strong); }
-.header-icon-btn.is-active { border-color: var(--accent); color: var(--accent-strong); }
+.header-icon-btn:hover { color: var(--ink); }
+.header-icon-btn.is-active { color: var(--ink); }
 .header-icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ── Header notifications bell + dropdown ─────────────────────────────── */
@@ -7111,22 +7113,21 @@ body.auth-locked {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  background: var(--surface);
-  color: var(--ink);
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--muted);
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: color 0.15s ease;
 }
 .header-bell:hover {
-  border-color: var(--line-strong);
+  color: var(--ink);
 }
 .header-bell[aria-expanded="true"] {
-  border-color: var(--accent);
-  color: var(--accent-strong);
+  color: var(--ink);
 }
 .notif-bell-badge {
   position: absolute;
@@ -9784,3 +9785,45 @@ body.onboarding-locked .coach-panel { display: none; }
   background: var(--muted); transform: rotate(-45deg);
 }
 .coach-panel-head .coach-panel-close { margin-left: 4px; }
+
+/* ── Slim, flat, minimal top header (see work/header-redesign.html) ───────────── */
+/* Contextual page title next to the logo — single weight, reflects the active view. */
+.brand-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.97rem;        /* ~15.5px */
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Flat minimal HEADER logo: smaller, no glow. Scoped to .brand-block so the shared
+   .brand-mark on the auth/splash screen (.auth-brand) keeps its original size + glow.
+   Two classes also beat the later dark `.brand-mark { border-radius: 10px }`. */
+.brand-block .brand-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  box-shadow: none;
+  font-size: 0.82rem;
+}
+/* Slightly smaller header glyphs for the slimmer bar (the 38px hit area is unchanged). */
+.header-cluster svg { width: 19px; height: 19px; }
+
+/* Mobile: the fixed top bar is a single slim ~48px row (logo · title · 3 flat icons),
+   no border. Appended last so it wins over the earlier mobile .sidebar/.brand-block rules. */
+@media (max-width: 1050px) {
+  .sidebar {
+    padding: calc(5px + env(safe-area-inset-top, 0px)) 12px 5px;
+    gap: 0;
+    border: 0;
+  }
+  .brand-block {
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 10px;
+  }
+}

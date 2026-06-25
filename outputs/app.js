@@ -1721,10 +1721,6 @@
       els.headerChatsBadge.textContent = fmt(chatsUnread);
       els.headerChatsBadge.hidden = chatsUnread === 0;
     }
-    if (els.headerFriendsBadge) {
-      els.headerFriendsBadge.textContent = fmt(friendReqCount);
-      els.headerFriendsBadge.hidden = friendReqCount === 0;
-    }
     if (notifPanelOpen) renderNotifPanel(); // keep an open dropdown in sync with the data
     if (els.chatsMarkAllButton) els.chatsMarkAllButton.hidden = chatsUnread === 0;
     // The friends-view "Add friend" button also surfaces the pending friend-request count.
@@ -3077,8 +3073,7 @@
       "chatsAddFriendResults",
       "chatsFriendRequests",
       "chatsMessageRequests",
-      "headerFriendsButton",
-      "headerFriendsBadge",
+      "headerTitle",
       "headerChatsButton",
       "headerChatsBadge",
       "friendsView",
@@ -3369,7 +3364,8 @@
       runBuildCommunitySearch(event.target.value);
       renderHeaderSearchResults();
     });
-    if (els.headerFriendsButton) els.headerFriendsButton.addEventListener("click", openFriends);
+    // The standalone Friends header icon was removed — friend requests are surfaced (and
+    // accepted/declined) in the bell, and the followers/following list lives on Profile.
     if (els.headerChatsButton) els.headerChatsButton.addEventListener("click", openChats);
     if (els.backFromFriendsButton) els.backFromFriendsButton.addEventListener("click", returnToDashboard);
     if (els.friendsAddButton) els.friendsAddButton.addEventListener("click", openAddFriendFromFriends);
@@ -3567,9 +3563,24 @@
     const myAvatar = state.profile.avatarUrl || "";
     paintAvatarNode(els.profileAvatar, state.profile.name, myAvatar);
     paintAvatarNode(els.largeAvatar, state.profile.name, myAvatar);
-    if (els.headerFriendsButton) els.headerFriendsButton.classList.toggle("is-active", state.activeView === "friends" || state.activeView === "friend-activity");
     if (els.headerChatsButton) els.headerChatsButton.classList.toggle("is-active", state.activeView === "chats");
+    if (els.headerTitle) els.headerTitle.textContent = headerTitleForView(state.activeView);
     els.todayLabel.textContent = formatDate(todayIso);
+  }
+
+  // Contextual header title — reflects the active view (mirrors the bottom-tab wayfinding).
+  // Sub-views map to their parent tab (e.g. Add Entry / a world detail → "Today").
+  function headerTitleForView(view) {
+    switch (view) {
+      case "feed": return "Feed";
+      case "systems": return "Build";
+      case "profile": case "profile-page": return "Profile";
+      case "chats": return "Chats";
+      case "friends": case "friend-activity": return "Friends";
+      case "search": return "Search";
+      case "communities": case "find-communities": return "Communities";
+      default: return "Today"; // dashboard, add-entry, customize-*, community-detail/settings, …
+    }
   }
 
   function renderActiveView() {

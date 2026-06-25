@@ -3987,8 +3987,7 @@ input[type="range"]::-moz-range-thumb {
   gap: 10px;
 }
 
-.integration-card,
-.integration-permission-card {
+.integration-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3999,6 +3998,9 @@ input[type="range"]::-moz-range-thumb {
   background: rgba(255, 254, 249, 0.86);
   box-shadow: var(--shadow-card);
 }
+/* Not-yet-available placeholder (e.g. Plaid) — de-emphasized, the button is disabled. */
+.integration-card.is-coming-soon { opacity: 0.66; }
+.integration-card.is-coming-soon .secondary-button[disabled] { cursor: default; }
 
 .integration-main {
   min-width: 0;
@@ -4007,36 +4009,23 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .integration-main span,
-.integration-main small,
-.integration-permission-card p {
+.integration-main small {
   color: var(--muted);
   font-size: 0.84rem;
   font-weight: 760;
   line-height: 1.4;
 }
 
-.integration-main p,
-.integration-permission-card p {
+.integration-main p {
   margin: 0;
 }
 
-.integration-actions,
-.integration-permission-actions {
+.integration-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.integration-permission-card {
-  align-items: flex-start;
-  border-color: rgba(38, 104, 92, 0.24);
-  background: #edf6f0;
-}
-
-.integration-permission-card h3 {
-  margin: 0 0 6px;
 }
 
 .community-rule-editor-grid {
@@ -4175,19 +4164,16 @@ input[type="range"]::-moz-range-thumb {
     flex: 1 1 142px;
   }
 
-  .integration-card,
-  .integration-permission-card {
+  .integration-card {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .integration-actions,
-  .integration-permission-actions {
+  .integration-actions {
     justify-content: stretch;
   }
 
-  .integration-actions > *,
-  .integration-permission-actions > * {
+  .integration-actions > * {
     flex: 1 1 140px;
   }
 }
@@ -4353,8 +4339,7 @@ h3 {
 .calc-total-row,
 .calc-input-option,
 .source-notice,
-.integration-card,
-.integration-permission-card {
+.integration-card {
   border-radius: 10px;
 }
 
@@ -4766,8 +4751,7 @@ body {
 }
 
 /* Accent-tinted notices / previews */
-.source-notice,
-.integration-permission-card {
+.source-notice {
   border-color: rgba(58, 214, 166, 0.24);
   background: rgba(58, 214, 166, 0.09);
 }

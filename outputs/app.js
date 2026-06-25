@@ -17,12 +17,8 @@
 
   const dataSourceOptions = [
     { id: "manual", label: "Manual Entry" },
-    { id: "apple-health", label: "Apple Health" },
-    { id: "google-health-connect", label: "Google Health Connect" },
     { id: "google-health", label: "Google Health (Fitbit)" },
     { id: "whoop", label: "Whoop" },
-    { id: "chase", label: "Bank Account / Chase" },
-    { id: "plaid", label: "Plaid" },
     { id: "calculated", label: "Calculated Total" }
   ];
 
@@ -34,23 +30,6 @@
   const sourceMetricOptions = {
     manual: [
       { id: "manual", label: "Manual entry" }
-    ],
-    "apple-health": [
-      { id: "steps", label: "Steps" },
-      { id: "sleep-hours", label: "Sleep hours" },
-      { id: "workouts", label: "Workouts" },
-      { id: "exercise-minutes", label: "Exercise minutes" },
-      { id: "active-calories", label: "Active calories" },
-      { id: "nutrition-protein", label: "Nutrition - protein" },
-      { id: "nutrition-carbs", label: "Nutrition - carbs" },
-      { id: "nutrition-fat", label: "Nutrition - fat" }
-    ],
-    "google-health-connect": [
-      { id: "steps", label: "Steps" },
-      { id: "sleep", label: "Sleep" },
-      { id: "exercise-sessions", label: "Exercise sessions" },
-      { id: "calories", label: "Calories" },
-      { id: "nutrition", label: "Nutrition" }
     ],
     "google-health": [
       { id: "steps", label: "Steps" },
@@ -67,22 +46,6 @@
       { id: "strain", label: "Day strain" },
       { id: "calories", label: "Calories" }
     ],
-    chase: [
-      { id: "transactions", label: "Transactions" },
-      { id: "daily-spending", label: "Daily spending" },
-      { id: "dining-spending", label: "Spending by category - dining" },
-      { id: "shopping-spending", label: "Spending by category - shopping" },
-      { id: "recurring-charges", label: "Recurring charges" },
-      { id: "account-balance", label: "Account balance" }
-    ],
-    plaid: [
-      { id: "transactions", label: "Transactions" },
-      { id: "daily-spending", label: "Daily spending" },
-      { id: "dining-spending", label: "Spending by category - dining" },
-      { id: "shopping-spending", label: "Spending by category - shopping" },
-      { id: "recurring-charges", label: "Recurring charges" },
-      { id: "account-balance", label: "Account balance" }
-    ],
     calculated: [
       { id: "total-calories", label: "Total calories from macros" },
       { id: "workout-minutes", label: "Workout minutes total" },
@@ -92,65 +55,31 @@
 
   const integrationDefinitions = [
     {
-      id: "apple-health",
-      label: "Apple Health",
-      description: "Steps, sleep, workouts, exercise minutes, active calories, and nutrition when shared.",
-      privacy: "Apple Health data is only used to calculate your reward-system progress. You control which health data types are shared."
-    },
-    {
-      id: "google-health-connect",
-      label: "Google Health Connect",
-      description: "Steps, sleep, exercise sessions, calories, and nutrition when available.",
-      privacy: "Google Health Connect data is only used for the rules you link to this app. You can disconnect anytime."
-    },
-    {
       id: "google-health",
       label: "Google Health (Fitbit)",
-      live: true,
       description: "Live steps, sleep, resting heart rate, and active calories from your Fitbit via the Google Health API.",
       privacy: "Pointwell connects through Google with read-only access and only uses the data to calculate your reward-system progress. You can disconnect anytime, which deletes the stored connection."
     },
     {
       id: "whoop",
       label: "Whoop",
-      live: true,
       description: "Live recovery, sleep, resting heart rate, HRV, day strain, and calories from your WHOOP account.",
       privacy: "Pointwell connects to WHOOP with read-only access and only uses the data to calculate your reward-system progress. You can disconnect anytime, which deletes the stored connection."
     },
     {
-      id: "chase",
-      label: "Chase",
-      description: "Transactions, daily spending, category spending, recurring charges, and balances.",
-      privacy: "Bank data is only used to calculate finance-related goals such as daily spending or budgets. You can disconnect anytime."
-    },
-    {
+      // Placeholder only — not connectable yet, and intentionally NOT a synced data source or in
+      // defaultMockSyncData, so the Coach never sees fake finance values.
       id: "plaid",
       label: "Plaid",
-      description: "A future finance connection for transactions, spending categories, recurring charges, and balances.",
-      privacy: "Plaid data is only used for finance-related goals you choose. Private bank details are not shared publicly."
+      comingSoon: true,
+      description: "Transactions, spending categories, recurring charges, and balances — a future finance connection."
     }
   ];
 
+  // Only the LIVE wearables remain (google-health/Fitbit + whoop). These zeros are the
+  // pre-sync fallback — real values arrive from the wearables connector and overwrite them.
+  // (calculated totals are derived from other tracked values, not a synced device.)
   const defaultMockSyncData = {
-    "apple-health": {
-      steps: 8500,
-      "sleep-hours": 7.2,
-      workouts: 1,
-      "exercise-minutes": 45,
-      "active-calories": 520,
-      "nutrition-protein": 132,
-      "nutrition-carbs": 210,
-      "nutrition-fat": 61
-    },
-    "google-health-connect": {
-      steps: 8200,
-      sleep: 7.1,
-      "exercise-sessions": 1,
-      calories: 2180,
-      nutrition: 1
-    },
-    // Google Health (Fitbit) and Whoop are LIVE sources: these zeros are only the
-    // pre-sync fallback. Real values arrive from the wearables connector and overwrite them.
     "google-health": {
       steps: 0,
       "sleep-hours": 0,
@@ -165,22 +94,6 @@
       hrv: 0,
       strain: 0,
       calories: 0
-    },
-    chase: {
-      transactions: 6,
-      "daily-spending": 42,
-      "dining-spending": 18,
-      "shopping-spending": 0,
-      "recurring-charges": 12,
-      "account-balance": 2400
-    },
-    plaid: {
-      transactions: 7,
-      "daily-spending": 42,
-      "dining-spending": 18,
-      "shopping-spending": 0,
-      "recurring-charges": 12,
-      "account-balance": 2420
     },
     calculated: {
       "total-calories": 1917,
@@ -253,14 +166,9 @@
     buildMode: "home",
     buildSearchQuery: "",
     communitySearchQuery: "",
-    pendingIntegrationId: "",
     integrations: {
-      "apple-health": { status: "not-connected", lastSynced: "" },
-      "google-health-connect": { status: "not-connected", lastSynced: "" },
       "google-health": { status: "not-connected", lastSynced: "" },
-      whoop: { status: "not-connected", lastSynced: "" },
-      chase: { status: "not-connected", lastSynced: "" },
-      plaid: { status: "not-connected", lastSynced: "" }
+      whoop: { status: "not-connected", lastSynced: "" }
     },
     mockSyncData: structuredClone(defaultMockSyncData),
     buildViewedPublicId: "",
@@ -10135,60 +10043,55 @@
 
   function renderIntegrations() {
     if (!els.integrationList) return;
-    const pending = integrationDefinitions.find((item) => item.id === state.pendingIntegrationId);
-    const cards = integrationDefinitions.map(renderIntegrationCard).join("");
-    const permissionCard = pending ? renderIntegrationPermissionCard(pending) : "";
-    els.integrationList.innerHTML = `${cards}${permissionCard}`;
+    // Only real wearables remain (Fitbit / Whoop) — every Connect starts a live OAuth flow.
+    els.integrationList.innerHTML = integrationDefinitions.map(renderIntegrationCard).join("");
     Array.from(els.integrationList.querySelectorAll("[data-connect-integration]")).forEach((button) => {
-      button.addEventListener("click", () => {
-        const id = button.dataset.connectIntegration;
-        // Real devices (Fitbit/Whoop) start a live OAuth connection; the others
-        // keep using the in-app mock permission flow.
-        if (isRealWearable(id)) connectWearable(id);
-        else openMockIntegrationPermission(id);
-      });
+      button.addEventListener("click", () => connectWearable(button.dataset.connectIntegration));
     });
     Array.from(els.integrationList.querySelectorAll("[data-sync-integration]")).forEach((button) => {
       button.addEventListener("click", () => syncAllConnectedAndCatchUp({ manual: true }));
     });
-    Array.from(els.integrationList.querySelectorAll("[data-confirm-integration]")).forEach((button) => {
-      button.addEventListener("click", () => confirmMockIntegration(button.dataset.confirmIntegration));
-    });
-    Array.from(els.integrationList.querySelectorAll("[data-cancel-integration]")).forEach((button) => {
-      button.addEventListener("click", closeMockIntegrationPermission);
-    });
     Array.from(els.integrationList.querySelectorAll("[data-disconnect-integration]")).forEach((button) => {
       button.addEventListener("click", () => disconnectIntegration(button.dataset.disconnectIntegration));
-    });
-    Array.from(els.integrationList.querySelectorAll("[data-manage-integration]")).forEach((button) => {
-      button.addEventListener("click", () => manageIntegration(button.dataset.manageIntegration));
     });
   }
 
   function renderIntegrationCard(definition) {
+    // Coming-soon placeholder: shown but not connectable (no live OAuth, no fake data).
+    if (definition.comingSoon) {
+      return `
+        <article class="integration-card is-coming-soon">
+          <div class="integration-main">
+            <strong>${escapeHtml(definition.label)}</strong>
+            <span>Coming soon</span>
+            <p>${escapeHtml(definition.description)}</p>
+          </div>
+          <div class="integration-actions">
+            <button class="secondary-button small" type="button" disabled>Coming soon</button>
+          </div>
+        </article>
+      `;
+    }
     const integration = state.integrations?.[definition.id] || { status: "not-connected", lastSynced: "" };
     const connected = integration.status === "connected";
-    const live = isRealWearable(definition.id);
+    // Live wearable: show the synced metric values; zeros (pre-sync) are hidden until it syncs.
     const metrics = Object.entries(state.mockSyncData?.[definition.id] || defaultMockSyncData[definition.id] || {})
-      .filter(([, value]) => !live || Number(value) > 0) // hide zero pre-sync values for live devices
+      .filter(([, value]) => Number(value) > 0)
       .slice(0, 3)
       .map(([metric, value]) => `${sourceMetricLabel(definition.id, metric)}: ${formatValue(value)}`)
       .join(" · ");
-    const statusText = connected
-      ? (live ? wearableSyncedLabel(integration.lastSynced) : "Connected in demo mode")
-      : "Not connected";
-    const fallback = live ? "Connect to start syncing your live data." : "Mock data ready for testing.";
+    const statusText = connected ? wearableSyncedLabel(integration.lastSynced) : "Not connected";
     return `
       <article class="integration-card">
         <div class="integration-main">
           <strong>${escapeHtml(definition.label)}</strong>
           <span>${escapeHtml(statusText)}</span>
           <p>${escapeHtml(definition.description)}</p>
-          <small>${escapeHtml(metrics || fallback)}</small>
+          <small>${escapeHtml(metrics || "Connect to start syncing your live data.")}</small>
         </div>
         <div class="integration-actions">
           ${connected
-            ? `${live ? `<button class="secondary-button small" type="button" data-sync-integration="${escapeHtml(definition.id)}">Sync now</button>` : `<button class="secondary-button small" type="button" data-manage-integration="${escapeHtml(definition.id)}">Manage</button>`}
+            ? `<button class="secondary-button small" type="button" data-sync-integration="${escapeHtml(definition.id)}">Sync now</button>
                <button class="ghost-button small" type="button" data-disconnect-integration="${escapeHtml(definition.id)}">Disconnect</button>`
             : `<button class="secondary-button small" type="button" data-connect-integration="${escapeHtml(definition.id)}">Connect</button>`}
         </div>
@@ -10206,62 +10109,12 @@
     return rel === "just now" ? "Synced just now" : `Synced ${rel} ago`;
   }
 
-  function renderIntegrationPermissionCard(definition) {
-    const connected = integrationStatus(definition.id) === "connected";
-    return `
-      <article class="integration-permission-card">
-        <div>
-          <span class="eyebrow">${connected ? "Manage demo connection" : "Mock permission flow"}</span>
-          <h3>${escapeHtml(definition.label)}</h3>
-          <p>${escapeHtml(definition.privacy)}</p>
-          <p>This prototype uses sample data only. No real health or bank account connection is created.</p>
-        </div>
-        <div class="integration-permission-actions">
-          ${connected
-            ? `<button class="primary-button small" type="button" data-cancel-integration>Done</button>`
-            : `<button class="primary-button small" type="button" data-confirm-integration="${escapeHtml(definition.id)}">Connect</button>
-               <button class="ghost-button small" type="button" data-cancel-integration>Back</button>`}
-        </div>
-      </article>
-    `;
-  }
-
-  function openMockIntegrationPermission(integrationId) {
-    state.pendingIntegrationId = integrationId;
-    saveState();
-    renderProfile();
-  }
-
-  function confirmMockIntegration(integrationId) {
-    state.integrations = normalizeIntegrations(state.integrations);
-    state.integrations[integrationId] = {
-      status: "connected",
-      lastSynced: new Date().toISOString()
-    };
-    state.pendingIntegrationId = "";
-    const system = getTrackerSystem();
-    if (system) {
-      syncDraftInputsFromEntries(system);
-      autoSaveToday(system);
-    }
-    saveState();
-    render();
-    showToast(`${dataSourceLabel(integrationId)} connected in demo mode`);
-  }
-
-  function closeMockIntegrationPermission() {
-    state.pendingIntegrationId = "";
-    saveState();
-    renderProfile();
-  }
-
   function disconnectIntegration(integrationId) {
     state.integrations = normalizeIntegrations(state.integrations);
     state.integrations[integrationId] = {
       status: "not-connected",
       lastSynced: ""
     };
-    state.pendingIntegrationId = "";
     // For a real device, revoke server-side and clear the cached live values.
     if (isRealWearable(integrationId)) {
       state.mockSyncData = mergeMockSyncData(state.mockSyncData);
@@ -10919,12 +10772,6 @@
     if (!state.catchUp.devices.length && !state.catchUp.manual.length) state.catchUp = null;
     saveState();
     render();
-  }
-
-  function manageIntegration(integrationId) {
-    state.pendingIntegrationId = integrationId;
-    saveState();
-    renderProfile();
   }
 
   function bindDailyInputs() {
@@ -16476,31 +16323,6 @@
 
   function suggestedSourceMetric(source) {
     const text = `${els.ruleLabelInput?.value || ""} ${els.ruleUnitInput?.value || ""}`.toLowerCase();
-    if (source === "apple-health") {
-      if (text.includes("sleep")) return "sleep-hours";
-      if (text.includes("workout") || text.includes("gym")) return "workouts";
-      if (text.includes("lifting") || text.includes("exercise")) return "exercise-minutes";
-      if (text.includes("active calorie")) return "active-calories";
-      if (text.includes("protein")) return "nutrition-protein";
-      if (text.includes("carb")) return "nutrition-carbs";
-      if (text.includes("fat")) return "nutrition-fat";
-      return "steps";
-    }
-    if (source === "google-health-connect") {
-      if (text.includes("sleep")) return "sleep";
-      if (text.includes("workout") || text.includes("exercise") || text.includes("gym")) return "exercise-sessions";
-      if (text.includes("calorie")) return "calories";
-      if (text.includes("nutrition") || text.includes("protein") || text.includes("carb") || text.includes("fat")) return "nutrition";
-      return "steps";
-    }
-    if (source === "chase" || source === "plaid") {
-      if (text.includes("dining")) return "dining-spending";
-      if (text.includes("shopping")) return "shopping-spending";
-      if (text.includes("transaction")) return "transactions";
-      if (text.includes("recurring")) return "recurring-charges";
-      if (text.includes("balance")) return "account-balance";
-      return "daily-spending";
-    }
     if (source === "calculated") {
       if (text.includes("workout") || text.includes("exercise")) return "workout-minutes";
       if (text.includes("spend")) return "net-spending";
@@ -16527,16 +16349,13 @@
 
   function ruleSourceHelpText(source, metric) {
     if (source === "manual") return "Manual rules use Add Entry.";
-    if (source === "calculated") return `${sourceMetricLabel(source, metric)} is calculated from other tracked values in this demo.`;
+    if (source === "calculated") return `${sourceMetricLabel(source, metric)} is calculated from other tracked values.`;
+    // Only real wearables (Fitbit / Whoop) remain as synced sources.
     const status = integrationStatus(source);
-    if (REAL_WEARABLE_SOURCES.has(source)) {
-      const connection = status === "connected"
-        ? "Connected — syncs live from your device."
-        : `Connect ${dataSourceLabel(source)} in Profile to sync this automatically.`;
-      return `${sourceMetricLabel(source, metric)} updates from your ${dataSourceLabel(source)} account. ${connection}`;
-    }
-    const connection = status === "connected" ? "Connected in demo mode." : "Connect this integration in Profile to use mock synced values.";
-    return `${sourceMetricLabel(source, metric)} will update automatically. ${connection}`;
+    const connection = status === "connected"
+      ? "Connected — syncs live from your device."
+      : `Connect ${dataSourceLabel(source)} in Profile to sync this automatically.`;
+    return `${sourceMetricLabel(source, metric)} updates from your ${dataSourceLabel(source)} account. ${connection}`;
   }
 
   function bindRuleBuilderEvents() {
@@ -18666,7 +18485,6 @@
       buildMode: ["home", "search", "ai"].includes(saved.buildMode) ? saved.buildMode : seed.buildMode,
       buildSearchQuery: saved.buildSearchQuery || "",
       communitySearchQuery: saved.communitySearchQuery || "",
-      pendingIntegrationId: saved.pendingIntegrationId || "",
       integrations: normalizeIntegrations(saved.integrations || seed.integrations),
       mockSyncData: mergeMockSyncData(saved.mockSyncData),
       buildViewedPublicId: saved.buildViewedPublicId || "",
@@ -18689,11 +18507,12 @@
   }
 
   function migrateState(nextState) {
+    // normalizeIntegrations + mergeMockSyncData rebuild from the current definitions, so a returning
+    // user's removed demo providers (apple-health / google-health-connect / chase) AND any fake
+    // synced values (incl. the old plaid mock data — plaid is now just a coming-soon card with no
+    // data source) are dropped from saved state — the Coach can no longer treat them as logged.
     nextState.integrations = normalizeIntegrations(nextState.integrations);
     nextState.mockSyncData = mergeMockSyncData(nextState.mockSyncData);
-    if (!integrationDefinitions.some((item) => item.id === nextState.pendingIntegrationId)) {
-      nextState.pendingIntegrationId = "";
-    }
     nextState.systems = (nextState.systems || []).map(normalizeSystem);
     nextState.publicSystems = (nextState.publicSystems || []).map(normalizeSystem);
     nextState.scoreContext = normalizeScoreContextForState(nextState, nextState.scoreContext);

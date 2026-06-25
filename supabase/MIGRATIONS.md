@@ -62,6 +62,12 @@ you know what's live in production.
   SECURITY DEFINER `profile_bio(target)` returning the bio when `can_view_profile` (public/self/
   approved-follower), else NULL. Granted anon + authenticated, read-only. Powers the redesigned
   profile header. *(after #18 — needs `profiles.bio`; and profile-view's `can_view_profile`)*.
+- [ ] **20. profile-cover.sql** — adds `profiles.cover_url` (text, nullable) for the profile cover
+  banner. Own-profile field governed by the existing self-only `profiles` RLS (updateProfile path);
+  intentionally NOT exposed via `get_profile_overview` (others see the default gradient). Storage
+  REUSES the existing public **avatars** bucket + its path-based owner-only-write policies (from
+  profile-pictures.sql) — no new bucket, no policy change. *(after #1 profile-pictures — reuses the
+  avatars bucket)*.
 
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).

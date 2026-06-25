@@ -9608,6 +9608,12 @@ body.onboarding-locked .coach-panel { display: none; }
 .world-lb-detail-row.is-me .world-lb-detail-name { color: #7fe9c0; }
 .world-lb-detail-pts { font-size: 0.92rem; color: #f3f6f4; font-variant-numeric: tabular-nums; }
 .world-lb-detail-row.is-me .world-lb-detail-pts { color: #3ddc97; }
+.world-lb-detail-rank.is-leader { width: 18px; font-size: 0.95rem; }
+/* Compact you-centered leaderboard: the "···" gap, the expanded scroll area, the Show-all toggle. */
+.world-lb-gap { text-align: center; color: #5f8576; font-size: 0.9rem; letter-spacing: 2px; line-height: 1; padding: 1px 0; }
+.world-leaderboard.is-expanded { max-height: 56vh; overflow-y: auto; }
+.world-lb-expand { width: 100%; margin-top: 6px; font-size: 0.76rem; font-weight: 600; color: #7fc7b0; background: transparent; border: none; padding: 8px; border-radius: 9px; cursor: pointer; }
+.world-lb-expand:hover { background: rgba(255, 255, 255, 0.03); }
 
 /* Personal "Today's rules" with per-rule progress bars. */
 /* One-tap logging on the Today/world-detail rule cards (see work/logging-ease.html §1). */

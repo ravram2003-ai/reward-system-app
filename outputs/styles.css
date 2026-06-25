@@ -8894,18 +8894,30 @@ body.onboarding-locked .coach-panel { display: none; }
 
 /* Recent posts: header row with the grid/list toggle */
 .profile-posts-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.profile-posts-toggle { flex: 0 0 auto; }
-.profile-posts-toggle .segmented-button { padding: 5px 12px; font-size: 0.78rem; }
 
-/* Hybrid post grid: 3 square tiles per row */
-/* Instagram-style grid: tight 2px gaps, square cells, the outer corners rounded by the container. */
-.profile-posts-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; border-radius: 14px; overflow: hidden; }
+/* Grid/List as a full-width IG-style tab bar attached to the top of the grid (one connected
+   block): two equal tabs, the active one with a bottom accent underline + a 1px divider under
+   the bar; the grid sits directly below with a tiny gap. See work/profile-grid-tabs-text-tiles. */
+.profile-posts-tabs { display: flex; border-bottom: 1px solid var(--line); }
+.profile-posts-tab {
+  flex: 1 1 0; padding: 9px; background: none; border: 0; cursor: pointer;
+  color: var(--muted); font-size: 1.05rem; line-height: 1;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.profile-posts-tab:hover { color: var(--ink); }
+.profile-posts-tab.is-active { color: var(--ink); border-bottom-color: var(--accent); }
+.profile-posts-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.profile-posts-block .profile-posts-grid { padding-top: 3px; }
+.profile-posts-block .profile-posts-list { padding-top: 12px; }
+
+/* Instagram-style grid: 3 square tiles per row, tight gaps, lightly-rounded cells. */
+.profile-posts-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; }
 .profile-post-tile {
   position: relative;
   aspect-ratio: 1;
   padding: 0;
   border: 0;
-  border-radius: 0;
+  border-radius: 6px;
   overflow: hidden;
   cursor: pointer;
   color: #fff;
@@ -8917,15 +8929,16 @@ body.onboarding-locked .coach-panel { display: none; }
 .profile-tile-photo { background: var(--soft); }
 .profile-tile-photo .profile-tile-img { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
 .profile-tile-photo .profile-tile-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
-/* Text tile: the caption is the hero on the per-post gradient. Darkened + a text-shadow so
-   white text stays high-contrast even on the lighter palette colors (verify contrast rule). */
-.profile-tile-text {
-  background: linear-gradient(150deg, rgba(0, 0, 0, 0.34), rgba(0, 0, 0, 0.56)), var(--tile, var(--surface));
+/* Text tile — style C (calm): a minimal dark card with a small accent bar (the post's stable
+   category colour) in the top-left and the caption centered as the hero. Calm next to photos. */
+.profile-tile-text { background: #14191c; }
+.profile-tile-bar {
+  position: absolute; top: 10px; left: 10px; width: 18px; height: 3px; border-radius: 2px;
+  background: var(--tile, var(--accent));
 }
-.profile-tile-caption { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 9px; }
+.profile-tile-caption { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 10px; }
 .profile-tile-caption p {
-  margin: 0; font-size: 0.74rem; font-weight: 700; color: #fff; text-align: center; line-height: 1.3;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  margin: 0; font-size: 0.75rem; font-weight: 600; color: #eaf2ee; text-align: center; line-height: 1.3;
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
 }
 /* Counts scrim — bottom-anchored on BOTH photo and text tiles. Starts with a baseline darkness

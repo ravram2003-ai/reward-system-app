@@ -144,7 +144,11 @@
       coverUrl: "",
       // Opt-in for the "motivation when behind" signal. Default OFF; mirrored to
       // the server (profiles.allow_motivation_when_behind), which is what RLS reads.
-      allowMotivation: false
+      allowMotivation: false,
+      // Auto-count connected-device (Fitbit/Whoop) totals into PERSONAL rules on login/sync.
+      // Default ON (personal); a user can turn it off here. Community auto-sync is gated separately
+      // by each community's allow_device_autosync owner setting.
+      allowAutoSync: true
     },
     // Authenticated account (Supabase). null = local mode / not signed in.
     // The local current-user id stays "me"; account.userId is its real identity.
@@ -3013,6 +3017,8 @@
       "onboardingScreen",
       "onboardingBody",
       "allowMotivationInput",
+      "allowAutoSyncInput",
+      "ccAllowDeviceAutosync",
       "communityHubTabs",
       "communityComposer",
       "communityComposerPhoto",
@@ -9071,8 +9077,12 @@
     els.ccModuleUnderperforming.checked = analytics.modules.underperforming;
     els.ccDefaultPeriodInput.value = analytics.defaultPeriod;
     els.ccMetricInput.value = analytics.metric;
-    [els.ccModuleLeaderboard, els.ccModuleGroupTrends, els.ccModuleIndividualTrends, els.ccModuleUnderperforming, els.ccDefaultPeriodInput, els.ccMetricInput].forEach((input) => {
-      input.disabled = !canEdit;
+    // Owner opt-in: let members' connected-device data auto-count toward the leaderboard.
+    if (els.ccAllowDeviceAutosync && document.activeElement !== els.ccAllowDeviceAutosync) {
+      els.ccAllowDeviceAutosync.checked = !!community.allowDeviceAutosync;
+    }
+    [els.ccModuleLeaderboard, els.ccModuleGroupTrends, els.ccModuleIndividualTrends, els.ccModuleUnderperforming, els.ccDefaultPeriodInput, els.ccMetricInput, els.ccAllowDeviceAutosync].forEach((input) => {
+      if (input) input.disabled = !canEdit;
     });
     renderCommunityDangerZone(community);
   }
@@ -10019,6 +10029,7 @@
     updateBioCounter();
     els.profilePrivacyInput.value = state.profile.privacy;
     if (els.allowMotivationInput) els.allowMotivationInput.checked = state.profile.allowMotivation === true;
+    if (els.allowAutoSyncInput) els.allowAutoSyncInput.checked = state.profile.allowAutoSync !== false; // default ON
     refreshProfileAvatar();
 
     const publicSystems = state.profile.privacy === "public"
@@ -10235,11 +10246,18 @@
   // the app (buildCatchUp returns null when there's nothing new, so Coach stays quiet).
   function runCatchUp(options = {}) {
     const card = buildCatchUp();
-    state.catchUp = card; // null when nothing new
+    const auto = autoApplyCatchUp(card); // auto-count eligible device increments; trims `card`
+    // Drop the card if auto-sync consumed every prompt row (no remaining device rows, no manual).
+    const trimmed = card && (card.devices.length || (card.manual || []).length) ? card : null;
+    state.catchUp = trimmed; // null when nothing new / everything auto-counted
     saveState();
     coachIngestNudges();
-    if (options.manual && !card) showToast("You're all caught up — nothing new to log.");
+    // Manual "Sync now" gets explicit feedback: a confirmation toast if anything auto-counted (the
+    // recap lands in the Coach thread, which may be closed), else the "all caught up" note.
+    if (options.manual && auto.applied.length) showToast("Synced — auto-counted your latest progress.");
+    else if (options.manual && !trimmed) showToast("You're all caught up — nothing new to log.");
     render();
+    coachShowAutoSyncRecap(auto.applied, auto.lastLogged); // confirmation + "post?" offer in the Coach thread
   }
 
   // Re-sync + rebuild catch-up when the app regains focus, so data that lands while the user is
@@ -10747,6 +10765,93 @@
       touched.add(target.contextId);
     }
     return true;
+  }
+
+  // Should this catch-up target auto-count on login/sync WITHOUT a manual tap?
+  //   • PERSONAL rules  → yes, unless the user turned off "Auto-count my connected-device data".
+  //   • COMMUNITY rules → only when the owner enabled allow_device_autosync AND the member has the
+  //     rule's device source connected (the latter is implicit for any emitted row, but checked).
+  // Anything not eligible falls through to the existing "want to log this?" catch-up prompt.
+  function autoSyncEligibleForTarget(target) {
+    if (!target) return false;
+    if (target.contextType === "community") {
+      const community = (state.communities || []).find((c) => c.id === target.contextId);
+      if (!community || community.allowDeviceAutosync !== true) return false;
+      const resolved = resolveQuickLogRule(target.contextType, target.contextId, target.ruleId);
+      return !!(resolved && isSourceConnected(resolved.rule.dataSource));
+    }
+    return state.profile.allowAutoSync !== false; // personal default ON
+  }
+
+  // On login / app-open / each device sync, auto-apply connected-device increments into eligible
+  // rules (per the gates above) using the SAME incremental path as the Coach "Log it" nudge
+  // (applyDeviceRowToTarget → applySyncIncrementForRule). Mutates `card` in place: fully-applied
+  // rows are dropped, partially-applied rows keep only their still-manual targets (so the later
+  // catch-up prompt can't re-apply the auto ones → no double-count). Returns the per-row recap +
+  // a coach.lastLogged-shaped array for the post offer. Never touches connect/noRule offers or
+  // unknown-baseline conflict rows (those must stay an explicit Keep/Update choice).
+  function autoApplyCatchUp(card) {
+    const applied = [];    // [{ sourceLabel, increment, unit, label, contexts:[{type,name,points}] }]
+    const lastLogged = []; // coach.lastLogged shape, for coachOfferPost()
+    if (!card || !Array.isArray(card.devices)) return { applied, lastLogged };
+    const touched = new Set();
+    const remaining = [];
+    card.devices.forEach((row) => {
+      if (row.connect || row.noRule || row.unknown || !Array.isArray(row.targets) || !row.targets.length) {
+        remaining.push(row);
+        return;
+      }
+      const contexts = [];
+      const keepTargets = [];
+      row.targets.forEach((target) => {
+        if (!autoSyncEligibleForTarget(target) || !applyDeviceRowToTarget(target, row.source, touched)) {
+          keepTargets.push(target);
+          return;
+        }
+        lastLogged.push({ contextType: target.contextType, contextId: target.contextId, ruleId: target.ruleId, amount: row.increment, isYesNo: false });
+        const r = resolveQuickLogRule(target.contextType, target.contextId, target.ruleId);
+        const points = r ? scoring.calculateRule(r.rule, row.increment).totalPoints : 0;
+        contexts.push({ type: target.contextType, name: target.contextName, points });
+      });
+      if (contexts.length) applied.push({ sourceLabel: row.sourceLabel, increment: row.increment, unit: row.unit, label: row.label, contexts });
+      if (keepTargets.length) {
+        // Some targets still need a manual tap → keep a trimmed row that renders correctly.
+        row.targets = keepTargets;
+        row.primary = keepTargets[0].contextId + "|" + keepTargets[0].ruleId;
+        const pr = resolveQuickLogRule(keepTargets[0].contextType, keepTargets[0].contextId, keepTargets[0].ruleId);
+        if (pr) row.points = scoring.calculateRule(pr.rule, row.increment).totalPoints;
+        remaining.push(row);
+      }
+      // else: fully auto-applied → drop the row from the prompt.
+    });
+    (state.systems || []).forEach((system) => { if (touched.has(system.id)) { syncDraftInputsFromEntries(system); autoSaveToday(system); } });
+    card.devices = remaining;
+    return { applied, lastLogged };
+  }
+
+  // After auto-sync applies something, show the compact "Fitbit synced — added X to today"
+  // confirmation (per work/login-recap-autosync.html) and offer to turn it into a post. REUSES
+  // coachOfferPost → coachOpenPostPicker → composer (same destination/learn path; no parallel post).
+  function coachShowAutoSyncRecap(applied, lastLogged) {
+    if (!applied || !applied.length) return;
+    applied.forEach((a) => {
+      const amount = `${escapeHtml(formatValue(a.increment))} ${escapeHtml(a.unit || "")}`.trim();
+      const lines = (a.contexts || []).map((c) => {
+        const pts = c.points ? ` · ${escapeHtml(formatSigned(c.points))} pts` : "";
+        const where = c.type === "community"
+          ? `auto-counted in <strong>${escapeHtml(c.name || "your community")}</strong>`
+          : `counted toward <strong>${escapeHtml(c.name || "your system")}</strong>`;
+        return `<div class="coach-sync-line">↳ ${where}${pts}</div>`;
+      }).join("");
+      coachSay(`
+        <div class="coach-card coach-sync-card">
+          <p class="coach-card-title">✅ ${escapeHtml(a.sourceLabel || "Device")} synced — added ${amount} ${escapeHtml((a.label || "").toLowerCase())} to today</p>
+          ${lines}
+        </div>`);
+    });
+    coach.lastLogged = lastLogged;
+    coachOfferPost();
+    if (typeof renderCoachLauncher === "function") renderCoachLauncher();
   }
 
   // Conflict resolution for an unknown-baseline row: "Keep mine" rebaselines (device counts from
@@ -16863,6 +16968,17 @@
     analytics.defaultPeriod = COMMUNITY_PERIODS.some((item) => item.id === els.ccDefaultPeriodInput.value) ? els.ccDefaultPeriodInput.value : "weekly";
     analytics.metric = els.ccMetricInput.value === "completion" ? "completion" : "points";
     community.analytics = analytics;
+    // Device auto-sync opt-in is a top-level community column (NOT analytics). Persist it server-side
+    // via the existing owner-gated community-update path so it applies for every member, not just
+    // this device — unlike the rest of community settings, which are local-only today.
+    if (els.ccAllowDeviceAutosync) {
+      community.allowDeviceAutosync = els.ccAllowDeviceAutosync.checked;
+      if (signalsReady() && isServerBackedCommunity(community) && window.PointwellSignals && typeof window.PointwellSignals.updateCommunityMedia === "function") {
+        Promise.resolve(window.PointwellSignals.updateCommunityMedia(community.id, { allow_device_autosync: community.allowDeviceAutosync }))
+          .then((res) => { if (res && res.error) showToast("Saved here, but the auto-sync setting didn't sync"); })
+          .catch(() => {});
+      }
+    }
     saveState();
     render();
     showToast("Community settings saved");
@@ -17833,6 +17949,7 @@
     if (signalsReady()) {
       Promise.resolve(window.PointwellSignals.updateProfile(state.account.userId, profilePatch)).catch(() => {});
     }
+    if (els.allowAutoSyncInput) state.profile.allowAutoSync = els.allowAutoSyncInput.checked; // local-only client preference
     if (els.allowMotivationInput) {
       state.profile.allowMotivation = els.allowMotivationInput.checked;
       // Mirror the opt-in to the server (what the RLS motivation gate reads), then
@@ -18322,6 +18439,9 @@
       // they survive a reload — fetchMyCommunities selects *, so the row has these columns.
       coverUrl: row.cover_url || "",
       iconUrl: row.icon_url || "",
+      // Owner opt-in to auto-count members' connected-device totals on login/sync (fetchMyCommunities
+      // selects *, so the column is present). Default false until the owner enables it.
+      allowDeviceAutosync: row.allow_device_autosync === true,
       system: normalizeSystem(system),
       members: members,
       logs: [],

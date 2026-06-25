@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — Feed redesign: compact header · floating soft cards · style-B text posts</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; justify-content:center; padding:24px 12px; }
+  .feed { width:100%; max-width:430px; background:#070b0a; border-radius:20px; padding:14px; }
+  /* compact header: no eyebrow, no "recent activity" row, single line title + count, slim tabs */
+  .fhead { display:flex; align-items:center; justify-content:space-between; margin-bottom:9px; }
+  .fhead strong { font-size:18px; color:#f3f6f4; letter-spacing:-.3px; }
+  .fhead .count { font-size:10.5px; color:#7c8d87; }
+  .tabs { display:flex; gap:3px; background:#11181a; border-radius:11px; padding:3px; margin-bottom:16px; }
+  .tab { flex:1; text-align:center; font-size:12px; padding:6px; border-radius:9px; color:#8aa39a; }
+  .tab.on { background:#1c4d3b; color:#9bf3cf; font-weight:600; }
+  /* FLOATING soft cards: rounded, soft shadow, NO border, spaced — no active green outline */
+  .post { background:#121a17; border-radius:18px; box-shadow:0 6px 20px rgba(0,0,0,.4); margin-bottom:14px; overflow:hidden; }
+  .ph { display:flex; align-items:center; gap:9px; padding:14px 14px 10px; }
+  .av { width:30px; height:30px; border-radius:50%; flex-shrink:0; }
+  .ph .nm { flex:1; } .ph .nm p { margin:0; } .ph .nm .u { font-size:12.5px; color:#f3f6f4; } .ph .nm .s { font-size:10px; color:#7c8d87; }
+  .tag { font-size:9.5px; color:#7fe9c0; background:#13281f; border-radius:7px; padding:2px 8px; }
+  /* style-B text post: minimal, accent bar, auto-height — hugs the caption */
+  .textbody { display:flex; gap:12px; padding:2px 14px 12px; }
+  .accent { width:3px; border-radius:2px; background:linear-gradient(#9a7fe0,#5a3a8e); flex-shrink:0; }
+  .textbody p { font-size:16px; color:#eaf2ee; font-weight:600; margin:0; line-height:1.35; }
+  /* photo */
+  .media { margin:0 14px; height:200px; border-radius:14px; }
+  .caption { font-size:12.5px; color:#eaf2ee; margin:0; }
+  .acts { display:flex; gap:18px; align-items:center; padding:11px 14px; }
+  .acts .like { font-size:18px; color:#ff5a6e; } .acts .ic { font-size:16px; color:#9fb0aa; } .acts .save { margin-left:auto; font-size:17px; color:#9fb0aa; }
+  .acts .count { font-size:11px; color:#8aa39a; margin-left:auto; }
+  .note { font-size:10.5px; color:#7c8d87; margin:4px 2px 0; text-align:center; line-height:1.5; }
+</style>
+</head>
+<body>
+<div class="feed">
+
+  <!-- compact header -->
+  <div class="fhead"><strong>Feed</strong><span class="count">15 updates</span></div>
+  <div class="tabs"><span class="tab on">Friends</span><span class="tab">Discover</span></div>
+
+  <!-- TEXT POST (style B, floating, auto-height) -->
+  <div class="post">
+    <div class="ph"><div class="av" style="background:#9a4a2c;"></div><div class="nm"><p class="u"><strong>Jacob</strong></p><p class="s">THE BOYS · 3h ago</p></div><span class="tag">😴 Sleep +1</span></div>
+    <div class="textbody"><div class="accent"></div><p>Slept 8 hours for once 😴</p></div>
+    <div class="acts"><span class="like">♥</span><span class="ic">💬</span><span class="ic">➤</span><span class="count">♥ 3</span></div>
+  </div>
+
+  <!-- TEXT POST short one-liner (shows auto-height stays small) -->
+  <div class="post">
+    <div class="ph"><div class="av" style="background:#2f7a5c;"></div><div class="nm"><p class="u"><strong>Ravram26</strong></p><p class="s">THE BOYS · 5h ago</p></div><span class="tag">✅ Daily +1</span></div>
+    <div class="textbody"><div class="accent" style="background:linear-gradient(#3ddc97,#1c6b4d);"></div><p>grinding 💪</p></div>
+    <div class="acts"><span class="like">♥</span><span class="ic">💬</span><span class="ic">➤</span><span class="count">♥ 2</span></div>
+  </div>
+
+  <!-- PHOTO POST (floating) -->
+  <div class="post">
+    <div class="ph"><div class="av" style="background:#355d91;"></div><div class="nm"><p class="u"><strong>Robert A</strong></p><p class="s">THE BOYS · 9h ago</p></div><span class="tag">💪 Lifting +2</span></div>
+    <div class="media" style="background:linear-gradient(135deg,#3a4a55,#243038);"></div>
+    <div class="acts"><span class="like">♥</span><span class="ic">💬</span><span class="ic">➤</span><span class="save">🔖</span></div>
+    <p class="caption" style="padding:0 14px 13px;"><strong>Robert A</strong> back at it 💪 · <span style="color:#8aa39a;">♥ 8 · 💬 4</span></p>
+  </div>
+
+  <p class="note">Compact header (no eyebrow / no "Recent activity" row, single-line title+count, slim tabs) · floating soft cards (rounded, soft shadow, NO borders, spaced, no green active outline) · style-B text posts (accent bar, auto-height — hugs the caption, never a giant empty block).</p>
+</div>
+</body>
+</html>

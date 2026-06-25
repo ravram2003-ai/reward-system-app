@@ -10808,10 +10808,8 @@
         syncAddEntryAmount(input.value, input);
       });
     });
-    Array.from(els.dailyInputList.querySelectorAll("[data-add-entry-toggle]")).forEach((input) => {
-      input.addEventListener("change", () => {
-        syncAddEntryAmount(input.checked ? 1 : 0, input);
-      });
+    Array.from(els.dailyInputList.querySelectorAll("[data-add-entry-step]")).forEach((button) => {
+      button.addEventListener("click", () => stepAddEntryAmount(Number(button.dataset.addEntryStep)));
     });
     Array.from(els.dailyInputList.querySelectorAll("[data-add-entry-button]")).forEach((button) => {
       button.addEventListener("click", () => addDailyEntryFromDraft());
@@ -13450,11 +13448,24 @@
     // set) just turns the existing synced value into a post — the total doesn't change.
     const previewTotal = composerSourceTag ? currentTotal : currentTotal + amount;
     const previewPercent = progressPercent(previewTotal, goal);
-    const options = rules.map((item) => `
+    const isSingleRule = rules.length === 1;
+    const options = isSingleRule ? "" : rules.map((item) => `
       <option value="${escapeHtml(item.id)}"${item.id === selectedRule.id ? " selected" : ""}>
         ${escapeHtml(item.label)}
       </option>
     `).join("");
+    // One rule → no dropdown to choose from; show it as a label header (icon + name + the
+    // system/community it belongs to). Multiple rules keep the picker select.
+    const ruleHeader = isSingleRule
+      ? `<div class="add-entry-rule-label">
+          <span class="add-entry-rule-icon" aria-hidden="true">${draftRuleIcon(selectedRule)}</span>
+          <strong>${escapeHtml(selectedRule.label)}</strong>
+          ${context.label ? `<span class="add-entry-rule-context">${escapeHtml(context.label)}</span>` : ""}
+        </div>`
+      : `<label class="wide-entry-field">
+          <span>Metric/rule</span>
+          <select data-add-entry-rule aria-label="Choose metric to add">${options}</select>
+        </label>`;
 
     const viaNote = REAL_WEARABLE_SOURCES.has(composerSourceTag)
       ? `<p class="add-entry-ai-note"><span aria-hidden="true">⌚</span> From ${escapeHtml(wearableShortLabel(composerSourceTag))} — add a photo &amp; caption, then post.</p>`
@@ -13462,10 +13473,7 @@
     return `
       <div class="add-entry-card" data-add-entry-card>
         ${aiPrefilledComposer ? `<p class="add-entry-ai-note"><span aria-hidden="true">✨</span> AI filled this in — review, add a photo/caption, and post.</p>` : viaNote}
-        <label class="wide-entry-field">
-          <span>Metric/rule</span>
-          <select data-add-entry-rule aria-label="Choose metric to add">${options}</select>
-        </label>
+        ${ruleHeader}
         ${renderAddEntrySourceNotice(selectedRule)}
         <div class="add-entry-progress-grid">
           <div class="add-entry-progress-card">
@@ -13487,16 +13495,19 @@
         </div>
         ${renderAddEntryAmountControl(selectedRule, amount)}
         ${renderEntryAttachControls()}
-        <button class="primary-button add-entry-submit" type="button" data-add-entry-button>
+        <button class="primary-button add-entry-submit${selectedRule.inputMethod === "toggle" ? " add-entry-markdone" : ""}" type="button" data-add-entry-button>
           <span data-add-entry-button-label>${escapeHtml(addEntryButtonLabel(selectedRule, amount))}</span>
         </button>
       </div>
     `;
   }
 
-  // Optional message + photo attach control for the Add Entry panel. Both optional.
+  // Optional message + photo attach control for the Add Entry panel. Both optional, and tucked
+  // behind a collapsed "＋ Add a photo or note" accordion so the default path is just amount → Post.
+  // Stays expanded when something is already attached (so a re-render doesn't hide your work).
   function renderEntryAttachControls() {
     const msg = addEntryAttachment.message || "";
+    const hasDetails = Boolean(msg) || Boolean(addEntryAttachment.previewUrl);
     const photo = addEntryAttachment.previewUrl
       ? `<div class="entry-photo-preview">
            <img src="${escapeHtml(addEntryAttachment.previewUrl)}" alt="Attached photo preview">
@@ -13510,16 +13521,22 @@
            </div>
          </div>`;
     return `
-      <div class="entry-attach">
-        <label class="entry-message-field">
-          <span>Add a note (optional)</span>
-          <textarea data-entry-message maxlength="${ENTRY_MESSAGE_MAX}" rows="2" placeholder="What happened? (optional)">${escapeHtml(msg)}</textarea>
-          <span class="entry-message-count" data-entry-message-count>${msg.length}/${ENTRY_MESSAGE_MAX}</span>
-        </label>
-        ${photo}
-        <input type="file" accept="image/*" capture="environment" data-entry-photo-input="camera" hidden>
-        <input type="file" accept="image/*" data-entry-photo-input="library" hidden>
-      </div>
+      <details class="entry-details"${hasDetails ? " open" : ""}>
+        <summary class="entry-details-summary">
+          <span>＋ Add a photo or note</span>
+          <span class="entry-details-chevron" aria-hidden="true">▾</span>
+        </summary>
+        <div class="entry-attach">
+          <label class="entry-message-field">
+            <span>Add a note (optional)</span>
+            <textarea data-entry-message maxlength="${ENTRY_MESSAGE_MAX}" rows="2" placeholder="What happened? (optional)">${escapeHtml(msg)}</textarea>
+            <span class="entry-message-count" data-entry-message-count>${msg.length}/${ENTRY_MESSAGE_MAX}</span>
+          </label>
+          ${photo}
+          <input type="file" accept="image/*" capture="environment" data-entry-photo-input="camera" hidden>
+          <input type="file" accept="image/*" data-entry-photo-input="library" hidden>
+        </div>
+      </details>
     `;
   }
 
@@ -13615,44 +13632,33 @@
   }
 
   function renderAddEntryAmountControl(rule, amount) {
-    if (rule.inputMethod === "toggle") {
-      const checked = Number(amount) > 0;
-      return `
-        <div class="add-entry-control">
-          <label class="check-input add-entry-check">
-            <input data-add-entry-toggle type="checkbox" aria-label="${escapeHtml(rule.label)} completed"${checked ? " checked" : ""}>
-            <span>Completed today</span>
-          </label>
-        </div>
-      `;
-    }
+    // Yes/no rules have no amount to pick — the "✓ Mark done" submit button is the whole control.
+    if (rule.inputMethod === "toggle") return "";
 
+    // Counter rules get ONE control: a big, tap-friendly −/value/+ stepper. The value itself is a
+    // number input, so tapping it lets you type a precise amount; the buttons step by one unit.
     const settings = entrySliderSettings(rule);
     const safeAmount = clampToRange(amount, settings.min, settings.max);
     return `
       <div class="add-entry-control">
-        <label class="entry-amount-field">
-          <span>Amount</span>
-          <div class="entry-slider-line">
-            <input data-add-entry-amount aria-label="${escapeHtml(rule.label)} slider" type="range" min="${escapeHtml(String(settings.min))}" max="${escapeHtml(String(settings.max))}" step="${escapeHtml(String(settings.step))}" value="${escapeHtml(String(safeAmount))}">
-            <div class="manual-entry">
-              <input data-add-entry-amount aria-label="${escapeHtml(rule.label)} amount" type="number" min="${escapeHtml(String(settings.min))}" max="${escapeHtml(String(settings.max))}" step="${escapeHtml(String(settings.step))}" value="${escapeHtml(String(safeAmount))}">
-              <span>${escapeHtml(rule.unit)}</span>
-            </div>
-          </div>
-        </label>
+        <div class="add-entry-stepper">
+          <button class="stepper-btn" type="button" data-add-entry-step="-1" aria-label="Decrease ${escapeHtml(rule.label)}">−</button>
+          <label class="stepper-value">
+            <input data-add-entry-amount class="stepper-input" type="number" inputmode="decimal" aria-label="${escapeHtml(rule.label)} amount" min="${escapeHtml(String(settings.min))}" max="${escapeHtml(String(settings.max))}" step="${escapeHtml(String(settings.step))}" value="${escapeHtml(String(safeAmount))}">
+            <span class="stepper-unit">${escapeHtml(rule.unit)}</span>
+          </label>
+          <button class="stepper-btn" type="button" data-add-entry-step="1" aria-label="Increase ${escapeHtml(rule.label)}">+</button>
+        </div>
       </div>
     `;
   }
 
-  // The submit button's label — "Post <rule>" (toggle) or "Post <value> <unit> <rule>"
-  // (amount); "Choose completion" until a toggle rule is checked. Shared by the initial
-  // render and the live preview update. (How a synced-rule log combines with the synced value
-  // is conveyed by the source notice, not a button suffix.)
+  // The submit button's label — "✓ Mark done" for yes/no rules (the button IS the toggle), or
+  // "Post <value> <unit> <rule>" for counters. Shared by the initial render and the live preview
+  // update. (How a synced-rule log combines with the synced value is conveyed by the source
+  // notice, not a button suffix.)
   function addEntryButtonLabel(rule, amount) {
-    if (rule.inputMethod === "toggle") {
-      return Number(amount) > 0 ? `Post ${rule.label}` : "Choose completion";
-    }
+    if (rule.inputMethod === "toggle") return "✓ Mark done";
     return `Post ${formatValue(amount)} ${rule.unit} ${rule.label}`;
   }
 
@@ -13732,6 +13738,16 @@
     addEntryDraft = { ruleId, amount: suggestedEntryAmount(rule) };
     els.dailyInputList.innerHTML = renderAddEntryPanel(system);
     bindDailyInputs();
+  }
+
+  // −/+ stepper: nudge the draft amount by one unit-step, then reuse the shared sync so the
+  // number input and the live preview update exactly as typing would.
+  function stepAddEntryAmount(direction) {
+    const system = getActiveScoreContext().system;
+    const rule = system?.rules.map(scoring.normalizeRule).find((item) => item.id === addEntryDraft.ruleId);
+    if (!rule || rule.inputMethod === "toggle") return;
+    const settings = entrySliderSettings(rule);
+    syncAddEntryAmount(numberOrDefault(addEntryDraft.amount, 0) + direction * settings.step, null);
   }
 
   function syncAddEntryAmount(value, sourceInput) {

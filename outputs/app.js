@@ -7397,8 +7397,9 @@
   }
 
   // Shape a discover_feed row into the { entry, community, member, rule, when, discover }
-  // item renderFeedPost expects. rule is null + entry.unit "done" so entryLogText shows
-  // just the activity label (we don't have the source community's rule config here).
+  // item renderFeedPost expects. rule is null + entry.unit "done", so the metric helpers
+  // (entryMetricText / entryLogText) fall back to just the activity label (we don't have the
+  // source community's rule config here).
   function mapDiscoverRowToItem(row) {
     if (!row || !row.entry_id) return null;
     const authorId = String(row.author_id || "");
@@ -7579,18 +7580,21 @@
 
     const photoPath = entry.photoPath || entry.photo_path || "";
     const message = entry.message ? String(entry.message) : "";
+    // Feed size rhythm: a logged-progress-ONLY post (no real caption AND no photo — just a logged
+    // metric) renders COMPACT (a one-line "logged X" card), NOT a big media/gradient block. A real
+    // caption → the style-B medium card; a photo → full media.
+    const isLoggedOnly = !photoPath && !message;
+    const metricText = isLoggedOnly ? entryMetricText(entry, item.rule) : "";
     // Multi-photo marker (dormant until posts carry >1 photo).
     const carousel = Number(entry.photo_count) > 1 ? `<span class="ig-carousel" aria-hidden="true">⧉</span>` : "";
-    // Media: a photo, or — for a text-only post — the caption rendered large on the rule's gradient.
-    let mediaHtml;
+    // Media (non-compact only): a photo, or the style-B caption card with a thin accent bar.
+    let mediaHtml = "";
     if (photoPath) {
       mediaHtml = `<div class="ig-photo" data-entry-photo="${escapeHtml(photoPath)}" role="img" aria-label="Post photo"><img alt="" loading="lazy">${carousel}</div>`;
-    } else {
-      const mediaText = message || entryLogText(entry, item.rule);
+    } else if (message) {
       const tileColor = dayScheduleColor(entry.ruleId || entry.communityId || entryId);
-      // Style B: large caption with a thin vertical accent bar (bright → darker same hue),
-      // inside the floating card. Auto-height — hugs the caption (no big fixed gradient square).
-      mediaHtml = `<div class="ig-textbody"><span class="ig-textbody-accent" style="background:linear-gradient(180deg, ${tileColor}, ${shadeHex(tileColor, 0.5)})" aria-hidden="true"></span><p>${escapeHtml(mediaText)}</p></div>`;
+      // Style B: caption with a thin vertical accent bar (bright → darker same hue), auto-height.
+      mediaHtml = `<div class="ig-textbody"><span class="ig-textbody-accent" style="background:linear-gradient(180deg, ${tileColor}, ${shadeHex(tileColor, 0.5)})" aria-hidden="true"></span><p>${escapeHtml(message)}</p></div>`;
     }
 
     const menuHtml = (isMe || isDiscover) ? "" : `
@@ -7644,6 +7648,48 @@
     const authorTap = !isMe && authorId && authorId !== "me";
     const authorOpen = authorTap ? `<button class="ig-author" type="button" data-feed-author="${escapeHtml(authorId)}" aria-label="View ${name}'s profile">` : `<div class="ig-author ig-author-static">`;
     const authorClose = authorTap ? `</button>` : `</div>`;
+
+    // Compact logged-progress card: a one-line "{name} logged {metric}" header + the progress tag
+    // + the like/comment row (no media block, no separate likes/time line — the time is in the
+    // sub). Keeps tap-to-open (author) + like/comment via the same reused buttons/handlers.
+    if (isLoggedOnly) {
+      const compactCount = (canSocial && social.like_count > 0)
+        ? `<span class="ig-compact-count">${escapeHtml(plural(social.like_count, "like"))}</span>` : "";
+      // Stays a tight one-line card until you engage: the composer (comments + input) appears only
+      // once you tap 💬 (which expands the thread) or there's already a conversation. So the comment
+      // button focuses the visible input when expanded, and otherwise reveals it.
+      const compactExpanded = feedCommentsOpen.has(entryId) || (canSocial && social.comment_count > 0);
+      const compactCommentBtn = canSocial
+        ? (compactExpanded
+            ? commentBtn
+            : `<button class="ig-action-btn" type="button" data-feed-expand="${escapeHtml(entryId)}" aria-label="Comment">${FEED_COMMENT_SVG}</button>`)
+        : "";
+      return `
+        <article class="ig-card ig-card-compact${milestone ? " is-milestone" : ""}" data-feed-entry="${escapeHtml(entryId)}">
+          <div class="ig-card-header ig-compact-header">
+            ${authorOpen}
+              ${renderAvatar({ className: "member-avatar ig-compact-avatar", name: item.member.name, color: item.member.color || "#355d91", avatarUrl: item.member.avatarUrl })}
+              <div class="ig-head-main">
+                <p class="ig-compact-line"><strong>${name}</strong> logged <strong class="ig-compact-metric">${escapeHtml(metricText)}</strong></p>
+                <span class="ig-head-sub">${sub}</span>
+              </div>
+            ${authorClose}
+            ${viaBadge}
+            ${isDiscover ? affinityHtml : tagHtml}
+            ${menuHtml}
+          </div>
+          <div class="ig-actions ig-compact-actions">
+            ${likeBtn}
+            ${compactCommentBtn}
+            ${shareBtn}
+            ${followBtn}
+            ${saveBtn}
+            ${compactCount}
+          </div>
+          ${compactExpanded ? commentsHtml + inputHtml : ""}
+        </article>
+      `;
+    }
 
     return `
       <article class="ig-card${milestone ? " is-milestone" : ""}" data-feed-entry="${escapeHtml(entryId)}">
@@ -15262,6 +15308,20 @@
       ? `${amount}${unit}`
       : `${amount} ${unit}`;
     return `${valueText} ${label}`;
+  }
+
+  // Clean one-line metric for a logged-progress feed post: "{value} {unit}" with the number
+  // comma-grouped and NO trailing rule name (entryLogText appends the label — this does not, so
+  // we get "8,500 steps", not "8500 steps Steps"). Yes/no or unit-less entries → just the label.
+  function entryMetricText(entry, rule) {
+    const unit = (rule && rule.unit) || entry.unit || "";
+    const label = (rule && rule.label) || entry.label || "Entry";
+    if ((rule && rule.inputMethod === "toggle") || unit === "done" || !unit) return label;
+    const num = Number(entry.amount || 0);
+    const rounded = Number.isInteger(num) ? num : Math.round(num * 100) / 100;
+    const grouped = rounded.toLocaleString("en-US");
+    const compactUnits = new Set(["g", "mg", "kg", "oz", "lb"]);
+    return compactUnits.has(String(unit).toLowerCase()) ? `${grouped}${unit}` : `${grouped} ${unit}`;
   }
 
   function goalAmountForRule(ruleInput) {

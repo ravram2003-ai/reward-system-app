@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — feed post size rhythm: compact logged / medium caption / full photo</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; justify-content:center; padding:24px 12px; }
+  .feed { width:100%; max-width:430px; background:#070b0a; border-radius:18px; padding:14px; }
+  .cap { font-size:11px; color:#5f8576; letter-spacing:.4px; margin:0 0 9px; }
+  .post { background:#121a17; border-radius:16px; box-shadow:0 6px 20px rgba(0,0,0,.4); margin-bottom:16px; }
+  .av { border-radius:50%; flex-shrink:0; }
+  .tag { font-size:9.5px; color:#7fe9c0; background:#13281f; border-radius:7px; padding:3px 9px; }
+  .acts { display:flex; gap:16px; align-items:center; }
+  .acts .like { font-size:15px; color:#ff5a6e; } .acts .ic { font-size:14px; color:#9fb0aa; } .acts .count { font-size:11px; color:#8aa39a; margin-left:auto; }
+  .note { font-size:10.5px; color:#7c8d87; margin:4px 2px 0; text-align:center; line-height:1.5; }
+</style>
+</head>
+<body>
+<div class="feed">
+
+  <!-- COMPACT: logged-progress update (no caption, no photo) -->
+  <p class="cap">COMPACT · logged-progress update (no caption / no photo)</p>
+  <div class="post" style="padding:13px;">
+    <div style="display:flex;align-items:center;gap:9px;">
+      <div class="av" style="width:34px;height:34px;background:#355d91;"></div>
+      <div style="flex:1;"><p style="font-size:12.5px;color:#f3f6f4;margin:0;"><strong>Robert A</strong> logged <strong style="color:#eaf2ee;">8,500 steps</strong></p><p style="font-size:10px;color:#7c8d87;margin:1px 0 0;">THE BOYS · 15h ago</p></div>
+      <span class="tag">👟 +0.5</span>
+    </div>
+    <div class="acts" style="margin-top:10px;padding-top:9px;border-top:1px solid #18211d;"><span class="like">♥</span><span class="ic">💬</span><span class="count">♥ 1</span></div>
+  </div>
+
+  <!-- MEDIUM: text post with a caption (style B) -->
+  <p class="cap">MEDIUM · text post with a caption (style B, auto-height)</p>
+  <div class="post" style="padding:13px;">
+    <div style="display:flex;align-items:center;gap:9px;margin-bottom:10px;"><div class="av" style="width:30px;height:30px;background:#9a4a2c;"></div><div style="flex:1;"><p style="font-size:12px;color:#f3f6f4;margin:0;"><strong>Jacob</strong></p><p style="font-size:9.5px;color:#7c8d87;margin:0;">THE BOYS · 3h ago</p></div><span class="tag">😴 Sleep +1</span></div>
+    <div style="display:flex;gap:12px;"><div style="width:3px;border-radius:2px;background:linear-gradient(#9a7fe0,#5a3a8e);"></div><p style="font-size:15px;color:#eaf2ee;font-weight:600;margin:0;line-height:1.35;">Slept 8 hours for once 😴</p></div>
+    <div class="acts" style="margin-top:11px;"><span class="like">♥</span><span class="ic">💬</span><span class="count">♥ 3</span></div>
+  </div>
+
+  <!-- FULL: photo post -->
+  <p class="cap">FULL · photo post</p>
+  <div class="post" style="overflow:hidden;">
+    <div style="display:flex;align-items:center;gap:9px;padding:13px 13px 10px;"><div class="av" style="width:30px;height:30px;background:#355d91;"></div><div style="flex:1;"><p style="font-size:12px;color:#f3f6f4;margin:0;"><strong>Robert A</strong></p><p style="font-size:9.5px;color:#7c8d87;margin:0;">THE BOYS · 9h ago</p></div><span class="tag">💪 Lifting +2</span></div>
+    <div style="margin:0 13px;height:175px;border-radius:13px;background:linear-gradient(135deg,#3a4a55,#243038);"></div>
+    <div style="padding:11px 13px;"><div class="acts"><span class="like">♥</span><span class="ic">💬</span><span class="count">♥ 8 · 💬 4</span></div></div>
+  </div>
+
+  <p class="note">Logged-progress posts (no caption + no photo) → small one-line card ("{name} logged {metric}") · caption posts → style-B medium · photos → full. Fix the doubled label: "8500 steps Steps" → "8,500 steps" (don't repeat unit + rule name).</p>
+</div>
+</body>
+</html>

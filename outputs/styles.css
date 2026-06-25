@@ -9875,3 +9875,40 @@ body.onboarding-locked .coach-panel { display: none; }
     gap: 10px;
   }
 }
+
+/* ── Edge-to-edge Profile + Feed on mobile / narrow widths (≤600px) ─────────────────
+   Kill the side gaps so the cover banner, post photo media, and the posts grid TOUCH the
+   screen edges. The text keeps its own inset — every text element already carries its
+   horizontal padding (.profile-hero-body 16px; .ig-card-header / .ig-caption / .ig-actions
+   etc. ~10–14px) — so only the full-bleed wrappers + the photo media need breaking out.
+   The full-bleed recipe (negative L/R margins → element grows to 100vw, centered) is
+   padding-agnostic and reaches the viewport edges regardless of the nested centering.
+   Wider screens keep the existing centered max-width readable column (no rule below applies).
+   Safe-area insets are untouched (they live on the fixed top header, not these blocks). */
+@media (max-width: 600px) {
+  /* PROFILE — cover/hero card + Recent-posts grid go full-bleed; remove the rounded "card"
+     corners. The hero-body's own 16px padding keeps name/handle/bio/stats inset. */
+  .profile-hero {
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+    border-radius: 0;
+  }
+  .profile-posts-grid {
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+  }
+
+  /* FEED (Friends/Discover) — full posts go edge-to-edge and lose the boxy rounding/shadow;
+     the photo media drops its 14px inset so it touches the edges. Header/caption/actions keep
+     their existing inset. Compact logged-activity items stay boxed (their small inset). */
+  #feedView .ig-card:not(.ig-card-compact) {
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+    border-radius: 0;
+    box-shadow: none;
+  }
+  #feedView .ig-card:not(.ig-card-compact) .ig-photo {
+    margin: 0;
+    border-radius: 0;
+  }
+}

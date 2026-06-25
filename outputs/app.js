@@ -2780,6 +2780,7 @@
       "dashboardAnalytics",
       "worldGrid",
       "worldGridHint",
+      "worldCount",
       "dashboardDetail",
       "notifBellButton",
       "notifBellBadge",
@@ -4412,6 +4413,8 @@
     if (worldDrag.started) return; // never rebuild mid-drag — it would drop the ghost/placeholder
     const tiles = buildWorldTiles();
     if (els.worldGridHint) els.worldGridHint.hidden = tiles.length < 1;
+    // Slim section header shows the world count as a small muted number ("Your worlds  5").
+    if (els.worldCount) els.worldCount.textContent = tiles.length ? String(tiles.length) : "";
     const addTile = `<div class="world-tile world-add" role="button" tabindex="0" data-world-add aria-label="Add a world">
         <span class="world-add-plus" aria-hidden="true">+</span>
         <span class="world-add-label">${tiles.length ? "New" : "Create your first world"}</span>

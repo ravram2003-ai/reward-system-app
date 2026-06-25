@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260624-header">
+    <link rel="stylesheet" href="styles.css?v=20260624-worldshdr">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -92,10 +92,10 @@
 
       <main class="workspace">
         <section class="view" id="dashboardView" aria-labelledby="dashboardTitle">
-          <div class="view-header score-header">
-            <div>
-              <p class="eyebrow">Today</p>
-              <h2 id="dashboardTitle">Your worlds</h2>
+          <div class="view-header score-header dashboard-header">
+            <div class="section-title-row">
+              <h2 id="dashboardTitle" class="section-title">Your worlds</h2>
+              <span class="section-title-count" id="worldCount"></span>
             </div>
             <div class="header-actions" hidden>
               <div class="score-context-pill">
@@ -1541,13 +1541,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260624-header"></script>
-    <script src="auth-helpers.js?v=20260624-header"></script>
-    <script src="scoring.js?v=20260624-header"></script>
-    <script src="insight.js?v=20260624-header"></script>
-    <script src="signals.js?v=20260624-header"></script>
-    <script src="wearables.js?v=20260624-header"></script>
-    <script type="module" src="auth.js?v=20260624-header"></script>
-    <script src="app.js?v=20260624-header"></script>
+    <script src="supabase-config.js?v=20260624-worldshdr"></script>
+    <script src="auth-helpers.js?v=20260624-worldshdr"></script>
+    <script src="scoring.js?v=20260624-worldshdr"></script>
+    <script src="insight.js?v=20260624-worldshdr"></script>
+    <script src="signals.js?v=20260624-worldshdr"></script>
+    <script src="wearables.js?v=20260624-worldshdr"></script>
+    <script type="module" src="auth.js?v=20260624-worldshdr"></script>
+    <script src="app.js?v=20260624-worldshdr"></script>
   </body>
 </html>

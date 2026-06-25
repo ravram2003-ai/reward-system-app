@@ -79,6 +79,39 @@ OUTPUT: Respond with ONLY a single minified JSON object — the FULL updated sys
 - Keep "title"/"category" unless the instruction changes the focus.
 - "explanation": ONE short sentence stating what you just changed.`;
 
+// Recap mode — write a short, warm "Yesterday, recapped" line from the user's OWN summary.
+const RECAP_SYSTEM_PROMPT = `You write a SHORT daily recap of YESTERDAY for one Pointwell user, to greet them on their first app open today.
+
+You receive a plain summary of what THEY did yesterday: the rules/habits they logged, the points they earned, their best current streak, and their leaderboard standing in a community (if any).
+
+Write 1–2 warm, second-person sentences ("you …") that celebrate the day and weave in the concrete facts you were given — name the habits, the points, the streak length, and the community standing when present. Sound like an encouraging friend, not a report.
+
+HARD RULES:
+- Use ONLY the facts in the summary. Never invent numbers, habits, streaks, or rankings.
+- No health, medical, diet, or weight advice of any kind. Just reflect what they did.
+- Keep it under ~240 characters. No emojis except an optional single 🔥 when a streak is mentioned. No hashtags, no markdown, no quotes.
+- Output ONLY the recap sentence(s) as plain text — nothing else.`;
+
+// Build the user turn for a recap: yesterday's structured summary → readable lines.
+function buildRecapMessage(input: Record<string, unknown>): string {
+  const summary = (input.summary && typeof input.summary === "object" ? input.summary : {}) as Record<string, unknown>;
+  const s = (v: unknown) => String(v ?? "").trim().slice(0, 120);
+  const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+  const rules = Array.isArray(summary.rules) ? (summary.rules as any[]).slice(0, 6) : [];
+  const ruleText = rules.length
+    ? rules.map((r) => `${s(r?.label)}${num(r?.points) ? ` (+${num(r.points)} pts)` : ""}`).join(", ")
+    : "(nothing logged)";
+  const lines = [
+    `Habits logged yesterday: ${ruleText}`,
+    `Total points earned yesterday: ${num(summary.totalPoints)}`,
+  ];
+  const streak = summary.streak && typeof summary.streak === "object" ? summary.streak as Record<string, unknown> : null;
+  if (streak && num(streak.length) >= 2) lines.push(`Current streak: ${num(streak.length)} days${streak.name ? ` in ${s(streak.name)}` : ""}`);
+  const standing = summary.standing && typeof summary.standing === "object" ? summary.standing as Record<string, unknown> : null;
+  if (standing && num(standing.rank) >= 1) lines.push(`Leaderboard standing: #${num(standing.rank)}${standing.total ? ` of ${num(standing.total)}` : ""}${standing.name ? ` in ${s(standing.name)}` : ""}`);
+  return lines.join("\n");
+}
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -163,6 +196,35 @@ Deno.serve(async (req: Request) => {
     input = (await req.json()) || {};
   } catch {
     input = {};
+  }
+
+  // Recap mode — return a short prose recap of yesterday (plain text, NOT a system JSON).
+  // Handled first so the normal generate/refine path below is completely untouched.
+  if (String(input.mode ?? "") === "recap") {
+    try {
+      const resp = await fetch(ANTHROPIC_URL, {
+        method: "POST",
+        headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: 200,
+          system: RECAP_SYSTEM_PROMPT,
+          messages: [{ role: "user", content: buildRecapMessage(input) }],
+        }),
+      });
+      if (!resp.ok) {
+        const detail = await resp.text().catch(() => "");
+        console.error("Anthropic recap error:", resp.status, detail.slice(0, 300));
+        return jsonResponse({ error: messageForStatus(resp.status) }, 502);
+      }
+      const data = await resp.json();
+      const recap = (data?.content || []).filter((b: any) => b?.type === "text").map((b: any) => b.text).join("").trim();
+      if (!recap) return jsonResponse({ error: "The AI returned an unexpected response." }, 502);
+      return jsonResponse({ recap: recap.slice(0, 400) }, 200);
+    } catch (err: any) {
+      console.error("recap failed:", err?.message);
+      return jsonResponse({ error: "Couldn't reach the AI service. Please try again." }, 502);
+    }
   }
 
   // Two modes, ONE function/path/key: "refine" edits an existing system from a chat

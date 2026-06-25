@@ -201,6 +201,7 @@
     coachLearning: { proactiveOff: false, weekKey: "", byType: {}, byHour: {}, byRule: {}, shownDay: "", shownCount: 0 }, // nudge feedback loop (by type + per rule)
     coachLastPeekSig: "",  // last proactively-peeked nudge signature (no re-nag across reloads)
     coachSoftPromptDay: "", // YYYY-MM-DD the soft "want to log anything?" invite last showed (once/day)
+    lastRecapDay: "",       // YYYY-MM-DD the "Yesterday, recapped" daily AI card last showed (once/day)
     systems: [
       {
         id: "life-core",
@@ -496,6 +497,8 @@
       if (els.profileSignOutButton) els.profileSignOutButton.hidden = true;
       teardownSignals();
       hideAuthScreen();
+      // Local mode has its communities/systems in state already → recap can run (uses the client composer).
+      Promise.resolve(maybeShowDailyRecap()).catch(() => {});
     }
   }
 
@@ -1475,6 +1478,8 @@
     // act on any ?join= invite link that brought them here.
     await loadCommunitiesFromDb();
     await resolvePendingJoin();
+    // Communities are loaded now → safe to compute yesterday's leaderboard standing for the recap.
+    Promise.resolve(maybeShowDailyRecap()).catch(() => {});
   }
 
   function teardownSignals() {
@@ -11466,6 +11471,7 @@
     posted: {},         // nudge keys already dropped into the thread (post-once)
     lastPeekSig: "",    // signature of the last peeked nudge set (no re-nag)
     peekTimer: null,
+    recapPending: false, // a "Yesterday, recapped" card is waiting in the thread (badge until opened)
   };
 
   // Read an image File into base64 (no data: prefix) + its media type, for the
@@ -11540,10 +11546,261 @@
     coachFinalizeCard(cardEl);
   }
 
+  // ── "Yesterday, recapped" — once-per-day AI recap shown on the first open of a new day ──
+  // Reuses the existing AI infra (the generate Edge Function, via PointwellSignals.generateRecap)
+  // with a robust CLIENT-COMPOSED fallback, and the existing Coach post composer for "Post recap".
+  let coachRecap = null;          // { plain, lastLogged } — held so "Post recap" can prefill/seed
+  let coachPendingCaption = "";   // one-shot caption to prefill the next composer (recap post)
+  let recapHandledThisLoad = false; // dedupe concurrent / token-refresh re-fires within one page load
+
+  // Streak length THROUGH YESTERDAY for one context (mirrors coachContextStreak but anchored at
+  // yesterday — a "Yesterday, recapped" card must not fold in today's early-synced partial progress).
+  function recapStreakForContext(ctx) {
+    let target, getPts;
+    if (ctx.type === "community") {
+      target = communityTarget(ctx.community);
+      const me = (ctx.community.members || []).find((m) => m.id === "me");
+      getPts = (d) => me ? communityMemberPointsOnDate(ctx.community, me, d) : 0;
+    } else {
+      const sys = normalizeSystem(ctx.system);
+      target = numberOrDefault(calculateTargetSummary(sys).total, 0);
+      getPts = (d) => { const e = findEntry(d, ctx.id); return e ? numberOrDefault(e.total, 0) : 0; };
+    }
+    if (!(target > 0)) return 0;
+    let streak = 0;
+    for (let i = 1; i <= 30; i++) { // i=1 is yesterday; today (i=0) is deliberately excluded
+      if (getPts(offsetDate(-i)) >= target) streak += 1; else break;
+    }
+    return streak;
+  }
+  function recapBestStreak() {
+    let best = null;
+    (state.systems || []).forEach((s) => { const n = recapStreakForContext({ type: "personal", id: s.id, system: s }); if (n >= 2 && (!best || n > best.length)) best = { length: n, name: s.title || "System" }; });
+    (state.communities || []).forEach((c) => { const n = recapStreakForContext({ type: "community", id: c.id, community: c }); if (n >= 2 && (!best || n > best.length)) best = { length: n, name: c.name || "Community" }; });
+    return best;
+  }
+
+  // Gather what the user did YESTERDAY from their own data: rules logged (+points), total points,
+  // best streak, and best community standing. `lastLogged` seeds the post composer's destinations.
+  function buildYesterdaySummary() {
+    const yKey = offsetDate(-1);
+    const rules = [];        // [{ label, points }]
+    const lastLogged = [];   // [{ contextType, contextId, ruleId, amount, isYesNo }]
+    let totalPoints = 0;
+    let standing = null;     // best (lowest-rank) community placement where I scored
+    // Personal systems
+    (state.systems || []).forEach((sys) => {
+      const e = findEntry(yKey, sys.id);
+      if (!e || !e.values) return;
+      const normRules = (sys.rules || []).map(scoring.normalizeRule);
+      Object.keys(e.values).forEach((ruleId) => {
+        const amount = numberOrDefault(e.values[ruleId], 0);
+        if (!(amount > 0)) return;
+        const rule = normRules.find((r) => r.id === ruleId);
+        if (!rule || rule.simpleStyle === "penalty" || rule.dataSource === "calculated") return;
+        const pts = scoring.calculateRule(rule, amount).totalPoints;
+        rules.push({ label: rule.label || "a habit", points: pts });
+        lastLogged.push({ contextType: "personal", contextId: sys.id, ruleId: ruleId, amount: amount, isYesNo: rule.simpleStyle === "yesNo" });
+      });
+      totalPoints += numberOrDefault(e.total, 0);
+    });
+    // Communities — points + which rules I logged + my rank that day
+    (state.communities || []).forEach((community) => {
+      const me = (community.members || []).find((m) => m.id === "me");
+      if (!me) return;
+      const myPts = communityMemberPointsOnDate(community, me, yKey);
+      totalPoints += numberOrDefault(myPts, 0);
+      const values = communityValuesForMember(community.id, "me", yKey);
+      const normRules = ((community.system && community.system.rules) || []).map(scoring.normalizeRule);
+      Object.keys(values || {}).forEach((ruleId) => {
+        const amount = numberOrDefault(values[ruleId], 0);
+        if (!(amount > 0)) return;
+        const rule = normRules.find((r) => r.id === ruleId);
+        if (!rule || rule.simpleStyle === "penalty" || rule.dataSource === "calculated") return;
+        const pts = scoring.calculateRule(rule, amount).totalPoints;
+        rules.push({ label: rule.label || "a habit", points: pts });
+        lastLogged.push({ contextType: "community", contextId: community.id, ruleId: ruleId, amount: amount, isYesNo: rule.simpleStyle === "yesNo" });
+      });
+      if (myPts > 0) {
+        // Competition ranking: 1 + members who scored STRICTLY more than me. Ties share a rank
+        // (tied-for-1st reads as #1), so the standing never depends on member array order.
+        const rank = 1 + (community.members || []).filter((m) => m.id !== "me" && communityMemberPointsOnDate(community, m, yKey) > myPts).length;
+        if (!standing || rank < standing.rank) {
+          standing = { rank: rank, total: (community.members || []).length, name: community.name || "your community" };
+        }
+      }
+    });
+    const streak = recapBestStreak(); // longest streak THROUGH YESTERDAY (>= 2 days), else null
+    // Keep the strongest few habits for a tight recap line.
+    rules.sort((a, b) => b.points - a.points);
+    return {
+      active: rules.length > 0 || totalPoints > 0,
+      rules: rules.slice(0, 4),
+      totalPoints: Math.round(totalPoints * 10) / 10,
+      streak: streak,
+      standing: standing,
+      lastLogged: lastLogged,
+    };
+  }
+
+  // The trimmed structured summary handed to the AI edge function (no internal ids).
+  function recapSummaryForAI(summary) {
+    return {
+      rules: (summary.rules || []).map((r) => ({ label: r.label, points: Math.round(r.points * 10) / 10 })),
+      totalPoints: summary.totalPoints,
+      streak: summary.streak,
+      standing: summary.standing,
+    };
+  }
+
+  // Client-composed recap (the always-available fallback). Returns { html, plain } — html bolds the
+  // facts for the card (every user-derived value escaped); plain is the unformatted post caption.
+  function buildRecapParts(summary) {
+    const b = (text) => `<strong>${escapeHtml(text)}</strong>`;
+    const labels = (summary.rules || []).map((r) => r.label).filter(Boolean);
+    const labelList = labels.slice(0, 2);
+    const pts = summary.totalPoints || 0;
+    const opener = pts >= 6 ? "Strong day" : pts >= 2 ? "Nice day" : "You showed up";
+    let html = `${escapeHtml(opener)} — `;
+    let plain = `${opener} — `;
+    if (labelList.length) {
+      const htmlList = labelList.map((l) => b(String(l).toLowerCase())).join(" and ");
+      const plainList = labelList.map((l) => String(l).toLowerCase()).join(" and ");
+      html += `you logged ${htmlList}`;
+      plain += `you logged ${plainList}`;
+      if (labels.length > labelList.length) { html += " and more"; plain += " and more"; }
+    } else {
+      html += "you kept things moving";
+      plain += "you kept things moving";
+    }
+    if (pts > 0) {
+      html += ` for ${b("+" + formatPoints(pts) + " pts")}`;
+      plain += ` for +${formatPoints(pts)} pts`;
+    }
+    html += ".";
+    plain += ".";
+    const tail = [];
+    const tailPlain = [];
+    if (summary.standing && summary.standing.rank >= 1 && summary.standing.rank <= 3) {
+      tail.push(`That kept you ${b("#" + summary.standing.rank + " in " + (summary.standing.name || "your community"))}`);
+      tailPlain.push(`That kept you #${summary.standing.rank} in ${summary.standing.name || "your community"}`);
+    }
+    if (summary.streak && summary.streak.length >= 2) {
+      const streakTxt = `🔥 ${summary.streak.length}-day streak`;
+      if (tail.length) { tail[0] += ` and on a ${b(streakTxt)}`; tailPlain[0] += ` and on a ${streakTxt}`; }
+      else { tail.push(`You're on a ${b(streakTxt)}`); tailPlain.push(`You're on a ${streakTxt}`); }
+    }
+    if (tail.length) { html += " " + tail.join(" ") + "."; plain += " " + tailPlain.join(" ") + "."; }
+    return { html: html, plain: plain.slice(0, ENTRY_MESSAGE_MAX) };
+  }
+
+  // Decide whether to show the daily recap, build it (AI with fallback), and surface the card.
+  // Called once data is loaded on a sign-in; the once-per-day guard makes it safe to call again.
+  async function maybeShowDailyRecap() {
+    if (recapHandledThisLoad) return;               // dedupe both hooks + token-refresh re-fires this load
+    if (onboardingActive) return;                   // don't interrupt first-run onboarding
+    const today = getTodayKey();
+    if (state.lastRecapDay === today) return;       // already shown today (no re-pop on refresh)
+    if (coachLearning().proactiveOff) return;       // user turned proactive surfacing off → stay quiet
+    const summary = buildYesterdaySummary();
+    // Brand-new / empty account → nothing to recap and nowhere to anchor; skip without nagging.
+    if (!summary.active && !(state.systems || []).length && !(state.communities || []).length) return;
+    // Claim this page load NOW so a concurrent/token-refresh call can't also show a card; lastRecapDay
+    // is set AFTER the card is built (below) so a reload mid-AI-call re-attempts rather than silently skips.
+    recapHandledThisLoad = true;
+    const markShown = () => { state.lastRecapDay = today; saveState(); };
+    if (!summary.active) {
+      // Off-day with tracking set up → gentle "fresh start", but back off if they keep waving it away.
+      if (coachShouldPeekType("recap")) { markShown(); coachShowRecapCard({ fresh: true }); }
+      else { markShown(); }
+      return;
+    }
+    let aiText = "";
+    if (signalsReady() && window.PointwellSignals && typeof window.PointwellSignals.generateRecap === "function") {
+      try {
+        const r = await window.PointwellSignals.generateRecap(recapSummaryForAI(summary));
+        if (r && !r.error && typeof r.recap === "string") aiText = r.recap.trim();
+      } catch (e) { /* fall back to the client-composed recap */ }
+    }
+    markShown();
+    coachShowRecapCard({ summary: summary, aiText: aiText });
+  }
+
+  function coachShowRecapCard(opts) {
+    opts = opts || {};
+    let bodyHtml, plain, lastLogged;
+    if (opts.fresh) {
+      bodyHtml = "New day, fresh start — log your first win today and I'll recap it for you tomorrow.";
+      plain = "";
+      lastLogged = [];
+    } else if (opts.aiText) {
+      bodyHtml = escapeHtml(opts.aiText); // AI output is untrusted text → escape before innerHTML
+      plain = opts.aiText.slice(0, ENTRY_MESSAGE_MAX);
+      lastLogged = (opts.summary && opts.summary.lastLogged) || [];
+    } else {
+      const parts = buildRecapParts(opts.summary || {});
+      bodyHtml = parts.html;
+      plain = parts.plain;
+      lastLogged = (opts.summary && opts.summary.lastLogged) || [];
+    }
+    coachRecap = { plain: plain, lastLogged: lastLogged };
+    coachLearnRecord("recap", "shown");
+    // Fresh-start "Got it" counts as a dismissal (feeds coachShouldPeekType suppression so an
+    // inactive user isn't nagged daily); on a REAL recap, both buttons are positive engagement.
+    const actions = opts.fresh
+      ? `<button type="button" class="ghost-button small" data-coach-recapdismiss>Got it</button>`
+      : `<button type="button" class="ghost-button small" data-coach-recapkeep>Keep for me</button>
+         <button type="button" class="primary-button small" data-coach-recappost>Post recap</button>`;
+    coachSay(`
+      <div class="coach-card coach-recap-card coach-nudge-card is-active" data-coach-recap-card>
+        <div class="coach-recap-eyebrow"><span aria-hidden="true">✨</span> Yesterday, recapped</div>
+        <p class="coach-recap-text">${bodyHtml}</p>
+        <div class="coach-card-actions">${actions}</div>
+      </div>`);
+    if (!coach.panelOpen) coach.recapPending = true; // badge the launcher so it surfaces on login
+    renderCoachLauncher();
+    coachScroll();
+  }
+
+  function coachRecapKeep(cardEl) {
+    coachLearnRecord("recap", "acted"); // "Keep for me" is the expected positive choice, not a rejection
+    coach.recapPending = false;
+    renderCoachLauncher();
+    coachFinalizeCard(cardEl);
+  }
+  function coachRecapDismiss(cardEl) { // fresh-start "Got it" → record as dismissed for suppression
+    coachLearnRecord("recap", "dismissed");
+    coach.recapPending = false;
+    renderCoachLauncher();
+    coachFinalizeCard(cardEl);
+  }
+
+  // "Post recap" → reuse the Coach post composer, prefilled with the recap text, user picks where.
+  function coachRecapPost(cardEl) {
+    coachLearnRecord("recap", "acted");
+    coach.recapPending = false;
+    coachFinalizeCard(cardEl);
+    if (coachRecap) {
+      // Seed lastLogged with yesterday's activity so the personal feed + matching communities
+      // resolve as destinations (and post as "already logged" → carries the caption, no re-count).
+      coach.lastLogged = (coachRecap.lastLogged || []).slice();
+      coachPendingCaption = coachRecap.plain || "";
+    }
+    if (!coachPostDestinations().length) {
+      coachPendingCaption = ""; // no composer will open → don't leave the prefill dangling
+      coachSayText("Nowhere to post this yet — add a system or join a community in Build, then try again.");
+      renderCoachLauncher();
+      return;
+    }
+    coachOpenPostPicker();
+    renderCoachLauncher();
+  }
+
   // ── Floating launcher (bottom-left) + pop-out panel ─────────────────────────
   function openCoachPanel() {
     if (!els.coachPanel) return;
     coach.panelOpen = true;
+    coach.recapPending = false; // opening the panel surfaces the recap card → clear its badge
     els.coachPanel.hidden = false;
     els.coachPanel.classList.add("is-open");
     if (els.coachLauncher) els.coachLauncher.setAttribute("aria-expanded", "true");
@@ -11579,9 +11836,10 @@
   }
 
   function coachActiveNudgeCount() {
+    const recap = coach.recapPending ? 1 : 0;
     const c = state.catchUp;
-    if (!c) return 0;
-    return (c.devices || []).length + ((c.manual || []).length ? 1 : 0);
+    if (!c) return recap;
+    return recap + (c.devices || []).length + ((c.manual || []).length ? 1 : 0);
   }
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -13010,6 +13268,7 @@
   // (your own feed always counts). Learns dismissals like the other nudges (coachLearnRecord
   // + coachShouldPeekType suppression after repeated "Not now").
   function coachOfferPost() {
+    coachPendingCaption = ""; // a normal post offer must never inherit a stale recap prefill
     if (!(coach.lastLogged || []).length) return;
     if (!coachPostDestinations().length) return;
     if (!coachShouldPeekType("post")) return;
@@ -13051,7 +13310,7 @@
     coachScroll();
   }
   // Back-compat alias: the "Log & post" shortcuts open the destination picker directly.
-  function coachOpenPostComposer() { coachOpenPostPicker(); }
+  function coachOpenPostComposer() { coachPendingCaption = ""; coachOpenPostPicker(); } // "Log & post" shortcuts: never inherit a recap prefill
 
   // Step 3: a destination was picked → open the composer (caption + photo) for it.
   function coachChooseDestination(kind, id) {
@@ -13067,7 +13326,8 @@
       if (!tgt) { coachSayText("That community has no rule to post to yet."); return; }
       post = { kind: "community", name: community.name || "Community", contextId: tgt.contextId, ruleId: tgt.ruleId, amount: tgt.amount, alreadyLogged: tgt.alreadyLogged };
     }
-    coach.post = Object.assign(post, { caption: "", file: null, previewUrl: "", cardEl: null });
+    coach.post = Object.assign(post, { caption: (coachPendingCaption || "").slice(0, ENTRY_MESSAGE_MAX), file: null, previewUrl: "", cardEl: null });
+    coachPendingCaption = ""; // one-shot: consume any recap prefill
     coachDisableStaleCards();
     const bubble = coachSay(`<div class="coach-card coach-post-card is-active" data-coach-post-card></div>`);
     coach.post.cardEl = bubble.querySelector("[data-coach-post-card]");
@@ -13077,6 +13337,7 @@
   // "Not now" on either the offer or the picker → dismiss cleanly + learn the dismissal.
   function coachDeclinePost() {
     coachLearnRecord("post", "dismissed");
+    coachPendingCaption = ""; // declining clears any pending recap prefill too
     coach.post = null;
     coachDisableStaleCards();
     coachSayText("No problem — logged, not posted.");
@@ -13413,6 +13674,9 @@
     if (toggle) { const e = coachDraftEntryById(toggle.dataset.coachToggle); if (e) { e.amount = e.amount > 0 ? 0 : 1; coachRenderDraftCard(); } return; }
     const clar = t.closest("[data-coach-clar]");
     if (clar) { coachResolveClar(clar.dataset.coachClar); return; }
+    if (t.closest("[data-coach-recappost]")) { coachRecapPost(card()); return; }
+    if (t.closest("[data-coach-recapkeep]")) { coachRecapKeep(card()); return; }
+    if (t.closest("[data-coach-recapdismiss]")) { coachRecapDismiss(card()); return; }
     if (t.closest("[data-coach-postyes]")) { coachLearnRecord("post", "acted"); coachOpenPostPicker(); return; }
     if (t.closest("[data-coach-postno]")) { coachDeclinePost(); return; }
     const postDest = t.closest("[data-coach-postdest]");

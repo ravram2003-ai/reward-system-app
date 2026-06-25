@@ -71,6 +71,9 @@ you know what's live in production.
 
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).
+  **Redeploy needed** for the "Yesterday, recapped" daily card: a new additive `mode:"recap"`
+  branch returns a short prose recap (`{recap}`). Until redeployed, the client composes the recap
+  locally (graceful fallback) — no errors, just no LLM phrasing. Deployed slug is `bright-api`.
 - `supabase functions deploy wearables` — Fitbit/Whoop sync.
 - `supabase functions deploy parse-log` — natural-language quick log *(if/when added)*.
 - Each needs its LLM/provider secret set in Supabase project settings.

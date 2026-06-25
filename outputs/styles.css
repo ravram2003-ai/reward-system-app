@@ -8602,9 +8602,49 @@ body.onboarding-locked .coach-panel { display: none; }
 .quick-log-clarify { display: grid; gap: 10px; }
 .quick-log-clar-item { display: grid; gap: 8px; }
 .quick-log-clar-q { color: var(--ink); font-size: 0.88rem; font-weight: 650; }
+.quick-log-clar-hint { color: var(--muted); font-size: 0.74rem; font-weight: 600; }
 .quick-log-clar-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Pre-picked clarification candidate (the "best guess") reads as a filled green chip. */
+.quick-log-clar-chip.is-selected {
+  background: #1c4d3b; border-color: #2c5a48; color: #9bf3cf; font-weight: 700;
+}
 
-.quick-log-draft-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+/* ── AI quick-log review card: confidence + one-tap confirm (see work/logging-ease.html §3) ── */
+.quick-log-draft-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.quick-log-draft-title { display: flex; align-items: center; gap: 6px; color: #9bf3cf; font-size: 0.86rem; font-weight: 750; }
+.quick-log-discard-x {
+  flex: 0 0 auto; width: 26px; height: 26px; display: grid; place-items: center;
+  border: 0; border-radius: 50%; background: transparent; color: var(--muted);
+  font-size: 0.85rem; line-height: 1; cursor: pointer;
+}
+.quick-log-discard-x:hover { color: var(--danger); background: rgba(240, 98, 92, 0.12); }
+
+/* Compact (default) match row: icon + "label · summary" + confidence + a ✓. No controls. */
+.quick-log-row-item.is-compact { gap: 9px; }
+.quick-log-row-icon { flex: 0 0 auto; font-size: 1.1rem; }
+.quick-log-row-summary {
+  flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: 0.84rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.quick-log-row-summary strong { color: var(--ink); font-weight: 800; }
+.quick-log-row-check { flex: 0 0 auto; color: #5cf3b8; font-size: 0.95rem; }
+/* High/medium keep the green ✓ (matches reference); low confidence dims it so it doesn't read
+   as "already approved" next to a red-ish badge. */
+.quick-log-row-check.is-low { color: var(--muted); }
+
+/* Per-match confidence badge: green = high, amber = medium, red-ish = low. */
+.quick-log-confidence {
+  flex: 0 0 auto; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.02em;
+  padding: 2px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent;
+}
+.quick-log-confidence.is-high { color: #7fe9c0; background: #13281f; border-color: #2a5a45; }
+.quick-log-confidence.is-med { color: #d8b25a; background: #2a2113; border-color: #4a3a1a; }
+.quick-log-confidence.is-low { color: #e3a0a0; background: #2a1414; border-color: #5a2a2a; }
+
+/* Actions: secondary "Edit" + primary "Log all" (reference weights 1 : 2). */
+.quick-log-draft-actions { display: flex; align-items: center; gap: 10px; }
+.quick-log-edit { flex: 1 1 0; }
+.quick-log-confirm-cta { flex: 2 1 0; }
 
 /* ── Tappable user profiles ──────────────────────────────────────────────── */
 /* Feed-post author (avatar + name) is a tappable button → opens their profile. */

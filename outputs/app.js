@@ -9805,22 +9805,21 @@
   // the full post via openEntryPost, exactly like the list cards.
   function renderProfileRecentPosts(o) {
     const posts = o.posts || [];
-    const head = `
-      <div class="profile-posts-head">
-        <h3 class="profile-section-title">Recent posts</h3>
-        ${posts.length ? `
-        <div class="segmented profile-posts-toggle" role="group" aria-label="Posts layout">
-          <button class="segmented-button${state.profilePostsView !== "list" ? " active" : ""}" type="button" data-profile-posts-view="grid" aria-pressed="${state.profilePostsView !== "list"}">Grid</button>
-          <button class="segmented-button${state.profilePostsView === "list" ? " active" : ""}" type="button" data-profile-posts-view="list" aria-pressed="${state.profilePostsView === "list"}">List</button>
-        </div>` : ""}
-      </div>`;
+    const head = `<div class="profile-posts-head"><h3 class="profile-section-title">Recent posts</h3></div>`;
     if (!posts.length) {
       return `<section class="profile-section profile-posts-section">${head}${emptyState("No public posts yet.")}</section>`;
     }
+    // Grid/List as a full-width tab bar attached to the top of the grid (IG-style): the active tab
+    // gets a bottom accent underline. Same toggle state + handler (data-profile-posts-view) —
+    // just relocated from beside the title so the control + photos read as one connected block.
+    const gridOn = state.profilePostsView !== "list";
+    const tab = (view, glyph, label, on) =>
+      `<button class="profile-posts-tab${on ? " is-active" : ""}" type="button" role="tab" aria-selected="${on ? "true" : "false"}" data-profile-posts-view="${view}" aria-label="${label}"><span aria-hidden="true">${glyph}</span></button>`;
+    const tabs = `<div class="profile-posts-tabs" role="tablist" aria-label="Posts layout">${tab("grid", "▦", "Grid view", gridOn)}${tab("list", "☰", "List view", !gridOn)}</div>`;
     const body = state.profilePostsView === "list"
       ? `<div class="profile-posts-list">${posts.map(renderProfilePostCard).join("")}</div>`
       : `<div class="profile-posts-grid">${posts.map((p) => renderProfilePostTile(p, o)).join("")}</div>`;
-    return `<section class="profile-section profile-posts-section">${head}${body}</section>`;
+    return `<section class="profile-section profile-posts-section">${head}<div class="profile-posts-block">${tabs}${body}</div></section>`;
   }
 
   // One square grid tile. Photo posts → image thumbnail with a small like/comment overlay;
@@ -9846,10 +9845,12 @@
           ${counts}
         </button>`;
     }
-    // Text-only check-in → the caption is the hero, centered on the per-post gradient.
+    // Text-only check-in → style C (calm): a dark tile with a small accent bar (the post's stable
+    // category color) and the CAPTION as the hero (the message, not the community name).
     const color = dayScheduleColor(p.rule_id || p.community_id || p.entry_id);
-    const caption = escapeHtml((p.message && String(p.message).trim()) || p.community_name || "Check-in");
+    const caption = escapeHtml((p.message && String(p.message).trim()) || "Check-in");
     return `<button class="profile-post-tile profile-tile-text" type="button" data-profile-post="${entryId}" style="--tile:${color}" aria-label="Open post">
+        <span class="profile-tile-bar" aria-hidden="true"></span>
         <span class="profile-tile-caption"><p>${caption}</p></span>
         ${counts}
       </button>`;

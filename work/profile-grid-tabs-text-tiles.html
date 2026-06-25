@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — profile posts: connected Grid/List tabs + refined text tiles (style C)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; justify-content:center; padding:24px 12px; }
+  .wrap { width:100%; max-width:430px; background:#070b0a; border-radius:16px; padding:14px 14px 0; }
+  .title { font-size:15px; color:#f3f6f4; display:block; margin-bottom:10px; font-weight:600; }
+  /* Grid/List as a full-width tab bar sitting directly on the grid */
+  .tabs { display:flex; border-bottom:1px solid #1a2320; }
+  .tab { flex:1; text-align:center; padding:9px; font-size:15px; color:#5f7268; cursor:pointer; }
+  .tab.on { color:#f3f6f4; border-bottom:2px solid #3ddc97; margin-bottom:-1px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:3px; padding-top:3px; padding-bottom:14px; }
+  .cell { aspect-ratio:1; border-radius:6px; overflow:hidden; }
+  /* text-only tile — style C: minimal dark + a small accent bar, caption as hero */
+  .text { position:relative; background:#14191c; display:flex; align-items:center; justify-content:center; padding:12px; }
+  .text .bar { position:absolute; top:10px; left:10px; width:18px; height:3px; border-radius:2px; }
+  .text p { font-size:12px; color:#eaf2ee; font-weight:600; text-align:center; line-height:1.3; margin:0; }
+  .note { font-size:10.5px; color:#7c8d87; margin:0; padding:11px 2px 14px; text-align:center; line-height:1.5; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <span class="title">Recent posts</span>
+
+  <!-- connected tab bar -->
+  <div class="tabs">
+    <div class="tab on">&#9638;</div>   <!-- grid icon -->
+    <div class="tab">&#9776;</div>       <!-- list icon -->
+  </div>
+
+  <!-- grid: photo + refined text tiles (style C) -->
+  <div class="grid">
+    <div class="cell text"><span class="bar" style="background:#9a7fe0;"></span><p>slept 8 hours 😴</p></div>
+    <div class="cell" style="background:linear-gradient(135deg,#3a4a55,#243038);"></div>
+    <div class="cell" style="background:linear-gradient(135deg,#55473a,#3a2e25);"></div>
+    <div class="cell" style="background:linear-gradient(135deg,#243a52,#3a1a36);"></div>
+    <div class="cell text"><span class="bar" style="background:#3ddc97;"></span><p>grinding 💪</p></div>
+    <div class="cell" style="background:linear-gradient(135deg,#3a4a55,#2a3540);"></div>
+    <div class="cell text"><span class="bar" style="background:#5cb0f3;"></span><p>read 30 pages</p></div>
+    <div class="cell" style="background:linear-gradient(135deg,#2a3540,#1a2530);"></div>
+    <div class="cell text"><span class="bar" style="background:#e0857f;"></span><p>rest day, recharged</p></div>
+  </div>
+
+  <p class="note">Grid/List → a full-width tab bar (▦ / ☰) attached to the top of the grid, so control + photos are one connected block · text-only tiles = minimal dark card with a small accent bar + the caption as the hero (calm next to photos). Swap the accent style for the soft-mesh look (option B) if you'd rather it pop more.</p>
+</div>
+</body>
+</html>

@@ -377,7 +377,10 @@
   }
 
   function normalizeRuleSource(rule, label, unit) {
-    const supported = new Set(["manual", "apple-health", "google-health-connect", "google-health", "whoop", "chase", "plaid", "calculated"]);
+    // Only real sources remain: manual, the live wearables (google-health/Fitbit + whoop), and
+    // calculated. A saved rule on a removed demo provider (apple-health / google-health-connect /
+    // chase / plaid) is no longer "supported", so it falls back to manual below.
+    const supported = new Set(["manual", "google-health", "whoop", "calculated"]);
     const savedSource = cleanText(rule.dataSource || rule.source || "");
     if (shouldStayManualSource(label, unit)) {
       return { dataSource: "manual", sourceMetric: "manual" };
@@ -396,20 +399,15 @@
 
   function inferRuleSource(label, unit) {
     const text = `${label || ""} ${unit || ""}`.toLowerCase();
+    // Whoop-exclusive metric names strongly imply a Whoop rule; a calories rule is a calculated
+    // total from macros. Everything else (steps / sleep / workouts / spending / …) no longer
+    // auto-links to a removed demo provider — it stays MANUAL unless the user explicitly picks a
+    // real wearable (Fitbit / Whoop) as the data source. (This is what stopped default seed rules
+    // like "Steps" / "Spending over budget" from being silently tagged apple-health / plaid.)
     if (text.includes("recovery")) return { dataSource: "whoop", sourceMetric: "recovery" };
     if (text.includes("strain")) return { dataSource: "whoop", sourceMetric: "strain" };
     if (text.includes("hrv") || text.includes("heart rate variability")) return { dataSource: "whoop", sourceMetric: "hrv" };
-    if (text.includes("step")) return { dataSource: "apple-health", sourceMetric: "steps" };
-    if (text.includes("sleep")) return { dataSource: "apple-health", sourceMetric: "sleep-hours" };
-    if (text.includes("active calorie")) return { dataSource: "apple-health", sourceMetric: "active-calories" };
     if (text.includes("calorie")) return { dataSource: "calculated", sourceMetric: "total-calories" };
-    if (text.includes("workout") || text.includes("gym session")) return { dataSource: "apple-health", sourceMetric: "workouts" };
-    if (text.includes("lifting") || text.includes("exercise minute")) return { dataSource: "apple-health", sourceMetric: "exercise-minutes" };
-    if (text.includes("dining")) return { dataSource: "plaid", sourceMetric: "dining-spending" };
-    if (text.includes("shopping")) return { dataSource: "plaid", sourceMetric: "shopping-spending" };
-    if (text.includes("spending") || text.includes("budget") || text.includes("transaction") || text.includes("dollar")) {
-      return { dataSource: "plaid", sourceMetric: "daily-spending" };
-    }
     return { dataSource: "manual", sourceMetric: "manual" };
   }
 

@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260625-feedsizes">
+    <link rel="stylesheet" href="styles.css?v=20260625-realonly">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -673,10 +673,8 @@
                       <span>Data source</span>
                       <select id="ruleDataSourceInput">
                         <option value="manual">Manual Entry</option>
-                        <option value="apple-health">Apple Health</option>
-                        <option value="google-health-connect">Google Health Connect</option>
-                        <option value="chase">Bank Account / Chase</option>
-                        <option value="plaid">Plaid</option>
+                        <option value="google-health">Google Health (Fitbit)</option>
+                        <option value="whoop">Whoop</option>
                         <option value="calculated">Calculated Total</option>
                       </select>
                     </label>
@@ -1471,7 +1469,7 @@
             <div class="panel-heading">
               <div>
                 <h3 id="integrationsTitle">Integrations</h3>
-                <span>Demo connections for synced rules</span>
+                <span>Connect a wearable to auto-sync rules</span>
               </div>
             </div>
             <div class="integration-list" id="integrationList"></div>
@@ -1541,13 +1539,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260625-feedsizes"></script>
-    <script src="auth-helpers.js?v=20260625-feedsizes"></script>
-    <script src="scoring.js?v=20260625-feedsizes"></script>
-    <script src="insight.js?v=20260625-feedsizes"></script>
-    <script src="signals.js?v=20260625-feedsizes"></script>
-    <script src="wearables.js?v=20260625-feedsizes"></script>
-    <script type="module" src="auth.js?v=20260625-feedsizes"></script>
-    <script src="app.js?v=20260625-feedsizes"></script>
+    <script src="supabase-config.js?v=20260625-realonly"></script>
+    <script src="auth-helpers.js?v=20260625-realonly"></script>
+    <script src="scoring.js?v=20260625-realonly"></script>
+    <script src="insight.js?v=20260625-realonly"></script>
+    <script src="signals.js?v=20260625-realonly"></script>
+    <script src="wearables.js?v=20260625-realonly"></script>
+    <script type="module" src="auth.js?v=20260625-realonly"></script>
+    <script src="app.js?v=20260625-realonly"></script>
   </body>
 </html>

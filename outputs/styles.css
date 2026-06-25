@@ -1396,32 +1396,75 @@ label > span {
   gap: 12px;
 }
 
-.entry-amount-field {
-  display: grid;
-  gap: 9px;
-}
-
-.entry-slider-line {
-  display: grid;
-  grid-template-columns: minmax(130px, 1fr) minmax(126px, 0.5fr);
+/* Single-rule header: icon + rule name + the system/community it belongs to (replaces the
+   rule dropdown when there's nothing to choose from). See work/logging-ease.html §2. */
+.add-entry-rule-label {
+  display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
+  min-width: 0;
+}
+.add-entry-rule-label .add-entry-rule-icon { font-size: 1.15rem; flex: 0 0 auto; }
+.add-entry-rule-label strong {
+  font-size: 0.98rem; color: #f3f6f4; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.add-entry-rule-context {
+  margin-left: auto; flex: 0 0 auto; font-size: 0.76rem; color: #7c8d87;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%;
 }
 
-.entry-slider-line input[type="range"] {
-  width: 100%;
-  height: 32px;
+/* The single amount control: a large, tap-friendly −/value/+ stepper. The value is a number
+   input, so tapping it lets you type a precise amount; the buttons step by one unit. */
+.add-entry-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
 }
+.stepper-btn {
+  flex: 0 0 auto; width: 48px; height: 48px; border-radius: 14px;
+  background: #11181a; border: 1px solid #243029; color: #9bf3cf;
+  font-size: 1.5rem; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.stepper-btn:hover { border-color: #2c5a48; }
+.stepper-btn:active { background: #16241f; }
+.stepper-value {
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  min-width: 96px; cursor: text;
+}
+/* Three classes so it beats the global `input:not([type=range])...` field-background rule. */
+.add-entry-stepper .stepper-value .stepper-input {
+  width: 100%; max-width: 150px; border: none; background: none; text-align: center;
+  font-size: 1.85rem; font-weight: 700; color: #f3f6f4; font-variant-numeric: tabular-nums;
+  padding: 0; -moz-appearance: textfield;
+}
+.stepper-input:focus { outline: none; }
+.stepper-input::-webkit-outer-spin-button,
+.stepper-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.stepper-unit { font-size: 0.72rem; color: #7c8d87; }
 
-.entry-slider-line input[type="range"]::-webkit-slider-thumb {
-  width: 22px;
-  height: 22px;
+/* Collapsed "＋ Add a photo or note" accordion — keeps the default path to amount → Post. */
+.entry-details { border: 0; }
+.entry-details-summary {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 12px; border-radius: 11px; background: #11181a; border: 1px solid #1e2826;
+  font-size: 0.85rem; color: #9fb0aa; cursor: pointer; list-style: none;
 }
+.entry-details-summary::-webkit-details-marker { display: none; }
+.entry-details-summary:hover { border-color: #2c5a48; }
+.entry-details-chevron { color: #8fa39d; transition: transform 0.2s ease; }
+.entry-details[open] .entry-details-chevron { transform: rotate(180deg); }
+.entry-details[open] .entry-details-summary { margin-bottom: 10px; }
 
-.add-entry-check {
-  width: 100%;
-  justify-content: start;
+/* Yes/no submit button = the "✓ Mark done" toggle (green outline). See work/logging-ease.html §2.
+   Compound selector so it beats the later dark-theme `.primary-button` redefinitions. */
+.add-entry-submit.add-entry-markdone {
+  background: #16241f; border: 1px solid #2c5a48; color: #9bf3cf;
 }
+.add-entry-submit.add-entry-markdone:hover { background: #1c4d3b; }
+.add-entry-submit.add-entry-markdone:active { background: #1c4d3b; border-color: #3a8d6b; }
 
 .quick-add {
   display: grid;
@@ -3275,7 +3318,6 @@ label small {
 
   .quick-add,
   .manual-entry,
-  .entry-slider-line,
   .calc-input-option .calc-multiplier-field,
   .calc-total-row {
     grid-template-columns: 1fr;

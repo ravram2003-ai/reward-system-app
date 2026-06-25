@@ -1080,6 +1080,30 @@
     }
   }
 
+  // "Yesterday, recapped" — reuses the SAME generate Edge Function ("bright-api") with
+  // mode:"recap", passing yesterday's structured summary. Returns { error, recap } where
+  // recap is a short, warm, second-person prose string. Mirrors generateRules: never throws,
+  // degrades to { error } so the client can fall back to its own composed recap.
+  async function generateRecap(summary) {
+    var sb = getClient();
+    if (!sb || !sb.functions || typeof sb.functions.invoke !== "function") {
+      return { error: { message: "Recap needs a connection." } };
+    }
+    try {
+      // Same deployed slug as generateRules — the function branches on body.mode.
+      var res = await sb.functions.invoke("bright-api", { body: { mode: "recap", summary: summary || {} } });
+      if (res.error) return { error: res.error };
+      var data = res.data || {};
+      if (data.error) return { error: { message: String(data.error) } };
+      if (typeof data.recap !== "string" || !data.recap.trim()) {
+        return { error: { message: "The AI returned an unexpected response." } };
+      }
+      return { error: null, recap: data.recap.trim() };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the AI service." } };
+    }
+  }
+
   // Natural-language "quick log": send the user's text + their loggable rule catalog
   // to the parse-log Edge Function; get back validated draft entries + clarifications.
   // Mirrors generateRules — sb.functions.invoke handles URL/apikey/JWT. Returns a
@@ -1230,6 +1254,7 @@
     getFriendTodayActivity: getFriendTodayActivity,
     getFriendsActiveToday: getFriendsActiveToday,
     generateRules: generateRules,
+    generateRecap: generateRecap,
     parseLog: parseLog,
     coachChat: coachChat,
     estimateFood: estimateFood,

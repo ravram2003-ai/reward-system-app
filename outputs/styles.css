@@ -9108,6 +9108,11 @@ body.onboarding-locked .coach-panel { display: none; }
 .coach-card { display: flex; flex-direction: column; gap: 10px; }
 .coach-card.is-done { opacity: 0.6; }
 .coach-card-title { margin: 0; font-weight: 800; color: var(--ink); }
+/* "Yesterday, recapped" daily AI card: ✨ eyebrow + warm prose with bold facts. */
+.coach-recap-card { gap: 8px; padding: 12px 13px; border: 1px solid var(--accent); border-left: 3px solid var(--accent); border-radius: 14px; background: var(--accent-soft); }
+.coach-recap-eyebrow { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-strong); }
+.coach-recap-text { margin: 0; color: var(--ink); font-size: 0.92rem; line-height: 1.45; }
+.coach-recap-text strong { color: var(--ink); font-weight: 800; }
 /* Auto-sync recap: the compact "Fitbit synced — added X to today" confirmation + per-context lines. */
 .coach-sync-card { gap: 6px; padding: 10px 12px; border: 1px solid var(--accent); border-left: 3px solid var(--accent); border-radius: 12px; background: var(--accent-soft); }
 .coach-sync-line { color: var(--muted); font-size: 0.85rem; }

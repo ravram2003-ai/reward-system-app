@@ -61,7 +61,11 @@ repeat them and the app stays consistent.
 - **Bell vs Chats:** the bell is for social activity ABOUT you (likes, comments, friend
   requests/accepts, kudos). **Direct messages go to Chats only — never the bell.**
 - **Add Entry:** the submit button sits at the **bottom** of the form and reads
-  **"Post <rule>"**. Entries can include an optional photo + caption and become feed posts.
+  **"Post <rule>"**. Entries can include an optional photo + caption.
+- **What counts as a post / where text posts appear:** A post needs a photo OR a caption. Profile
+  "Recent posts" shows PHOTO posts only. The Feed and community feeds show photo + caption text
+  posts; a bare log (no photo, no caption) is activity — it updates points and shows as a compact
+  activity line, not a full post.
 - **Onboarding (4 steps, shown once via `profiles.onboarding_completed`):** Welcome →
   Create profile (name, photo, public/private) → interests (popular + niche + add-your-own
   + level + how-you-stay-on-track) → AI picks (a generated personal system + public

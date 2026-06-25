@@ -9768,10 +9768,12 @@
   // server-gated posts (o.posts), so visibility is already enforced; tiles tap to open
   // the full post via openEntryPost, exactly like the list cards.
   function renderProfileRecentPosts(o) {
-    const posts = o.posts || [];
+    // Profile "Recent posts" is a PHOTO grid: caption-only text posts and bare logs live in the
+    // feed, not here. Filter to posts that carry a photo (they still show their caption in the tile/card).
+    const posts = (o.posts || []).filter((p) => p.photo_path);
     const head = `<div class="profile-posts-head"><h3 class="profile-section-title">Recent posts</h3></div>`;
     if (!posts.length) {
-      return `<section class="profile-section profile-posts-section">${head}${emptyState("No public posts yet.")}</section>`;
+      return `<section class="profile-section profile-posts-section">${head}${emptyState("No photos yet.")}</section>`;
     }
     // Grid/List as a full-width tab bar attached to the top of the grid (IG-style): the active tab
     // gets a bottom accent underline. Same toggle state + handler (data-profile-posts-view) —
@@ -9782,40 +9784,28 @@
     const tabs = `<div class="profile-posts-tabs" role="tablist" aria-label="Posts layout">${tab("grid", "▦", "Grid view", gridOn)}${tab("list", "☰", "List view", !gridOn)}</div>`;
     const body = state.profilePostsView === "list"
       ? `<div class="profile-posts-list">${posts.map(renderProfilePostCard).join("")}</div>`
-      : `<div class="profile-posts-grid">${posts.map((p) => renderProfilePostTile(p, o)).join("")}</div>`;
+      : `<div class="profile-posts-grid">${posts.map(renderProfilePostTile).join("")}</div>`;
     return `<section class="profile-section profile-posts-section">${head}<div class="profile-posts-block">${tabs}${body}</div></section>`;
   }
 
-  // One square grid tile. Photo posts → image thumbnail with a small like/comment overlay;
-  // text-only check-ins → a colored tile (category-stable color) with an icon + short
-  // label, so nothing disappears. Tappable → the full post (openEntryPost), same as cards.
-  function renderProfilePostTile(p, o) {
+  // One square grid tile — PHOTO posts only (the grid is filtered to photos upstream). Image
+  // thumbnail with a small like/comment counts scrim. Tappable → the full post (openEntryPost).
+  function renderProfilePostTile(p) {
+    const photoPath = p.photo_path || "";
+    if (!photoPath) return ""; // defensive: non-photo posts are filtered out before we get here
     const entryId = escapeHtml(String(p.entry_id));
     const likes = Number(p.like_count) || 0;
     const comments = Number(p.comment_count) || 0;
-    // Counts scrim on EVERY tile (photo + text): ♥ likes · 💬 comments, omitting a zero count.
     const parts = [];
     if (likes) parts.push(`♥ ${escapeHtml(formatFollowCount(likes))}`);
     if (comments) parts.push(`💬 ${escapeHtml(formatFollowCount(comments))}`);
     const counts = parts.length ? `<span class="profile-tile-counts">${parts.join(" · ")}</span>` : "";
-    const photoPath = p.photo_path || "";
-    if (photoPath) {
-      // Multi-photo marker (⧉) — shown only when the post carries more than one photo. Posts
-      // are single-photo today, so this stays dormant until that data exists.
-      const carousel = Number(p.photo_count) > 1 ? `<span class="profile-tile-carousel" aria-hidden="true">⧉</span>` : "";
-      return `<button class="profile-post-tile profile-tile-photo" type="button" data-profile-post="${entryId}" aria-label="Open post">
-          <div class="ig-photo profile-tile-img" data-entry-photo="${escapeHtml(photoPath)}" role="img" aria-label="Post photo"><img alt="" loading="lazy"></div>
-          ${carousel}
-          ${counts}
-        </button>`;
-    }
-    // Text-only check-in → style C (calm): a dark tile with a small accent bar (the post's stable
-    // category color) and the CAPTION as the hero (the message, not the community name).
-    const color = dayScheduleColor(p.rule_id || p.community_id || p.entry_id);
-    const caption = escapeHtml((p.message && String(p.message).trim()) || "Check-in");
-    return `<button class="profile-post-tile profile-tile-text" type="button" data-profile-post="${entryId}" style="--tile:${color}" aria-label="Open post">
-        <span class="profile-tile-bar" aria-hidden="true"></span>
-        <span class="profile-tile-caption"><p>${caption}</p></span>
+    // Multi-photo marker (⧉) — shown only when the post carries more than one photo. Posts
+    // are single-photo today, so this stays dormant until that data exists.
+    const carousel = Number(p.photo_count) > 1 ? `<span class="profile-tile-carousel" aria-hidden="true">⧉</span>` : "";
+    return `<button class="profile-post-tile profile-tile-photo" type="button" data-profile-post="${entryId}" aria-label="Open post">
+        <div class="ig-photo profile-tile-img" data-entry-photo="${escapeHtml(photoPath)}" role="img" aria-label="Post photo"><img alt="" loading="lazy"></div>
+        ${carousel}
         ${counts}
       </button>`;
   }

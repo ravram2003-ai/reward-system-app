@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — profile with cover banner (filled + owner empty state)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; flex-direction:column; align-items:center; gap:18px; padding:24px 12px; }
+  .panel { width:100%; max-width:430px; }
+  .label { font-size:12px; color:#cfe9df; font-weight:600; margin:0 0 8px; }
+  .card { background:#070b0a; border-radius:20px; overflow:hidden; }
+  .banner { position:relative; height:118px; }
+  .back { position:absolute; top:12px; left:14px; font-size:11px; color:#eafff8; background:rgba(0,0,0,.35); padding:4px 11px; border-radius:18px; }
+  .gear { position:absolute; top:12px; right:14px; font-size:13px; color:#eafff8; background:rgba(0,0,0,.35); width:30px; height:26px; border-radius:9px; display:flex; align-items:center; justify-content:center; }
+  .body { padding:0 16px 16px; }
+  .avwrap { display:flex; align-items:flex-end; margin-top:-34px; margin-bottom:11px; }
+  .av { width:74px; height:74px; border-radius:20px; border:3px solid #070b0a; position:relative; display:flex; align-items:center; justify-content:center; font-size:26px; color:#eafff8; font-weight:700; }
+  .cam { position:absolute; bottom:-3px; right:-3px; width:24px; height:24px; border-radius:50%; background:#1c4d3b; border:2px solid #070b0a; font-size:11px; display:flex; align-items:center; justify-content:center; }
+  .name { font-size:19px; color:#f3f6f4; letter-spacing:-.3px; display:block; }
+  .handle { font-size:12.5px; color:#7c8d87; }
+  .bio { font-size:12.5px; color:#cfd8d4; margin:6px 0 14px; line-height:1.4; }
+  .addbio { font-size:12px; color:#5fae8e; margin:6px 0 14px; }
+  .stats { display:flex; gap:22px; padding-bottom:16px; border-bottom:1px solid #141d19; }
+  .stats .n { font-size:16px; font-weight:600; color:#f3f6f4; } .stats .c { font-size:12px; color:#8aa39a; }
+  .posthead { display:flex; align-items:center; justify-content:space-between; margin:14px 0 11px; }
+  .posthead strong { font-size:15px; color:#f3f6f4; }
+  .toggle { display:flex; background:#11181a; border-radius:9px; padding:2px; }
+  .toggle span { font-size:11px; padding:5px 11px; border-radius:7px; color:#8aa39a; } .toggle .on { background:#1c4d3b; color:#9bf3cf; }
+  .grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:3px; }
+  .cell { aspect-ratio:1; border-radius:4px; }
+  .cell.text { display:flex; align-items:center; justify-content:center; } .cell.text span { font-size:9px; color:#fff; font-weight:600; }
+  .note { font-size:10.5px; color:#7c8d87; margin:13px 0 0; text-align:center; line-height:1.5; }
+</style>
+</head>
+<body>
+
+  <!-- FILLED profile with banner -->
+  <div class="panel">
+    <p class="label">Profile with a cover banner (owner-set, like a world)</p>
+    <div class="card">
+      <div class="banner" style="background:linear-gradient(135deg,#2f7a5c,#244a6e 70%,#3a2a6b);"><span class="back">‹ Back</span><span class="gear">⚙</span></div>
+      <div class="body">
+        <div class="avwrap"><div class="av" style="background:linear-gradient(135deg,#2f7a5c,#244a6e);">R</div></div>
+        <strong class="name">Robert A</strong><span class="handle">@robert</span>
+        <p class="bio">Founder · building Pointwell 🛠️</p>
+        <div class="stats"><div><span class="n">1</span> <span class="c">Followers ›</span></div><div><span class="n">1</span> <span class="c">Following ›</span></div><div><span class="n" style="color:#7fe9c0;">8</span> <span class="c">Communities</span></div></div>
+        <div class="posthead"><strong>Recent posts</strong><div class="toggle"><span class="on">Grid</span><span>List</span></div></div>
+        <div class="grid">
+          <div class="cell text" style="background:linear-gradient(150deg,#5a2a6b,#3a2a52);"><span>THE BOYS</span></div>
+          <div class="cell" style="background:linear-gradient(135deg,#3a4a55,#243038);"></div>
+          <div class="cell" style="background:linear-gradient(135deg,#55473a,#3a2e25);"></div>
+          <div class="cell" style="background:linear-gradient(135deg,#243a52,#3a1a36);"></div>
+          <div class="cell text" style="background:linear-gradient(150deg,#2f7a5c,#1a4a6e);"><span>slept 8h</span></div>
+          <div class="cell" style="background:linear-gradient(135deg,#3a4a55,#2a3540);"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- EMPTY / owner-edit state -->
+  <div class="panel">
+    <p class="label">Empty / owner-edit (default gradient + add affordances)</p>
+    <div class="card">
+      <div class="banner" style="background:linear-gradient(135deg,#10241c,#13202c);display:flex;align-items:center;justify-content:center;"><span class="back" style="background:rgba(0,0,0,.3);color:#cfe9df;">‹ Back</span><span class="gear" style="background:rgba(0,0,0,.3);color:#9bf3cf;">⚙</span><span style="font-size:11px;color:#6f9486;border:1px dashed #2c4a3f;padding:6px 14px;border-radius:18px;">＋ Add cover photo</span></div>
+      <div class="body">
+        <div class="avwrap"><div class="av" style="background:linear-gradient(135deg,#2f7a5c,#244a6e);">R<span class="cam">📷</span></div></div>
+        <strong class="name">Robert A</strong><span class="handle">@robert</span>
+        <p class="addbio">+ Add a bio</p>
+        <div class="stats"><div><span class="n">0</span> <span class="c">Followers ›</span></div><div><span class="n">0</span> <span class="c">Following ›</span></div><div><span class="n" style="color:#7fe9c0;">2</span> <span class="c">Communities</span></div></div>
+        <p class="note">Owner taps the banner / 📷 badge to set cover &amp; avatar from their library · others see the default gradient · the "All communities they're in" dropdown is REMOVED (count stays in the Communities stat) · Grid/List stays in Recent posts.</p>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

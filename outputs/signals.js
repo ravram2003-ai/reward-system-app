@@ -181,7 +181,7 @@
     try {
       var res = await sb
         .from("profiles")
-        .select("allow_motivation_when_behind, handle, visibility, onboarding_completed, avatar_url, bio")
+        .select("allow_motivation_when_behind, handle, visibility, onboarding_completed, avatar_url, bio, cover_url")
         .eq("id", userId)
         .maybeSingle();
       return res.error ? null : (res.data || null);
@@ -205,6 +205,10 @@
     // avatar_url is set when present; pass null/"" to clear it back to the initials avatar.
     if (Object.prototype.hasOwnProperty.call(fields, "avatar_url")) {
       patch.avatar_url = fields.avatar_url ? String(fields.avatar_url) : null;
+    }
+    // cover_url: the profile banner image (public URL from the avatars bucket). "" → clear it.
+    if (Object.prototype.hasOwnProperty.call(fields, "cover_url")) {
+      patch.cover_url = fields.cover_url ? String(fields.cover_url) : null;
     }
     if (!Object.keys(patch).length) return { error: null };
     try {

@@ -226,6 +226,9 @@
       // Uploaded profile picture (public URL from the "avatars" bucket). "" = use the
       // initials avatar. Mirrored to the server (profiles.avatar_url).
       avatarUrl: "",
+      // Uploaded profile cover/banner (public URL, also the "avatars" bucket). "" = the
+      // default gradient. Mirrored to the server (profiles.cover_url).
+      coverUrl: "",
       // Opt-in for the "motivation when behind" signal. Default OFF; mirrored to
       // the server (profiles.allow_motivation_when_behind), which is what RLS reads.
       allowMotivation: false
@@ -263,7 +266,6 @@
     buildViewedPublicId: "",
     buildViewedProfileId: "",
     profileUserId: "",            // the OTHER user whose profile page is open
-    profileCommExpanded: false,   // "all communities they're in" expander state
     profilePostsView: "grid",     // profile "Recent posts" layout: "grid" | "list"
     profileCommunityContextId: "",   // community the profile was opened from (→ "Today in" section)
     profileRuleBreakdownOpen: false, // "See rule breakdown" toggle in the "Today in" section
@@ -378,6 +380,10 @@
   // Pending profile-picture change on the Profile page: a chosen-but-unsaved file +
   // local preview, or a flag to clear the saved picture. Applied on "Save profile".
   let profileAvatarDraft = { file: null, previewUrl: "", remove: false };
+  // Direct cover/avatar upload from the profile page (own profile): tap banner / 📷 badge →
+  // library picker → uploadAvatar → save cover_url/avatar_url. Separate from the Settings draft.
+  let profileImgUploadTarget = ""; // "cover" | "avatar"
+  let profileImgUploading = false;
   // Guards the async profile save so a double-click can't upload the avatar twice.
   let profileSaving = false;
   const ENTRY_MESSAGE_MAX = 280;
@@ -1532,8 +1538,9 @@
       // Reflect server truth for the searchable handle + visibility choice.
       if (flags.handle) state.profile.handle = cleanHandle(flags.handle);
       if (flags.visibility === "public" || flags.visibility === "private") state.profile.privacy = flags.visibility;
-      // Server truth for the uploaded profile picture + bio (so they show on every device).
+      // Server truth for the uploaded profile picture + bio + cover (so they show on every device).
       state.profile.avatarUrl = flags.avatar_url || "";
+      state.profile.coverUrl = flags.cover_url || "";
       if (typeof flags.bio === "string") state.profile.bio = flags.bio;
       // Brand-new account that hasn't finished first-run onboarding → show it now.
       // Existing accounts were backfilled onboarding_completed=true (search-onboarding.sql),
@@ -9528,6 +9535,12 @@
     }).catch(() => {});
   }
 
+  // Make a URL safe to drop inside a CSS url('…') token: percent-encode the few chars that
+  // could terminate the url()/quote (legit storage URLs already have these percent-encoded).
+  function cssUrlSafe(u) {
+    return String(u || "").replace(/[\s'"()\\]/g, encodeURIComponent);
+  }
+
   function renderProfilePage() {
     if (!els.profilePageBody || state.activeView !== "profile-page") return;
     const root = els.profilePageBody;
@@ -9569,23 +9582,50 @@
       `<button class="profile-stat" type="button" data-profile-stat="${mode}"><p class="profile-stat-num">${escapeHtml(formatFollowCount(num))}</p><p class="profile-stat-cap">${label} ›</p></button>`;
     const actionRow = (!isOwnProfile && canView)
       ? `<div class="profile-hero-actions-row">${profileRelationshipButton(o)}${profileMessageButton(name)}</div>` : "";
-    let html = back + `
+    // Cover banner + avatar are OWN-profile fields (state.profile) so they reflect a just-uploaded
+    // image immediately; others' covers aren't exposed by the gated overview read → default gradient.
+    const coverUrl = isOwnProfile ? (state.profile.coverUrl || "") : "";
+    const avatarUrl = isOwnProfile ? (state.profile.avatarUrl || "") : (o.avatar_url || "");
+    // Neutralize the CSS url('…') context (defense-in-depth): percent-encode any quote/paren/
+    // backslash/whitespace so a value can't break out of url(); then escapeHtml the attribute.
+    const bannerStyle = coverUrl ? ` style="background-image:url('${escapeHtml(cssUrlSafe(coverUrl))}')"` : "";
+    // The whole banner is also a cover tap target for the owner (not just the chips). Back/gear
+    // are checked first in onProfilePageClick, so tapping them never falls through to the cover.
+    const bannerOwnerAttr = isOwnProfile ? ` data-profile-cover-edit` : "";
+    const coverEditHtml = isOwnProfile
+      ? (coverUrl
+          ? `<button class="profile-banner-edit" type="button" data-profile-cover-edit aria-label="Change cover photo"><span aria-hidden="true">📷</span></button>`
+          : `<button class="profile-banner-add" type="button" data-profile-cover-edit><span aria-hidden="true">＋</span> Add cover photo</button>`)
+      : "";
+    const bannerGearHtml = isOwnProfile
+      ? `<button class="profile-banner-btn profile-banner-gear" type="button" data-profile-settings aria-label="Edit profile and privacy settings"><span aria-hidden="true">⚙</span></button>` : "";
+    const avatarCamHtml = isOwnProfile
+      ? `<button class="profile-avatar-cam" type="button" data-profile-avatar-edit aria-label="Change profile photo"><span aria-hidden="true">📷</span></button>` : "";
+    let html = `
       <section class="profile-hero profile-hero-card">
-        ${isOwnProfile ? `<button class="profile-gear" type="button" data-profile-settings aria-label="Edit profile and privacy settings"><span aria-hidden="true">⚙</span></button>` : ""}
-        <div class="profile-hero-top">
-          ${renderAvatar({ className: "large-avatar profile-hero-avatar", name: o.display_name || "Member", avatarUrl: o.avatar_url })}
+        <div class="profile-banner${coverUrl ? " has-cover" : ""}"${bannerStyle}${bannerOwnerAttr}>
+          <button class="profile-banner-btn profile-banner-back" type="button" data-profile-back aria-label="Back"><span aria-hidden="true">‹</span> Back</button>
+          ${bannerGearHtml}
+          ${coverEditHtml}
+        </div>
+        <div class="profile-hero-body">
+          <div class="profile-hero-avwrap">
+            ${renderAvatar({ className: "large-avatar profile-hero-avatar", name: o.display_name || "Member", avatarUrl: avatarUrl })}
+            ${avatarCamHtml}
+          </div>
           <div class="profile-hero-id">
             <strong class="profile-hero-name">${name}</strong>
             <span class="profile-hero-handle">${handle}</span>
             ${bioHtml}
           </div>
+          ${actionRow}
+          <div class="profile-hero-stats">
+            ${statCard("followers", followers, "Followers")}
+            ${statCard("following", following, "Following")}
+            <div class="profile-stat profile-stat-accent profile-stat-static"><p class="profile-stat-num">${escapeHtml(formatFollowCount(commCount))}</p><p class="profile-stat-cap">Communities</p></div>
+          </div>
         </div>
-        ${actionRow}
-        <div class="profile-hero-stats">
-          ${statCard("followers", followers, "Followers")}
-          ${statCard("following", following, "Following")}
-          <div class="profile-stat profile-stat-accent profile-stat-static"><p class="profile-stat-num">${escapeHtml(formatFollowCount(commCount))}</p><p class="profile-stat-cap">Communities</p></div>
-        </div>
+        ${isOwnProfile ? `<input type="file" accept="image/*" data-profile-img-input hidden>` : ""}
       </section>`;
 
     // "Today in <community>" — community-scoped data the viewer already has as a co-member,
@@ -9605,7 +9645,7 @@
       return;
     }
 
-    html += renderProfileYouMightLike(o, isOwnProfile) + renderProfileAllCommunities(o) + renderProfileRecentPosts(o);
+    html += renderProfileYouMightLike(o, isOwnProfile) + renderProfileRecentPosts(o);
     root.innerHTML = html;
     bindEntryPhotos(root);
     centerProfileTodaySchedule(root);
@@ -9760,25 +9800,6 @@
     return `<button class="${btnClass}" type="button" data-profile-join="${id}">Join</button>`;
   }
 
-  function renderProfileAllCommunities(o) {
-    const comms = o.communities || [];
-    const suggested = new Set(profileSuggestions(o).map((c) => String(c.id)));
-    const rest = comms.filter((c) => !suggested.has(String(c.id)));
-    const privateNote = (o.private_count || 0) > 0
-      ? `<div class="profile-private-row">+ ${o.private_count} more private (not shown)</div>` : "";
-    if (!rest.length && !privateNote) return "";
-    const open = !!state.profileCommExpanded;
-    const rows = rest.map((c) => `<div class="profile-compact-row"><span class="profile-compact-name">${escapeHtml(c.name || "Community")}</span>${profileCommunityAction(c, "ghost-button small")}</div>`).join("");
-    return `
-      <section class="profile-section">
-        <button class="profile-expander" type="button" data-profile-comm-toggle aria-expanded="${open ? "true" : "false"}">
-          <span>All communities they're in (${comms.length})</span>
-          <span class="profile-expander-chevron" aria-hidden="true">${open ? "▴" : "▾"}</span>
-        </button>
-        ${open ? `<div class="profile-compact-list">${rows}${privateNote}</div>` : ""}
-      </section>`;
-  }
-
   // Recent posts — a hybrid grid (default) or the stacked list. Both render the SAME
   // server-gated posts (o.posts), so visibility is already enforced; tiles tap to open
   // the full post via openEntryPost, exactly like the list cards.
@@ -9863,11 +9884,59 @@
       </article>`;
   }
 
+  // Owner taps the banner / "Add cover photo" / the avatar 📷 badge → open the library
+  // picker (the hidden file input rendered in the hero), remembering which field to write.
+  function triggerProfileImgPick(target) {
+    if (profileImgUploading) return;
+    profileImgUploadTarget = target === "cover" ? "cover" : "avatar";
+    const input = els.profilePageBody && els.profilePageBody.querySelector("[data-profile-img-input]");
+    if (input) { input.value = ""; input.click(); }
+  }
+
+  function onProfilePageChange(event) {
+    const input = event.target.closest && event.target.closest("[data-profile-img-input]");
+    if (!input) return;
+    const file = input.files && input.files[0];
+    if (file) uploadProfileImage(file, profileImgUploadTarget);
+    input.value = ""; // allow re-picking the same file
+  }
+
+  // Upload via the EXISTING avatar path (avatars bucket, owner <uid>/ folder), then save the
+  // public URL to cover_url/avatar_url and reflect it in state.profile so it persists + re-renders.
+  async function uploadProfileImage(file, target) {
+    if (!file) return;
+    if (!/^image\//i.test(file.type || "")) { showToast("That's not an image — choose a photo"); return; }
+    if (file.size > ENTRY_PHOTO_MAX_BYTES) { showToast("Photo is too big (max 5 MB) — pick a smaller one"); return; }
+    const uid = state.account && state.account.userId;
+    if (!signalsReady() || !uid || !window.PointwellSignals || typeof window.PointwellSignals.uploadAvatar !== "function") {
+      showToast("Sign in to set a photo");
+      return;
+    }
+    const isCover = target === "cover";
+    profileImgUploading = true;
+    showToast(isCover ? "Uploading cover…" : "Uploading photo…");
+    const up = await Promise.resolve(window.PointwellSignals.uploadAvatar(file, uid)).catch(() => ({ error: { message: "upload failed" } }));
+    profileImgUploading = false;
+    if (up.error || !up.url) {
+      showToast(up.error && up.error.message ? up.error.message : "Couldn't upload — try again");
+      return;
+    }
+    if (isCover) state.profile.coverUrl = up.url; else state.profile.avatarUrl = up.url;
+    const patch = isCover ? { cover_url: up.url } : { avatar_url: up.url };
+    Promise.resolve(window.PointwellSignals.updateProfile(uid, patch)).then((r) => {
+      if (r && r.error) showToast("Saved here, but couldn't sync to the server");
+    }).catch(() => {});
+    saveState();
+    renderProfilePage();
+    showToast(isCover ? "Cover photo updated" : "Profile photo updated");
+  }
+
   function bindProfilePage() {
     const root = els.profilePageBody;
     if (!root || root.dataset.profileBound === "1") return;
     root.dataset.profileBound = "1";
     root.addEventListener("click", onProfilePageClick);
+    root.addEventListener("change", onProfilePageChange);
     root.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       if (!event.target.closest) return;
@@ -9884,6 +9953,8 @@
     const listBack = find("[data-profile-list-back]"); if (listBack) { state.profileListMode = null; saveState(); renderProfilePage(); return; }
     const back = find("[data-profile-back]"); if (back) { state.activeView = profileBackView || "feed"; saveState(); render(); return; }
     const settings = find("[data-profile-settings]"); if (settings) { openProfile(); return; }
+    const coverEdit = find("[data-profile-cover-edit]"); if (coverEdit) { triggerProfileImgPick("cover"); return; }
+    const avatarEdit = find("[data-profile-avatar-edit]"); if (avatarEdit) { triggerProfileImgPick("avatar"); return; }
     const stat = find("[data-profile-stat]"); if (stat) { openProfileList(stat.dataset.profileStat); return; }
     const listOpen = find("[data-profile-list-open]"); if (listOpen) { openUserProfile(listOpen.dataset.profileListOpen); return; }
     const listFollow = find("[data-profile-list-follow]"); if (listFollow) { profileListFollow(listFollow.dataset.profileListFollow, true); return; }
@@ -9896,7 +9967,6 @@
     const join = find("[data-profile-join]"); if (join) { profileJoinCommunity(join.dataset.profileJoin); return; }
     const rj = find("[data-profile-request]"); if (rj) { profileRequestCommunity(rj.dataset.profileRequest); return; }
     const copy = find("[data-profile-copy]"); if (copy) { profileCopySystem(copy.dataset.profileCopy); return; }
-    const toggle = find("[data-profile-comm-toggle]"); if (toggle) { state.profileCommExpanded = !state.profileCommExpanded; saveState(); renderProfilePage(); return; }
     const pv = find("[data-profile-posts-view]"); if (pv) { state.profilePostsView = pv.dataset.profilePostsView === "list" ? "list" : "grid"; saveState(); renderProfilePage(); return; }
     // "Today in <community>" section interactions (kudos, rule breakdown, schedule).
     const kudos = find("[data-today-kudos]"); if (kudos) { sendProfileTodayKudos(); return; }
@@ -18541,7 +18611,6 @@
       buildViewedPublicId: saved.buildViewedPublicId || "",
       buildViewedProfileId: saved.buildViewedProfileId || "",
       profileUserId: saved.profileUserId || "",
-      profileCommExpanded: Boolean(saved.profileCommExpanded),
       profilePostsView: saved.profilePostsView === "list" ? "list" : "grid",
       profileCommunityContextId: saved.profileCommunityContextId || "",
       profileRuleBreakdownOpen: Boolean(saved.profileRuleBreakdownOpen),

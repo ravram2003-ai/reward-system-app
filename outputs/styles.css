@@ -358,6 +358,26 @@ h3 {
   margin-bottom: 22px;
 }
 
+/* Quiet, reusable section-title style — a slim single-line title with a small muted count
+   next to it (e.g. "Your worlds  5"). A class beats the oversized global h2 rules; ready to
+   reuse on other section headers later. */
+.section-title-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.section-title {
+  margin: 0;
+  font-size: 1.12rem;        /* ~18px */
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.section-title-count { flex: 0 0 auto; color: var(--muted); font-size: 0.85rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* Tighten the space below the slim "Your worlds" header so the tiles start higher.
+   Compound selector so it wins over any later single-class .view-header margin rule. */
+.view-header.dashboard-header { margin-bottom: 10px; }
+
 .view-subtitle {
   margin: 7px 0 0;
   color: var(--muted);

@@ -10409,6 +10409,7 @@
     entry.isFitbitImport = true;
     quickLogDraft = [entry];
     quickLogClarifications = [];
+    quickLogEditing = true; // import needs the rule/amount + "add photo" controls, not the one-tap view
     state.pendingWorkout = null; // the prompt has been acted on
     state.activeView = "add-entry";
     setQuickLogHint(`From ${wearableShortLabel(workout.provider || "google-health")}: ${workout.type || "Workout"} — pick the rule/amount, then Confirm.`);
@@ -10878,8 +10879,9 @@
   // Type or speak what you did → parse-log maps it to your rules → editable draft →
   // confirm saves through the EXISTING add paths. AI output is ALWAYS a proposal.
   let quickLogDraft = [];          // [{ _id, contextType, contextId, ruleId, isYesNo, amount, note, confidence, isPhotoEstimate? }]
-  let quickLogClarifications = []; // [{ _id, ruleHint, question, amount?, done?, options:[{contextType,contextId,contextName,ruleId,type}] }]
+  let quickLogClarifications = []; // [{ _id, ruleHint, question, amount?, done?, selected, options:[{contextType,contextId,contextName,ruleId,type}] }]
   let quickLogBusy = false;
+  let quickLogEditing = false;     // false = compact one-tap-confirm view; true = per-row edit controls (behind "Edit")
   let quickLogRecognition = null;
   let quickLogRecording = false;
 
@@ -10887,6 +10889,7 @@
     quickLogDraft = [];
     quickLogClarifications = [];
     quickLogBusy = false;
+    quickLogEditing = false;
     if (quickLogRecording) stopQuickLogMic();
     if (els.quickLogInput) els.quickLogInput.value = "";
     setQuickLogHint("");
@@ -11008,7 +11011,10 @@
       const res = await window.PointwellSignals.parseLog(text, catalog);
       if (res.error) { setQuickLogHint((res.error && res.error.message) || "Quick log is unavailable right now."); return; }
       quickLogDraft = (res.entries || []).map(normalizeQuickLogEntry).filter(Boolean);
-      quickLogClarifications = (res.clarifications || []).map((c, i) => Object.assign({}, c, { _id: "clar-" + i }));
+      // Pre-pick the best-guess option (server returns candidates top-ranked first) so the user
+      // can confirm without resolving each clarification; they can still switch the pick.
+      quickLogClarifications = (res.clarifications || []).map((c, i) => Object.assign({}, c, { _id: "clar-" + i, selected: 0 }));
+      quickLogEditing = false;
       if (!quickLogDraft.length && !quickLogClarifications.length) {
         setQuickLogHint("Couldn't match that to a rule. Try naming the metric, or log manually below.");
         renderQuickLogDraft();
@@ -11028,6 +11034,19 @@
     }
   }
 
+  // Parse-log confidence (0-1) → high / med / low tier (drives both the badge and the ✓ color).
+  function quickLogConfidenceLevel(confidence) {
+    const c = Math.min(1, Math.max(0, numberOrDefault(confidence, 0)));
+    return c >= 0.9 ? "high" : (c >= 0.6 ? "med" : "low");
+  }
+
+  // "NN% sure" badge, green when high / amber when medium / red-ish when low. Shown per matched
+  // entry so the user can trust-or-edit at a glance.
+  function quickLogConfidenceBadge(confidence) {
+    const pct = Math.round(Math.min(1, Math.max(0, numberOrDefault(confidence, 0))) * 100);
+    return `<span class="quick-log-confidence is-${quickLogConfidenceLevel(confidence)}">${pct}% sure</span>`;
+  }
+
   function renderQuickLogDraft() {
     const mount = els.quickLogDraft;
     if (!mount) return;
@@ -11040,18 +11059,20 @@
     const catalog = buildLoggableRuleCatalog();
     const rows = quickLogDraft.map((entry) => renderQuickLogRow(entry, catalog)).filter(Boolean).join("");
     const clars = quickLogClarifications.map(renderQuickLogClarification).join("");
-    const count = quickLogDraft.length;
+    // Each matched entry + each pre-picked clarification becomes one log on confirm.
+    const count = quickLogDraft.length + quickLogClarifications.length;
+    const cta = count === 1 ? "Log it →" : (count === 2 ? "Log both →" : "Log all " + count + " →");
     mount.innerHTML = `
       <div class="ai-draft-card quick-log-draft-card">
-        <div class="panel-heading">
-          <h3>Review &amp; confirm</h3>
-          <span>${count ? escapeHtml(plural(count, "entry")) : "Resolve the question below"}</span>
+        <div class="quick-log-draft-head">
+          <span class="quick-log-draft-title"><span aria-hidden="true">✨</span> Here's what I'll log${quickLogEditing ? "" : " — tap to confirm"}</span>
+          <button type="button" class="quick-log-discard-x" data-quick-log-discard aria-label="Discard">✕</button>
         </div>
-        ${clars ? `<div class="ai-improve-panel quick-log-clarify">${clars}</div>` : ""}
         ${rows ? `<div class="quick-log-rows">${rows}</div>` : ""}
+        ${clars ? `<div class="ai-improve-panel quick-log-clarify">${clars}</div>` : ""}
         <div class="quick-log-draft-actions">
-          <button type="button" class="ghost-button small" data-quick-log-discard>Discard</button>
-          <button type="button" class="primary-button" data-quick-log-confirm${count ? "" : " disabled"}>${count ? "Confirm " + escapeHtml(plural(count, "entry")) : "Confirm"}</button>
+          <button type="button" class="ghost-button quick-log-edit" data-quick-log-edit>${quickLogEditing ? "Done" : "Edit"}</button>
+          <button type="button" class="primary-button quick-log-confirm-cta" data-quick-log-confirm${count ? "" : " disabled"}>${count ? escapeHtml(cta) : "Nothing to log"}</button>
         </div>
       </div>`;
   }
@@ -11061,6 +11082,32 @@
     if (!resolved) return "";
     const rule = resolved.rule;
     const label = escapeHtml(rule.label);
+    const unit = rule.unit || "";
+    const estimateTag = entry.isPhotoEstimate ? `<span class="quick-log-estimate-tag">AI estimate</span>` : "";
+    const fitbitTag = entry.isFitbitImport ? `<span class="quick-log-estimate-tag">via Fitbit</span>` : "";
+    // Confidence is a text-match score; photo/Fitbit imports aren't AI text-matches, so no badge
+    // (and their ✓ stays green). Otherwise the ✓ follows the confidence tier so a low-confidence
+    // match doesn't read as already-approved next to its red-ish badge.
+    const isMatch = !entry.isPhotoEstimate && !entry.isFitbitImport;
+    const conf = isMatch ? quickLogConfidenceBadge(entry.confidence) : "";
+    const checkLevel = isMatch ? quickLogConfidenceLevel(entry.confidence) : "high";
+
+    // Compact confirm view (default): icon + "label · summary" + confidence + a ✓. No controls —
+    // editing lives behind the "Edit" toggle so the default path is one tap to confirm.
+    if (!quickLogEditing) {
+      const summary = entry.isYesNo
+        ? (entry.amount > 0 ? (unit ? `1 ${escapeHtml(unit)}` : "done") : "not done")
+        : `${escapeHtml(formatValue(entry.amount))}${unit ? " " + escapeHtml(unit) : ""}`;
+      return `
+        <div class="quick-log-row-item is-compact" data-quick-log-id="${escapeHtml(entry._id)}">
+          <span class="quick-log-row-icon" aria-hidden="true">${draftRuleIcon(rule)}</span>
+          <div class="quick-log-row-summary"><strong>${label}</strong> · ${summary}${estimateTag}${fitbitTag}</div>
+          ${conf}
+          <span class="quick-log-row-check is-${checkLevel}" aria-hidden="true">✓</span>
+        </div>`;
+    }
+
+    // Edit view: full per-row controls (amount/toggle, context picker, remove) + points pill.
     const points = scoring.calculateRule(rule, entry.amount).totalPoints;
     const opts = catalog.filter((c) => c.label === rule.label);
     const contextControl = opts.length > 1
@@ -11070,9 +11117,7 @@
       : `<span class="quick-log-context-name">${escapeHtml(resolved.contextName)}</span>`;
     const amountControl = entry.isYesNo
       ? `<button type="button" class="quick-log-done${entry.amount > 0 ? " is-on" : ""}" data-quick-log-toggle="${escapeHtml(entry._id)}" aria-pressed="${entry.amount > 0 ? "true" : "false"}">${entry.amount > 0 ? "Done ✓" : "Mark done"}</button>`
-      : `<input type="number" class="quick-log-amount" data-quick-log-amount="${escapeHtml(entry._id)}" value="${escapeHtml(String(entry.amount))}" min="0" step="any" inputmode="decimal" aria-label="Amount for ${label}"><span class="quick-log-unit">${escapeHtml(rule.unit || "")}</span>`;
-    const estimateTag = entry.isPhotoEstimate ? `<span class="quick-log-estimate-tag">AI estimate</span>` : "";
-    const fitbitTag = entry.isFitbitImport ? `<span class="quick-log-estimate-tag">via Fitbit</span>` : "";
+      : `<input type="number" class="quick-log-amount" data-quick-log-amount="${escapeHtml(entry._id)}" value="${escapeHtml(String(entry.amount))}" min="0" step="any" inputmode="decimal" aria-label="Amount for ${label}"><span class="quick-log-unit">${escapeHtml(unit)}</span>`;
     // A Fitbit import can become a full post with a selfie + caption (reuses Part B).
     const photoLink = entry.isFitbitImport
       ? `<button type="button" class="quick-log-photo-link" data-quick-log-photo="${escapeHtml(entry._id)}">📷 Add photo &amp; caption</button>`
@@ -11080,7 +11125,7 @@
     return `
       <div class="quick-log-row-item" data-quick-log-id="${escapeHtml(entry._id)}">
         <div class="quick-log-row-main">
-          <div class="quick-log-row-title"><strong>${label}</strong>${estimateTag}${fitbitTag}</div>
+          <div class="quick-log-row-title"><strong>${label}</strong>${conf}${estimateTag}${fitbitTag}</div>
           <div class="quick-log-row-controls">${amountControl}</div>
           <div class="quick-log-row-context">${contextControl}</div>
           ${photoLink}
@@ -11091,12 +11136,14 @@
   }
 
   function renderQuickLogClarification(c) {
-    const chips = (c.options || []).map((o) =>
-      `<button type="button" class="signal-preset-chip quick-log-clar-chip" data-quick-log-clar="${escapeHtml(c._id + "::" + o.contextId + "|" + o.ruleId)}">${escapeHtml(o.contextName)}</button>`
-    ).join("");
+    const sel = numberOrDefault(c.selected, 0);
+    const chips = (c.options || []).map((o, idx) => {
+      const on = idx === sel;
+      return `<button type="button" class="signal-preset-chip quick-log-clar-chip${on ? " is-selected" : ""}" data-quick-log-clar-pick="${escapeHtml(c._id + "::" + idx)}" aria-pressed="${on ? "true" : "false"}">${escapeHtml(o.contextName)}${on ? " ✓" : ""}</button>`;
+    }).join("");
     return `
       <div class="quick-log-clar-item">
-        <span class="quick-log-clar-q">${escapeHtml(c.question)}</span>
+        <span class="quick-log-clar-q">${escapeHtml(c.question)} <span class="quick-log-clar-hint">best guess pre-picked</span></span>
         <div class="signal-presets quick-log-clar-chips">${chips}</div>
       </div>`;
   }
@@ -11125,8 +11172,9 @@
       if (entry) upgradeSyncedEntryToPost(entry.contextType, entry.contextId, entry.ruleId, entry.amount, "google-health");
       return;
     }
-    const clarChip = event.target.closest("[data-quick-log-clar]");
-    if (clarChip) { resolveQuickLogClarification(clarChip.dataset.quickLogClar); return; }
+    const clarChip = event.target.closest("[data-quick-log-clar-pick]");
+    if (clarChip) { pickQuickLogClarification(clarChip.dataset.quickLogClarPick); return; }
+    if (event.target.closest("[data-quick-log-edit]")) { quickLogEditing = !quickLogEditing; renderQuickLogDraft(); return; }
     if (event.target.closest("[data-quick-log-discard]")) { resetQuickLog(); return; }
     if (event.target.closest("[data-quick-log-confirm]")) { confirmQuickLog(); return; }
   }
@@ -11169,27 +11217,36 @@
     renderQuickLogDraft();
   }
 
-  function resolveQuickLogClarification(token) {
+  // Switch which candidate a clarification is pre-picked to (token = "<clarId>::<optionIndex>").
+  // Just updates the selection + re-renders; the pick is materialized into an entry on confirm.
+  function pickQuickLogClarification(token) {
     const sep = token.indexOf("::");
     if (sep === -1) return;
     const clarId = token.slice(0, sep);
-    const idPart = token.slice(sep + 2).split("|");
+    const idx = parseInt(token.slice(sep + 2), 10);
     const clar = quickLogClarifications.find((c) => c._id === clarId);
-    if (clar) {
-      const option = (clar.options || []).find((o) => o.contextId === idPart[0] && o.ruleId === idPart[1]);
-      if (option) {
-        const entry = normalizeQuickLogEntry({
-          contextType: option.contextType, contextId: idPart[0], ruleId: idPart[1],
-          amount: clar.amount, done: clar.done,
-        });
-        // Don't double-add a rule that's already in the draft (avoids same-day double-count).
-        if (entry && !quickLogDraft.some((d) => d.contextId === idPart[0] && d.ruleId === idPart[1])) {
-          quickLogDraft.push(entry);
-        }
-      }
+    if (clar && idx >= 0 && idx < (clar.options || []).length) {
+      clar.selected = idx;
+      renderQuickLogDraft();
     }
-    quickLogClarifications = quickLogClarifications.filter((c) => c._id !== clarId);
-    renderQuickLogDraft();
+  }
+
+  // Turn every pre-picked clarification into a draft entry (its selected candidate), so a single
+  // "Log all" confirms the matches AND the clarifications without resolving each one by hand.
+  function materializeQuickLogClarifications() {
+    quickLogClarifications.forEach((clar) => {
+      const option = (clar.options || [])[numberOrDefault(clar.selected, 0)];
+      if (!option) return;
+      const entry = normalizeQuickLogEntry({
+        contextType: option.contextType, contextId: option.contextId, ruleId: option.ruleId,
+        amount: clar.amount, done: clar.done,
+      });
+      // Don't double-add a rule that's already in the draft (avoids same-day double-count).
+      if (entry && !quickLogDraft.some((d) => d.contextId === option.contextId && d.ruleId === option.ruleId)) {
+        quickLogDraft.push(entry);
+      }
+    });
+    quickLogClarifications = [];
   }
 
   // Persist one quick-log amount to a PERSONAL system (durable per-entry + daily total).
@@ -11217,6 +11274,7 @@
   }
 
   function confirmQuickLog() {
+    materializeQuickLogClarifications(); // fold each pre-picked clarification into the draft first
     if (!quickLogDraft.length) return;
     const items = quickLogDraft.slice();
     let saved = 0;
@@ -11376,6 +11434,7 @@
       return;
     }
     rows.forEach((r) => { r.isPhotoEstimate = true; quickLogDraft.push(r); });
+    quickLogEditing = true; // rough AI estimates must be reviewable/editable, not one-tap confirmed
     setQuickLogHint(estimate.kind === "workout" ? "Workout estimate ready — review, then Confirm." : "AI estimate ready — review the numbers, then Confirm.");
     renderQuickLogDraft();
   }

@@ -2621,13 +2621,10 @@ label small {
 
 /* Recent activity feed container (the Feed tab). The IG-style post + feed-list
    rules live in the "Instagram-style feed post" block lower in this file. */
+/* The Feed tab's post list floats directly on the page — no outer bordered panel/box. */
 .community-feed {
   display: grid;
-  gap: 10px;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
+  gap: 0;
   margin-bottom: 16px;
 }
 
@@ -8217,18 +8214,19 @@ body.onboarding-locked .coach-panel { display: none; }
 /* ── Instagram-style feed post ─────────────────────────────────────────────── */
 /* A centered, IG-width column so posts (and their photos) stay readable on wide
    desktop cards; full-width on narrow screens. */
-.community-feed-list { display: grid; gap: 16px; max-width: 500px; margin-left: auto; margin-right: auto; }
+.community-feed-list { display: grid; gap: 14px; max-width: 500px; margin-left: auto; margin-right: auto; }
+/* Borderless "floating" card: rounded, soft drop shadow, no 1px border. */
 .ig-card {
   display: grid;
-  border: 1px solid var(--line);
-  border-radius: 16px;
+  border: 0;
+  border-radius: 18px;
   background: var(--surface);
-  box-shadow: var(--shadow-card);
-  overflow: hidden;                 /* clips the full-bleed photo to the rounded card */
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
 }
+/* No green "active/highlighted" outline on milestone posts — they float like any other. */
 .ig-card.is-milestone {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent-soft), var(--shadow-card);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
 }
 .ig-card-header {
   display: flex;
@@ -8293,10 +8291,12 @@ body.onboarding-locked .coach-panel { display: none; }
 }
 .ig-menu-pop button:hover { background: var(--soft); }
 
+/* Photo media sits inset inside the floating card with rounded corners. */
 .ig-photo {
   position: relative;
-  width: 100%;
+  margin: 0 14px;
   aspect-ratio: 1 / 1;
+  border-radius: 14px;
   background: var(--soft);
   overflow: hidden;
   cursor: pointer;
@@ -8304,22 +8304,26 @@ body.onboarding-locked .coach-panel { display: none; }
 .ig-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ig-photo.is-unavailable { display: none; }   /* hide the placeholder if the signed URL is denied */
 .ig-carousel { position: absolute; top: 9px; right: 11px; color: #fff; font-size: 0.95rem; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7); }
-/* Text-only post: the caption rendered large on the rule's gradient, as the "media". */
-.ig-textmedia {
-  width: 100%;
-  aspect-ratio: 1 / 1;
+/* Style-B text-only post: large bold caption + a thin vertical accent bar (subtle gradient),
+   auto-height so the card hugs the caption — short ones stay small, no fixed gradient square. */
+.ig-textbody {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  overflow: hidden;
-  background: linear-gradient(150deg, rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.5)), var(--tile, var(--surface));
+  gap: 12px;
+  padding: 2px 14px 12px;
 }
-.ig-textmedia p {
-  margin: 0; max-width: 100%;
-  font-size: 1.18rem; font-weight: 700; color: #fff; text-align: center; line-height: 1.35;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); overflow-wrap: anywhere;
-  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden;
+.ig-textbody-accent {
+  flex: 0 0 auto;
+  width: 3px;
+  border-radius: 2px;
+  align-self: stretch;
+}
+.ig-textbody p {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .ig-actions {
@@ -8381,7 +8385,19 @@ body.onboarding-locked .coach-panel { display: none; }
   padding: 3px 9px;
   border-radius: 999px;
 }
-.feed-tabs { margin-bottom: 16px; max-width: 500px; margin-left: auto; margin-right: auto; }
+/* Compact Feed header: title + count on one slim line, slim segmented tabs right under it. */
+.feed-header { margin-bottom: 12px; }
+.feed-title-row { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.feed-title-row h2 { margin: 0; font-size: 1.3rem; }
+.feed-count { font-size: 0.72rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
+/* Slim segmented Friends/Discover toggle (matches work/feed-redesign.html). */
+.feed-tabs {
+  max-width: 500px; margin: 0 auto 14px;
+  gap: 3px; padding: 3px; border: 0; border-radius: 11px;
+  background: #11181a; box-shadow: none;
+}
+.feed-tabs .segmented-button { min-height: 0; padding: 6px 8px; font-size: 0.78rem; font-weight: 700; border-radius: 9px; }
+.feed-tabs .segmented-button.active { background: #1c4d3b; color: #9bf3cf; border-color: transparent; box-shadow: none; }
 .feed-discover-loading { max-width: 500px; margin: 8px auto 0; color: var(--muted); text-align: center; font-size: 0.9rem; padding: 18px 0; }
 /* Header progress tag (rule glyph + label + signed points), e.g. "🏋️ Workout +2". */
 .ig-tag {
@@ -8829,8 +8845,9 @@ body.onboarding-locked .coach-panel { display: none; }
 .profile-private-row { padding: 9px 12px; background: var(--surface); color: var(--muted); font-size: 0.82rem; font-weight: 600; }
 
 .profile-posts-list { display: grid; gap: 14px; }
-.profile-post-card { cursor: pointer; }
-.profile-post-card:hover { border-color: var(--line-strong); }
+.profile-post-card { cursor: pointer; transition: box-shadow 0.15s ease, transform 0.15s ease; }
+/* .ig-card is now borderless, so the hover cue is a shadow/lift instead of a border-color. */
+.profile-post-card:hover { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); transform: translateY(-1px); }
 .profile-post-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .profile-post-card .ds-go { margin-left: auto; color: var(--muted); font-weight: 800; font-size: 16px; }
 

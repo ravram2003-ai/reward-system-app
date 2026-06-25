@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — header redesign (clean, flat icons, 4→3, contextual title)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; flex-direction:column; align-items:center; gap:14px; padding:24px 12px; }
+  .panel { width:100%; max-width:460px; }
+  .label { font-size:11px; font-weight:600; margin:0 0 7px; }
+  /* the redesigned header */
+  .hdr { background:#070b0a; padding:13px 16px; display:flex; align-items:center; gap:11px; border-radius:14px; }
+  .logo { width:30px; height:30px; border-radius:9px; background:linear-gradient(135deg,#3ddc97,#2f7a5c); display:flex; align-items:center; justify-content:center; color:#06281c; font-weight:700; font-size:14px; flex-shrink:0; }
+  .title { flex:1; font-size:17px; color:#f3f6f4; font-weight:600; letter-spacing:-.3px; }
+  .icons { display:flex; gap:18px; align-items:center; color:#cfd8d4; font-size:16px; }
+  .bell { position:relative; }
+  .bell .badge { position:absolute; top:-5px; right:-6px; width:14px; height:14px; border-radius:50%; background:#ff5a6e; color:#fff; font-size:8px; display:flex; align-items:center; justify-content:center; }
+  .note { font-size:10px; color:#7c8d87; margin:6px 2px 0; line-height:1.5; }
+  /* current for contrast */
+  .cur { background:#0a0f0d; border:1px solid #161f1c; border-radius:14px; padding:12px 14px; display:flex; align-items:center; gap:12px; }
+  .cur .clogo { width:38px; height:38px; border-radius:11px; background:linear-gradient(135deg,#3ddc97,#2f7a5c); display:flex; align-items:center; justify-content:center; color:#06281c; font-weight:700; }
+  .cur .circle { width:34px; height:34px; border-radius:50%; background:#11181a; border:1px solid #222a28; display:flex; align-items:center; justify-content:center; color:#9fb0aa; font-size:14px; }
+</style>
+</head>
+<body>
+
+  <div class="panel">
+    <p class="label" style="color:#e0857f;">Current (eyebrow + heavy circles + 4 icons)</p>
+    <div class="cur">
+      <div class="clogo">P</div>
+      <div style="flex:1;"><p style="font-size:9px;color:#7c8d87;letter-spacing:1px;margin:0;">POINTWELL</p><p style="font-size:16px;color:#f3f6f4;font-weight:700;margin:0;">Reward systems</p></div>
+      <div style="display:flex;gap:8px;"><span class="circle">🔍</span><span class="circle">🔔</span><span class="circle">👥</span><span class="circle">💬</span></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <p class="label" style="color:#7fe9c0;">Redesigned — contextual title, flat icons, 3 icons (Today)</p>
+    <div class="hdr">
+      <div class="logo">P</div>
+      <strong class="title">Today</strong>
+      <div class="icons">
+        <span>&#128269;</span>
+        <span class="bell">&#128276;<span class="badge">3</span></span>
+        <span>&#128172;</span>
+      </div>
+    </div>
+    <p class="note">No "POINTWELL" eyebrow · flat line icons (no bordered circles) · Friends icon removed (requests → bell, list → Profile) · Search · Bell · Chats only.</p>
+  </div>
+
+  <div class="panel">
+    <p class="label" style="color:#9fb0aa;">Title changes with the active tab</p>
+    <div class="hdr" style="margin-bottom:8px;"><div class="logo">P</div><strong class="title">Feed</strong><div class="icons"><span>&#128269;</span><span class="bell">&#128276;<span class="badge">3</span></span><span>&#128172;</span></div></div>
+    <div class="hdr" style="margin-bottom:8px;"><div class="logo">P</div><strong class="title">Build</strong><div class="icons"><span>&#128269;</span><span class="bell">&#128276;</span><span>&#128172;</span></div></div>
+    <div class="hdr"><div class="logo">P</div><strong class="title">Profile</strong><div class="icons"><span>&#128269;</span><span class="bell">&#128276;</span><span>&#128172;</span></div></div>
+    <p class="note">The header doubles as wayfinding. (Swap the title for a static "Pointwell" wordmark if you prefer option A.)</p>
+  </div>
+
+</body>
+</html>

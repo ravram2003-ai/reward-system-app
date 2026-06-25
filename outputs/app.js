@@ -2726,6 +2726,7 @@
       "discoverView",
       "feedView",
       "feedTabs",
+      "feedCount",
       "searchView",
       "headerSearchButton",
       "headerSearchForm",
@@ -7292,6 +7293,12 @@
     renderActiveFeed();
   }
 
+  // The post count now lives on the compact header line (next to "Feed"), not in a per-list
+  // "Recent activity / N updates" subheader row. "" clears it (loading / signed-out / empty).
+  function setFeedCount(text) {
+    if (els.feedCount) els.feedCount.textContent = text || "";
+  }
+
   function renderFeedTabs() {
     if (!els.feedTabs) return;
     const tab = currentFeedTab();
@@ -7425,29 +7432,26 @@
     if (!els.communityFeed) return;
     if (!signalsReady()) {
       feedItems = [];
+      setFeedCount("");
       els.communityFeed.hidden = false;
-      els.communityFeed.innerHTML = `<div class="panel-heading"><h3>Discover</h3></div>` + emptyState("Sign in to discover public posts.");
+      els.communityFeed.innerHTML = emptyState("Sign in to discover public posts.");
       return;
     }
     if (!discoverLoaded && !discoverLoading) loadDiscoverFeed();
     if (discoverLoading && !discoverLoaded) {
       feedItems = [];
+      setFeedCount("");
       els.communityFeed.hidden = false;
-      els.communityFeed.innerHTML = `<div class="panel-heading"><h3>Discover</h3></div><p class="feed-discover-loading">Finding posts like yours…</p>`;
+      els.communityFeed.innerHTML = `<p class="feed-discover-loading">Finding posts like yours…</p>`;
       return;
     }
     feedItems = discoverFeedItems;
+    setFeedCount(feedItems.length ? plural(feedItems.length, "post") : "");
     const drafts = captureFeedDrafts(els.communityFeed);
     els.communityFeed.hidden = false;
-    els.communityFeed.innerHTML = `
-      <div class="panel-heading">
-        <h3>Discover</h3>
-        ${feedItems.length ? `<span>${plural(feedItems.length, "post")}</span>` : ""}
-      </div>
-      ${feedItems.length
-        ? `<div class="community-feed-list">${feedItems.map(renderFeedPost).join("")}</div>`
-        : emptyState("No similar public posts yet — try following people or making your profile public.")}
-    `;
+    els.communityFeed.innerHTML = feedItems.length
+      ? `<div class="community-feed-list">${feedItems.map(renderFeedPost).join("")}</div>`
+      : emptyState("No similar public posts yet — try following people or making your profile public.");
     bindEntryPhotos(els.communityFeed);
     bindFeedDelegation();
     restoreFeedDrafts(els.communityFeed, drafts);
@@ -7474,19 +7478,15 @@
     if (!feedItems.length && !state.communities.length) {
       els.communityFeed.hidden = true;
       els.communityFeed.innerHTML = "";
+      setFeedCount("");
       return;
     }
+    setFeedCount(feedItems.length ? plural(feedItems.length, "update") : "");
     const drafts = captureFeedDrafts(els.communityFeed);
     els.communityFeed.hidden = false;
-    els.communityFeed.innerHTML = `
-      <div class="panel-heading">
-        <h3>Recent activity</h3>
-        ${feedItems.length ? `<span>${plural(feedItems.length, "update")}</span>` : ""}
-      </div>
-      ${feedItems.length
-        ? `<div class="community-feed-list">${feedItems.map(renderFeedPost).join("")}</div>`
-        : emptyState("No check-ins yet — log a community day and it'll show up here.")}
-    `;
+    els.communityFeed.innerHTML = feedItems.length
+      ? `<div class="community-feed-list">${feedItems.map(renderFeedPost).join("")}</div>`
+      : emptyState("No check-ins yet — log a community day and it'll show up here.");
     bindEntryPhotos(els.communityFeed);
     bindFeedDelegation();
     restoreFeedDrafts(els.communityFeed, drafts);
@@ -7567,7 +7567,9 @@
     } else {
       const mediaText = message || entryLogText(entry, item.rule);
       const tileColor = dayScheduleColor(entry.ruleId || entry.communityId || entryId);
-      mediaHtml = `<div class="ig-textmedia" style="--tile:${tileColor}"><p>${escapeHtml(mediaText)}</p></div>`;
+      // Style B: large caption with a thin vertical accent bar (bright → darker same hue),
+      // inside the floating card. Auto-height — hugs the caption (no big fixed gradient square).
+      mediaHtml = `<div class="ig-textbody"><span class="ig-textbody-accent" style="background:linear-gradient(180deg, ${tileColor}, ${shadeHex(tileColor, 0.5)})" aria-hidden="true"></span><p>${escapeHtml(mediaText)}</p></div>`;
     }
 
     const menuHtml = (isMe || isDiscover) ? "" : `
@@ -15763,6 +15765,17 @@
     var s = String(key || ""), h = 0;
     for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
     return DAY_SCHEDULE_PALETTE[h % DAY_SCHEDULE_PALETTE.length];
+  }
+  // Darken a #rrggbb hex toward black by `factor` (0-1), preserving hue. Used for the feed
+  // text-post accent bar's bright→dark gradient. Returns the input unchanged if not 6-digit hex.
+  function shadeHex(hex, factor) {
+    var m = /^#?([0-9a-fA-F]{6})$/.exec(String(hex || ""));
+    if (!m) return hex;
+    var n = parseInt(m[1], 16);
+    var r = Math.round(((n >> 16) & 255) * factor);
+    var g = Math.round(((n >> 8) & 255) * factor);
+    var b = Math.round((n & 255) * factor);
+    return "#" + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
   }
   function dayScheduleClock(min) {
     var h = Math.floor(min / 60), m = Math.round(min % 60);

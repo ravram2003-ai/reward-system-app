@@ -2891,8 +2891,11 @@
       "copyCommunitySystemButton",
       "communityRules",
       "leaderboardList",
+      "leaderboardExpand",
       "communityLeaderboardPanel",
       "communityPeriodTabs",
+      "communityYourDayPanel",
+      "communityYourDay",
       "communityAnalytics",
       "communityAnalyticsSettings",
       "communityAnalyticsSettingsHint",
@@ -8027,11 +8030,12 @@
       const standings = communityStandings(community, period, analytics.metric);
       els.communityPeriodTabs.innerHTML = COMMUNITY_PERIODS.map((item) => `<button class="segmented-button${item.id === period ? " active" : ""}" type="button" role="tab" aria-selected="${item.id === period ? "true" : "false"}" data-cc-period="${item.id}">${escapeHtml(item.label)}</button>`).join("");
       Array.from(els.communityPeriodTabs.querySelectorAll("[data-cc-period]")).forEach((b) => b.addEventListener("click", () => { state.communityLeaderboardPeriod = b.dataset.ccPeriod; saveState(); renderCommunityDetail(); }));
-      els.leaderboardList.innerHTML = standings.map((m, i) => renderWorldLbRow(m, i, analytics.metric)).join("");
-      bindLeaderboardRows();
+      renderCommunityLeaderboard(standings, analytics.metric, community.id);
     } else if (els.communityPeriodTabs) {
       els.communityPeriodTabs.innerHTML = ""; els.leaderboardList.innerHTML = "";
+      if (els.leaderboardExpand) els.leaderboardExpand.hidden = true;
     }
+    renderCommunityYourDay(community);
     renderWorldPosts(world);
     if (els.worldTrendsPanel) els.worldTrendsPanel.hidden = !(analytics.modules.groupTrends || analytics.modules.individualTrends);
     renderCommunityAnalytics(community, analytics, period, target);
@@ -8095,7 +8099,10 @@
   // discards any in-progress composer draft — revoking its preview blob URL so it can't leak.
   function hideCommunityHubChrome() {
     resetCommunityComposer();
-    ["communityHubTabs", "communityComposer", "communityComposerPhoto", "communityFeedSort", "communityMembersPanel", "communityAboutPanel"].forEach((k) => { if (els[k]) els[k].hidden = true; });
+    // Hide every community-only panel when a PERSONAL world is shown (this runs only from
+    // renderPersonalWorldDetail) so none leak in from a previously-viewed community — including the
+    // leaderboard + "Your day" panels, which the community path re-shows on its own.
+    ["communityHubTabs", "communityComposer", "communityComposerPhoto", "communityFeedSort", "communityMembersPanel", "communityAboutPanel", "communityLeaderboardPanel", "communityYourDayPanel"].forEach((k) => { if (els[k]) els[k].hidden = true; });
   }
 
   function renderCommunityHubTabs() {
@@ -8559,10 +8566,62 @@
     show("communityFeedSort", tab === "feed");
     show("worldPostsPanel", tab === "feed");
     show("communityLeaderboardPanel", tab === "leaderboard" && lbOn);
+    show("communityYourDayPanel", tab === "leaderboard");
     show("worldTrendsPanel", tab === "leaderboard" && trendsOn);
     show("communityMembersPanel", tab === "members");
     show("communityAboutPanel", tab === "about");
     if (els.personalRulesPanel) els.personalRulesPanel.hidden = true;
+  }
+
+  // Compact, you-centered leaderboard. Collapsed shows a small window — the leader (🥇), a "···"
+  // gap, then YOUR row with the neighbor above + below you (or just the top window when you're
+  // already in the top few). "Show all {N}" expands to the full scrollable list (your row stays
+  // highlighted + scrolled into view); collapse snaps back. Reuses renderWorldLbRow + communityStandings.
+  let lbExpanded = false;     // is the full list expanded?
+  let lbExpandedFor = "";     // which community id the expansion applies to (collapse on switch)
+  function renderCommunityLeaderboard(standings, metric, communityId) {
+    if (!els.leaderboardList) return;
+    const total = standings.length;
+    const expanded = lbExpanded && lbExpandedFor === communityId;
+    const myIndex = standings.findIndex((m) => m.id === "me");
+    // The collapsed window of indices: leader + your neighborhood, or the top window if you're high up.
+    let windowIdx;
+    if (myIndex >= 3) {
+      windowIdx = [0];
+      for (let i = myIndex - 1; i <= myIndex + 1; i++) { if (i >= 1 && i < total && windowIdx.indexOf(i) < 0) windowIdx.push(i); }
+    } else {
+      windowIdx = [];
+      for (let i = 0; i < Math.min(4, total); i++) windowIdx.push(i);
+    }
+    const canCollapse = total > windowIdx.length; // there's more behind the window
+    let rows;
+    if (expanded || !canCollapse) {
+      rows = standings.map((m, i) => renderWorldLbRow(m, i, metric)).join("");
+    } else {
+      let out = "", prev = -1;
+      windowIdx.forEach((i) => {
+        if (prev >= 0 && i > prev + 1) out += `<div class="world-lb-gap" aria-hidden="true">···</div>`;
+        out += renderWorldLbRow(standings[i], i, metric);
+        prev = i;
+      });
+      rows = out;
+    }
+    els.leaderboardList.innerHTML = rows;
+    els.leaderboardList.classList.toggle("is-expanded", expanded);
+    bindLeaderboardRows();
+    if (els.leaderboardExpand) {
+      els.leaderboardExpand.hidden = !canCollapse;
+      els.leaderboardExpand.textContent = expanded ? "Show less" : `Show all ${total}`;
+      els.leaderboardExpand.onclick = () => {
+        lbExpanded = !(lbExpanded && lbExpandedFor === communityId);
+        lbExpandedFor = communityId;
+        renderCommunityDetail();
+        if (lbExpanded && els.leaderboardList) {
+          const meRow = els.leaderboardList.querySelector(".world-lb-detail-row.is-me");
+          if (meRow && meRow.scrollIntoView) meRow.scrollIntoView({ block: "nearest" });
+        }
+      };
+    }
   }
 
   // Clean leaderboard row: rank · avatar · name · points, your row highlighted, NO progress bar.
@@ -8571,8 +8630,9 @@
     const me = m.id === "me";
     const periodPoints = m.periodPoints != null ? m.periodPoints : m.today;
     const value = metric === "completion" ? `${m.completion || 0}%` : formatPoints(periodPoints);
+    const rank = index === 0 ? "🥇" : String(index + 1);
     return `<button class="world-lb-detail-row${me ? " is-me" : ""}" type="button" data-community-member-id="${escapeHtml(m.id)}">
-        <span class="world-lb-detail-rank">${index + 1}</span>
+        <span class="world-lb-detail-rank${index === 0 ? " is-leader" : ""}">${rank}</span>
         ${renderAvatar({ className: "member-avatar world-lb-detail-av", name: m.name, color: m.color, avatarUrl: m.avatarUrl })}
         <span class="world-lb-detail-name">${me ? "You" : escapeHtml(m.name || "Member")}</span>
         <strong class="world-lb-detail-pts">${escapeHtml(value)}</strong>
@@ -8655,6 +8715,88 @@
       b.addEventListener("click", (e) => { e.stopPropagation(); quickLogRule(b.dataset.quickLogRule); }));
     Array.from(els.personalRules.querySelectorAll("[data-open-entry-rule]")).forEach((b) =>
       b.addEventListener("click", () => openAddEntryForRule(b.dataset.openEntryRule)));
+  }
+
+  // "Your day" — the community's rules as rows with x/y progress + an action, shown on the Leaderboard
+  // tab. Mirrors renderPersonalRules (same .world-rule-* markup), reading the member's community values.
+  // Yes/no rules get a one-tap "✓ Done" (quickLogCommunityRule). COUNTER rules + the rule body open the
+  // full Add Entry composer pre-pointed at this community rule (openAddEntryForCommunityRule), so you
+  // can type a manual amount and optionally add a photo/caption + post. Both paths update points + the
+  // leaderboard through the EXISTING community-entry path.
+  function renderCommunityYourDay(community) {
+    if (!els.communityYourDay) return;
+    const sys = normalizeSystem(community.system);
+    const values = communityValuesForMember(community.id, "me", getTodayKey());
+    const rules = (sys.rules || []).map(scoring.normalizeRule).filter((r) => r.simpleStyle !== "penalty");
+    if (!rules.length) { els.communityYourDay.innerHTML = emptyState("No rules in this community yet."); return; }
+    const justLogged = justLoggedRuleId; justLoggedRuleId = ""; // consume the one-shot animation flag
+    els.communityYourDay.innerHTML = rules.map((rule) => {
+      const total = numberOrDefault(values[rule.id], 0);
+      const goal = goalAmountForRule(rule) || 0;
+      const isYesNo = rule.simpleStyle === "yesNo";
+      const pct = isYesNo ? (total > 0 ? 100 : 0) : (goal > 0 ? Math.min(100, Math.round((total / goal) * 100)) : (total > 0 ? 100 : 0));
+      const value = isYesNo ? (total > 0 ? "Done" : "—") : `${formatValue(total)}/${formatValue(goal)}`;
+      const logged = isYesNo ? total > 0 : (goal > 0 ? total >= goal : total > 0);
+      const manualOff = isRuleSynced(rule) && rule.allowManualOverride === false;
+      const ruleId = escapeHtml(rule.id);
+      const nameHtml = logged
+        ? `${escapeHtml(rule.label || "Rule")} <span class="world-rule-loggedtag">✓ logged</span>`
+        : escapeHtml(rule.label || "Rule");
+      // Yes/no → one-tap "✓ Done"; counter → "+ Log" opens the composer so the amount is yours to type.
+      const action = logged
+        ? `<span class="world-rule-done" aria-hidden="true">✓</span>`
+        : (manualOff ? ""
+          : (isYesNo
+            ? `<button class="world-rule-log is-yesno" type="button" data-cc-log-rule="${ruleId}">✓ Done</button>`
+            : `<button class="world-rule-log" type="button" data-cc-open-rule="${ruleId}">+ Log</button>`));
+      return `<div class="world-rule-row${logged ? " is-logged" : ""}${rule.id === justLogged ? " is-just-logged" : ""}">
+          <button class="world-rule-open" type="button" data-cc-open-rule="${ruleId}" aria-label="Log ${escapeHtml(rule.label || "rule")}">
+            <span class="world-rule-icon" aria-hidden="true">${draftRuleIcon(rule)}</span>
+            <div class="world-rule-main">
+              <p class="world-rule-name">${nameHtml}</p>
+              <div class="world-rule-track" aria-hidden="true"><div class="world-rule-fill" style="width:${pct}%"></div></div>
+            </div>
+            <span class="world-rule-value">${escapeHtml(value)}</span>
+          </button>
+          ${action}
+        </div>`;
+    }).join("");
+    Array.from(els.communityYourDay.querySelectorAll("[data-cc-log-rule]")).forEach((b) =>
+      b.addEventListener("click", (e) => { e.stopPropagation(); quickLogCommunityRule(community, b.dataset.ccLogRule); }));
+    Array.from(els.communityYourDay.querySelectorAll("[data-cc-open-rule]")).forEach((b) =>
+      b.addEventListener("click", (e) => { e.stopPropagation(); openAddEntryForCommunityRule(community, b.dataset.ccOpenRule); }));
+  }
+
+  // Open the full Add Entry composer pre-pointed at a COMMUNITY rule — the community analog of
+  // openAddEntryForRule. Lets the member type a manual amount and optionally attach a photo/caption +
+  // post; submitting writes through the same community-entry path (points + leaderboard update).
+  function openAddEntryForCommunityRule(community, ruleId) {
+    const sys = normalizeSystem(community.system);
+    const rule = (sys.rules || []).map(scoring.normalizeRule).find((r) => r.id === ruleId);
+    if (!rule) return;
+    if (isRuleSynced(rule) && rule.allowManualOverride === false) { showToast("Manual logging is off for this rule"); return; }
+    state.scoreContext = "community:" + community.id;
+    addEntryDraft = { ruleId: rule.id, amount: rule.simpleStyle === "yesNo" ? 1 : suggestedEntryAmount(rule) };
+    openAddEntryPage();
+  }
+
+  // One-tap community log — the community analog of quickLogRule. Points the active score context at
+  // this community so the shared addDailyEntryFromDraft writes a community entry (points + leaderboard
+  // update, DB push), then stays on the detail view so the rule card animates to its logged state.
+  function quickLogCommunityRule(community, ruleId) {
+    const sys = normalizeSystem(community.system);
+    const rule = (sys.rules || []).map(scoring.normalizeRule).find((r) => r.id === ruleId);
+    if (!rule || rule.simpleStyle === "penalty") return;
+    if (isRuleSynced(rule) && rule.allowManualOverride === false) { showToast("Manual logging is off for this rule"); return; }
+    const values = communityValuesForMember(community.id, "me", getTodayKey());
+    if (rule.simpleStyle === "yesNo" && numberOrDefault(values[rule.id], 0) > 0) return; // already done — don't double-log
+    state.scoreContext = "community:" + community.id;
+    resetAddEntryAttachment();
+    composerSourceTag = "";
+    aiPrefilledComposer = false;
+    addEntryDraft = { ruleId: rule.id, amount: rule.simpleStyle === "yesNo" ? 1 : suggestedEntryAmount(rule) };
+    justLoggedRuleId = rule.id;
+    addDailyEntryFromDraft({ stayInView: true });
   }
 
   // Personal trend: your points over the last COMMUNITY_TREND_DAYS, rendered with the same

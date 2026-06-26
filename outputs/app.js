@@ -8895,13 +8895,19 @@
   function paintWorldMediaSlot(path, container, img, isStale) {
     if (!container || !img) return;
     if (!path || !signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.worldMediaSignedUrl !== "function") {
-      img.hidden = true; img.removeAttribute("src"); container.classList.remove("has-photo");
+      img.hidden = true; img.removeAttribute("src"); delete img.dataset.paintedPath; container.classList.remove("has-photo");
+      return;
+    }
+    // Already showing this exact object → skip the re-fetch/re-set (the signed URL is also
+    // memoized in signals.js, so even a forced re-paint wouldn't re-download — this just avoids churn).
+    if (img.dataset.paintedPath === path && img.getAttribute("src")) {
+      img.hidden = false; container.classList.add("has-photo");
       return;
     }
     Promise.resolve(window.PointwellSignals.worldMediaSignedUrl(path)).then((url) => {
       if (isStale()) return; // a newer paint of this surface is showing → ignore
-      if (url) { img.src = url; img.hidden = false; container.classList.add("has-photo"); }
-      else { img.hidden = true; img.removeAttribute("src"); container.classList.remove("has-photo"); }
+      if (url) { img.src = url; img.dataset.paintedPath = path; img.hidden = false; container.classList.add("has-photo"); }
+      else { img.hidden = true; img.removeAttribute("src"); delete img.dataset.paintedPath; container.classList.remove("has-photo"); }
     }).catch(() => { if (!isStale()) { img.hidden = true; container.classList.remove("has-photo"); } });
   }
   // Paint the cover+icon thumbnails in the open Edit/Settings form (signed URLs; the ＋ hint
@@ -10411,7 +10417,7 @@
     // keep it quiet) so re-opening the app in the evening surfaces it even without a re-login.
     try { maybeShowStreakAtRisk(); } catch (e) { /* best-effort */ }
     const now = Date.now();
-    if (now - lastAutoResyncAt < 5 * 60 * 1000) return; // at most once / 5 min
+    if (now - lastAutoResyncAt < 15 * 60 * 1000) return; // at most once / 15 min (was 5; cuts focus-driven community re-fetch egress)
     lastAutoResyncAt = now;
     syncAllConnectedAndCatchUp({ background: true });
   }

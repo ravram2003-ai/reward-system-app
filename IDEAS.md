@@ -59,3 +59,41 @@ social FOMO, or encouragement.
 **Why it's good:** makes the coach feel like it actually knows you — personalized
 motivation is far stickier than a fixed nudge, and it leans on data already
 collected.
+
+## Head-to-head challenges (in a community)
+
+**Idea:** Challenge another community member to a time-boxed, 1v1 duel — most
+points wins over a window (Today / 3 days / 1 week). Reuses existing points: a
+challenge is just a 2-person leaderboard over a date range.
+
+**Flow:** invite (pick member + window) → other person accepts → a LIVE duel
+screen (both racing progress bars, scores, countdown, who's ahead) → win moment
+(celebration, a "challenge win" badge, share / rematch).
+
+**Key pieces to design later:**
+- **Data:** a `challenges` row (creator, opponent, community_id, metric/"points",
+  start, end, status: pending/active/done, winner). Scores computed from existing
+  community_entries over the window — no new scoring.
+- **Accept/decline:** challenge is sent → opponent accepts to start the clock.
+- **Live duel screen:** both avatars + racing bars + countdown + "you're up by X."
+- **Nudges (reuse the coach):** "Jacob challenged you," "you're down by 2, 4 hrs
+  left," "you won 🏆." Ties directly into the nudge system.
+- **Win moment:** celebration + a win-count badge; optional friendly forfeit
+  (loser posts an embarrassing pic) for stakes WITHOUT a coin economy.
+- **Scope:** 1v1 first; group challenges later. Keep it friendly/optional so it
+  motivates rather than discourages less-active members.
+
+**Why it's good:** directly amplifies Pointwell's competition-with-friends hook,
+creates real urgency + personal stakes (drives daily logging), is naturally viral
+(challenging a friend pulls them in), and reuses points + nudges + leaderboard.
+
+## Coins / currency — PARKED (probably skip for now)
+
+**Idea (raised, deferred):** an earnable coin currency (from streaks/challenge
+wins) you could spend or wager.
+
+**Why parked:** points already ARE the currency — a second one muddles the model,
+adds an economy to balance, and risks a dead feature if there's no meaningful
+sink. If pursued later: scope it tiny (cosmetics only — cover frames, badges,
+themes; no purchasing; zero core-loop impact). Better near-term alternative for
+"stakes": challenge FORFEITS / bragging rights, which give the fun for free.

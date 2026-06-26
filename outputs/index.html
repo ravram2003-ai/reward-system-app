@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260626-profileblock">
+    <link rel="stylesheet" href="styles.css?v=20260626-settingscover">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -1463,6 +1463,15 @@
                 <textarea id="profileBioInput" rows="3" maxlength="150" placeholder="A short line about you (optional)"></textarea>
                 <span class="profile-bio-help">A short line about you — shows on your profile.</span>
               </label>
+              <label class="wide-field profile-cover-field">
+                <span>Cover photo</span>
+                <button type="button" class="profile-cover-thumb is-empty" id="profileCoverThumb" aria-label="Change cover photo">
+                  <span class="profile-cover-scrim" aria-hidden="true"></span>
+                  <span class="profile-cover-btn"><span id="profileCoverBtnLabel">📷 Add cover photo</span></span>
+                </button>
+                <span class="profile-bio-help">Shows as the banner at the top of your profile.</span>
+                <input type="file" accept="image/*" id="profileCoverLibraryInput" hidden>
+              </label>
               <label>
                 <span>Profile visibility</span>
                 <select id="profilePrivacyInput">
@@ -1555,13 +1564,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260626-profileblock"></script>
-    <script src="auth-helpers.js?v=20260626-profileblock"></script>
-    <script src="scoring.js?v=20260626-profileblock"></script>
-    <script src="insight.js?v=20260626-profileblock"></script>
-    <script src="signals.js?v=20260626-profileblock"></script>
-    <script src="wearables.js?v=20260626-profileblock"></script>
-    <script type="module" src="auth.js?v=20260626-profileblock"></script>
-    <script src="app.js?v=20260626-profileblock"></script>
+    <script src="supabase-config.js?v=20260626-settingscover"></script>
+    <script src="auth-helpers.js?v=20260626-settingscover"></script>
+    <script src="scoring.js?v=20260626-settingscover"></script>
+    <script src="insight.js?v=20260626-settingscover"></script>
+    <script src="signals.js?v=20260626-settingscover"></script>
+    <script src="wearables.js?v=20260626-settingscover"></script>
+    <script type="module" src="auth.js?v=20260626-settingscover"></script>
+    <script src="app.js?v=20260626-settingscover"></script>
   </body>
 </html>

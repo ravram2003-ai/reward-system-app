@@ -8885,6 +8885,43 @@ body.onboarding-locked .coach-panel { display: none; }
 .profile-bio-titlerow { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .profile-bio-counter { font-weight: 600; font-size: 0.66rem; color: var(--muted); }
 .profile-bio-help { font-weight: 600; font-size: 0.68rem; color: var(--muted); }
+
+/* Settings "Cover photo" field — a wide banner thumbnail that opens the library picker. */
+.profile-cover-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 84px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  background-color: var(--soft);
+  background-size: cover;
+  background-position: center;
+}
+.profile-cover-thumb.is-empty { background-image: linear-gradient(135deg, #2f7a5c, #244a6e 65%, #3a2a6b); }
+.profile-cover-thumb:hover { border-color: var(--line-strong); }
+.profile-cover-thumb:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.profile-cover-scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.28); }
+.profile-cover-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.42);
+  color: #fff;
+  font-size: 0.74rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
 .profile-hero-actions-row { display: flex; gap: 8px; }
 .profile-hero-actions-row > * { flex: 1 1 0; min-width: 0; justify-content: center; text-align: center; }
 /* Borderless stat row: quiet numbers + labels, a single divider underneath (no chip boxes). */

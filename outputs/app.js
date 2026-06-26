@@ -3063,6 +3063,9 @@
       "profileAvatarRemoveButton",
       "profileAvatarCameraInput",
       "profileAvatarLibraryInput",
+      "profileCoverThumb",
+      "profileCoverLibraryInput",
+      "profileCoverBtnLabel",
       "publicPreviewStatus",
       "publicPreview",
       "integrationList",
@@ -3449,6 +3452,7 @@
     els.saveProfileButton.addEventListener("click", saveProfile);
     if (els.profileBioInput) els.profileBioInput.addEventListener("input", updateBioCounter);
     bindProfileAvatarControls();
+    bindProfileCoverControl();
     if (els.profileSignOutButton) els.profileSignOutButton.addEventListener("click", () => {
       Promise.resolve(window.PointwellAuth && window.PointwellAuth.signOut && window.PointwellAuth.signOut()).catch(() => {});
     });
@@ -9668,6 +9672,36 @@
     if (els.profileAvatarRemoveButton) els.profileAvatarRemoveButton.hidden = !previewUrl;
   }
 
+  // Paint the Settings "Cover photo" thumbnail from the saved cover (state.profile.coverUrl), or the
+  // "Add cover photo" empty state. Unlike the avatar (draft → applied on Save), the cover uploads
+  // immediately (matching the inline banner shortcut), so this just mirrors state.profile.coverUrl.
+  function refreshProfileCover() {
+    const thumb = els.profileCoverThumb;
+    if (!thumb) return;
+    const url = state.profile.coverUrl || "";
+    if (url) {
+      thumb.style.backgroundImage = "url('" + cssUrlSafe(url) + "')";
+      thumb.classList.remove("is-empty");
+      if (els.profileCoverBtnLabel) els.profileCoverBtnLabel.textContent = "📷 Change cover";
+    } else {
+      thumb.style.backgroundImage = "";
+      thumb.classList.add("is-empty");
+      if (els.profileCoverBtnLabel) els.profileCoverBtnLabel.textContent = "📷 Add cover photo";
+    }
+  }
+
+  // Settings "Cover photo" picker: tap → the SAME library image picker; on pick, upload via the
+  // existing cover path (uploadProfileImage → cover_url) immediately. Wired once with the avatar controls.
+  function bindProfileCoverControl() {
+    if (!els.profileCoverThumb || !els.profileCoverLibraryInput) return;
+    els.profileCoverThumb.addEventListener("click", () => { els.profileCoverLibraryInput.value = ""; els.profileCoverLibraryInput.click(); });
+    els.profileCoverLibraryInput.addEventListener("change", () => {
+      const file = els.profileCoverLibraryInput.files && els.profileCoverLibraryInput.files[0];
+      if (file) uploadProfileImage(file, "cover");
+      els.profileCoverLibraryInput.value = ""; // allow re-picking the same file
+    });
+  }
+
   // ── Tappable user profile page (an OTHER user; own profile uses renderProfile) ──
   // openUserProfile(id) → the "profile-page" view, which fetches get_profile_overview
   // (server-gated by can_view_profile) and renders header + you-might-like + an
@@ -10205,6 +10239,7 @@
     }).catch(() => {});
     saveState();
     renderProfilePage();
+    if (isCover) refreshProfileCover(); // keep the Settings thumbnail in sync (cover uploads immediately)
     showToast(isCover ? "Cover photo updated" : "Profile photo updated");
   }
 
@@ -10338,6 +10373,7 @@
     if (els.allowMotivationInput) els.allowMotivationInput.checked = state.profile.allowMotivation === true;
     if (els.allowAutoSyncInput) els.allowAutoSyncInput.checked = state.profile.allowAutoSync !== false; // default ON
     refreshProfileAvatar();
+    refreshProfileCover();
 
     const publicSystems = state.profile.privacy === "public"
       ? state.systems.filter((system) => system.visibility === "public")

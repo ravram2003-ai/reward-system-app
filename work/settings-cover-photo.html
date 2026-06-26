@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — Settings: Cover photo field (below the other identity fields)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; justify-content:center; padding:24px 12px; }
+  .form { width:100%; max-width:480px; background:#0c0f0e; border-radius:18px; padding:18px; }
+  .eyebrow { font-size:10px; color:#5f8576; letter-spacing:1px; margin:0 0 4px; }
+  .head { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+  .head strong { font-size:20px; color:#f3f6f4; }
+  .save { font-size:12px; font-weight:600; color:#06281c; background:#5cf3b8; border:none; border-radius:11px; padding:9px 16px; cursor:pointer; }
+  .lab { font-size:11px; color:#8aa39a; margin:0 0 5px; }
+  .input { background:#11181a; border:1px solid #243029; border-radius:10px; padding:9px 11px; font-size:12.5px; color:#eaf2ee; }
+  .row { display:flex; gap:14px; margin-bottom:14px; }
+  .avatar { position:relative; width:64px; height:64px; border-radius:16px; background:linear-gradient(135deg,#2f7a5c,#244a6e); flex-shrink:0; }
+  .avatar .cam { position:absolute; bottom:-3px; right:-3px; width:22px; height:22px; border-radius:50%; background:#16241f; border:2px solid #0c0f0e; font-size:10px; display:flex; align-items:center; justify-content:center; }
+  .field { margin-bottom:14px; }
+  /* NEW cover photo field */
+  .cover-field { margin-bottom:14px; padding-top:14px; border-top:1px solid #18211d; }
+  .cover-thumb { position:relative; height:84px; border-radius:12px; overflow:hidden; background:linear-gradient(135deg,#2f7a5c,#244a6e 65%,#3a2a6b); cursor:pointer; }
+  .cover-thumb .scrim { position:absolute; inset:0; background:rgba(0,0,0,.25); }
+  .cover-thumb .btn { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:12px; color:#fff; background:rgba(0,0,0,.4); border:1px solid rgba(255,255,255,.3); border-radius:18px; padding:6px 14px; }
+  .help { font-size:10px; color:#5f8576; margin:6px 0 0; }
+  .note { font-size:10.5px; color:#7c8d87; margin:11px 2px 0; text-align:center; line-height:1.5; }
+</style>
+</head>
+<body>
+<div class="form">
+  <p class="eyebrow">IDENTITY</p>
+  <div class="head"><strong>Profile &amp; privacy</strong><button class="save">✓ Save</button></div>
+
+  <!-- avatar + name (existing) -->
+  <div class="row">
+    <div class="avatar"><span class="cam">📷</span></div>
+    <div style="flex:1;"><p class="lab">Display name</p><div class="input">Robert A</div></div>
+  </div>
+
+  <!-- bio (existing) -->
+  <div class="field"><p class="lab">Bio</p><div class="input" style="min-height:40px;">FOUNDER</div></div>
+
+  <!-- NEW: Cover photo field, below the others -->
+  <div class="cover-field">
+    <p class="lab">Cover photo</p>
+    <div class="cover-thumb"><div class="scrim"></div><span class="btn">📷 Change cover</span></div>
+    <p class="help">Shows as the banner at the top of your profile.</p>
+  </div>
+
+  <!-- visibility (existing) -->
+  <div class="field" style="margin-bottom:0;"><p class="lab">Profile visibility</p><div class="input" style="display:flex;justify-content:space-between;">Public <span style="color:#7c8d87;">▾</span></div></div>
+
+  <p class="note">Cover photo = a field in Settings (wide ~16:9 thumbnail → tap to pick from library), placed below the avatar/name/bio · reuses the existing cover upload + profiles.cover_url · empty state shows "Add cover photo" · keep the inline "+ Add cover" on the banner as a shortcut.</p>
+</div>
+</body>
+</html>

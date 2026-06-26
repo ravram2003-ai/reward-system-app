@@ -9190,13 +9190,15 @@
 
   // Consecutive days hitting the daily target, latest-first (today may be unfinished — don't
   // count it against the streak). Mirrors coachContextStreak; derived from the existing series.
+  // Consecutive days the member LOGGED at least once (value > 0), today included once logged — not
+  // gated on the target; an unfinished today doesn't break the streak. (target kept for call-site compat.)
   function seriesStreak(series, target) {
-    if (!(target > 0) || !series || !series.length) return 0;
+    if (!series || !series.length) return 0;
     let streak = 0;
     for (let i = series.length - 1; i >= 0; i--) {
-      const hit = numberOrDefault(series[i].value, 0) >= target;
-      if (i === series.length - 1 && !hit) continue;
-      if (hit) streak += 1; else break;
+      const logged = numberOrDefault(series[i].value, 0) > 0;
+      if (i === series.length - 1 && !logged) continue;
+      if (logged) streak += 1; else break;
     }
     return streak;
   }
@@ -11968,20 +11970,18 @@
   // Streak length THROUGH YESTERDAY for one context (mirrors coachContextStreak but anchored at
   // yesterday — a "Yesterday, recapped" card must not fold in today's early-synced partial progress).
   function recapStreakForContext(ctx) {
-    let target, getPts;
+    let getPts;
     if (ctx.type === "community") {
-      target = communityTarget(ctx.community);
       const me = (ctx.community.members || []).find((m) => m.id === "me");
       getPts = (d) => me ? communityMemberPointsOnDate(ctx.community, me, d) : 0;
     } else {
-      const sys = normalizeSystem(ctx.system);
-      target = numberOrDefault(calculateTargetSummary(sys).total, 0);
       getPts = (d) => { const e = findEntry(d, ctx.id); return e ? numberOrDefault(e.total, 0) : 0; };
     }
-    if (!(target > 0)) return 0;
     let streak = 0;
-    for (let i = 1; i <= 30; i++) { // i=1 is yesterday; today (i=0) is deliberately excluded
-      if (getPts(offsetDate(-i)) >= target) streak += 1; else break;
+    // i=1 is yesterday; today (i=0) is deliberately excluded for the "yesterday" recap. Counts days the
+    // user LOGGED at least once (value > 0), not gated on the target.
+    for (let i = 1; i <= 30; i++) {
+      if (getPts(offsetDate(-i)) > 0) streak += 1; else break;
     }
     return streak;
   }
@@ -12373,14 +12373,16 @@
     return { target: target, getPts: (d) => { const e = findEntry(d, ctx.id); return e ? numberOrDefault(e.total, 0) : 0; } };
   }
 
+  // A streak = consecutive days the user LOGGED at least once (value > 0) — NOT gated on hitting the
+  // target. Today counts the moment it's logged; an unlogged today keeps the through-yesterday streak
+  // (it doesn't break it, and doesn't count until logged).
   function coachContextStreak(ctx) {
     const probe = streakContextProbe(ctx);
-    if (!(probe.target > 0)) return 0;
     let streak = 0;
     for (let i = 0; i < 30; i++) {
-      const hit = probe.getPts(offsetDate(-i)) >= probe.target;
-      if (i === 0 && !hit) continue; // today may be unfinished — don't count it against the streak
-      if (hit) streak += 1; else break;
+      const logged = probe.getPts(offsetDate(-i)) > 0;
+      if (i === 0 && !logged) continue; // haven't logged today yet → keep the streak, just don't count today
+      if (logged) streak += 1; else break;
     }
     return streak;
   }
@@ -12403,14 +12405,14 @@
     return ["S", "M", "T", "W", "T", "F", "S"][d.getDay()] || "";
   }
 
-  // Last 7 days as dots, using the SAME hit logic as coachContextStreak (probe.getPts >= target).
+  // Last 7 days as dots, using the SAME hit logic as coachContextStreak (logged that day: getPts > 0).
   function streakWeekDots(ctx, probe) {
     probe = probe || streakContextProbe(ctx);
     const today = getTodayKey();
     const out = [];
     for (let i = 6; i >= 0; i--) {
       const date = offsetDate(-i);
-      out.push({ label: weekdayInitial(date), hit: probe.getPts(date) >= probe.target, isToday: date === today });
+      out.push({ label: weekdayInitial(date), hit: probe.getPts(date) > 0, isToday: date === today });
     }
     return out;
   }
@@ -12446,7 +12448,7 @@
     if (!els.streakCard) return;
     const ctx = streakActiveContext();
     const probe = ctx ? streakContextProbe(ctx) : null;
-    if (!ctx || !probe || !(probe.target > 0)) { els.streakCard.hidden = true; els.streakCard.innerHTML = ""; return; }
+    if (!ctx || !probe) { els.streakCard.hidden = true; els.streakCard.innerHTML = ""; return; } // show even without a target (streak from activity)
     els.streakCard.hidden = false;
     const streak = coachContextStreak(ctx);
     maybeCelebrateMilestone(ctx, streak);
@@ -12458,11 +12460,13 @@
       return `<span class="streak-idot ${cls}"></span>`;
     }).join("");
     const ms = streakMilestoneInfo(streak);
-    // Tiny subline: encouragement + the milestone as a small note (the full progress bar is dropped).
+    const loggedToday = probe.getPts(getTodayKey()) > 0;
+    // Tiny subline: confirm today's log once logged, else nudge one; plus the milestone as a small note.
+    const milestoneNote = ms.next ? ms.daysTo + "d to 🏅 " + ms.next : "🏅 100-day legend";
     let sub;
     if (streak <= 0) sub = "Log today to start";
-    else if (ms.next) sub = "Keep it going · " + ms.daysTo + "d to 🏅 " + ms.next;
-    else sub = "🏅 100-day legend";
+    else if (loggedToday) sub = "Logged today ✓ · " + milestoneNote;
+    else sub = "Keep it going · " + milestoneNote;
     els.streakCard.innerHTML = `
       <div class="streak-bar${streak <= 0 ? " is-zero" : ""}${celebrating ? " is-celebrating" : ""}">
         <span class="streak-flame" aria-hidden="true">🔥</span>
@@ -12485,10 +12489,9 @@
     const ctx = streakActiveContext();
     if (!ctx) return;
     const probe = streakContextProbe(ctx);
-    if (!(probe.target > 0)) return;
-    const streak = coachContextStreak(ctx);             // reuse existing streak math
-    const todayHit = probe.getPts(today) >= probe.target;
-    if (!(streak > 0) || todayHit) return;              // not at risk (no streak, or already kept alive)
+    const streak = coachContextStreak(ctx);             // reuse existing streak math (days logged)
+    const todayLogged = probe.getPts(today) > 0;
+    if (!(streak > 0) || todayLogged) return;           // not at risk (no streak, or already logged today)
     state.streakRiskDay = today;
     saveState();
     coachShowStreakRiskCard(streak);

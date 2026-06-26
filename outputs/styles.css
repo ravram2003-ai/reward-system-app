@@ -8507,6 +8507,23 @@ body.onboarding-locked .coach-panel { display: none; }
 .challenge-strip-clock { font-size: 0.64rem; color: #7fc7b0; }
 .challenge-strip-go { font-size: 0.72rem; color: #9bf3cf; flex: 0 0 auto; }
 
+/* Pending banners (top of Leaderboard): incoming Accept/Decline + outgoing "waiting to accept". */
+.challenge-banner {
+  display: flex; flex-direction: column; gap: 9px;
+  background: linear-gradient(160deg, #0e1614, #0a0f0d);
+  border: 1px solid #1f3a30; border-radius: 14px; padding: 11px 13px; margin-bottom: 10px;
+}
+.challenge-banner-incoming { border-color: #2a5a45; }
+.challenge-banner-waiting { flex-direction: row; align-items: center; gap: 10px; border-color: #3a3327; }
+.challenge-banner-row { display: flex; align-items: center; gap: 10px; }
+.challenge-banner-ic { font-size: 1rem; flex: 0 0 auto; }
+.challenge-banner-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.challenge-banner-text strong { font-size: 0.82rem; color: var(--ink); }
+.challenge-banner-sub { font-size: 0.66rem; color: var(--muted); }
+.challenge-banner-actions { display: flex; gap: 8px; }
+.challenge-banner-actions .ghost-button { flex: 1; }
+.challenge-banner-actions .primary-button { flex: 2; }
+
 /* Photo media sits inset inside the floating card with rounded corners. */
 .ig-photo {
   position: relative;

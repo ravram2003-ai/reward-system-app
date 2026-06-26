@@ -1637,7 +1637,8 @@
     // Bell badge = unread activity ABOUT me from get_notifications (likes/comments/friend
     // events/cheers — DMs are excluded server-side) + pending community join requests.
     const bellUnread = ready ? bellNotifications.filter((n) => !n.read).length : 0;
-    const bellBadge = bellUnread + requestCount;
+    const challengeIncoming = ready ? myIncomingChallenges().length : 0; // pending challenges sent TO me
+    const bellBadge = bellUnread + requestCount + challengeIncoming;
     // Header cluster badges, each its own live count: Alerts bell = activity about me
     // (NEVER direct messages), Friends = pending friend requests, Chats = unread DMs.
     const fmt = (n) => (n > 9 ? "9+" : String(n));
@@ -1848,6 +1849,10 @@
 
     let html = `<div class="notif-head"><strong>Notifications</strong>${showMarkAll ? `<button class="ghost-button small" type="button" data-notif-mark-all>Mark all read</button>` : ""}</div>`;
     const sections = [];
+
+    // Incoming challenges (Accept/Decline) — surfaced here so the opponent sees a sent challenge.
+    const challengeSection = challengeNotifSectionHtml();
+    if (challengeSection) sections.push(challengeSection);
 
     // Community join requests (owner-side) — their own actionable section.
     if (ownerJoinRequests.length) {
@@ -8113,6 +8118,7 @@
       return;
     }
     renderWorldChrome(world);
+    maybeRefreshChallenges(); // pull any freshly-received challenge for this community (throttled)
     if (world.type === "personal") renderPersonalWorldDetail(world);
     else renderCommunityWorldDetail(world);
   }
@@ -8781,7 +8787,7 @@
       });
       rows = out;
     }
-    els.leaderboardList.innerHTML = challengeActiveStripHtml(communityId) + rows;
+    els.leaderboardList.innerHTML = challengePendingBannerHtml(communityId) + challengeActiveStripHtml(communityId) + rows;
     els.leaderboardList.classList.toggle("is-expanded", expanded);
     bindLeaderboardRows();
     if (els.leaderboardExpand) {
@@ -10622,6 +10628,7 @@
     if (!wearablesBootstrapped) return;             // wait for the initial bootstrap/login sync
     if (!state.account) return;                     // signed out → no background sync or nudges over the auth screen
     if (typeof document !== "undefined" && document.hidden) return;
+    try { maybeRefreshChallenges(); } catch (e) { /* best-effort */ } // surface a freshly-received challenge on focus
     // Re-check the streak-at-risk nudge on every focus (its own once/day + later-in-the-day guards
     // keep it quiet) so re-opening the app in the evening surfaces it even without a re-login.
     try { maybeShowStreakAtRisk(); } catch (e) { /* best-effort */ }
@@ -19154,25 +19161,24 @@
         <div class="challenge-actions"><button type="button" class="ghost-button" data-challenge-decline="${escapeHtml(String(challenge.id))}">Decline</button><button type="button" class="primary-button challenge-accept" data-challenge-accept="${escapeHtml(String(challenge.id))}">Accept ⚔️</button></div>
       </div>`);
   }
-  async function acceptChallenge(id) {
+  async function acceptChallenge(id, btn) {
     const challenge = challengeById(id); if (!challenge) return;
     const days = challengeDuration(challenge.duration).days;
     const now = new Date();
     const end = new Date(now.getTime() + days * 86400000);
-    const btn = document.querySelector(`[data-challenge-accept="${CSS.escape(String(id))}"]`);
+    const origText = btn ? btn.textContent : ""; // the clicked button (bell / banner / overlay all differ)
     if (btn) { btn.disabled = true; btn.textContent = "Starting…"; }
     const res = await Promise.resolve(window.PointwellSignals.setChallengeStatus(id, {
       status: "active", start_at: now.toISOString(), end_at: end.toISOString()
     })).catch(() => ({ error: { message: "Couldn't accept." } }));
-    if (res && res.error) { if (btn) { btn.disabled = false; btn.textContent = "Accept ⚔️"; } showToast("Couldn't accept — try again"); return; }
+    if (res && res.error) { if (btn) { btn.disabled = false; btn.textContent = origText; } showToast("Couldn't accept — try again"); return; }
     if (res && res.challenge) applyChallengeRow(res.challenge);
     saveState();
     showToast("Challenge on — good luck ⚔️");
     openChallengeDuel(id);
     render();
   }
-  async function declineChallenge(id) {
-    const btn = document.querySelector(`[data-challenge-decline="${CSS.escape(String(id))}"]`);
+  async function declineChallenge(id, btn) {
     if (btn) btn.disabled = true;
     const res = await Promise.resolve(window.PointwellSignals.setChallengeStatus(id, { status: "declined" })).catch(() => ({ error: true }));
     if (res && res.error) { if (btn) btn.disabled = false; showToast("Couldn't decline — try again"); return; }
@@ -19262,6 +19268,59 @@
       </button>`;
     }).join("");
   }
+  function myIncomingChallenges(communityId) {
+    return (state.challenges || []).filter((c) => c.status === "pending" && c.iAmOpponent && (!communityId || c.communityId === communityId));
+  }
+  // Pending banners: an Accept/Decline card for challenges sent TO me, and a "waiting" note for the
+  // ones I sent. Shown at the top of the Leaderboard (and the incoming ones also go to the bell).
+  function challengePendingBannerHtml(communityId) {
+    const incoming = myIncomingChallenges(communityId);
+    const outgoing = (state.challenges || []).filter((c) => c.status === "pending" && c.iAmChallenger && (!communityId || c.communityId === communityId));
+    const incHtml = incoming.map((c) => `
+      <div class="challenge-banner challenge-banner-incoming">
+        <div class="challenge-banner-row">
+          <span class="challenge-banner-ic" aria-hidden="true">⚔️</span>
+          <span class="challenge-banner-text"><strong>${escapeHtml(challengeOpponentName(c))} challenged you</strong><span class="challenge-banner-sub">${escapeHtml(challengeMetricLabel(c))} · ${escapeHtml(challengeDuration(c.duration).label)}</span></span>
+        </div>
+        <div class="challenge-banner-actions"><button type="button" class="ghost-button small" data-challenge-decline="${escapeHtml(String(c.id))}">Decline</button><button type="button" class="primary-button small" data-challenge-accept="${escapeHtml(String(c.id))}">Accept ⚔️</button></div>
+      </div>`).join("");
+    const outHtml = outgoing.map((c) => `
+      <div class="challenge-banner challenge-banner-waiting">
+        <span class="challenge-banner-ic" aria-hidden="true">⏳</span>
+        <span class="challenge-banner-text"><strong>Waiting for ${escapeHtml(challengeOpponentName(c))} to accept</strong><span class="challenge-banner-sub">${escapeHtml(challengeMetricLabel(c))} · ${escapeHtml(challengeDuration(c.duration).label)}</span></span>
+      </div>`).join("");
+    return incHtml + outHtml;
+  }
+  // Incoming-challenge rows for the notifications bell (reuses .notif-item + the challenge handler).
+  function challengeNotifSectionHtml() {
+    const incoming = myIncomingChallenges();
+    if (!incoming.length) return "";
+    return `<div class="notif-section"><span class="notif-section-label">Challenges</span>` +
+      incoming.map((c) => `
+        <div class="notif-item">
+          ${challengeAvatarHtml(c, challengeOpponentUser(c), "")}
+          <div class="notif-item-main"><strong>${escapeHtml(challengeOpponentName(c))}</strong><span>challenged you · ${escapeHtml(challengeMetricLabel(c))} · ${escapeHtml(challengeDuration(c.duration).label)}</span></div>
+          <div class="notif-item-actions">
+            <button class="primary-button small" type="button" data-challenge-accept="${escapeHtml(String(c.id))}">Accept</button>
+            <button class="ghost-button small" type="button" data-challenge-decline="${escapeHtml(String(c.id))}">Decline</button>
+          </div>
+        </div>`).join("") + `</div>`;
+  }
+  // Re-pull my challenges so a freshly-RECEIVED one surfaces without a full reload. Throttled (the
+  // rows are tiny) and called on app open, on focus re-sync, and when a community detail opens.
+  let lastChallengeFetchAt = 0;
+  function maybeRefreshChallenges(force) {
+    if (!communitiesAreShared() || !state.account || !state.account.userId) return;
+    if (!window.PointwellSignals || typeof window.PointwellSignals.fetchMyChallenges !== "function") return;
+    const now = Date.now();
+    if (!force && now - lastChallengeFetchAt < 20000) return;
+    lastChallengeFetchAt = now;
+    Promise.resolve(loadChallengesFromDb()).then(() => {
+      renderNotifications();
+      if (state.activeView === "community-detail") { try { renderCommunityDetail(); } catch (e) { /* ignore */ } }
+      try { maybeShowChallengeNudge(); } catch (e) { /* a freshly-fetched challenge can also coach-nudge */ }
+    }).catch(() => {});
+  }
 
   // ── Coach nudge integration (received / behind / won) ──
   function challengeNudgeSignature() {
@@ -19297,8 +19356,8 @@
     const send = find("[data-challenge-send]"); if (send) { sendChallenge(); return; }
     const view = find("[data-challenge-view]"); if (view) { event.preventDefault(); openChallengeDuel(view.dataset.challengeView); return; }
     const open = find("[data-challenge-open]"); if (open) { event.preventDefault(); const c = challengeById(open.dataset.challengeOpen); if (c) { if (c.status === "pending" && c.iAmOpponent) renderChallengeReceived(c); else openChallengeDuel(c.id); } return; }
-    const acc = find("[data-challenge-accept]"); if (acc) { acceptChallenge(acc.dataset.challengeAccept); return; }
-    const dec = find("[data-challenge-decline]"); if (dec) { declineChallenge(dec.dataset.challengeDecline); return; }
+    const acc = find("[data-challenge-accept]"); if (acc) { acceptChallenge(acc.dataset.challengeAccept, acc); return; }
+    const dec = find("[data-challenge-decline]"); if (dec) { declineChallenge(dec.dataset.challengeDecline, dec); return; }
     const log = find("[data-challenge-log]"); if (log) { closeChallengeOverlay(); challengeOpenLog(log.dataset.challengeLog); return; }
     const rem = find("[data-challenge-rematch]"); if (rem) { const c = challengeById(rem.dataset.challengeRematch); closeChallengeOverlay(); if (c) openChallengeSetup(challengeOpponentUser(c), c.communityId); return; }
   }

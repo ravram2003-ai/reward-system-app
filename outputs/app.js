@@ -4227,7 +4227,7 @@
     });
   }
 
-  function deleteCommunityEntry(entryId) {
+  function deleteCommunityEntry(entryId, toastMsg) {
     const entry = (state.communityEntries || []).find((item) => item.id === entryId);
     if (!entry) return;
     state.communityEntries = (state.communityEntries || []).filter((item) => item.id !== entryId);
@@ -4235,7 +4235,65 @@
     if (community) saveCommunitySummaryForMember(community, entry.userId);
     saveState();
     render();
-    showToast("Community entry removed");
+    showToast(toastMsg || "Community entry removed");
+  }
+
+  // ── Delete-on-posts (author-only) ──────────────────────────────────────────
+  // The feed ⋯ menu's "Delete post" opens a styled confirm (honest about points). On confirm we
+  // delete the community_entries row in the DB (author-only "entries delete own" RLS is the real
+  // guard), then drop it from state.communityEntries + re-render so it disappears from feed /
+  // community / profile and the leaderboard recomputes. Local-only (demo) posts skip the DB call.
+  function openDeletePostConfirm(entryId) {
+    if (!entryId) return;
+    closeDeletePostConfirm();
+    const menuRoot = activeFeedRoot();
+    if (menuRoot) Array.from(menuRoot.querySelectorAll(".ig-menu-pop")).forEach((p) => { p.hidden = true; });
+    const back = document.createElement("div");
+    back.className = "post-confirm-backdrop";
+    back.setAttribute("data-postdel-backdrop", "");
+    back.innerHTML = `
+      <div class="post-confirm-card" role="dialog" aria-modal="true" aria-labelledby="postdel-title">
+        <div class="post-confirm-ico" aria-hidden="true">🗑</div>
+        <strong id="postdel-title">Delete this post?</strong>
+        <p>This removes the post and the points it logged. This can't be undone.</p>
+        <div class="post-confirm-btns">
+          <button type="button" class="ghost-button" data-postdel-cancel>Cancel</button>
+          <button type="button" class="post-confirm-delete" data-postdel-confirm>Delete</button>
+        </div>
+      </div>`;
+    document.body.appendChild(back);
+    back.addEventListener("click", (e) => { if (e.target === back) closeDeletePostConfirm(); });
+    const cancel = back.querySelector("[data-postdel-cancel]");
+    if (cancel) cancel.addEventListener("click", closeDeletePostConfirm);
+    const confirm = back.querySelector("[data-postdel-confirm]");
+    if (confirm) confirm.addEventListener("click", (e) => confirmDeletePost(entryId, e.currentTarget));
+  }
+
+  function closeDeletePostConfirm() {
+    const back = document.querySelector("[data-postdel-backdrop]");
+    if (back) back.remove();
+  }
+
+  function confirmDeletePost(entryId, btn) {
+    const entry = (state.communityEntries || []).find((item) => item.id === entryId);
+    if (!entry) { closeDeletePostConfirm(); return; }
+    const cancelBtn = document.querySelector("[data-postdel-cancel]");
+    if (btn) { btn.disabled = true; btn.textContent = "Deleting…"; }   // in-flight: block double-submit
+    if (cancelBtn) cancelBtn.disabled = true;
+    const finishLocal = () => { closeDeletePostConfirm(); deleteCommunityEntry(entryId, "Post deleted"); };
+    const fail = (msg) => {
+      if (btn) { btn.disabled = false; btn.textContent = "Delete"; } // keep the post; let them retry
+      if (cancelBtn) cancelBtn.disabled = false;
+      showToast(msg || "Couldn't delete the post");
+    };
+    const uid = state.account && state.account.userId;
+    const canDb = signalsReady() && isDbEntryId(entryId) && window.PointwellSignals
+      && typeof window.PointwellSignals.deleteCommunityEntry === "function";
+    if (!canDb) { finishLocal(); return; }   // local/demo post — no DB row to delete
+    Promise.resolve(window.PointwellSignals.deleteCommunityEntry(entryId, uid)).then((res) => {
+      if (res && res.error) { fail(communityDbError(res.error, "Couldn't delete the post")); return; }
+      finishLocal();
+    }).catch(() => fail("Couldn't delete the post"));
   }
 
   function saveCommunitySummaryForMember(community, userId) {
@@ -7601,11 +7659,16 @@
       mediaHtml = `<div class="ig-textbody"><span class="ig-textbody-accent" style="background:linear-gradient(180deg, ${tileColor}, ${shadeHex(tileColor, 0.5)})" aria-hidden="true"></span><p>${escapeHtml(message)}</p></div>`;
     }
 
-    const menuHtml = (isMe || isDiscover) ? "" : `
+    // ⋯ menu: your OWN post → Delete (author-only; DB-enforced via RLS). Someone else's → Message.
+    // Discover posts (never yours) keep no menu. Delete shows for own posts whether DB-backed or local.
+    const menuInner = isMe
+      ? `<button type="button" class="ig-menu-del" data-feed-delete="${escapeHtml(entryId)}">🗑 Delete post</button>`
+      : `<button type="button" data-feed-menu-msg>Message ${escapeHtml(memberFirstName(item.member))}</button>`;
+    const menuHtml = isDiscover ? "" : `
         <div class="ig-menu-wrap" data-feed-menu-wrap>
           <button class="ig-menu" type="button" data-feed-menu aria-haspopup="true" aria-expanded="false" aria-label="More options">⋯</button>
           <div class="ig-menu-pop" hidden>
-            <button type="button" data-feed-menu-msg>Message ${escapeHtml(memberFirstName(item.member))}</button>
+            ${menuInner}
           </div>
         </div>`;
 
@@ -7867,6 +7930,8 @@
     if (menuBtn) { toggleFeedMenu(menuBtn); return; }
     const msgBtn = event.target.closest("[data-feed-menu-msg]");
     if (msgBtn) { messageFromFeed(msgBtn); return; }
+    const delBtn = event.target.closest("[data-feed-delete]");
+    if (delBtn) { openDeletePostConfirm(delBtn.dataset.feedDelete); return; }
   }
 
   function onFeedInput(event) {

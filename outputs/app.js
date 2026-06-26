@@ -206,6 +206,8 @@
     coachLastPeekSig: "",  // last proactively-peeked nudge signature (no re-nag across reloads)
     coachSoftPromptDay: "", // YYYY-MM-DD the soft "want to log anything?" invite last showed (once/day)
     lastRecapDay: "",       // YYYY-MM-DD the "Yesterday, recapped" daily AI card last showed (once/day)
+    streakMilestones: {},   // { "<type>:<id>": highestMilestoneCelebrated } — celebrate each badge once
+    streakRiskDay: "",      // YYYY-MM-DD the streak-at-risk nudge last showed (once/day, later in the day)
     systems: [
       {
         id: "life-core",
@@ -503,6 +505,7 @@
       hideAuthScreen();
       // Local mode has its communities/systems in state already → recap can run (uses the client composer).
       Promise.resolve(maybeShowDailyRecap()).catch(() => {});
+      try { maybeShowStreakAtRisk(); } catch (e) { /* nudge is best-effort */ }
     }
   }
 
@@ -1484,6 +1487,7 @@
     await resolvePendingJoin();
     // Communities are loaded now → safe to compute yesterday's leaderboard standing for the recap.
     Promise.resolve(maybeShowDailyRecap()).catch(() => {});
+    try { maybeShowStreakAtRisk(); } catch (e) { /* nudge is best-effort */ }
   }
 
   function teardownSignals() {
@@ -2705,6 +2709,7 @@
       "worldGrid",
       "worldGridHint",
       "worldCount",
+      "streakCard",
       "dashboardDetail",
       "notifBellButton",
       "notifBellBadge",
@@ -4872,6 +4877,7 @@
     // Bubble-tile home (Phase 1): the visible Today body. The per-system detail below is
     // hidden (#dashboardDetail) but still computed — its values feed the Add Entry view.
     renderWorldGrid();
+    renderStreakCard(); // prominent streak card under the tiles (reuses coachContextStreak)
 
     // Default analytics visibility; updateDashboardComputed() flips these for the
     // action-first empty state (and the no-system branch below leaves them visible).
@@ -10402,6 +10408,9 @@
     if (!wearablesBootstrapped) return;             // wait for the initial bootstrap/login sync
     if (!state.account) return;                     // signed out → no background sync or nudges over the auth screen
     if (typeof document !== "undefined" && document.hidden) return;
+    // Re-check the streak-at-risk nudge on every focus (its own once/day + later-in-the-day guards
+    // keep it quiet) so re-opening the app in the evening surfaces it even without a re-login.
+    try { maybeShowStreakAtRisk(); } catch (e) { /* best-effort */ }
     const now = Date.now();
     if (now - lastAutoResyncAt < 5 * 60 * 1000) return; // at most once / 5 min
     lastAutoResyncAt = now;
@@ -12184,26 +12193,196 @@
     hours.forEach((h) => { counts[h] = (counts[h] || 0) + 1; if (counts[h] > bestN) { bestN = counts[h]; best = h; } });
     return best;
   }
-  function coachContextStreak(ctx) {
-    let target, getPts;
+  // The per-day "hit" primitive shared by every streak computation: the daily target + a getPts(date)
+  // that reads the same points coachContextStreak uses. Extracted so the streak CARD (week dots,
+  // best-run, at-risk) reuses the EXACT same hit logic instead of re-deriving streaks from scratch.
+  function streakContextProbe(ctx) {
     if (ctx.type === "community") {
-      target = communityTarget(ctx.community);
+      const target = communityTarget(ctx.community);
       const me = (ctx.community.members || []).find((m) => m.id === "me");
-      getPts = (d) => me ? communityMemberPointsOnDate(ctx.community, me, d) : 0;
-    } else {
-      const sys = normalizeSystem(ctx.system);
-      target = numberOrDefault(calculateTargetSummary(sys).total, 0);
-      getPts = (d) => { const e = findEntry(d, ctx.id); return e ? numberOrDefault(e.total, 0) : 0; };
+      return { target: target, getPts: (d) => me ? communityMemberPointsOnDate(ctx.community, me, d) : 0 };
     }
-    if (!(target > 0)) return 0;
+    const sys = normalizeSystem(ctx.system);
+    const target = numberOrDefault(calculateTargetSummary(sys).total, 0);
+    return { target: target, getPts: (d) => { const e = findEntry(d, ctx.id); return e ? numberOrDefault(e.total, 0) : 0; } };
+  }
+
+  function coachContextStreak(ctx) {
+    const probe = streakContextProbe(ctx);
+    if (!(probe.target > 0)) return 0;
     let streak = 0;
     for (let i = 0; i < 30; i++) {
-      const hit = getPts(offsetDate(-i)) >= target;
+      const hit = probe.getPts(offsetDate(-i)) >= probe.target;
       if (i === 0 && !hit) continue; // today may be unfinished — don't count it against the streak
       if (hit) streak += 1; else break;
     }
     return streak;
   }
+  // ── Streak system: surface + celebrate the streak data that already exists ──────────
+  const STREAK_MILESTONES = [7, 30, 100];
+  let streakCelebrateKey = ""; // one-shot: the ctx whose card should play the milestone pop once
+
+  // The streak context the Today card + at-risk nudge act on: the user's ACTIVE score context
+  // (personal system or community), shaped for the existing streak fns. Null when nothing trackable.
+  function streakActiveContext() {
+    const c = getActiveScoreContext();
+    if (c && c.type === "community" && c.community) return { type: "community", id: c.community.id, community: c.community };
+    if (c && c.system) return { type: "personal", id: c.system.id, system: c.system };
+    return null;
+  }
+
+  function weekdayInitial(dateKey) {
+    const p = String(dateKey).split("-");
+    const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    return ["S", "M", "T", "W", "T", "F", "S"][d.getDay()] || "";
+  }
+
+  // Last 7 days as dots, using the SAME hit logic as coachContextStreak (probe.getPts >= target).
+  function streakWeekDots(ctx, probe) {
+    probe = probe || streakContextProbe(ctx);
+    const today = getTodayKey();
+    const out = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = offsetDate(-i);
+      out.push({ label: weekdayInitial(date), hit: probe.getPts(date) >= probe.target, isToday: date === today });
+    }
+    return out;
+  }
+
+  // Longest consecutive hit-run in the trailing `days` (for the "best this month" subline). Same
+  // probe primitive — a derived stat, not a re-implementation of the current streak.
+  function streakBestRun(ctx, probe, days) {
+    probe = probe || streakContextProbe(ctx);
+    let best = 0, run = 0;
+    for (let i = days - 1; i >= 1; i--) {
+      if (probe.getPts(offsetDate(-i)) >= probe.target) { run += 1; if (run > best) best = run; } else run = 0;
+    }
+    if (probe.getPts(getTodayKey()) >= probe.target) { run += 1; if (run > best) best = run; }
+    return best;
+  }
+
+  // Next badge + progress toward it (matches the reference: % of the way to the next milestone).
+  function streakMilestoneInfo(streak) {
+    const next = STREAK_MILESTONES.find((m) => m > streak) || 0;
+    if (!next) return { next: 0, daysTo: 0, pct: 100 };
+    return { next: next, daysTo: next - streak, pct: Math.max(0, Math.min(100, Math.round((streak / next) * 100))) };
+  }
+
+  // Celebrate each badge ONCE per context. Re-arms if the streak breaks below a celebrated badge.
+  function maybeCelebrateMilestone(ctx, streak) {
+    const key = ctx.type + ":" + ctx.id;
+    state.streakMilestones = state.streakMilestones || {};
+    const celebrated = numberOrDefault(state.streakMilestones[key], 0);
+    let reached = 0;
+    STREAK_MILESTONES.forEach((m) => { if (streak >= m) reached = m; });
+    if (reached > celebrated) {
+      state.streakMilestones[key] = reached;
+      saveState();
+      streakCelebrateKey = key;
+      showToast("🔥 " + streak + "-day streak — " + reached + "-day badge earned!");
+    } else if (reached < celebrated) {
+      state.streakMilestones[key] = reached; // streak dropped → allow the badge to celebrate again later
+      saveState();
+    }
+  }
+
+  // The prominent Today streak card (amber flame + count + 7-day dots + milestone progress). Reuses
+  // coachContextStreak for the count and the shared probe for the dots/best-run — no new streak math.
+  function renderStreakCard() {
+    if (!els.streakCard) return;
+    const ctx = streakActiveContext();
+    const probe = ctx ? streakContextProbe(ctx) : null;
+    if (!ctx || !probe || !(probe.target > 0)) { els.streakCard.hidden = true; els.streakCard.innerHTML = ""; return; }
+    els.streakCard.hidden = false;
+    const streak = coachContextStreak(ctx);
+    maybeCelebrateMilestone(ctx, streak);
+    const key = ctx.type + ":" + ctx.id;
+    const celebrating = streakCelebrateKey === key; if (celebrating) streakCelebrateKey = "";
+    const dots = streakWeekDots(ctx, probe).map((d) => {
+      if (d.isToday) {
+        return `<div class="streak-day is-today"><span class="streak-dot ${d.hit ? "hit" : "today"}">${d.hit ? "✓" : "·"}</span><span class="streak-daylabel">today</span></div>`;
+      }
+      return `<div class="streak-day"><span class="streak-dot ${d.hit ? "hit" : "miss"}">${d.hit ? "✓" : ""}</span><span class="streak-daylabel">${escapeHtml(d.label)}</span></div>`;
+    }).join("");
+    const ms = streakMilestoneInfo(streak);
+    const best = streakBestRun(ctx, probe, 30);
+    let sub;
+    if (streak <= 0) sub = "Log today to start your streak";
+    else if (streak >= best) sub = "🔥 your best this month";
+    else sub = "Best this month: " + best + " days";
+    const mline = ms.next
+      ? `<div class="streak-mbar" aria-hidden="true"><i style="width:${ms.pct}%"></i></div><p class="streak-mtext">${ms.daysTo} ${ms.daysTo === 1 ? "day" : "days"} to your 🏅 ${ms.next}-day badge</p>`
+      : `<p class="streak-mtext">🏅 100-day legend — every badge earned</p>`;
+    els.streakCard.innerHTML = `
+      <div class="streak-card${streak <= 0 ? " is-zero" : ""}${celebrating ? " is-celebrating" : ""}">
+        <div class="streak-glow" aria-hidden="true"></div>
+        <div class="streak-top">
+          <span class="streak-flame" aria-hidden="true">🔥</span>
+          <div class="streak-headline">
+            <strong class="streak-count">${escapeHtml(String(streak))}<span> day streak</span></strong>
+            <p class="streak-sub">${escapeHtml(sub)}</p>
+          </div>
+        </div>
+        <div class="streak-week">${dots}</div>
+        ${mline}
+      </div>`;
+  }
+
+  // ── Streak at-risk nudge: the return driver. When a streak is ALIVE but today isn't logged yet,
+  // surface "your N-day streak ends tonight" + a Log-now CTA — once/day, only later in the day. ──
+  function maybeShowStreakAtRisk() {
+    if (onboardingActive) return;
+    if (coachLearning().proactiveOff) return;          // respect the global off switch
+    const today = getTodayKey();
+    if (state.streakRiskDay === today) return;          // once/day (no nag, no re-pop)
+    if (coachNowHour() < 16) return;                    // "later in the day" — never in the morning
+    const ctx = streakActiveContext();
+    if (!ctx) return;
+    const probe = streakContextProbe(ctx);
+    if (!(probe.target > 0)) return;
+    const streak = coachContextStreak(ctx);             // reuse existing streak math
+    const todayHit = probe.getPts(today) >= probe.target;
+    if (!(streak > 0) || todayHit) return;              // not at risk (no streak, or already kept alive)
+    state.streakRiskDay = today;
+    saveState();
+    coachShowStreakRiskCard(streak);
+  }
+
+  function coachShowStreakRiskCard(streak) {
+    coachLearnRecord("streakrisk", "shown");
+    coachSay(`
+      <div class="coach-card coach-streakrisk-card coach-nudge-card is-active" data-coach-streakrisk-card>
+        <div class="coach-streakrisk-row">
+          <span class="coach-streakrisk-flame" aria-hidden="true">🔥</span>
+          <div class="coach-streakrisk-main">
+            <strong>Your ${escapeHtml(String(streak))}-day streak ends tonight</strong>
+            <p>Log anything today to keep it alive.</p>
+          </div>
+        </div>
+        <div class="coach-card-actions">
+          <button type="button" class="ghost-button small" data-coach-streakdismiss>Not now</button>
+          <button type="button" class="primary-button small" data-coach-streaklog>Log now</button>
+        </div>
+      </div>`);
+    if (!coach.panelOpen) coach.recapPending = true;     // badge the launcher so it surfaces in Today
+    renderCoachLauncher();
+    coachScroll();
+  }
+
+  function coachStreakLog(cardEl) {
+    coachLearnRecord("streakrisk", "acted");
+    coach.recapPending = false;
+    coachFinalizeCard(cardEl);
+    if (coach.panelOpen) closeCoachPanel();
+    openAddEntryPage(); // the existing quick-log path
+  }
+  function coachStreakDismiss(cardEl) {
+    coachLearnRecord("streakrisk", "dismissed");
+    coach.recapPending = false;
+    renderCoachLauncher();
+    coachFinalizeCard(cardEl);
+  }
+
   function coachMetricTrend(ruleId, systemId) {
     const avg = (start) => {
       let sum = 0, n = 0;
@@ -13914,6 +14093,8 @@
     if (t.closest("[data-coach-recappost]")) { coachRecapPost(card()); return; }
     if (t.closest("[data-coach-recapkeep]")) { coachRecapKeep(card()); return; }
     if (t.closest("[data-coach-recapdismiss]")) { coachRecapDismiss(card()); return; }
+    if (t.closest("[data-coach-streaklog]")) { coachStreakLog(card()); return; }
+    if (t.closest("[data-coach-streakdismiss]")) { coachStreakDismiss(card()); return; }
     if (t.closest("[data-coach-postyes]")) { coachLearnRecord("post", "acted"); coachOpenPostPicker(); return; }
     if (t.closest("[data-coach-postno]")) { coachDeclinePost(); return; }
     const postDest = t.closest("[data-coach-postdest]");

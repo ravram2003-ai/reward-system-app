@@ -195,6 +195,7 @@
     draftInputs: {},
     quickEntries: [],
     communityEntries: [],
+    challenges: [],
     communityDraftInputs: {},
     knownWorkoutIds: [],   // wearable workout/exercise session ids we've already seen
     pendingWorkout: null,  // a newly-detected workout awaiting the "log it?" prompt
@@ -204,6 +205,7 @@
     coachProfile: null,    // code-computed behavioral profile (streaks/usual-times/trends/motivation)
     coachLearning: { proactiveOff: false, weekKey: "", byType: {}, byHour: {}, byRule: {}, shownDay: "", shownCount: 0 }, // nudge feedback loop (by type + per rule)
     coachLastPeekSig: "",  // last proactively-peeked nudge signature (no re-nag across reloads)
+    coachChallengeSig: "", // last challenge-nudge signature (no re-nag across reloads)
     coachSoftPromptDay: "", // YYYY-MM-DD the soft "want to log anything?" invite last showed (once/day)
     lastRecapDay: "",       // YYYY-MM-DD the "Yesterday, recapped" daily AI card last showed (once/day)
     streakMilestones: {},   // { "<type>:<id>": highestMilestoneCelebrated } — celebrate each badge once
@@ -506,6 +508,7 @@
       // Local mode has its communities/systems in state already → recap can run (uses the client composer).
       Promise.resolve(maybeShowDailyRecap()).catch(() => {});
       try { maybeShowStreakAtRisk(); } catch (e) { /* nudge is best-effort */ }
+      try { maybeShowChallengeNudge(); } catch (e) { /* challenge nudge is best-effort */ }
     }
   }
 
@@ -1488,6 +1491,7 @@
     // Communities are loaded now → safe to compute yesterday's leaderboard standing for the recap.
     Promise.resolve(maybeShowDailyRecap()).catch(() => {});
     try { maybeShowStreakAtRisk(); } catch (e) { /* nudge is best-effort */ }
+    try { maybeShowChallengeNudge(); } catch (e) { /* challenge nudge is best-effort */ }
   }
 
   function teardownSignals() {
@@ -3184,6 +3188,7 @@
     }
     bindQuickLogControls();
     bindCoach();
+    bindChallenges();
     bindWearablePrompt();
     els.backToDashboardButton.addEventListener("click", returnToDashboard);
     els.customizeTopCardButton.addEventListener("click", openCustomizeTopCardPage);
@@ -8614,11 +8619,11 @@
     const count = getCommunityMemberCount(community);
     const ownerId = community.ownerId || "";
     const cap = `<p class="community-section-cap">${escapeHtml(plural(count, "member").toUpperCase())}</p>`;
-    els.communityMembersList.innerHTML = cap + members.map((m) => renderCommunityMemberRow(m, ownerId)).join("");
+    els.communityMembersList.innerHTML = cap + members.map((m) => renderCommunityMemberRow(m, ownerId, world.id)).join("");
     bindCommunityMemberRows();
   }
 
-  function renderCommunityMemberRow(m, ownerId) {
+  function renderCommunityMemberRow(m, ownerId, communityId) {
     const isMe = m.id === "me";
     const isOwner = isMe ? (ownerId === "me") : (!!m.userId && String(m.userId) === String(ownerId));
     const name = isMe ? "You" : escapeHtml(m.name || "Member");
@@ -8640,6 +8645,7 @@
             <span class="community-member-handle">${handle}</span>
           </div>
         ${tapClose}
+        ${challengeButtonHtml(m.userId, communityId, { compact: true })}
         ${action}
       </div>`;
   }
@@ -8775,7 +8781,7 @@
       });
       rows = out;
     }
-    els.leaderboardList.innerHTML = rows;
+    els.leaderboardList.innerHTML = challengeActiveStripHtml(communityId) + rows;
     els.leaderboardList.classList.toggle("is-expanded", expanded);
     bindLeaderboardRows();
     if (els.leaderboardExpand) {
@@ -9899,8 +9905,11 @@
     // Followers/Following are tappable stat cards (› affordance); Communities is a static stat.
     const statCard = (mode, num, label) =>
       `<button class="profile-stat" type="button" data-profile-stat="${mode}"><p class="profile-stat-num">${escapeHtml(formatFollowCount(num))}</p><p class="profile-stat-cap">${label} ›</p></button>`;
+    // ⚔️ Challenge sits beside Follow/Message when we share a community (challenges are community-scoped).
+    const sharesCommunity = state.profileUserId && (state.communities || []).some((c) => (c.members || []).some((m) => String(m.userId) === String(state.profileUserId)));
+    const challengeBtn = sharesCommunity ? challengeButtonHtml(state.profileUserId, state.profileCommunityContextId) : "";
     const actionRow = (!isOwnProfile && canView)
-      ? `<div class="profile-hero-actions-row">${profileRelationshipButton(o)}${profileMessageButton(name)}</div>` : "";
+      ? `<div class="profile-hero-actions-row">${profileRelationshipButton(o)}${profileMessageButton(name)}${challengeBtn}</div>` : "";
     // Cover banner + avatar are OWN-profile fields (state.profile) so they reflect a just-uploaded
     // image immediately; others' covers aren't exposed by the gated overview read → default gradient.
     const coverUrl = isOwnProfile ? (state.profile.coverUrl || "") : "";
@@ -10616,6 +10625,7 @@
     // Re-check the streak-at-risk nudge on every focus (its own once/day + later-in-the-day guards
     // keep it quiet) so re-opening the app in the evening surfaces it even without a re-login.
     try { maybeShowStreakAtRisk(); } catch (e) { /* best-effort */ }
+    try { maybeShowChallengeNudge(); } catch (e) { /* best-effort */ }
     const now = Date.now();
     if (now - lastAutoResyncAt < 15 * 60 * 1000) return; // at most once / 15 min (was 5; cuts focus-driven community re-fetch egress)
     lastAutoResyncAt = now;
@@ -12517,6 +12527,42 @@
 
   // ── Streak at-risk nudge: the return driver. When a streak is ALIVE but today isn't logged yet,
   // surface "your N-day streak ends tonight" + a Log-now CTA — once/day, only later in the day. ──
+  // Surface the top challenge moment (received / behind-late / won) through Coach — self-contained
+  // like the streak-at-risk nudge: once per challenge-state signature, respects the off switch + the
+  // per-type dismissal learning (coachShouldPeekType('challenge')).
+  function maybeShowChallengeNudge() {
+    if (onboardingActive) return;
+    if (coachLearning().proactiveOff) return;
+    if (!coachShouldPeekType("challenge")) return;     // user keeps dismissing → back off
+    if (coach.lastChallengeSig == null) coach.lastChallengeSig = state.coachChallengeSig || ""; // seed from persisted
+    const nudge = topChallengeNudge();
+    if (!nudge) return;
+    const sig = nudge.id + ":" + nudge.mode;
+    if (coach.lastChallengeSig === sig) return;         // once per challenge state (persisted across reloads)
+    coach.lastChallengeSig = sig;
+    state.coachChallengeSig = sig; // persist so a reload doesn't re-nag the same challenge state
+    saveState();
+    coachShowChallengeCard(nudge);
+  }
+  function coachShowChallengeCard(nudge) {
+    coachLearnRecord("challenge", "shown");
+    const primary = nudge.mode === "recv"
+      ? `<button type="button" class="primary-button small" data-challenge-accept="${escapeHtml(String(nudge.id))}">Accept ⚔️</button>`
+      : `<button type="button" class="primary-button small" data-challenge-view="${escapeHtml(String(nudge.id))}">View</button>`;
+    const secondary = nudge.mode === "recv"
+      ? `<button type="button" class="ghost-button small" data-challenge-decline="${escapeHtml(String(nudge.id))}">Decline</button>`
+      : `<button type="button" class="ghost-button small" data-challenge-nudge-dismiss>Not now</button>`;
+    coachSay(`
+      <div class="coach-card coach-nudge-card is-active" data-challenge-nudge-card>
+        <div class="coach-nudge-head"><span class="via-source-tag">⚔️</span> ${escapeHtml(nudge.head || "Challenge")}</div>
+        <p class="coach-card-title">${escapeHtml(nudge.text)}</p>
+        <div class="coach-card-actions">${secondary}${primary}</div>
+      </div>`);
+    if (!coach.panelOpen) coach.recapPending = true;    // badge the launcher so it surfaces in Today
+    renderCoachLauncher();
+    if (typeof coachScroll === "function") coachScroll();
+  }
+
   function maybeShowStreakAtRisk() {
     if (onboardingActive) return;
     if (coachLearning().proactiveOff) return;          // respect the global off switch
@@ -18865,6 +18911,428 @@
     });
   }
 
+  // ══ CHALLENGES — head-to-head 1v1 duels over a window ══════════════════════════════════════
+  // A challenge = a 2-person leaderboard. Both scores are computed from the EXISTING
+  // community_entries (reusing communityTotalForMember / communityValuesForMember) over the
+  // window — never stored. The `challenges` table is the state-machine + RLS guard; all the
+  // overlays reuse the post-overlay sheet; nudges reuse the coach pipeline.
+  const CHALLENGE_DURATIONS = [
+    { id: "today", label: "Today", days: 1 },
+    { id: "3days", label: "3 days", days: 3 },
+    { id: "1week", label: "1 week", days: 7 }
+  ];
+  function challengeDuration(id) { return CHALLENGE_DURATIONS.find((d) => d.id === id) || CHALLENGE_DURATIONS[1]; }
+  let challengeDraft = null;          // { communityId, opponentUserId, duration, metric, forfeitOn, forfeitText }
+  let challengeCelebrated = {};       // challengeId -> true (one-shot win toast guard, session-local)
+
+  function challengeFromDb(row) {
+    if (!row) return null;
+    const myId = state.account && state.account.userId;
+    return {
+      id: row.id,
+      communityId: row.community_id,
+      challengerUser: row.challenger_user,
+      opponentUser: row.opponent_user,
+      metric: row.metric || "points",
+      duration: row.duration || "3days",
+      startAt: row.start_at || "",
+      endAt: row.end_at || "",
+      status: row.status || "pending",
+      winnerUser: row.winner_user || "",
+      forfeit: row.forfeit || "",
+      createdAt: row.created_at || "",
+      iAmChallenger: !!myId && row.challenger_user === myId,
+      iAmOpponent: !!myId && row.opponent_user === myId
+    };
+  }
+
+  async function loadChallengesFromDb() {
+    if (!communitiesAreShared() || !state.account || !state.account.userId) return;
+    if (!window.PointwellSignals || typeof window.PointwellSignals.fetchMyChallenges !== "function") return;
+    const rows = await Promise.resolve(window.PointwellSignals.fetchMyChallenges(state.account.userId)).catch(() => []);
+    state.challenges = (rows || []).map(challengeFromDb).filter(Boolean);
+  }
+
+  // ── Scoring (reuses the community scoring; no new math) ──
+  function challengeWindowDates(challenge, cappedToToday) {
+    const days = challengeDuration(challenge.duration).days;
+    const startKey = challenge.startAt ? localDateKey(new Date(challenge.startAt)) : getTodayKey();
+    const today = getTodayKey();
+    const out = [];
+    const d = new Date(startKey + "T00:00:00");
+    for (let i = 0; i < days; i++) {
+      const key = localDateKey(d);
+      if (cappedToToday !== false && key > today) break; // future days have no entries yet
+      out.push(key);
+      d.setDate(d.getDate() + 1);
+    }
+    return out;
+  }
+  // A user's challenge score over the window: total points (metric 'points') or one rule's amount.
+  function challengeMemberScore(community, userId, challenge, cappedToToday) {
+    if (!community || !userId) return 0;
+    const localId = (state.account && state.account.userId === userId) ? "me" : userId;
+    const dates = challengeWindowDates(challenge, cappedToToday);
+    if (challenge.metric && challenge.metric !== "points") {
+      const rule = (community.system.rules || []).map(scoring.normalizeRule).find((r) => r.id === challenge.metric);
+      let amount = 0;
+      dates.forEach((d) => { amount += numberOrDefault(communityValuesForMember(community.id, localId, d)[challenge.metric], 0); });
+      return rule ? roundScore(scoring.calculateRule(rule, amount).totalPoints) : roundScore(amount);
+    }
+    let sum = 0;
+    dates.forEach((d) => { sum += communityTotalForMember(community, localId, d); });
+    return roundScore(sum);
+  }
+  // {me, opp, lead} from MY perspective, plus the resolved user ids.
+  function challengeScorePair(challenge, cappedToToday) {
+    const community = challengeCommunity(challenge);
+    const meUser = challenge.iAmOpponent ? challenge.opponentUser : challenge.challengerUser;
+    const oppUser = challenge.iAmOpponent ? challenge.challengerUser : challenge.opponentUser;
+    const me = community ? challengeMemberScore(community, meUser, challenge, cappedToToday) : 0;
+    const opp = community ? challengeMemberScore(community, oppUser, challenge, cappedToToday) : 0;
+    return { me: me, opp: opp, lead: me - opp, meUser: meUser, oppUser: oppUser };
+  }
+  // The computed winner USER id over the full window (null = draw). Used to display + finalize.
+  function challengeComputedWinner(challenge) {
+    const community = challengeCommunity(challenge);
+    if (!community) return "";
+    const a = challengeMemberScore(community, challenge.challengerUser, challenge, false);
+    const b = challengeMemberScore(community, challenge.opponentUser, challenge, false);
+    if (a === b) return "";
+    return a > b ? challenge.challengerUser : challenge.opponentUser;
+  }
+
+  // ── Helpers ──
+  function challengeCommunity(challenge) { return (state.communities || []).find((c) => c.id === challenge.communityId) || null; }
+  function challengeById(id) { return (state.challenges || []).find((c) => String(c.id) === String(id)) || null; }
+  function challengeMemberByUser(community, userId) {
+    if (!community) return null;
+    return (community.members || []).find((m) => m.userId === userId || m.id === userId
+      || (state.account && state.account.userId === userId && m.id === "me")) || null;
+  }
+  function challengeOpponentUser(challenge) { return challenge.iAmOpponent ? challenge.challengerUser : challenge.opponentUser; }
+  function challengeOpponentName(challenge) {
+    const m = challengeMemberByUser(challengeCommunity(challenge), challengeOpponentUser(challenge));
+    return (m && m.name) || "Opponent";
+  }
+  function challengeMetricLabel(challenge) {
+    if (!challenge.metric || challenge.metric === "points") return "Most total points";
+    const community = challengeCommunity(challenge);
+    const rule = community && (community.system.rules || []).find((r) => r.id === challenge.metric);
+    return rule ? ("Most " + (rule.label || "")) : "Most total points";
+  }
+  function challengeEndMs(challenge) { return challenge.endAt ? Date.parse(challenge.endAt) : 0; }
+  function challengeIsEnded(challenge) { const e = challengeEndMs(challenge); return e > 0 && Date.now() >= e; }
+  function challengeCountdownText(challenge) {
+    const e = challengeEndMs(challenge);
+    if (!e) return "";
+    const ms = e - Date.now();
+    if (ms <= 0) return "ended";
+    const mins = Math.floor(ms / 60000), h = Math.floor(mins / 60), m = mins % 60;
+    if (h >= 24) return Math.floor(h / 24) + "d " + (h % 24) + "h left";
+    return h > 0 ? (h + "h " + m + "m left") : (m + "m left");
+  }
+  function myActiveChallenges(communityId) {
+    return (state.challenges || []).filter((c) => (c.iAmChallenger || c.iAmOpponent)
+      && c.status === "active" && (!communityId || c.communityId === communityId));
+  }
+  function myWinCount() {
+    return (state.challenges || []).filter((c) => {
+      if (!(c.iAmChallenger || c.iAmOpponent)) return false;
+      const meUser = c.iAmOpponent ? c.opponentUser : c.challengerUser;
+      const w = c.winnerUser || (challengeIsEnded(c) ? challengeComputedWinner(c) : "");
+      return w && w === meUser;
+    }).length;
+  }
+  // Avatar markup for a user in a community (falls back to my own profile for "me").
+  function challengeAvatarHtml(challenge, userId, extraClass) {
+    const community = challengeCommunity(challenge);
+    const isMe = state.account && state.account.userId === userId;
+    if (isMe) return renderAvatar({ className: extraClass || "", name: state.profile.name, avatarUrl: state.profile.avatarUrl });
+    const m = challengeMemberByUser(community, userId);
+    return renderAvatar({ className: extraClass || "", name: (m && m.name) || "Member", color: (m && m.color) || "#9a4a2c", avatarUrl: m && m.avatarUrl });
+  }
+
+  // ── Overlay shell (reuses .post-overlay-sheet) ──
+  function closeChallengeOverlay() {
+    const back = document.querySelector("[data-challenge-overlay]");
+    if (back) back.remove();
+    document.removeEventListener("keydown", onChallengeOverlayKey);
+  }
+  function onChallengeOverlayKey(e) { if (e.key === "Escape") closeChallengeOverlay(); }
+  function openChallengeOverlay(extraClass, ariaLabel, bodyHtml) {
+    closeChallengeOverlay();
+    const back = document.createElement("div");
+    back.className = "post-overlay-backdrop";
+    back.setAttribute("data-challenge-overlay", "");
+    back.innerHTML = `
+      <div class="post-overlay-sheet challenge-sheet ${extraClass || ""}" role="dialog" aria-modal="true" aria-label="${escapeHtml(ariaLabel || "Challenge")}">
+        <div class="post-overlay-bar">
+          <span class="post-overlay-grab" aria-hidden="true"></span>
+          <button type="button" class="post-overlay-close" data-challenge-close aria-label="Close">✕</button>
+        </div>
+        <div class="post-overlay-scroll challenge-body">${bodyHtml}</div>
+      </div>`;
+    document.body.appendChild(back);
+    back.addEventListener("click", (e) => { if (e.target === back) closeChallengeOverlay(); });
+    document.addEventListener("keydown", onChallengeOverlayKey);
+    if (typeof bindPostOverlaySwipe === "function") bindPostOverlaySwipe(back.querySelector(".post-overlay-sheet"));
+  }
+
+  // ── Setup sheet ──
+  function openChallengeSetup(opponentUserId, communityId) {
+    if (!signalsReady()) { showToast("Sign in to challenge"); return; }
+    if (!opponentUserId || (state.account && state.account.userId === opponentUserId)) return;
+    const community = (state.communities || []).find((c) => c.id === communityId)
+      || (state.communities || []).find((c) => (c.members || []).some((m) => m.userId === opponentUserId));
+    if (!community) { showToast("Challenges are for community members"); return; }
+    challengeDraft = { communityId: community.id, opponentUserId: opponentUserId, duration: "3days", metric: "points", forfeitOn: false, forfeitText: "" };
+    renderChallengeSetup();
+  }
+  function renderChallengeSetup() {
+    const d = challengeDraft; if (!d) return;
+    const community = (state.communities || []).find((c) => c.id === d.communityId); if (!community) return;
+    const oppM = (community.members || []).find((m) => m.userId === d.opponentUserId);
+    const oppName = (oppM && oppM.name) || "Member";
+    const myAv = renderAvatar({ className: "challenge-big-av", name: state.profile.name, avatarUrl: state.profile.avatarUrl });
+    const oppAv = renderAvatar({ className: "challenge-big-av", name: oppName, color: (oppM && oppM.color) || "#9a4a2c", avatarUrl: oppM && oppM.avatarUrl });
+    const seg = CHALLENGE_DURATIONS.map((dur) => `<button type="button" class="challenge-seg${d.duration === dur.id ? " on" : ""}" data-challenge-duration="${dur.id}">${escapeHtml(dur.label)}</button>`).join("");
+    const ruleOpts = (community.system.rules || []).map(scoring.normalizeRule).map((r) => `<option value="${escapeHtml(r.id)}"${d.metric === r.id ? " selected" : ""}>Most ${escapeHtml(r.label || "rule")}</option>`).join("");
+    const metricSel = `<select class="challenge-metric-sel" data-challenge-metric><option value="points"${d.metric === "points" ? " selected" : ""}>🏆 Most total points</option>${ruleOpts}</select>`;
+    const forfeitBox = d.forfeitOn ? `<textarea class="challenge-forfeit-text" data-challenge-forfeit-text rows="2" maxlength="120" placeholder="Loser posts an embarrassing pic 📸">${escapeHtml(d.forfeitText)}</textarea>` : "";
+    openChallengeOverlay("challenge-setup", "New challenge", `
+      <div class="challenge-vs-head">
+        <div class="challenge-vs-side">${myAv}<span class="challenge-vs-me">You</span></div>
+        <span class="challenge-vs">VS</span>
+        <div class="challenge-vs-side">${oppAv}<span class="challenge-vs-opp">${escapeHtml(oppName)}</span></div>
+      </div>
+      <p class="challenge-field-lbl">How long</p>
+      <div class="challenge-seg-row">${seg}</div>
+      <p class="challenge-field-lbl">What counts</p>
+      ${metricSel}
+      <p class="challenge-field-help">In ${escapeHtml(community.name)} · total points or a single rule</p>
+      <button type="button" class="challenge-forfeit-toggle" data-challenge-forfeit-toggle>
+        <div><p class="challenge-forfeit-title">Add a forfeit 😈</p><p class="challenge-forfeit-sub">Loser has to…</p></div>
+        <span class="challenge-toggle${d.forfeitOn ? " on" : ""}" aria-hidden="true"></span>
+      </button>
+      ${forfeitBox}
+      <button type="button" class="primary-button challenge-send" data-challenge-send>Send challenge ⚔️</button>
+      <p class="challenge-send-note">${escapeHtml(oppName)} has to accept before the clock starts.</p>`);
+  }
+  async function sendChallenge() {
+    const d = challengeDraft; if (!d) return;
+    const sendBtn = document.querySelector("[data-challenge-send]");
+    if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = "Sending…"; }
+    const res = await Promise.resolve(window.PointwellSignals.createChallenge({
+      community_id: d.communityId, challenger_user: state.account.userId, opponent_user: d.opponentUserId,
+      metric: d.metric || "points", duration: d.duration || "3days", forfeit: d.forfeitOn ? (d.forfeitText || "").trim() : null
+    })).catch(() => ({ error: { message: "Couldn't reach the server." } }));
+    if (res && res.error) {
+      if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = "Send challenge ⚔️"; }
+      showToast(res.error.message || "Couldn't start the challenge");
+      return;
+    }
+    if (res && res.challenge) state.challenges = [challengeFromDb(res.challenge)].concat(state.challenges || []);
+    challengeDraft = null;
+    saveState();
+    closeChallengeOverlay();
+    showToast("Challenge sent — waiting for them to accept ⚔️");
+    render();
+  }
+
+  // ── Received (accept / decline) ──
+  function renderChallengeReceived(challenge) {
+    if (!challenge) return;
+    const oppName = challengeOpponentName(challenge);
+    const community = challengeCommunity(challenge);
+    openChallengeOverlay("challenge-received", "Challenge received", `
+      <div class="challenge-result-card">
+        <div class="challenge-vs-mini">${challengeAvatarHtml(challenge, challengeOpponentUser(challenge), "challenge-mini-av")}<span class="challenge-vs-swords">⚔️</span>${challengeAvatarHtml(challenge, state.account.userId, "challenge-mini-av")}</div>
+        <p class="challenge-result-title"><strong>${escapeHtml(oppName)} challenged you</strong></p>
+        <p class="challenge-result-sub">${escapeHtml(challengeMetricLabel(challenge))} · ${escapeHtml(challengeDuration(challenge.duration).label)}${community ? " · in " + escapeHtml(community.name) : ""}</p>
+        ${challenge.forfeit ? `<p class="challenge-forfeit-note">😈 ${escapeHtml(challenge.forfeit)}</p>` : ""}
+        <div class="challenge-actions"><button type="button" class="ghost-button" data-challenge-decline="${escapeHtml(String(challenge.id))}">Decline</button><button type="button" class="primary-button challenge-accept" data-challenge-accept="${escapeHtml(String(challenge.id))}">Accept ⚔️</button></div>
+      </div>`);
+  }
+  async function acceptChallenge(id) {
+    const challenge = challengeById(id); if (!challenge) return;
+    const days = challengeDuration(challenge.duration).days;
+    const now = new Date();
+    const end = new Date(now.getTime() + days * 86400000);
+    const btn = document.querySelector(`[data-challenge-accept="${CSS.escape(String(id))}"]`);
+    if (btn) { btn.disabled = true; btn.textContent = "Starting…"; }
+    const res = await Promise.resolve(window.PointwellSignals.setChallengeStatus(id, {
+      status: "active", start_at: now.toISOString(), end_at: end.toISOString()
+    })).catch(() => ({ error: { message: "Couldn't accept." } }));
+    if (res && res.error) { if (btn) { btn.disabled = false; btn.textContent = "Accept ⚔️"; } showToast("Couldn't accept — try again"); return; }
+    if (res && res.challenge) applyChallengeRow(res.challenge);
+    saveState();
+    showToast("Challenge on — good luck ⚔️");
+    openChallengeDuel(id);
+    render();
+  }
+  async function declineChallenge(id) {
+    const btn = document.querySelector(`[data-challenge-decline="${CSS.escape(String(id))}"]`);
+    if (btn) btn.disabled = true;
+    const res = await Promise.resolve(window.PointwellSignals.setChallengeStatus(id, { status: "declined" })).catch(() => ({ error: true }));
+    if (res && res.error) { if (btn) btn.disabled = false; showToast("Couldn't decline — try again"); return; }
+    if (res && res.challenge) applyChallengeRow(res.challenge); else { const c = challengeById(id); if (c) c.status = "declined"; }
+    saveState();
+    closeChallengeOverlay();
+    render();
+  }
+  function applyChallengeRow(row) {
+    const next = challengeFromDb(row); if (!next) return;
+    const i = (state.challenges || []).findIndex((c) => String(c.id) === String(next.id));
+    if (i >= 0) state.challenges[i] = next; else state.challenges = [next].concat(state.challenges || []);
+  }
+
+  // ── Live duel / result ──
+  function openChallengeDuel(id) {
+    const challenge = challengeById(id); if (!challenge) { showToast("That challenge isn't available"); return; }
+    if (challengeIsEnded(challenge) || challenge.status === "done" || challenge.status === "declined") { renderChallengeResult(challenge); return; }
+    renderChallengeDuel(challenge);
+  }
+  function renderChallengeDuel(challenge) {
+    const pair = challengeScorePair(challenge);
+    const total = pair.me + pair.opp;
+    const mePct = total > 0 ? Math.round((pair.me / total) * 100) : 50;
+    const oppName = challengeOpponentName(challenge);
+    const leadLine = pair.lead > 0 ? `You're up by <strong>${pair.lead}</strong> 🔥` : (pair.lead < 0 ? `Down by <strong>${Math.abs(pair.lead)}</strong> — keep logging 💪` : `Dead even — log to break the tie`);
+    openChallengeOverlay("challenge-duel", "Live challenge", `
+      <div class="challenge-duel">
+        <div class="challenge-duel-top"><span class="challenge-duel-badge">⚔️ ${escapeHtml(challengeDuration(challenge.duration).label)} challenge</span><span class="challenge-duel-clock">⏱ ${escapeHtml(challengeCountdownText(challenge))}</span></div>
+        <div class="challenge-duel-scores">
+          <div class="challenge-duel-side"><div class="challenge-duel-avwrap is-me">${challengeAvatarHtml(challenge, pair.meUser, "challenge-duel-av")}</div><p class="challenge-duel-name is-me">You</p><strong class="challenge-duel-num is-me">${pair.me}</strong></div>
+          <span class="challenge-vs">VS</span>
+          <div class="challenge-duel-side"><div class="challenge-duel-avwrap">${challengeAvatarHtml(challenge, pair.oppUser, "challenge-duel-av")}</div><p class="challenge-duel-name">${escapeHtml(oppName)}</p><strong class="challenge-duel-num">${pair.opp}</strong></div>
+        </div>
+        <div class="challenge-tug"><div class="challenge-tug-me" style="width:${mePct}%"></div><div class="challenge-tug-opp" style="width:${100 - mePct}%"></div></div>
+        <p class="challenge-lead-line">${leadLine}</p>
+        ${challenge.forfeit ? `<p class="challenge-forfeit-note">😈 ${escapeHtml(challenge.forfeit)}</p>` : ""}
+        <button type="button" class="primary-button" data-challenge-log="${escapeHtml(String(challenge.communityId))}">Log to extend your lead</button>
+      </div>`);
+  }
+  function renderChallengeResult(challenge) {
+    if (challenge.status === "declined") {
+      openChallengeOverlay("challenge-result", "Challenge", `<div class="challenge-result-card"><div class="challenge-result-emoji">👋</div><strong class="challenge-result-big">Challenge declined</strong><p class="challenge-result-sub">Maybe next time.</p></div>`);
+      return;
+    }
+    const community = challengeCommunity(challenge);
+    const a = community ? challengeMemberScore(community, challenge.challengerUser, challenge, false) : 0;
+    const b = community ? challengeMemberScore(community, challenge.opponentUser, challenge, false) : 0;
+    const myUser = challenge.iAmOpponent ? challenge.opponentUser : challenge.challengerUser;
+    const myScore = challenge.iAmOpponent ? b : a, oppScore = challenge.iAmOpponent ? a : b;
+    const winner = challenge.winnerUser || challengeComputedWinner(challenge);
+    const iWon = winner && winner === myUser;
+    const draw = !winner;
+    challengeFinalizeIfEnded(challenge, winner);
+    const oppName = challengeOpponentName(challenge);
+    let body;
+    if (draw) {
+      body = `<div class="challenge-result-card"><div class="challenge-result-emoji">🤝</div><strong class="challenge-result-big">Dead heat</strong><p class="challenge-result-sub">${myScore}–${oppScore} — nobody blinked.</p><div class="challenge-actions"><button type="button" class="ghost-button" data-challenge-close>Nice game</button><button type="button" class="primary-button" data-challenge-rematch="${escapeHtml(String(challenge.id))}">Rematch ⚔️</button></div></div>`;
+    } else if (iWon) {
+      if (!challengeCelebrated[challenge.id]) { challengeCelebrated[challenge.id] = true; showToast("🏆 You won the challenge!"); }
+      body = `<div class="challenge-result-card is-celebrating"><div class="challenge-result-emoji">🏆</div><strong class="challenge-result-big">You won!</strong><p class="challenge-result-sub">${myScore}–${oppScore} over ${escapeHtml(challengeDuration(challenge.duration).label)} · 🥇 ${myWinCount()} win${myWinCount() === 1 ? "" : "s"}</p>${challenge.forfeit ? `<p class="challenge-forfeit-note">😈 They owe: ${escapeHtml(challenge.forfeit)}</p>` : ""}<button type="button" class="primary-button" data-challenge-rematch="${escapeHtml(String(challenge.id))}">Rematch ⚔️</button></div>`;
+    } else {
+      body = `<div class="challenge-result-card"><div class="challenge-result-emoji">🤝</div><strong class="challenge-result-big">${escapeHtml(oppName)} won this one</strong><p class="challenge-result-sub">${myScore}–${oppScore} — close one.</p>${challenge.forfeit ? `<p class="challenge-forfeit-note">😈 You owe: ${escapeHtml(challenge.forfeit)}</p>` : ""}<div class="challenge-actions"><button type="button" class="ghost-button" data-challenge-close>Nice game</button><button type="button" class="primary-button" data-challenge-rematch="${escapeHtml(String(challenge.id))}">Rematch ⚔️</button></div></div>`;
+    }
+    openChallengeOverlay("challenge-result", "Challenge result", body);
+  }
+  // Best-effort: persist the outcome (owner-only via RLS; a no-op for non-owners — the result still shows).
+  function challengeFinalizeIfEnded(challenge, winner) {
+    if (challenge.status === "done" || !challengeIsEnded(challenge)) return;
+    if (!window.PointwellSignals || typeof window.PointwellSignals.finalizeChallenge !== "function") return;
+    Promise.resolve(window.PointwellSignals.finalizeChallenge(challenge.id, winner || null, challenge.forfeit || null))
+      .then((r) => { if (r && r.challenge) { applyChallengeRow(r.challenge); saveState(); } }).catch(() => {});
+  }
+
+  // ── Active-challenges strip (top of the Leaderboard) ──
+  function challengeActiveStripHtml(communityId) {
+    const list = myActiveChallenges(communityId);
+    if (!list.length) return "";
+    return list.map((c) => {
+      const pair = challengeScorePair(c);
+      const oppName = challengeOpponentName(c);
+      const lead = pair.lead > 0 ? "you're up by " + pair.lead : (pair.lead < 0 ? "down by " + Math.abs(pair.lead) : "all square");
+      return `<button type="button" class="challenge-strip" data-challenge-view="${escapeHtml(String(c.id))}">
+        <span class="challenge-strip-ic" aria-hidden="true">⚔️</span>
+        <span class="challenge-strip-main"><span class="challenge-strip-vs"><strong>You vs ${escapeHtml(oppName)}</strong> · ${escapeHtml(lead)}</span><span class="challenge-strip-clock">⏱ ${escapeHtml(challengeCountdownText(c))}</span></span>
+        <span class="challenge-strip-go">View ›</span>
+      </button>`;
+    }).join("");
+  }
+
+  // ── Coach nudge integration (received / behind / won) ──
+  function challengeNudgeSignature() {
+    return (state.challenges || []).filter((c) => c.iAmChallenger || c.iAmOpponent).map((c) => {
+      let kind = "";
+      if (c.status === "pending" && c.iAmOpponent) kind = "recv";
+      else if (c.status === "active" && challengeIsEnded(c)) kind = "end";
+      else if (c.status === "active") { const p = challengeScorePair(c); kind = p.lead < 0 ? "behind" : "lead"; }
+      else if (c.status === "done") kind = "done";
+      return c.id + ":" + kind;
+    }).join("|");
+  }
+  // A challenge nudge worth surfacing right now (incoming request, behind late, or won) — one at a time.
+  function topChallengeNudge() {
+    const recv = (state.challenges || []).find((c) => c.status === "pending" && c.iAmOpponent);
+    if (recv) return { type: "challenge", id: recv.id, mode: "recv", head: "vs " + challengeOpponentName(recv), text: challengeOpponentName(recv) + " challenged you ⚔️" };
+    const ended = (state.challenges || []).find((c) => (c.iAmChallenger || c.iAmOpponent) && c.status === "active" && challengeIsEnded(c));
+    if (ended) { const w = ended.winnerUser || challengeComputedWinner(ended); const meUser = ended.iAmOpponent ? ended.opponentUser : ended.challengerUser; if (w && w === meUser) return { type: "challenge", id: ended.id, mode: "won", head: "vs " + challengeOpponentName(ended), text: "You won vs " + challengeOpponentName(ended) + " 🏆" }; }
+    const behind = (state.challenges || []).find((c) => { if (!((c.iAmChallenger || c.iAmOpponent) && c.status === "active") || challengeIsEnded(c)) return false; const ms = challengeEndMs(c) - Date.now(); return challengeScorePair(c).lead < 0 && ms > 0 && ms < 6 * 3600000; });
+    if (behind) { const p = challengeScorePair(behind); return { type: "challenge", id: behind.id, mode: "behind", head: "vs " + challengeOpponentName(behind), text: "Down by " + Math.abs(p.lead) + " vs " + challengeOpponentName(behind) + " · " + challengeCountdownText(behind) }; }
+    return null;
+  }
+
+  // ── One delegated handler set for every data-challenge-* control (entry points + overlays) ──
+  function onChallengeClick(event) {
+    const t = event.target;
+    const find = (sel) => t.closest && t.closest(sel);
+    const close = find("[data-challenge-close]"); if (close) { closeChallengeOverlay(); return; }
+    const ndis = find("[data-challenge-nudge-dismiss]"); if (ndis) { coachLearnRecord("challenge", "dismissed"); const card = ndis.closest("[data-challenge-nudge-card]"); if (card) card.classList.remove("is-active"); return; }
+    const neu = find("[data-challenge-new]"); if (neu) { const p = String(neu.dataset.challengeNew).split("|"); event.preventDefault(); openChallengeSetup(p[0], p[1] || ""); return; }
+    const dur = find("[data-challenge-duration]"); if (dur) { if (challengeDraft) { challengeDraft.duration = dur.dataset.challengeDuration; renderChallengeSetup(); } return; }
+    const ftog = find("[data-challenge-forfeit-toggle]"); if (ftog) { if (challengeDraft) { challengeDraft.forfeitOn = !challengeDraft.forfeitOn; renderChallengeSetup(); } return; }
+    const send = find("[data-challenge-send]"); if (send) { sendChallenge(); return; }
+    const view = find("[data-challenge-view]"); if (view) { event.preventDefault(); openChallengeDuel(view.dataset.challengeView); return; }
+    const open = find("[data-challenge-open]"); if (open) { event.preventDefault(); const c = challengeById(open.dataset.challengeOpen); if (c) { if (c.status === "pending" && c.iAmOpponent) renderChallengeReceived(c); else openChallengeDuel(c.id); } return; }
+    const acc = find("[data-challenge-accept]"); if (acc) { acceptChallenge(acc.dataset.challengeAccept); return; }
+    const dec = find("[data-challenge-decline]"); if (dec) { declineChallenge(dec.dataset.challengeDecline); return; }
+    const log = find("[data-challenge-log]"); if (log) { closeChallengeOverlay(); challengeOpenLog(log.dataset.challengeLog); return; }
+    const rem = find("[data-challenge-rematch]"); if (rem) { const c = challengeById(rem.dataset.challengeRematch); closeChallengeOverlay(); if (c) openChallengeSetup(challengeOpponentUser(c), c.communityId); return; }
+  }
+  function onChallengeChange(event) {
+    const sel = event.target.closest && event.target.closest("[data-challenge-metric]");
+    if (sel && challengeDraft) challengeDraft.metric = sel.value;
+  }
+  function onChallengeInput(event) {
+    const ta = event.target.closest && event.target.closest("[data-challenge-forfeit-text]");
+    if (ta && challengeDraft) challengeDraft.forfeitText = ta.value;
+  }
+  let challengesBound = false;
+  function bindChallenges() {
+    if (challengesBound || typeof document === "undefined") return;
+    challengesBound = true;
+    document.addEventListener("click", onChallengeClick);
+    document.addEventListener("change", onChallengeChange);
+    document.addEventListener("input", onChallengeInput);
+  }
+  function challengeOpenLog(communityId) {
+    if (communityId) { state.selectedCommunityId = communityId; saveState(); }
+    if (typeof openAddEntryPage === "function") openAddEntryPage();
+    else { state.activeView = "dashboard"; saveState(); render(); }
+  }
+  // A small "⚔️ Challenge" button for a community member row / profile (own + non-server members get none).
+  function challengeButtonHtml(opponentUserId, communityId, opts) {
+    opts = opts || {};
+    if (!opponentUserId || (state.account && state.account.userId === opponentUserId)) return "";
+    if (!isDbEntryId(opponentUserId)) return ""; // local/demo member — no server challenge
+    const cls = opts.compact ? "challenge-btn challenge-btn-compact" : "challenge-btn";
+    const label = opts.compact ? "⚔️" : "⚔️ Challenge";
+    return `<button type="button" class="${cls}" data-challenge-new="${escapeHtml(String(opponentUserId))}|${escapeHtml(String(communityId || ""))}" aria-label="Challenge to a duel">${label}</button>`;
+  }
+
   function normalizeCommunityAnalytics(community) {
     const source = community.analytics && typeof community.analytics === "object" ? community.analytics : {};
     const modules = source.modules && typeof source.modules === "object" ? source.modules : {};
@@ -19013,6 +19481,7 @@
     if (!state.communities.some((community) => community.id === state.selectedCommunityId)) {
       state.selectedCommunityId = state.communities[0] ? state.communities[0].id : "";
     }
+    await loadChallengesFromDb(); // head-to-head duels load alongside the community data they score from
     saveState();
     render();
   }
@@ -19424,6 +19893,7 @@
       entries: Array.isArray(saved.entries) ? saved.entries : seed.entries,
       quickEntries: Array.isArray(saved.quickEntries) ? saved.quickEntries : seed.quickEntries,
       communityEntries: Array.isArray(saved.communityEntries) ? saved.communityEntries : seed.communityEntries,
+      challenges: Array.isArray(saved.challenges) ? saved.challenges : seed.challenges,
       communities: Array.isArray(saved.communities) && saved.communities.length ? saved.communities : seed.communities
     });
   }

@@ -6267,6 +6267,23 @@ body.auth-locked {
   gap: 10px;
 }
 
+/* Device auto-count: a distinct, clearly-labelled block (not just another module checkbox). */
+.community-autosync-setting {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid #234034;
+  border-radius: 12px;
+  background: #0d1a15;
+}
+.community-autosync-setting .community-autosync-toggle { margin: 0; }
+.community-autosync-title { font-weight: 600; color: #eaf2ee; }
+.community-autosync-help {
+  margin: 7px 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #8aa39a;
+}
+
 @media (max-width: 720px) {
   .community-analytics-toggles {
     grid-template-columns: 1fr;

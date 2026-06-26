@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260626-worldposts">
+    <link rel="stylesheet" href="styles.css?v=20260626-autosync">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -1249,10 +1249,13 @@
                 <label class="toggle-label"><input type="checkbox" id="ccModuleIndividualTrends"><span>Individual trends</span></label>
                 <label class="toggle-label"><input type="checkbox" id="ccModuleUnderperforming"><span>Underperforming section</span></label>
               </div>
-              <label class="toggle-label community-autosync-toggle">
-                <input type="checkbox" id="ccAllowDeviceAutosync">
-                <span>Let members' connected-device data auto-count toward the leaderboard</span>
-              </label>
+              <div class="community-autosync-setting">
+                <label class="toggle-label community-autosync-toggle">
+                  <input type="checkbox" id="ccAllowDeviceAutosync">
+                  <span class="community-autosync-title">⌚ Auto-count connected devices</span>
+                </label>
+                <p class="community-autosync-help">When on, members with a connected device (Fitbit/Whoop) have their daily totals — like Steps — count toward the leaderboard automatically on login. No manual logging.</p>
+              </div>
               <div class="community-settings-form">
                 <label>
                   <span>Default leaderboard period</span>
@@ -1564,13 +1567,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260626-worldposts"></script>
-    <script src="auth-helpers.js?v=20260626-worldposts"></script>
-    <script src="scoring.js?v=20260626-worldposts"></script>
-    <script src="insight.js?v=20260626-worldposts"></script>
-    <script src="signals.js?v=20260626-worldposts"></script>
-    <script src="wearables.js?v=20260626-worldposts"></script>
-    <script type="module" src="auth.js?v=20260626-worldposts"></script>
-    <script src="app.js?v=20260626-worldposts"></script>
+    <script src="supabase-config.js?v=20260626-autosync"></script>
+    <script src="auth-helpers.js?v=20260626-autosync"></script>
+    <script src="scoring.js?v=20260626-autosync"></script>
+    <script src="insight.js?v=20260626-autosync"></script>
+    <script src="signals.js?v=20260626-autosync"></script>
+    <script src="wearables.js?v=20260626-autosync"></script>
+    <script type="module" src="auth.js?v=20260626-autosync"></script>
+    <script src="app.js?v=20260626-autosync"></script>
   </body>
 </html>

@@ -206,6 +206,7 @@
     coachLearning: { proactiveOff: false, weekKey: "", byType: {}, byHour: {}, byRule: {}, shownDay: "", shownCount: 0 }, // nudge feedback loop (by type + per rule)
     coachLastPeekSig: "",  // last proactively-peeked nudge signature (no re-nag across reloads)
     coachChallengeSig: "", // last challenge-nudge signature (no re-nag across reloads)
+    coachAutosyncHintSig: "", // last device-autosync-enable hint signature (owner, once per community)
     coachSoftPromptDay: "", // YYYY-MM-DD the soft "want to log anything?" invite last showed (once/day)
     lastRecapDay: "",       // YYYY-MM-DD the "Yesterday, recapped" daily AI card last showed (once/day)
     streakMilestones: {},   // { "<type>:<id>": highestMilestoneCelebrated } — celebrate each badge once
@@ -509,6 +510,7 @@
       Promise.resolve(maybeShowDailyRecap()).catch(() => {});
       try { maybeShowStreakAtRisk(); } catch (e) { /* nudge is best-effort */ }
       try { maybeShowChallengeNudge(); } catch (e) { /* challenge nudge is best-effort */ }
+      try { maybeShowAutosyncEnableHint(); } catch (e) { /* autosync hint is best-effort */ }
     }
   }
 
@@ -1492,6 +1494,7 @@
     Promise.resolve(maybeShowDailyRecap()).catch(() => {});
     try { maybeShowStreakAtRisk(); } catch (e) { /* nudge is best-effort */ }
     try { maybeShowChallengeNudge(); } catch (e) { /* challenge nudge is best-effort */ }
+    try { maybeShowAutosyncEnableHint(); } catch (e) { /* autosync hint is best-effort */ }
   }
 
   function teardownSignals() {
@@ -10640,6 +10643,7 @@
     // keep it quiet) so re-opening the app in the evening surfaces it even without a re-login.
     try { maybeShowStreakAtRisk(); } catch (e) { /* best-effort */ }
     try { maybeShowChallengeNudge(); } catch (e) { /* best-effort */ }
+    try { maybeShowAutosyncEnableHint(); } catch (e) { /* best-effort */ }
     const now = Date.now();
     if (now - lastAutoResyncAt < 15 * 60 * 1000) return; // at most once / 15 min (was 5; cuts focus-driven community re-fetch egress)
     lastAutoResyncAt = now;
@@ -11062,7 +11066,19 @@
           // Only a rule that's actually device-reconcilable — a synced total-metric rule on a
           // connected source (syncIncrementPreview non-null) — can receive the incremental delta.
           // A MANUAL rule that merely matches by LABEL cannot; don't black-hole the metric on it.
-          const reconcilable = matched.filter((m) => syncIncrementPreview(m.t.rule));
+          let reconcilable = matched.filter((m) => syncIncrementPreview(m.t.rule));
+          // AUTO-CONNECT: silently wire any unlinked COMMUNITY rule whose owner enabled device
+          // auto-sync to this feed, so it reconciles like a synced rule (Steps auto-count on login —
+          // no manual "Connect?" tap). Personal rules keep the explicit-connect flow. coachConnectRuleFeed
+          // mutates the RAW stored rule, so re-resolve to read the freshly-wired (normalized) rule.
+          matched.forEach((m) => {
+            if (m.t.contextType !== "community" || !communityAllowsAutosync(m.t.contextId)) return;
+            if (reconcilable.some((r) => r.t.contextId === m.t.contextId && r.t.ruleId === m.t.ruleId)) return; // already linked
+            if (!coachConnectRuleFeed(m.t.contextType, m.t.contextId, m.t.ruleId, source, metric)) return;
+            const wired = resolveQuickLogRule(m.t.contextType, m.t.contextId, m.t.ruleId);
+            if (wired && syncIncrementPreview(wired.rule)) reconcilable.push({ t: Object.assign({}, m.t, { rule: wired.rule, sourceMetric: wired.rule.sourceMetric }), score: m.score });
+          });
+          if (reconcilable.length > 1) reconcilable.sort((a, b) => b.score - a.score); // keep `best` the strongest match
           if (reconcilable.length) {
             const best = reconcilable[0].t;
             const preview = syncIncrementPreview(best.rule);
@@ -11151,6 +11167,13 @@
       return !!(resolved && isSourceConnected(resolved.rule.dataSource));
     }
     return state.profile.allowAutoSync !== false; // personal default ON
+  }
+
+  // Owner opted this community into letting members' connected-device totals auto-count. Used to
+  // decide whether to auto-WIRE an unlinked community rule to a feed at catch-up build time.
+  function communityAllowsAutosync(communityId) {
+    const c = (state.communities || []).find((x) => x.id === communityId);
+    return !!(c && c.allowDeviceAutosync === true);
   }
 
   // On login / app-open / each device sync, auto-apply connected-device increments into eligible
@@ -12575,6 +12598,86 @@
     if (!coach.panelOpen) coach.recapPending = true;    // badge the launcher so it surfaces in Today
     renderCoachLauncher();
     if (typeof coachScroll === "function") coachScroll();
+  }
+
+  // One-time owner nudge: a community I own has device auto-count OFF, but I have a wearable
+  // connected and the community tracks a metric that wearable feeds (e.g. Steps). Surface a hint to
+  // turn it on — mirrors maybeShowChallengeNudge (self-contained coach card, persisted signature so
+  // a reload doesn't re-nag). Tapping Enable flips the flag + immediately reconciles today's totals.
+  function maybeShowAutosyncEnableHint() {
+    if (onboardingActive) return;
+    if (coachLearning().proactiveOff) return;
+    if (!coachShouldPeekType("autosync")) return;       // owner keeps dismissing → back off
+    if (coach.lastAutosyncHintSig == null) coach.lastAutosyncHintSig = state.coachAutosyncHintSig || ""; // seed from persisted
+    const hint = topAutosyncEnableHint();
+    if (!hint) return;
+    if (coach.lastAutosyncHintSig === hint.communityId) return; // once per community (persisted across reloads)
+    coach.lastAutosyncHintSig = hint.communityId;
+    state.coachAutosyncHintSig = hint.communityId;
+    saveState();
+    coachShowAutosyncEnableCard(hint);
+  }
+
+  // The strongest "enable auto-count" opportunity, or null: an owned community with the flag OFF
+  // that has a rule matching one of my connected wearables' daily-total metrics.
+  function topAutosyncEnableHint() {
+    const sources = Object.keys(state.integrations || {}).filter((id) => isRealWearable(id) && integrationStatus(id) === "connected");
+    if (!sources.length) return null;
+    const ownedOff = (state.communities || []).filter((c) => isCommunityAdmin(c) && c.allowDeviceAutosync !== true);
+    if (!ownedOff.length) return null;
+    const ownedIds = new Set(ownedOff.map((c) => c.id));
+    const targets = loggableRuleTargets().filter((t) => t.contextType === "community" && ownedIds.has(t.contextId));
+    if (!targets.length) return null;
+    for (const source of sources) {
+      const data = state.mockSyncData[source] || {};
+      for (const metric of Object.keys(data)) {
+        if (!isTotalMetric(metric) || !(Number(data[metric]) > 0)) continue;
+        const hit = targets.find((t) => ruleMatchScore(t, source, metric) > 0);
+        if (hit) {
+          const c = ownedOff.find((x) => x.id === hit.contextId);
+          return { communityId: hit.contextId, communityName: (c && c.name) || hit.contextName, sourceLabel: wearableShortLabel(source), metricLabel: sourceMetricLabel(source, metric) };
+        }
+      }
+    }
+    return null;
+  }
+
+  function coachShowAutosyncEnableCard(hint) {
+    coachLearnRecord("autosync", "shown");
+    coachSay(`
+      <div class="coach-card coach-nudge-card is-active" data-coach-autosync-card>
+        <div class="coach-nudge-head"><span class="via-source-tag">⌚</span> Auto-count devices</div>
+        <p class="coach-card-title">You have ${escapeHtml(hint.sourceLabel)} connected and <strong>${escapeHtml(hint.communityName || "your community")}</strong> tracks ${escapeHtml(hint.metricLabel)}. Turn on auto-count so it logs on its own — no taps.</p>
+        <div class="coach-card-actions">
+          <button type="button" class="ghost-button small" data-coach-autosync-dismiss>Not now</button>
+          <button type="button" class="primary-button small" data-coach-autosync-enable="${escapeHtml(String(hint.communityId))}">Enable</button>
+        </div>
+      </div>`);
+    if (!coach.panelOpen) coach.recapPending = true;    // badge the launcher so it surfaces in Today
+    renderCoachLauncher();
+    if (typeof coachScroll === "function") coachScroll();
+  }
+
+  // Enable from the nudge: flip the owner flag (persist via the existing owner-only update), then
+  // immediately sync + reconcile so today's totals auto-count right away (no reload needed).
+  function coachAutosyncEnable(communityId, cardEl) {
+    coachLearnRecord("autosync", "acted");
+    const community = (state.communities || []).find((c) => c.id === communityId);
+    if (community) {
+      community.allowDeviceAutosync = true;
+      if (window.PointwellSignals && typeof window.PointwellSignals.updateCommunityMedia === "function") {
+        Promise.resolve(window.PointwellSignals.updateCommunityMedia(community.id, { allow_device_autosync: true })).catch(() => {});
+      }
+      saveState();
+    }
+    if (cardEl) cardEl.classList.remove("is-active");
+    coachSayText(`Auto-count is on for ${community ? community.name : "your community"} — syncing your latest now.`);
+    syncAllConnectedAndCatchUp({}); // wire the rule + count today's totals via the normal catch-up path
+  }
+
+  function coachAutosyncDismiss(cardEl) {
+    coachLearnRecord("autosync", "dismissed");
+    if (cardEl) cardEl.classList.remove("is-active");
   }
 
   function maybeShowStreakAtRisk() {
@@ -14347,6 +14450,9 @@
     if (confKeep) { const p = confKeep.dataset.coachConfkeep.split("|"); coachConflict(p[0], p[1], "keep", card()); return; }
     const confUpdate = t.closest("[data-coach-confupdate]");
     if (confUpdate) { const p = confUpdate.dataset.coachConfupdate.split("|"); coachConflict(p[0], p[1], "update", card()); return; }
+    const asEnable = t.closest("[data-coach-autosync-enable]");
+    if (asEnable) { coachAutosyncEnable(asEnable.dataset.coachAutosyncEnable, card()); return; }
+    if (t.closest("[data-coach-autosync-dismiss]")) { coachAutosyncDismiss(card()); return; }
     if (t.closest("[data-coach-behind]")) { coachBehindCatchUp(card()); return; }
     if (t.closest("[data-coach-behinddismiss]")) { coachBehindDismiss(card()); return; }
     if (t.closest("[data-coach-softdismiss]")) { coachSoftDismiss(card()); return; }

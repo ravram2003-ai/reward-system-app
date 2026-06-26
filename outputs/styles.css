@@ -8295,6 +8295,50 @@ body.onboarding-locked .coach-panel { display: none; }
   cursor: pointer;
 }
 .ig-menu-pop button:hover { background: var(--soft); }
+/* Destructive "Delete post" item in your own post's ⋯ menu. */
+.ig-menu-pop .ig-menu-del { color: #e0857f; }
+.ig-menu-pop .ig-menu-del:hover { background: rgba(224, 133, 127, 0.12); }
+
+/* Delete-post confirm dialog (matches work/post-delete-menu.html, always-dark). */
+.post-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.6);
+}
+.post-confirm-card {
+  width: 100%;
+  max-width: 320px;
+  padding: 18px;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.post-confirm-ico { font-size: 26px; margin-bottom: 8px; }
+.post-confirm-card strong { display: block; margin-bottom: 3px; font-size: 0.95rem; color: var(--ink); }
+.post-confirm-card p { margin: 0 0 14px; font-size: 0.78rem; line-height: 1.4; color: var(--muted); }
+.post-confirm-btns { display: flex; gap: 8px; }
+.post-confirm-btns .ghost-button { flex: 1; }
+.post-confirm-delete {
+  flex: 1;
+  padding: 11px;
+  border: 1px solid #5a2a26;
+  border-radius: 11px;
+  background: #3a1c1a;
+  color: #ff6b63;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.post-confirm-delete:hover { background: #4a2421; }
+.post-confirm-delete:disabled { opacity: 0.6; cursor: default; }
 
 /* Photo media sits inset inside the floating card with rounded corners. */
 .ig-photo {

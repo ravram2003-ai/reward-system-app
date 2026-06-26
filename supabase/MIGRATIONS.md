@@ -80,6 +80,15 @@ you know what's live in production.
   No schema change. *(after #6 communities — needs `community_entries`)*.
   Applied to the live project (ref `ejoccpqbozgzixrejlhd`) on 2026-06-25; verified policy present
   (`entries delete own` | DELETE | `(user_id = auth.uid())`).
+- [x] **23. challenges.sql** — head-to-head (1v1) community challenges: a `challenges` table
+  (community_id, challenger/opponent, metric, duration + start_at/end_at window, status, winner,
+  forfeit) + a `is_community_owner` SECURITY DEFINER helper + RLS — a member INSERTs as the
+  challenger in a community they belong to; the two participants + the community owner SELECT; the
+  OPPONENT updates pending→active/declined; the OWNER (or service role) finalizes →done. anon can't
+  read/write. Scores are computed in the app from `community_entries` over the window — NOT stored.
+  *(after #6 communities — needs `communities`, `community_members`, `is_community_member`)*.
+  Applied to the live project (ref `ejoccpqbozgzixrejlhd`) on 2026-06-26; verified 4 policies present
+  (1 INSERT, 1 SELECT, 2 UPDATE) + `challenges` table.
 
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).

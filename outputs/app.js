@@ -1699,14 +1699,94 @@
 
   // Switch to the Feed and open a specific post: expand its comment thread and scroll the
   // matching ig-card into view. Shared by the notification tap and the schedule-block tap.
+  // Tapping a post (profile grid/list, a like/comment notification, a schedule block) opens THAT post
+  // as an in-place overlay — the same IG-style card the feed uses, with likes + comments — WITHOUT
+  // switching to the Feed or losing your scroll position. Reuses renderFeedPost + the feed handlers.
   function openEntryPost(entryId) {
     if (!entryId) return;
-    state.activeView = "feed";
-    saveState();
-    render();
-    if (typeof expandFeedComments === "function") expandFeedComments(String(entryId));
-    const card = els.communityFeed && els.communityFeed.querySelector('[data-feed-entry="' + entryId + '"]');
-    if (card && card.scrollIntoView) card.scrollIntoView({ block: "center", behavior: "smooth" });
+    let item = feedItemById(String(entryId));
+    if (!item) item = buildFeedItemForEntry((state.communityEntries || []).find((e) => e.id === entryId));
+    if (!item) { showToast("That post isn't available"); return; }
+    openPostOverlay(item);
+  }
+
+  function openPostOverlay(item) {
+    if (!item || !item.entry) return;
+    closePostOverlay();
+    postOverlayItem = item;
+    postOverlayOpenView = state.activeView;
+    const entryId = String(item.entry.id);
+    feedCommentsOpen.add(entryId); // open the thread by default, like the reference's opened post
+    const back = document.createElement("div");
+    back.className = "post-overlay-backdrop";
+    back.setAttribute("data-post-overlay", "");
+    back.innerHTML = `
+      <div class="post-overlay-sheet" role="dialog" aria-modal="true" aria-label="Post">
+        <div class="post-overlay-bar">
+          <span class="post-overlay-grab" aria-hidden="true"></span>
+          <button type="button" class="post-overlay-close" data-post-overlay-close aria-label="Close">✕</button>
+        </div>
+        <div class="post-overlay-scroll"><div class="community-feed-list">${renderFeedPost(item)}</div></div>
+      </div>`;
+    document.body.appendChild(back);
+    // Bind the SAME feed handlers to the overlay so likes/comments/share/save work here unchanged.
+    const scroll = back.querySelector(".post-overlay-scroll");
+    if (scroll) { scroll.addEventListener("click", onFeedClick); scroll.addEventListener("input", onFeedInput); scroll.addEventListener("submit", onFeedSubmit); }
+    bindEntryPhotos(back);
+    back.addEventListener("click", (e) => { if (e.target === back) closePostOverlay(); }); // tap-outside
+    const closeBtn = back.querySelector("[data-post-overlay-close]");
+    if (closeBtn) closeBtn.addEventListener("click", closePostOverlay);
+    bindPostOverlaySwipe(back.querySelector(".post-overlay-sheet"));
+    document.addEventListener("keydown", onPostOverlayKey);
+    ensureEntrySocial(entryId);    // like counts, if not already loaded for this post
+    expandFeedComments(entryId);   // load + show the comment thread (updates the overlay card in place)
+  }
+
+  function closePostOverlay() {
+    const back = document.querySelector("[data-post-overlay]");
+    if (back) back.remove();
+    postOverlayItem = null;
+    document.removeEventListener("keydown", onPostOverlayKey);
+  }
+
+  function onPostOverlayKey(e) { if (e.key === "Escape") closePostOverlay(); }
+
+  // Like/comment counts for a single overlay post that may not be in the live feed list.
+  function ensureEntrySocial(entryId) {
+    if (!signalsReady() || !isDbEntryId(entryId) || !window.PointwellSignals || typeof window.PointwellSignals.getEntriesSocial !== "function") return;
+    if (feedSocialFetched.has(String(entryId))) return;
+    feedSocialFetched.add(String(entryId));
+    Promise.resolve(window.PointwellSignals.getEntriesSocial([entryId])).then((rows) => {
+      (rows || []).forEach((r) => {
+        if (r && r.entry_id) feedSocialCache.set(String(r.entry_id), {
+          like_count: Number(r.like_count) || 0, comment_count: Number(r.comment_count) || 0,
+          liked_by_me: !!r.liked_by_me, last_comment_name: r.last_comment_name || "", last_comment_body: r.last_comment_body || ""
+        });
+      });
+      replaceFeedCard(entryId);
+    }).catch(() => {});
+  }
+
+  // Swipe down from the top of the sheet to dismiss (mobile "pull to close").
+  function bindPostOverlaySwipe(sheet) {
+    if (!sheet) return;
+    const scroll = sheet.querySelector(".post-overlay-scroll");
+    let startY = 0, dy = 0, active = false;
+    sheet.addEventListener("touchstart", (e) => {
+      if (!e.touches || e.touches.length !== 1) { active = false; return; }
+      active = (!scroll || scroll.scrollTop <= 0); startY = e.touches[0].clientY; dy = 0;
+    }, { passive: true });
+    sheet.addEventListener("touchmove", (e) => {
+      if (!active || !e.touches || !e.touches.length) return;
+      dy = e.touches[0].clientY - startY;
+      if (dy > 0) sheet.style.transform = "translateY(" + dy + "px)";
+    }, { passive: true });
+    sheet.addEventListener("touchend", () => {
+      if (!active) return;
+      sheet.style.transform = "";
+      if (dy > 90) closePostOverlay();
+      active = false; dy = 0;
+    });
   }
 
   // Tap a like/comment notification → open the Feed and expand that post's comments.
@@ -3452,6 +3532,9 @@
   }
 
   function render() {
+    // An open post overlay floats over the current screen; a navigation that changed the view dismisses it
+    // (background re-renders that keep the same view leave it intact). Tap-out/X/swipe/Esc close it directly.
+    if (postOverlayItem && state.activeView !== postOverlayOpenView) closePostOverlay();
     renderChrome();
     renderActiveView();
     renderDashboard();
@@ -7410,14 +7493,7 @@
   function renderCommunityFeed() {
     if (!els.communityFeed) return;
     feedItems = (state.communityEntries || [])
-      .map((entry) => {
-        const community = state.communities.find((item) => item.id === entry.communityId);
-        if (!community) return null;
-        const member = (community.members || []).find((item) => item.id === entry.userId);
-        if (!member) return null;
-        const rule = (community.system.rules || []).map(scoring.normalizeRule).find((item) => item.id === entry.ruleId);
-        return { entry: entry, community: community, member: member, rule: rule, when: entry.timestamp || entry.dateKey || entry.date || "" };
-      })
+      .map(buildFeedItemForEntry)
       .filter(Boolean)
       .sort((a, b) => String(b.when).localeCompare(String(a.when)))
       .slice(0, 15);
@@ -7448,6 +7524,7 @@
   // The feed-post component is reused on the Feed tab AND the world-detail page; these resolve
   // the live surface so social refreshes/in-place card swaps target the one on screen.
   function activeFeedRoot() {
+    if (postOverlayItem) { const ov = document.querySelector("[data-post-overlay] .community-feed-list"); if (ov) return ov; }
     if (state.activeView === "community-detail") { const w = currentDetailWorld(); if (w && w.type === "community" && els.worldPosts) return els.worldPosts; }
     return els.communityFeed;
   }
@@ -7699,8 +7776,26 @@
     root.addEventListener("submit", onFeedSubmit);
   }
 
+  // The single post shown in the in-place overlay (openEntryPost), or null. Module-level so the shared
+  // feed handlers resolve its card by id even though it isn't part of feedItems.
+  let postOverlayItem = null;
+  let postOverlayOpenView = ""; // the view active when the overlay opened → dismiss it if navigation changes the view
+
   function feedItemById(entryId) {
+    if (postOverlayItem && String(postOverlayItem.entry.id) === String(entryId)) return postOverlayItem;
     return feedItems.find((item) => String(item.entry.id) === String(entryId)) || null;
+  }
+
+  // The {entry, community, member, rule, when} feed-item shape for one loaded entry — shared by the
+  // community feed and the post overlay so a post renders identically wherever it's opened.
+  function buildFeedItemForEntry(entry) {
+    if (!entry) return null;
+    const community = state.communities.find((item) => item.id === entry.communityId);
+    if (!community) return null;
+    const member = (community.members || []).find((item) => item.id === entry.userId);
+    if (!member) return null;
+    const rule = (community.system.rules || []).map(scoring.normalizeRule).find((item) => item.id === entry.ruleId);
+    return { entry: entry, community: community, member: member, rule: rule, when: entry.timestamp || entry.dateKey || entry.date || "" };
   }
 
   // Re-render a single feed card in place so other cards' comment inputs keep their
@@ -7847,7 +7942,7 @@
 
   // Share a post — native share sheet if available, else copy the caption to the clipboard.
   function sharePost(entryId) {
-    const item = (feedItems || []).find((it) => String(it.entry.id) === String(entryId));
+    const item = feedItemById(String(entryId));
     const text = item && item.entry && item.entry.message ? String(item.entry.message) : "Check out this post on Pointwell";
     if (navigator.share) { Promise.resolve(navigator.share({ text: text })).catch(() => {}); return; }
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -9519,6 +9614,7 @@
   function openUserProfile(userId, communityContextId) {
     const id = String(userId || "");
     if (!id) return;
+    closePostOverlay(); // tapping a post's author navigates away → dismiss the overlay first
     // (Own id is allowed through: it opens the public profile view with a Settings button,
     // a "what others see" self-preview — see renderProfilePage / openMyProfile.)
     // When opened from a community (leaderboard), remember it → the "Today in <community>"

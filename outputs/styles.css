@@ -8296,6 +8296,73 @@ body.onboarding-locked .coach-panel { display: none; }
 }
 .ig-menu-pop button:hover { background: var(--soft); }
 
+/* In-place opened-post overlay (openEntryPost) — the feed card shown as a dismissible sheet. */
+.post-overlay-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 115;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 12px;
+  background: rgba(0, 0, 0, 0.72);
+  overscroll-behavior: contain;
+}
+.post-overlay-sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 420px;
+  max-height: 88vh;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  transition: transform 0.18s ease;
+}
+.post-overlay-bar {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.post-overlay-grab {
+  position: absolute;
+  left: 50%;
+  top: 7px;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+}
+.post-overlay-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--soft);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.post-overlay-close:hover { background: var(--line); }
+.post-overlay-scroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+/* The card fills the sheet (the sheet supplies the frame). */
+.post-overlay-scroll .ig-card { border: 0; border-radius: 0; }
+
 /* Photo media sits inset inside the floating card with rounded corners. */
 .ig-photo {
   position: relative;

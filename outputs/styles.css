@@ -8944,7 +8944,9 @@ body.onboarding-locked .coach-panel { display: none; }
 .profile-today-meta > strong { font-size: 0.9rem; font-weight: 850; color: var(--ink); }
 /* Over-goal rule label (e.g. "+4 · 300% of goal") — warm accent, matches the over-goal bar */
 .rule-progress-percent.over-goal { color: var(--warm); }
-.profile-posts-section .profile-section-title { font-size: 1rem; }
+/* Posts attach straight under the profile header — cancel the .profile-page-body 18px grid gap so the
+   header → Grid/List tabs → grid read as ONE continuous block (only when posts directly follow it). */
+.profile-hero + .profile-posts-section { margin-top: -18px; }
 
 .profile-suggest-list { display: grid; gap: 8px; }
 .profile-suggest-row {
@@ -8994,9 +8996,6 @@ body.onboarding-locked .coach-panel { display: none; }
 .profile-post-card:hover { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); transform: translateY(-1px); }
 .profile-post-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .profile-post-card .ds-go { margin-left: auto; color: var(--muted); font-weight: 800; font-size: 16px; }
-
-/* Recent posts: header row with the grid/list toggle */
-.profile-posts-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 
 /* Grid/List as a full-width IG-style tab bar attached to the top of the grid (one connected
    block): two equal tabs, the active one with a bottom accent underline + a 1px divider under

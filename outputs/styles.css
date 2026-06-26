@@ -8944,7 +8944,19 @@ body.onboarding-locked .coach-panel { display: none; }
 .profile-today-meta > strong { font-size: 0.9rem; font-weight: 850; color: var(--ink); }
 /* Over-goal rule label (e.g. "+4 · 300% of goal") — warm accent, matches the over-goal bar */
 .rule-progress-percent.over-goal { color: var(--warm); }
-.profile-posts-section .profile-section-title { font-size: 1rem; }
+/* One continuous profile block: the header card flows straight into the posts (tabs + grid) — no gap,
+   no "Recent posts" heading, no card edge between them. The header squares its bottom; the posts take
+   the SAME surface + round the block's bottom. Only when the posts directly follow the header. */
+.profile-hero-card:has(+ .profile-posts-section) { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.profile-hero-card:has(+ .profile-posts-section) .profile-hero-body { padding-bottom: 6px; }
+.profile-hero-card:has(+ .profile-posts-section) .profile-hero-stats { border-bottom: 0; padding-bottom: 2px; }
+.profile-hero-card + .profile-posts-section {
+  margin-top: -18px;                 /* cancel the .profile-page-body 18px grid gap */
+  background: var(--surface);        /* same surface as the header → no double background */
+  border-bottom-left-radius: 18px;
+  border-bottom-right-radius: 18px;
+  overflow: hidden;                  /* clip the grid's bottom corners to the rounded block */
+}
 
 .profile-suggest-list { display: grid; gap: 8px; }
 .profile-suggest-row {
@@ -8994,9 +9006,6 @@ body.onboarding-locked .coach-panel { display: none; }
 .profile-post-card:hover { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); transform: translateY(-1px); }
 .profile-post-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .profile-post-card .ds-go { margin-left: auto; color: var(--muted); font-weight: 800; font-size: 16px; }
-
-/* Recent posts: header row with the grid/list toggle */
-.profile-posts-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 
 /* Grid/List as a full-width IG-style tab bar attached to the top of the grid (one connected
    block): two equal tabs, the active one with a bottom accent underline + a 1px divider under
@@ -10009,6 +10018,18 @@ body.onboarding-locked .coach-panel { display: none; }
   .profile-posts-grid {
     margin-left: calc(50% - 50vw);
     margin-right: calc(50% - 50vw);
+  }
+  /* One continuous block on mobile: the posts share the header's edge-to-edge surface (no gap, no card
+     edge). The section goes full-bleed too; the grid drops its OWN break-out (the section already
+     reaches the edges) so it isn't double-extended. */
+  .profile-hero-card + .profile-posts-section {
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+    border-radius: 0;
+  }
+  .profile-hero-card + .profile-posts-section .profile-posts-grid {
+    margin-left: 0;
+    margin-right: 0;
   }
 
   /* FEED (Friends/Discover) — full posts go edge-to-edge and lose the boxy rounding/shadow;

@@ -10092,9 +10092,10 @@
     // Profile "Recent posts" is a PHOTO grid: caption-only text posts and bare logs live in the
     // feed, not here. Filter to posts that carry a photo (they still show their caption in the tile/card).
     const posts = (o.posts || []).filter((p) => p.photo_path);
-    const head = `<div class="profile-posts-head"><h3 class="profile-section-title">Recent posts</h3></div>`;
+    // No "Recent posts" heading — the posts attach straight under the profile header as ONE continuous
+    // block (CSS squares the header bottom + shares its surface, so there's no gap or card edge between).
     if (!posts.length) {
-      return `<section class="profile-section profile-posts-section">${head}${emptyState("No photos yet.")}</section>`;
+      return `<section class="profile-section profile-posts-section">${emptyState("No photos yet.")}</section>`;
     }
     // Grid/List as a full-width tab bar attached to the top of the grid (IG-style): the active tab
     // gets a bottom accent underline. Same toggle state + handler (data-profile-posts-view) —
@@ -10106,7 +10107,7 @@
     const body = state.profilePostsView === "list"
       ? `<div class="profile-posts-list">${posts.map(renderProfilePostCard).join("")}</div>`
       : `<div class="profile-posts-grid">${posts.map(renderProfilePostTile).join("")}</div>`;
-    return `<section class="profile-section profile-posts-section">${head}<div class="profile-posts-block">${tabs}${body}</div></section>`;
+    return `<section class="profile-section profile-posts-section"><div class="profile-posts-block">${tabs}${body}</div></section>`;
   }
 
   // One square grid tile — PHOTO posts only (the grid is filtered to photos upstream). Image

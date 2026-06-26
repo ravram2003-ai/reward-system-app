@@ -755,6 +755,146 @@
     }
   }
 
+  // ── Profile posts: personal posts on your profile (profile-posts.sql) ──
+  // A profile post is a standalone {photo, caption} authored on your own profile; followers
+  // see it via the Friends feed (RLS gates visibility). Likes/comments live in PARALLEL tables
+  // (profile_post_likes / profile_post_comments) with the SAME shape as the community ones, so
+  // the feed UI is reused. Photos REUSE the entry-photos bucket (uploadEntryPhoto / signed URL).
+
+  // Insert one of MY profile posts. Needs a photo OR a caption (mirrors the app rule + the CHECK).
+  async function uploadProfilePost(userId, message, photoPath) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(userId))) return { error: { message: "Sign in to post." } };
+    var msg = (message == null ? "" : String(message)).trim().slice(0, 2000);
+    var photo = photoPath ? String(photoPath) : null;
+    if (!msg && !photo) return { error: { message: "Add a photo or caption." } };
+    try {
+      var res = await sb.from("profile_posts").insert({ user_id: userId, message: msg || null, photo_path: photo }).select().single();
+      if (res.error) return { error: res.error };
+      return { error: null, post: res.data || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // One user's profile posts (newest first). RLS returns only the ones the caller may see
+  // (own + public, or private-but-approved-follower); used to render a profile's posts.
+  async function fetchProfilePosts(userId, limit) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(userId))) return [];
+    try {
+      var res = await sb.from("profile_posts").select("*").eq("user_id", userId)
+        .order("created_at", { ascending: false }).limit(limit || 30);
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Profile posts authored by a given set of users (the people I follow), newest first — the
+  // Friends-feed source. Pass the author ids (resolved via profileFollowing, which is the
+  // SECURITY DEFINER read of my follow graph); RLS still filters to posts I'm allowed to see.
+  async function fetchFollowedProfilePosts(authorIds, limit) {
+    var sb = getClient();
+    var ids = Array.isArray(authorIds) ? authorIds.filter(function (x) { return x && UUID_RE.test(String(x)); }) : [];
+    if (!sb || !ids.length) return [];
+    try {
+      var res = await sb.from("profile_posts").select("*").in("user_id", ids)
+        .order("created_at", { ascending: false }).limit(limit || 40);
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Delete one of MY OWN profile posts (author-only RLS is the real guard; the user_id match is
+  // belt-and-suspenders). The likes/comments cascade-delete with it (FK on delete cascade).
+  async function deleteProfilePost(postId, userId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(postId)) || !userId) return { error: { message: "Couldn't delete that." } };
+    try {
+      var res = await sb.from("profile_posts").delete().eq("id", postId).eq("user_id", userId);
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // Likes/comments on profile posts — mirror the community feed-social fns against the parallel
+  // tables + definer RPCs (get_profile_posts_social / get_profile_post_comments).
+  async function likeProfilePost(postId, userId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(postId)) || !userId) return { error: { message: "Couldn't like that." } };
+    try {
+      var res = await sb.from("profile_post_likes").insert({ post_id: postId, user_id: userId });
+      if (res.error && !/duplicate|unique/i.test(res.error.message || "")) return { error: res.error };
+      return { error: null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  async function unlikeProfilePost(postId, userId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(postId)) || !userId) return { error: { message: "Couldn't unlike that." } };
+    try {
+      var res = await sb.from("profile_post_likes").delete().eq("post_id", postId).eq("user_id", userId);
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // Batch social state for visible profile posts (counts + liked_by_me + last-comment preview).
+  // The RPC returns rows keyed by post_id (the app maps that to its shared social cache).
+  async function getProfilePostsSocial(postIds) {
+    var sb = getClient();
+    var list = Array.isArray(postIds) ? postIds.filter(function (x) { return x && UUID_RE.test(String(x)); }) : [];
+    if (!sb || !list.length) return [];
+    try {
+      var res = await sb.rpc("get_profile_posts_social", { pids: list });
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async function addProfilePostComment(postId, userId, body) {
+    var sb = getClient();
+    var text = String(body || "").trim().slice(0, 2000);
+    if (!sb || !UUID_RE.test(String(postId)) || !userId) return { error: { message: "Couldn't post that." } };
+    if (!text) return { error: { message: "Write a comment first." } };
+    try {
+      var res = await sb.from("profile_post_comments").insert({ post_id: postId, user_id: userId, body: text }).select().single();
+      if (res.error) return { error: res.error };
+      return { error: null, comment: res.data || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  async function getProfilePostComments(postId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(postId))) return [];
+    try {
+      var res = await sb.rpc("get_profile_post_comments", { pid: postId });
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async function deleteProfilePostComment(commentId, userId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(commentId)) || !userId) return { error: { message: "Couldn't delete that." } };
+    try {
+      var res = await sb.from("profile_post_comments").delete().eq("id", commentId).eq("user_id", userId);
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
   // Every community the user belongs to, with its members (names via a definer
   // function, since profiles RLS is self-only) and the shared entries.
   async function fetchMyCommunities(userId) {
@@ -1421,6 +1561,16 @@
     getEntryComments: getEntryComments,
     deleteEntryComment: deleteEntryComment,
     deleteCommunityEntry: deleteCommunityEntry,
+    uploadProfilePost: uploadProfilePost,
+    fetchProfilePosts: fetchProfilePosts,
+    fetchFollowedProfilePosts: fetchFollowedProfilePosts,
+    deleteProfilePost: deleteProfilePost,
+    likeProfilePost: likeProfilePost,
+    unlikeProfilePost: unlikeProfilePost,
+    getProfilePostsSocial: getProfilePostsSocial,
+    addProfilePostComment: addProfilePostComment,
+    getProfilePostComments: getProfilePostComments,
+    deleteProfilePostComment: deleteProfilePostComment,
     fetchMyCommunities: fetchMyCommunities,
     createChallenge: createChallenge,
     fetchMyChallenges: fetchMyChallenges,

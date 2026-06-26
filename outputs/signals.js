@@ -20,6 +20,72 @@
   var MOTIVATION_PRESETS = ["You've got this", "One entry gets you back on track"];
   var MAX_BODY = 280;
 
+  // ── Storage egress guards ──────────────────────────────────────────────────
+  // Private-bucket signed URLs are valid ~1h, but createSignedUrl mints a NEW token
+  // every call → a new URL → the browser re-downloads the SAME image on every render /
+  // tab switch (the main driver of our egress blow-out: 22MB stored, ~9GB downloaded).
+  // Memoize by path so repeated paints reuse ONE stable URL → browser cache hit, no
+  // re-download. TTL kept under the 1h token life; failures ("" / not permitted) aren't
+  // cached so they retry. In-flight calls are deduped via the stored promise.
+  var _signedUrlCache = {};            // "bucket:path" -> { url, expires } | { promise, expires }
+  var SIGNED_URL_TTL_MS = 55 * 60 * 1000;
+  function cachedSignedUrl(key, make) {
+    var now = Date.now();
+    var hit = _signedUrlCache[key];
+    if (hit && hit.expires > now) {
+      if (hit.url) return Promise.resolve(hit.url);   // resolved + still fresh
+      if (hit.promise) return hit.promise;            // in-flight → dedupe
+    }
+    var p = Promise.resolve().then(make).then(function (url) {
+      if (url) _signedUrlCache[key] = { url: url, expires: Date.now() + SIGNED_URL_TTL_MS };
+      else delete _signedUrlCache[key];
+      return url || "";
+    }).catch(function () { delete _signedUrlCache[key]; return ""; });
+    _signedUrlCache[key] = { promise: p, expires: now + SIGNED_URL_TTL_MS };
+    return p;
+  }
+
+  // Downscale + re-encode a picked image BEFORE upload so storage AND every future
+  // download stay small: cap the longest edge to ~1080px, re-encode JPEG ~0.8. Returns a
+  // Blob, or the ORIGINAL file unchanged on any failure / non-image / no gain — never
+  // blocks an upload. Browser-only (canvas); the node test harness never calls it.
+  async function resizeImageForUpload(file, maxEdge, quality) {
+    try {
+      if (!file || typeof document === "undefined") return file;
+      var type = file.type || "";
+      if (type.indexOf("image/") !== 0 || type === "image/gif") return file; // skip non-images + animations
+      maxEdge = maxEdge || 1080; quality = quality || 0.8;
+      var bmp;
+      if (typeof createImageBitmap === "function") {
+        bmp = await createImageBitmap(file);
+      } else {
+        bmp = await new Promise(function (resolve, reject) {
+          var img = new Image(); var url = URL.createObjectURL(file);
+          img.onload = function () { URL.revokeObjectURL(url); resolve(img); };
+          img.onerror = function () { URL.revokeObjectURL(url); reject(new Error("decode")); };
+          img.src = url;
+        });
+      }
+      var w = bmp.width, h = bmp.height;
+      if (!w || !h) return file;
+      var scale = Math.min(1, maxEdge / Math.max(w, h));
+      var tw = Math.max(1, Math.round(w * scale)), th = Math.max(1, Math.round(h * scale));
+      var canvas = document.createElement("canvas");
+      canvas.width = tw; canvas.height = th;
+      var ctx = canvas.getContext("2d");
+      if (!ctx) return file;
+      ctx.drawImage(bmp, 0, 0, tw, th);
+      if (bmp.close) bmp.close();
+      var blob = await new Promise(function (resolve) { canvas.toBlob(resolve, "image/jpeg", quality); });
+      if (!blob) return file;
+      if (scale === 1 && blob.size >= file.size) return file; // already small + no gain → keep original
+      try { blob.name = (file.name ? file.name.replace(/\.[^.]+$/, "") : "photo") + ".jpg"; } catch (e) { /* Blob.name is best-effort */ }
+      return blob;
+    } catch (e) {
+      return file;
+    }
+  }
+
   function presetsForType(type) {
     return (type === "motivation" ? MOTIVATION_PRESETS : KUDOS_PRESETS).slice();
   }
@@ -465,6 +531,7 @@
     if (!file) return { error: { message: "No photo selected." } };
     if (!folder) return { error: { message: "Missing photo destination." } };
     try {
+      file = await resizeImageForUpload(file, 1080, 0.8); // shrink storage + every future download
       var ext = "jpg";
       if (file.name && file.name.indexOf(".") > -1) {
         var raw = file.name.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -486,12 +553,11 @@
   async function getEntryPhotoSignedUrl(path) {
     var sb = getClient();
     if (!sb || !sb.storage || !path) return "";
-    try {
-      var res = await sb.storage.from("entry-photos").createSignedUrl(path, 3600);
-      return (res && res.data && res.data.signedUrl) ? res.data.signedUrl : "";
-    } catch (e) {
-      return "";
-    }
+    return cachedSignedUrl("entry-photos:" + path, function () {
+      return sb.storage.from("entry-photos").createSignedUrl(path, 3600).then(function (res) {
+        return (res && res.data && res.data.signedUrl) ? res.data.signedUrl : "";
+      });
+    });
   }
 
   // Upload a profile avatar to the PUBLIC "avatars" bucket under "<uid>/...". Unlike
@@ -504,6 +570,7 @@
     if (!file) return { error: { message: "No photo selected." } };
     if (!uid) return { error: { message: "Sign in to set a profile picture." } };
     try {
+      file = await resizeImageForUpload(file, 1080, 0.8); // shrink storage + every future download
       var ext = "jpg";
       if (file.name && file.name.indexOf(".") > -1) {
         var raw = file.name.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -532,6 +599,7 @@
     if (!file) return { error: { message: "No photo selected." } };
     if (!uid || !worldId) return { error: { message: "Sign in to set this photo." } };
     try {
+      file = await resizeImageForUpload(file, 1080, 0.8); // shrink storage + every future download
       var ext = "jpg";
       if (file.name && file.name.indexOf(".") > -1) {
         var raw = file.name.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -554,12 +622,11 @@
   async function worldMediaSignedUrl(path) {
     var sb = getClient();
     if (!sb || !sb.storage || !path) return "";
-    try {
-      var res = await sb.storage.from("world-media").createSignedUrl(path, 3600);
-      return (res && res.data && res.data.signedUrl) ? res.data.signedUrl : "";
-    } catch (e) {
-      return "";
-    }
+    return cachedSignedUrl("world-media:" + path, function () {
+      return sb.storage.from("world-media").createSignedUrl(path, 3600).then(function (res) {
+        return (res && res.data && res.data.signedUrl) ? res.data.signedUrl : "";
+      });
+    });
   }
 
   // Save cover_url/icon_url onto a community row. RLS (communities "update own") permits this

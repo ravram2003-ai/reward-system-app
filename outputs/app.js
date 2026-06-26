@@ -2708,7 +2708,6 @@
       "dashboardAnalytics",
       "worldGrid",
       "worldGridHint",
-      "worldCount",
       "streakCard",
       "dashboardDetail",
       "notifBellButton",
@@ -12249,18 +12248,6 @@
     return out;
   }
 
-  // Longest consecutive hit-run in the trailing `days` (for the "best this month" subline). Same
-  // probe primitive — a derived stat, not a re-implementation of the current streak.
-  function streakBestRun(ctx, probe, days) {
-    probe = probe || streakContextProbe(ctx);
-    let best = 0, run = 0;
-    for (let i = days - 1; i >= 1; i--) {
-      if (probe.getPts(offsetDate(-i)) >= probe.target) { run += 1; if (run > best) best = run; } else run = 0;
-    }
-    if (probe.getPts(getTodayKey()) >= probe.target) { run += 1; if (run > best) best = run; }
-    return best;
-  }
-
   // Next badge + progress toward it (matches the reference: % of the way to the next milestone).
   function streakMilestoneInfo(streak) {
     const next = STREAK_MILESTONES.find((m) => m > streak) || 0;
@@ -12298,33 +12285,25 @@
     maybeCelebrateMilestone(ctx, streak);
     const key = ctx.type + ":" + ctx.id;
     const celebrating = streakCelebrateKey === key; if (celebrating) streakCelebrateKey = "";
+    // Slim inline dot strip (no day labels): hit = filled, miss = faint, today = outlined (or filled if hit).
     const dots = streakWeekDots(ctx, probe).map((d) => {
-      if (d.isToday) {
-        return `<div class="streak-day is-today"><span class="streak-dot ${d.hit ? "hit" : "today"}">${d.hit ? "✓" : "·"}</span><span class="streak-daylabel">today</span></div>`;
-      }
-      return `<div class="streak-day"><span class="streak-dot ${d.hit ? "hit" : "miss"}">${d.hit ? "✓" : ""}</span><span class="streak-daylabel">${escapeHtml(d.label)}</span></div>`;
+      const cls = d.isToday ? (d.hit ? "hit" : "today") : (d.hit ? "hit" : "miss");
+      return `<span class="streak-idot ${cls}"></span>`;
     }).join("");
     const ms = streakMilestoneInfo(streak);
-    const best = streakBestRun(ctx, probe, 30);
+    // Tiny subline: encouragement + the milestone as a small note (the full progress bar is dropped).
     let sub;
-    if (streak <= 0) sub = "Log today to start your streak";
-    else if (streak >= best) sub = "🔥 your best this month";
-    else sub = "Best this month: " + best + " days";
-    const mline = ms.next
-      ? `<div class="streak-mbar" aria-hidden="true"><i style="width:${ms.pct}%"></i></div><p class="streak-mtext">${ms.daysTo} ${ms.daysTo === 1 ? "day" : "days"} to your 🏅 ${ms.next}-day badge</p>`
-      : `<p class="streak-mtext">🏅 100-day legend — every badge earned</p>`;
+    if (streak <= 0) sub = "Log today to start";
+    else if (ms.next) sub = "Keep it going · " + ms.daysTo + "d to 🏅 " + ms.next;
+    else sub = "🏅 100-day legend";
     els.streakCard.innerHTML = `
-      <div class="streak-card${streak <= 0 ? " is-zero" : ""}${celebrating ? " is-celebrating" : ""}">
-        <div class="streak-glow" aria-hidden="true"></div>
-        <div class="streak-top">
-          <span class="streak-flame" aria-hidden="true">🔥</span>
-          <div class="streak-headline">
-            <strong class="streak-count">${escapeHtml(String(streak))}<span> day streak</span></strong>
-            <p class="streak-sub">${escapeHtml(sub)}</p>
-          </div>
+      <div class="streak-bar${streak <= 0 ? " is-zero" : ""}${celebrating ? " is-celebrating" : ""}">
+        <span class="streak-flame" aria-hidden="true">🔥</span>
+        <div class="streak-headline">
+          <strong class="streak-count">${escapeHtml(String(streak))}-day streak</strong>
+          <p class="streak-sub">${escapeHtml(sub)}</p>
         </div>
-        <div class="streak-week">${dots}</div>
-        ${mline}
+        <div class="streak-week-inline" aria-hidden="true">${dots}</div>
       </div>`;
   }
 

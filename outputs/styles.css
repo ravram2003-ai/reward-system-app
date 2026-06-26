@@ -376,7 +376,7 @@ h3 {
 .section-title-count { flex: 0 0 auto; color: var(--muted); font-size: 0.85rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 /* Tighten the space below the slim "Your worlds" header so the tiles start higher.
    Compound selector so it wins over any later single-class .view-header margin rule. */
-.view-header.dashboard-header { margin-bottom: 10px; }
+.view-header.dashboard-header { margin-bottom: 0; } /* heading removed → no empty gap above the streak bar */
 
 .view-subtitle {
   margin: 7px 0 0;
@@ -9913,38 +9913,29 @@ body.onboarding-locked .coach-panel { display: none; }
   }
 }
 
-/* ── Streak system: prominent amber flame card + 7-day dot tracker + milestone progress + at-risk
-   nudge. Surfaces the EXISTING streak math (coachContextStreak / the shared probe). Always-dark
-   amber palette (verified on the near-black canvas), matching work/streak-system.html. ───────── */
-#streakCard { display: block; }
-.streak-card { position: relative; overflow: hidden; margin: 16px 0 6px; padding: 16px; border: 1px solid #3a2c12; border-radius: 18px; background: #0e0b07; }
-.streak-glow { position: absolute; top: -30px; right: -20px; width: 140px; height: 140px; background: radial-gradient(circle, rgba(240, 160, 60, 0.18), transparent 70%); pointer-events: none; }
-.streak-top { position: relative; display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
-.streak-flame { font-size: 42px; line-height: 1; filter: drop-shadow(0 0 10px rgba(240, 160, 60, 0.5)); }
-.streak-card.is-zero .streak-flame { filter: none; opacity: 0.5; }
-.streak-headline { min-width: 0; }
-.streak-count { font-size: 28px; color: #f5d99a; line-height: 1; font-weight: 800; }
-.streak-count span { font-size: 13px; color: #c9a14a; font-weight: 600; }
-.streak-sub { font-size: 11px; color: #8a7a55; margin: 3px 0 0; }
-.streak-week { position: relative; display: flex; justify-content: space-between; margin-bottom: 12px; }
-.streak-day { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.streak-dot { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; }
-.streak-dot.hit { background: #3a2c12; color: #f0c97a; }
-.streak-dot.miss { background: #17120c; color: transparent; }
-.streak-dot.today { background: #1a1410; border: 2px solid #f0c97a; color: #f0c97a; font-size: 9px; }
-.streak-daylabel { font-size: 8px; color: #8a7a55; }
-.streak-day.is-today .streak-daylabel { color: #f0c97a; }
-.streak-mbar { height: 4px; border-radius: 3px; background: #241a0e; overflow: hidden; }
-.streak-mbar > i { display: block; height: 4px; border-radius: 3px; background: linear-gradient(90deg, #c9821f, #f0c97a); transition: width 0.45s ease; }
-.streak-mtext { font-size: 10.5px; color: #8a7a55; margin: 7px 0 0; }
+/* ── Streak system: a SLIM single-row bar leading the Today screen — flame + "{N}-day streak" + a
+   tiny subline (with the milestone as a small note) + an inline 7-day dot strip on the right.
+   Surfaces the EXISTING streak math (coachContextStreak / the shared probe). Always-dark amber
+   palette (verified on the near-black canvas), matching work/streak-system.html (option A). ───── */
+.streak-bar { position: relative; display: flex; align-items: center; gap: 12px; margin: 12px 0; padding: 11px 14px; border: 1px solid #3a2c12; border-radius: 14px; background: #0e0b07; }
+.streak-flame { font-size: 26px; line-height: 1; flex: 0 0 auto; filter: drop-shadow(0 0 8px rgba(240, 160, 60, 0.45)); }
+.streak-bar.is-zero .streak-flame { filter: none; opacity: 0.5; }
+.streak-headline { flex: 1 1 auto; min-width: 0; }
+.streak-count { display: block; font-size: 0.98rem; line-height: 1.15; font-weight: 800; color: #f5d99a; }
+.streak-sub { margin: 1px 0 0; font-size: 0.72rem; color: #8a7a55; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.streak-week-inline { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; }
+.streak-idot { width: 9px; height: 9px; border-radius: 50%; background: #2a2114; }
+.streak-idot.hit { background: #f0c97a; }
+.streak-idot.miss { background: #2a2114; }
+.streak-idot.today { background: transparent; border: 1.5px solid #f0c97a; }
 /* milestone celebration: one-shot pulse + glow when a badge is newly reached */
-.streak-card.is-celebrating { animation: streakCelebrate 1.1s ease; }
+.streak-bar.is-celebrating { animation: streakCelebrate 1.1s ease; }
 @keyframes streakCelebrate {
   0% { box-shadow: 0 0 0 0 rgba(240, 201, 122, 0); }
-  30% { box-shadow: 0 0 0 3px rgba(240, 201, 122, 0.55), 0 0 26px 4px rgba(240, 160, 60, 0.45); transform: scale(1.012); }
+  30% { box-shadow: 0 0 0 3px rgba(240, 201, 122, 0.55), 0 0 26px 4px rgba(240, 160, 60, 0.45); transform: scale(1.01); }
   100% { box-shadow: 0 0 0 0 rgba(240, 201, 122, 0); transform: scale(1); }
 }
-@media (prefers-reduced-motion: reduce) { .streak-card.is-celebrating { animation: none; } .streak-mbar > i { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .streak-bar.is-celebrating { animation: none; } }
 
 /* At-risk streak nudge (coach thread): reddish card + "Log now" CTA. */
 .coach-streakrisk-card { border: 1px solid #4a221e; border-radius: 14px; background: #140b0a; padding: 12px 13px; }

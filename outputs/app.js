@@ -3571,6 +3571,7 @@
     // Load signed-URL thumbnails for any entry photos rendered this pass (the helper
     // skips ones already loaded; Storage policy decides if each is actually viewable).
     bindEntryPhotos(document);
+    paintWorldPostThumbs(document);
   }
 
   function renderChrome() {
@@ -4758,8 +4759,14 @@
       const rule = rules.find((r) => r.id === e.ruleId);
       const who = member.id === "me" ? "You" : (member.name || "Member");
       const cap = e.message ? e.message : (rule ? rule.label : "logged a day");
+      // Photo posts lead with a small thumbnail (painted from the signed URL); text posts keep
+      // the round avatar. The caption is truncated to one line by .world-post-line (CSS).
+      const photoPath = e.photoPath || e.photo_path || "";
+      const lead = photoPath
+        ? `<span class="world-post-thumb" data-world-thumb="${escapeHtml(photoPath)}"><img alt="" loading="lazy"></span>`
+        : worldAvatarMarkup(member);
       return `<div class="world-post">
-          ${worldAvatarMarkup(member)}
+          ${lead}
           <div class="world-post-main">
             <p class="world-post-line"><strong>${escapeHtml(who)}</strong> · ${escapeHtml(cap)}</p>
             <p class="world-post-meta">${escapeHtml(worldAgo(e.timestamp || e.dateKey || e.date))}</p>
@@ -14586,6 +14593,23 @@
         if (!thumb.closest("[data-profile-post]")) {
           thumb.addEventListener("click", () => { try { window.open(url, "_blank", "noopener"); } catch (e) { /* ignore */ } });
         }
+      }).catch(() => { thumb.classList.add("is-unavailable"); });
+    });
+  }
+
+  // Paint the small ~34px thumbnails on world-tile recent-post rows that are photo posts.
+  // Reuses the same memoised entry-photo signed-URL path (Storage policy still gates each),
+  // but — unlike bindEntryPhotos — adds NO open-in-new-tab click, so a tap bubbles to the tile
+  // and opens the world like the rest of the row.
+  function paintWorldPostThumbs(root) {
+    if (!root || !window.PointwellSignals || typeof window.PointwellSignals.getEntryPhotoSignedUrl !== "function") return;
+    Array.from(root.querySelectorAll("[data-world-thumb]")).forEach((thumb) => {
+      if (thumb.dataset.thumbBound === "1") return;
+      thumb.dataset.thumbBound = "1";
+      const img = thumb.querySelector("img");
+      Promise.resolve(window.PointwellSignals.getEntryPhotoSignedUrl(thumb.dataset.worldThumb)).then((url) => {
+        if (!url) { thumb.classList.add("is-unavailable"); return; }
+        if (img) img.src = url;
       }).catch(() => { thumb.classList.add("is-unavailable"); });
     });
   }

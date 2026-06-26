@@ -68,10 +68,12 @@ you know what's live in production.
   REUSES the existing public **avatars** bucket + its path-based owner-only-write policies (from
   profile-pictures.sql) — no new bucket, no policy change. *(after #1 profile-pictures — reuses the
   avatars bucket)*.
-- [ ] **21. community-device-autosync.sql** — adds `communities.allow_device_autosync` (boolean,
+- [x] **21. community-device-autosync.sql** — adds `communities.allow_device_autosync` (boolean,
   not null, default false). Owner opt-in to let members' connected-device totals auto-count toward
   the community leaderboard on login/sync. Owner-only write via the existing "communities update by
   owner" RLS (no new policy). *(after #N communities — adds a column to `communities`)*.
+  Applied to the live project (ref `ejoccpqbozgzixrejlhd`) on 2026-06-25; verified column present
+  (boolean / not null / default false).
 
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).

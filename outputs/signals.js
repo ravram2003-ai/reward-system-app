@@ -784,6 +784,73 @@
     }
   }
 
+  // ── Head-to-head (1v1) challenges. A challenge is a 2-person leaderboard over a window;
+  //    scores are computed in the APP from community_entries (never stored here). RLS
+  //    (challenges.sql) is the real guard — member inserts as challenger, participants + owner
+  //    read, the opponent accepts/declines while pending, the owner finalizes. These functions
+  //    just call the table and swallow transport errors, like the rest of this module. ──────────
+  async function createChallenge(payload) {
+    var sb = getClient();
+    if (!sb || !payload || !payload.community_id || !payload.challenger_user || !payload.opponent_user) {
+      return { error: { message: "Couldn't start the challenge." } };
+    }
+    try {
+      var res = await sb.from("challenges").insert({
+        community_id: payload.community_id,
+        challenger_user: payload.challenger_user,
+        opponent_user: payload.opponent_user,
+        metric: payload.metric || "points",
+        duration: payload.duration || null,
+        status: "pending",
+        forfeit: payload.forfeit || null
+      }).select("*").single();
+      if (res.error) return { error: { message: res.error.message || "Couldn't start the challenge." } };
+      return { error: null, challenge: res.data || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // Every challenge I'm in (RLS already limits the rows to me-as-participant or my-community-as-owner;
+  // the .or keeps the payload to ones I actually play in). Returns [] on any failure.
+  async function fetchMyChallenges(userId) {
+    var sb = getClient();
+    if (!sb || !userId || !UUID_RE.test(String(userId))) return [];
+    try {
+      var res = await sb.from("challenges")
+        .select("*")
+        .or("challenger_user.eq." + userId + ",opponent_user.eq." + userId)
+        .order("created_at", { ascending: false });
+      return res.error ? [] : (res.data || []);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Generic status write. Accept = { status:'active', start_at, end_at } (opponent, RLS-gated);
+  // decline = { status:'declined' }; finalize = { status:'done', winner_user, forfeit } (owner).
+  // RLS decides whether the caller is allowed — the client never validates the transition.
+  async function setChallengeStatus(challengeId, patch) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(challengeId)) || !patch) return { error: { message: "Couldn't update that." } };
+    try {
+      var res = await sb.from("challenges").update(patch).eq("id", challengeId).select("*").maybeSingle();
+      if (res.error) return { error: { message: res.error.message || "Couldn't update that." } };
+      return { error: null, challenge: res.data || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // Record the app-computed outcome. winnerUserId may be null (draw). Owner-only via RLS.
+  async function finalizeChallenge(challengeId, winnerUserId, forfeitNote) {
+    return setChallengeStatus(challengeId, {
+      status: "done",
+      winner_user: winnerUserId || null,
+      forfeit: forfeitNote || null
+    });
+  }
+
   // ── Community discovery: name search + request-to-join ──────────────────────
 
   // Name search — returns only public + request_to_join communities (private is
@@ -1355,6 +1422,10 @@
     deleteEntryComment: deleteEntryComment,
     deleteCommunityEntry: deleteCommunityEntry,
     fetchMyCommunities: fetchMyCommunities,
+    createChallenge: createChallenge,
+    fetchMyChallenges: fetchMyChallenges,
+    setChallengeStatus: setChallengeStatus,
+    finalizeChallenge: finalizeChallenge,
     isNudgeable: isNudgeable,
     subscribeInbox: subscribeInbox,
     fetchThread: fetchThread,

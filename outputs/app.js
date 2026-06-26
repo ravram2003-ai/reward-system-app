@@ -13738,20 +13738,39 @@
     coachSayText("No problem — logged, not posted.");
   }
 
+  // A post needs a PHOTO or a non-empty CAPTION (a bare log stays activity-only). With no photo the
+  // caption is required, so the Post button stays disabled (with a hint) until one is added.
+  function coachPostCanSubmit() {
+    const p = coach.post;
+    return !!p && (!!(p.file || p.previewUrl) || !!(p.caption || "").trim());
+  }
+  // Live-toggle the Post button + hint as the caption is typed (no re-render → keeps textarea focus).
+  function updateCoachPostSubmitState() {
+    const p = coach.post;
+    if (!p || !p.cardEl || !p.cardEl.isConnected) return;
+    const canPost = coachPostCanSubmit();
+    const btn = p.cardEl.querySelector("[data-coach-post-submit]");
+    if (btn) btn.disabled = !canPost;
+    const hint = p.cardEl.querySelector("[data-coach-post-hint]");
+    if (hint) hint.hidden = canPost;
+  }
+
   function coachRenderPostCard() {
     if (!coach.post || !coach.post.cardEl || !coach.post.cardEl.isConnected) return;
     const p = coach.post;
     const photoSlot = p.previewUrl
       ? `<div class="coach-post-photo has-photo"><img src="${escapeHtml(p.previewUrl)}" alt="Post photo preview"><button type="button" class="entry-photo-remove" data-coach-post-photo-remove aria-label="Remove photo">×</button></div>`
       : `<button type="button" class="ghost-button small coach-post-addphoto" data-coach-post-photo>📷 Add photo</button>`;
+    const canPost = coachPostCanSubmit();
     coach.post.cardEl.innerHTML = `
       <p class="coach-card-title">Post to ${escapeHtml(p.name || "your feed")}</p>
       <label class="coach-field"><span>Caption</span>
-        <textarea data-coach-post-caption maxlength="${ENTRY_MESSAGE_MAX}" rows="2" placeholder="Say something… (optional)">${escapeHtml(p.caption || "")}</textarea></label>
+        <textarea data-coach-post-caption maxlength="${ENTRY_MESSAGE_MAX}" rows="2" placeholder="Say something…">${escapeHtml(p.caption || "")}</textarea></label>
       ${photoSlot}
       <div class="coach-card-actions">
+        <span class="coach-post-hint" data-coach-post-hint${canPost ? " hidden" : ""}>Add a caption to post</span>
         <button type="button" class="ghost-button small" data-coach-post-cancel>Not now</button>
-        <button type="button" class="primary-button small" data-coach-post-submit>Post</button>
+        <button type="button" class="primary-button small" data-coach-post-submit${canPost ? "" : " disabled"}>Post</button>
       </div>`;
     coachScroll();
   }
@@ -13767,6 +13786,8 @@
   async function coachSubmitPost() {
     const p = coach.post;
     if (!p) return;
+    // A post needs a photo or a non-empty caption — a bare log is activity only, never a full post.
+    if (!coachPostCanSubmit()) { showToast("Add a caption or photo to post"); return; }
     if (p.kind === "personal") { coachSubmitPersonalPost(p); return; }
     const community = (state.communities || []).find((c) => c.id === p.contextId);
     if (!community) { coachSayText("That community isn't available anymore."); return; }
@@ -14105,7 +14126,7 @@
       return;
     }
     const cap = event.target.closest("[data-coach-post-caption]");
-    if (cap && coach.post) { coach.post.caption = cap.value.slice(0, ENTRY_MESSAGE_MAX); return; }
+    if (cap && coach.post) { coach.post.caption = cap.value.slice(0, ENTRY_MESSAGE_MAX); updateCoachPostSubmitState(); return; }
     const est = event.target.closest("[data-coach-est]");
     if (est && coach.estimate) { coach.estimate[est.dataset.coachEst] = Math.max(0, numberOrDefault(est.value, 0)); return; }
   }

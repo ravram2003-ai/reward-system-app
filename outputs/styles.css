@@ -9132,7 +9132,9 @@ body.onboarding-locked .coach-panel { display: none; }
 .coach-done { padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--field-bg); color: var(--ink); cursor: pointer; }
 .coach-done.is-on { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent); }
 .coach-fanout { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.9rem; }
-.coach-card-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.coach-card-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+/* "Add a caption to post" hint — sits left of the post actions; shown while Post is disabled. */
+.coach-post-hint { margin-right: auto; font-size: 0.74rem; color: var(--muted); }
 .coach-clars { display: flex; flex-direction: column; gap: 8px; }
 .coach-clar-q { display: block; margin-bottom: 6px; color: var(--muted); }
 .coach-inline-btn { background: none; border: none; color: var(--accent-strong); font: inherit; font-weight: 800; cursor: pointer; padding: 0; text-decoration: underline; }

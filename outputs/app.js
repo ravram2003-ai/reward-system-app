@@ -17112,8 +17112,11 @@
       }
     }
     saveState();
-    render();
     showToast("Community settings saved");
+    // Save AND exit: a successful save returns to the community (the same place "Back" goes), so the
+    // owner doesn't have to tap Back separately. Reuses the existing back navigation. (This save is
+    // synchronous, so navigating away here also makes a double-tap a no-op — the view is already gone.)
+    returnToCommunityDetail();
   }
 
   function collectCommunityRuleEditorValues(community) {
@@ -18107,8 +18110,12 @@
     saveState();
     // Public/private toggle or a renamed system changes what others can copy → resync.
     syncMyPublicSystems();
-    render();
     showToast("Profile saved");
+    // Save AND exit: the local profile save always succeeds (the network sync is best-effort, and an
+    // avatar-upload hiccup only warns above), so on completion return to the profile page — the same
+    // place "Back" goes — instead of stranding the user on the edit form. The button stays disabled
+    // until the finally below, so it can't be double-tapped during the async save.
+    backFromProfileEdit();
     } finally {
       profileSaving = false;
       if (els.saveProfileButton) els.saveProfileButton.disabled = false;

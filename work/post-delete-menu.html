@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — delete on posts: ⋯ menu + confirm</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; flex-direction:column; align-items:center; gap:16px; padding:24px 12px; }
+  .panel { width:100%; max-width:430px; }
+  .label { font-size:12px; color:#cfe9df; font-weight:600; margin:0 0 8px; }
+  .post { position:relative; background:#11181a; border:1px solid #1e2826; border-radius:16px; padding:13px; }
+  .ph { display:flex; align-items:center; gap:9px; margin-bottom:9px; }
+  .av { width:34px; height:34px; border-radius:50%; }
+  .ph .nm { flex:1; } .ph .nm p { margin:0; } .ph .nm .u { font-size:12.5px; color:#f3f6f4; } .ph .nm .s { font-size:10px; color:#7c8d87; }
+  .dots { width:28px; height:28px; border-radius:8px; background:#1c2b24; border:1px solid #2c5a48; color:#9bf3cf; font-size:15px; cursor:pointer; }
+  .body { font-size:13px; color:#eaf2ee; margin:0 0 9px; }
+  .acts { display:flex; gap:16px; border-top:1px solid #1a2220; padding-top:8px; }
+  .acts .like { font-size:15px; color:#ff5a6e; } .acts .ic { font-size:14px; color:#9fb0aa; }
+  .menu { position:absolute; top:46px; right:13px; width:150px; background:#16201c; border:1px solid #2a3a33; border-radius:11px; padding:5px; box-shadow:0 8px 22px rgba(0,0,0,.5); z-index:5; }
+  .menu div { font-size:12.5px; padding:9px 10px; border-radius:7px; cursor:pointer; }
+  .menu .item { color:#dfe7e4; } .menu .del { color:#e0857f; }
+  /* confirm */
+  .confirm { background:#11181a; border:1px solid #2a3a33; border-radius:16px; padding:18px; text-align:center; }
+  .confirm .ico { font-size:26px; margin-bottom:8px; }
+  .confirm strong { font-size:14px; color:#f3f6f4; display:block; margin-bottom:3px; }
+  .confirm p { font-size:11.5px; color:#8aa39a; margin:0 0 14px; line-height:1.4; }
+  .btns { display:flex; gap:8px; }
+  .cancel { flex:1; background:transparent; border:1px solid #243029; border-radius:11px; color:#cfd8d4; font-size:12.5px; padding:11px; cursor:pointer; }
+  .delete { flex:1; background:#3a1c1a; border:1px solid #5a2a26; border-radius:11px; color:#ff6b63; font-size:12.5px; font-weight:600; padding:11px; cursor:pointer; }
+  .othermenu { background:#16201c; border:1px solid #2a3a33; border-radius:11px; padding:5px; width:160px; }
+</style>
+</head>
+<body>
+
+  <!-- own post, menu open -->
+  <div class="panel">
+    <p class="label">Your post · ⋯ menu open (author only)</p>
+    <div class="post">
+      <div class="ph"><div class="av" style="background:#355d91;"></div><div class="nm"><p class="u"><strong>Robert A</strong></p><p class="s">THE BOYS · 4h ago</p></div><button class="dots">⋯</button></div>
+      <p class="body">11,000 steps 👟</p>
+      <div class="acts"><span class="like">♥</span><span class="ic">💬</span><span class="ic">➤</span></div>
+      <div class="menu">
+        <div class="item">✎ Edit caption</div>
+        <div class="item">🔗 Copy link</div>
+        <div class="del">🗑 Delete post</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- confirm -->
+  <div class="panel">
+    <p class="label">Delete confirmation (honest about points)</p>
+    <div class="confirm">
+      <div class="ico">🗑</div>
+      <strong>Delete this post?</strong>
+      <p>This removes the post and the points it logged. This can't be undone.</p>
+      <div class="btns"><button class="cancel">Cancel</button><button class="delete">Delete</button></div>
+    </div>
+  </div>
+
+  <!-- someone else's post menu -->
+  <div class="panel">
+    <p class="label">Someone else's post · ⋯ menu (no Delete)</p>
+    <div class="othermenu">
+      <div style="font-size:12.5px;color:#dfe7e4;padding:9px 10px;border-radius:7px;">💬 Message Jacob</div>
+      <div style="font-size:12.5px;color:#dfe7e4;padding:9px 10px;border-radius:7px;">🔗 Copy link</div>
+      <div style="font-size:12.5px;color:#e0857f;padding:9px 10px;border-radius:7px;">🚩 Report</div>
+    </div>
+  </div>
+
+</body>
+</html>

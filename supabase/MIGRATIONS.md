@@ -74,6 +74,12 @@ you know what's live in production.
   owner" RLS (no new policy). *(after #N communities — adds a column to `communities`)*.
   Applied to the live project (ref `ejoccpqbozgzixrejlhd`) on 2026-06-25; verified column present
   (boolean / not null / default false).
+- [x] **22. community-entry-delete.sql** — adds the author-only DELETE policy "entries delete own"
+  on `community_entries` (`for delete using (user_id = auth.uid())`) so a member can delete only
+  their own post via the feed ⋯ menu; anon + non-authors are blocked. Mirrors "members leave self".
+  No schema change. *(after #6 communities — needs `community_entries`)*.
+  Applied to the live project (ref `ejoccpqbozgzixrejlhd`) on 2026-06-25; verified policy present
+  (`entries delete own` | DELETE | `(user_id = auth.uid())`).
 
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).

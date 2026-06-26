@@ -741,6 +741,20 @@
     }
   }
 
+  // Delete one of MY OWN posts (a community_entries row). The author-only "entries delete own"
+  // RLS policy is the real guard; the .eq("user_id") here is a belt-and-suspenders match so a
+  // non-author request is a no-op even before RLS. Returns { error }.
+  async function deleteCommunityEntry(entryId, userId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(entryId)) || !userId) return { error: { message: "Couldn't delete that." } };
+    try {
+      var res = await sb.from("community_entries").delete().eq("id", entryId).eq("user_id", userId);
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
   // Every community the user belongs to, with its members (names via a definer
   // function, since profiles RLS is self-only) and the shared entries.
   async function fetchMyCommunities(userId) {
@@ -1339,6 +1353,7 @@
     addEntryComment: addEntryComment,
     getEntryComments: getEntryComments,
     deleteEntryComment: deleteEntryComment,
+    deleteCommunityEntry: deleteCommunityEntry,
     fetchMyCommunities: fetchMyCommunities,
     isNudgeable: isNudgeable,
     subscribeInbox: subscribeInbox,

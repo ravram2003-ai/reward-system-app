@@ -31,3 +31,31 @@ them.
 **Why it's good:** turns big real-world orgs (schools, companies, gyms, clubs)
 into a home with focused accountability groups inside — strong for growth and
 retention.
+
+## Adaptive coach nudges (personalized motivation per user)
+
+**Idea:** When you open a community (and elsewhere), the AI Coach picks the ONE
+nudge framing that would motivate *you* most, based on your past behavior — not a
+generic message. e.g. "you're behind your usual," vs "Jacob has 12, you have 4,"
+vs "your streak ends tonight," vs "4 of THE BOYS already logged."
+
+**Why it's feasible:** the coach already records which nudge types you act on vs.
+dismiss (`coachLearnRecord` → `byType` / `byRule` in `coachLearning`). So it
+already has the signal to know whether you respond to competition, streaks,
+social FOMO, or encouragement.
+
+**Key pieces to design later:**
+- **Per-user motivator profile:** from `coachLearning.byType`, rank which nudge
+  framings this user acts on most; weight recent behavior.
+- **Context-aware selection:** on entering a community, compute the candidate
+  nudges (behind-usual, friend-overtook, group-momentum, streak-at-risk, almost-
+  there) and choose the one whose *type* this user responds to best AND that's
+  true right now.
+- **Stay in the Coach channel** (global FAB peek + thread), one nudge, throttled
+  — just smarter about *which* one.
+- **Cold start:** before there's enough history, rotate / default to streak-at-
+  risk + social, then adapt as the user reacts.
+
+**Why it's good:** makes the coach feel like it actually knows you — personalized
+motivation is far stickier than a fixed nudge, and it leans on data already
+collected.

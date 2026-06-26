@@ -3923,7 +3923,7 @@
   function formatActivityAmount(amount) {
     const n = Number(amount);
     if (!isFinite(n)) return String(amount == null ? "" : amount);
-    return String(Math.round(n * 100) / 100);
+    return formatCount(n);
   }
 
   function openCustomizeTopCardPage() {
@@ -10231,7 +10231,7 @@
     const metrics = Object.entries(state.mockSyncData?.[definition.id] || defaultMockSyncData[definition.id] || {})
       .filter(([, value]) => Number(value) > 0)
       .slice(0, 3)
-      .map(([metric, value]) => `${sourceMetricLabel(definition.id, metric)}: ${formatValue(value)}`)
+      .map(([metric, value]) => `${sourceMetricLabel(definition.id, metric)}: ${formatCount(value)}`)
       .join(" · ");
     const statusText = connected ? wearableSyncedLabel(integration.lastSynced) : "Not connected";
     return `
@@ -10975,7 +10975,7 @@
   function coachShowAutoSyncRecap(applied, lastLogged) {
     if (!applied || !applied.length) return;
     applied.forEach((a) => {
-      const amount = `${escapeHtml(formatValue(a.increment))} ${escapeHtml(a.unit || "")}`.trim();
+      const amount = escapeHtml(formatMetricPhrase(a.increment, a.unit, (a.label || "").toLowerCase()));
       const lines = (a.contexts || []).map((c) => {
         const pts = c.points ? ` · ${escapeHtml(formatSigned(c.points))} pts` : "";
         const where = c.type === "community"
@@ -10985,7 +10985,7 @@
       }).join("");
       coachSay(`
         <div class="coach-card coach-sync-card">
-          <p class="coach-card-title">✅ ${escapeHtml(a.sourceLabel || "Device")} synced — added ${amount} ${escapeHtml((a.label || "").toLowerCase())} to today</p>
+          <p class="coach-card-title">✅ ${escapeHtml(a.sourceLabel || "Device")} synced — added ${amount} to today</p>
           ${lines}
         </div>`);
     });
@@ -11327,7 +11327,7 @@
     if (!quickLogEditing) {
       const summary = entry.isYesNo
         ? (entry.amount > 0 ? (unit ? `1 ${escapeHtml(unit)}` : "done") : "not done")
-        : `${escapeHtml(formatValue(entry.amount))}${unit ? " " + escapeHtml(unit) : ""}`;
+        : escapeHtml(formatMetricPhrase(entry.amount, unit, ""));
       return `
         <div class="quick-log-row-item is-compact" data-quick-log-id="${escapeHtml(entry._id)}">
           <span class="quick-log-row-icon" aria-hidden="true">${draftRuleIcon(rule)}</span>
@@ -12456,10 +12456,10 @@
       if (lines.length >= 2) return;
       const type = d.connect ? "connect" : d.noRule ? "track" : d.unknown ? "conflict" : "device";
       if (!coachShouldPeekType(type)) return; // user keeps dismissing this type → skip the peek
-      if (d.connect) lines.push({ type: type, head: d.sourceLabel, text: `${formatValue(d.current)} ${d.unit} ${d.label.toLowerCase()} today — track with your ${d.ruleLabel} rule?` });
-      else if (d.noRule) lines.push({ type: type, head: d.sourceLabel, text: `${formatValue(d.current)} ${d.unit} ${d.label.toLowerCase()} today — start tracking?` });
-      else if (d.unknown) lines.push({ type: type, head: d.sourceLabel, text: `${d.label}: you logged ${formatValue(d.conflictMine)}, device shows ${formatValue(d.current)}` });
-      else lines.push({ type: type, head: d.sourceLabel, text: `+${formatValue(d.increment)} ${d.unit} ${d.label.toLowerCase()} since last time` });
+      if (d.connect) lines.push({ type: type, head: d.sourceLabel, text: `${formatMetricPhrase(d.current, d.unit, d.label.toLowerCase())} today — track with your ${d.ruleLabel} rule?` });
+      else if (d.noRule) lines.push({ type: type, head: d.sourceLabel, text: `${formatMetricPhrase(d.current, d.unit, d.label.toLowerCase())} today — start tracking?` });
+      else if (d.unknown) lines.push({ type: type, head: d.sourceLabel, text: `${d.label}: you logged ${formatCount(d.conflictMine)}, device shows ${formatCount(d.current)}` });
+      else lines.push({ type: type, head: d.sourceLabel, text: `+${formatMetricPhrase(d.increment, d.unit, d.label.toLowerCase())} since last time` });
     });
     if (lines.length < 2 && (c.manual || []).length && coachShouldPeekType("behind")) {
       let text = `${plural(c.manual.length, "thing")} you usually log ${c.manual.length === 1 ? "isn't" : "aren't"} in yet`;
@@ -12520,7 +12520,7 @@
       coachSay(`
         <div class="coach-card coach-nudge-card is-active">
           <div class="coach-nudge-head"><span class="via-source-tag">${escapeHtml(d.sourceLabel)}</span> Connect a feed</div>
-          <p class="coach-card-title">${escapeHtml(d.sourceLabel)} shows ${escapeHtml(formatValue(d.current))} ${escapeHtml(d.unit)} ${escapeHtml(d.label.toLowerCase())} today — track it with your ${escapeHtml(d.ruleLabel)} rule?</p>
+          <p class="coach-card-title">${escapeHtml(d.sourceLabel)} shows ${escapeHtml(formatMetricPhrase(d.current, d.unit, d.label.toLowerCase()))} today — track it with your ${escapeHtml(d.ruleLabel)} rule?</p>
           <div class="coach-card-actions">
             <button type="button" class="ghost-button small" data-coach-connectdismiss="${tok}">Not now</button>
             <button type="button" class="primary-button small" data-coach-connect="${tok}">Connect</button>
@@ -12532,7 +12532,7 @@
       coachSay(`
         <div class="coach-card coach-nudge-card is-active">
           <div class="coach-nudge-head"><span class="via-source-tag">${escapeHtml(d.sourceLabel)}</span> Not tracked yet</div>
-          <p class="coach-card-title">${escapeHtml(d.sourceLabel)} shows ${escapeHtml(formatValue(d.current))} ${escapeHtml(d.unit)} ${escapeHtml(d.label.toLowerCase())} today. Want to start tracking it?</p>
+          <p class="coach-card-title">${escapeHtml(d.sourceLabel)} shows ${escapeHtml(formatMetricPhrase(d.current, d.unit, d.label.toLowerCase()))} today. Want to start tracking it?</p>
           <div class="coach-card-actions">
             <button type="button" class="ghost-button small" data-coach-trackdismiss="${tok}">Not now</button>
             <button type="button" class="primary-button small" data-coach-track="${tok}">Track it</button>
@@ -12544,10 +12544,10 @@
       coachSay(`
         <div class="coach-card coach-nudge-card is-active">
           <div class="coach-nudge-head"><span class="via-source-tag">${escapeHtml(d.sourceLabel)}</span> ${escapeHtml(d.label)}</div>
-          <p class="coach-card-title">You logged ${escapeHtml(formatValue(d.conflictMine))}, but ${escapeHtml(d.sourceLabel)} shows ${escapeHtml(formatValue(d.current))} ${escapeHtml(d.unit)}.</p>
+          <p class="coach-card-title">You logged ${escapeHtml(formatCount(d.conflictMine))}, but ${escapeHtml(d.sourceLabel)} shows ${escapeHtml(formatMetricPhrase(d.current, d.unit, ""))}.</p>
           <div class="coach-card-actions">
             <button type="button" class="ghost-button small" data-coach-confkeep="${tok}">Keep mine</button>
-            <button type="button" class="primary-button small" data-coach-confupdate="${tok}">Update → ${escapeHtml(formatValue(d.current))}</button>
+            <button type="button" class="primary-button small" data-coach-confupdate="${tok}">Update → ${escapeHtml(formatCount(d.current))}</button>
           </div>
         </div>`);
       return;
@@ -12556,7 +12556,7 @@
     coachSay(`
       <div class="coach-card coach-nudge-card is-active">
         <div class="coach-nudge-head"><span class="via-source-tag">${escapeHtml(d.sourceLabel)}</span> From your device</div>
-        <p class="coach-card-title">+${escapeHtml(formatValue(d.increment))} ${escapeHtml(d.unit)} ${escapeHtml(d.label.toLowerCase())} since last time — now ${escapeHtml(formatValue(d.current))}.</p>
+        <p class="coach-card-title">+${escapeHtml(formatMetricPhrase(d.increment, d.unit, d.label.toLowerCase()))} since last time — now ${escapeHtml(formatCount(d.current))}.</p>
         <div class="coach-nudge-sub">Worth ${escapeHtml(pts)} pts</div>
         <div class="coach-card-actions">
           <button type="button" class="ghost-button small" data-coach-devdismiss="${tok}">Dismiss</button>
@@ -12613,7 +12613,7 @@
     saveState();
     render();
     coachFinalizeCard(cardEl);
-    coachSay(`<p>✅ Logged +${escapeHtml(formatValue(inc))} ${escapeHtml(unit)} ${escapeHtml(label.toLowerCase())}.</p>`);
+    coachSay(`<p>✅ Logged +${escapeHtml(formatMetricPhrase(inc, unit, label.toLowerCase()))}.</p>`);
     if (opts.post) coachOpenPostComposer(); else coachOfferPost();
   }
 
@@ -12658,7 +12658,7 @@
     saveState();
     render();
     coachFinalizeCard(cardEl);
-    coachSay(`<p>✅ Now tracking <strong>${escapeHtml(label)}</strong> from ${escapeHtml(srcLabel)} — logged ${escapeHtml(formatValue(cur))} ${escapeHtml(unit)} today. Edit it anytime in Build.</p>`);
+    coachSay(`<p>✅ Now tracking <strong>${escapeHtml(label)}</strong> from ${escapeHtml(srcLabel)} — logged ${escapeHtml(formatMetricPhrase(cur, unit, ""))} today. Edit it anytime in Build.</p>`);
     coachOfferPost();
   }
 
@@ -12745,7 +12745,7 @@
     saveState();
     render();
     coachFinalizeCard(cardEl);
-    coachSay(`<p>✅ Connected <strong>${escapeHtml(label)}</strong> to ${escapeHtml(srcLabel)} — logged ${escapeHtml(formatValue(cur))} ${escapeHtml(unit)} ${escapeHtml(ml)} today. Future syncs add only what's new.</p>`);
+    coachSay(`<p>✅ Connected <strong>${escapeHtml(label)}</strong> to ${escapeHtml(srcLabel)} — logged ${escapeHtml(formatMetricPhrase(cur, unit, ml))} today. Future syncs add only what's new.</p>`);
     coachOfferPost();
   }
 
@@ -12768,7 +12768,7 @@
     const label = d.label, current = d.current;
     resolveCatchUpConflict(idx, choice); // splices the row, saves, renders
     coachFinalizeCard(cardEl);
-    coachSay(`<p>✅ ${choice === "update" ? `Updated ${escapeHtml(label.toLowerCase())} to ${escapeHtml(formatValue(current))}` : "Kept your number"}.</p>`);
+    coachSay(`<p>✅ ${choice === "update" ? `Updated ${escapeHtml(label.toLowerCase())} to ${escapeHtml(formatCount(current))}` : "Kept your number"}.</p>`);
     renderCoachLauncher();
   }
 
@@ -13217,11 +13217,11 @@
     if (!found) { const byLabel = coachFindRuleByLabel(m); if (byLabel) found = { rule: byLabel.rule, contextType: byLabel.contextType, contextId: byLabel.contextId, contextName: byLabel.contextName, connected: false }; }
     if (device) {
       const label = device.label || m;
-      let line = `Your ${escapeHtml(device.sourceLabel)} shows <strong>${escapeHtml(formatValue(device.value))} ${escapeHtml(String(label).toLowerCase())}</strong> today`;
+      let line = `Your ${escapeHtml(device.sourceLabel)} shows <strong>${escapeHtml(formatCount(device.value))} ${escapeHtml(String(label).toLowerCase())}</strong> today`;
       const goal = found ? goalAmountForRule(found.rule) : 0;
       if (goal > 0) {
         const toGo = Math.max(goal - device.value, 0);
-        line += toGo > 0 ? ` — ${escapeHtml(formatValue(toGo))} to go to hit ${escapeHtml(formatValue(goal))}` : ` — past your ${escapeHtml(formatValue(goal))} goal! 🎉`;
+        line += toGo > 0 ? ` — ${escapeHtml(formatCount(toGo))} to go to hit ${escapeHtml(formatCount(goal))}` : ` — past your ${escapeHtml(formatCount(goal))} goal! 🎉`;
       }
       line += ".";
       if (found && !found.connected) line += ` Your <strong>${escapeHtml(found.rule.label)}</strong> rule isn't wired to ${escapeHtml(device.sourceLabel)} yet — I'll offer to connect it the next time it syncs.`;
@@ -13234,11 +13234,11 @@
     let value = found.connected ? deviceTotalForRule(r) : coachRuleValueToday(r, found.contextType, found.contextId);
     if (value == null) value = syncedContribution(r, { userId: "me", date: todayIso });
     value = numberOrDefault(value, 0);
-    let line = `You're at <strong>${escapeHtml(formatValue(value))} ${escapeHtml(String(label).toLowerCase())}</strong> today`;
+    let line = `You're at <strong>${escapeHtml(formatCount(value))} ${escapeHtml(String(label).toLowerCase())}</strong> today`;
     if (found.connected) line += ` (via ${escapeHtml(wearableShortLabel(r.dataSource))})`;
     if (goal > 0) {
       const toGo = Math.max(goal - value, 0);
-      line += toGo > 0 ? ` — ${escapeHtml(formatValue(toGo))} to go to hit ${escapeHtml(formatValue(goal))}.` : ` — past your ${escapeHtml(formatValue(goal))} goal! 🎉`;
+      line += toGo > 0 ? ` — ${escapeHtml(formatCount(toGo))} to go to hit ${escapeHtml(formatCount(goal))}.` : ` — past your ${escapeHtml(formatCount(goal))} goal! 🎉`;
     } else line += ".";
     return { html: `<p>${line}</p>` };
   }
@@ -13250,7 +13250,7 @@
     const bySource = {};
     all.forEach((it) => { (bySource[it.sourceLabel] = bySource[it.sourceLabel] || []).push(it); });
     const lines = Object.keys(bySource).map((sl) => {
-      const items = bySource[sl].map((it) => `${escapeHtml(formatValue(it.value))} ${escapeHtml(String(it.label).toLowerCase())}`).join(" · ");
+      const items = bySource[sl].map((it) => `${escapeHtml(formatCount(it.value))} ${escapeHtml(String(it.label).toLowerCase())}`).join(" · ");
       return `<strong>${escapeHtml(sl)} today:</strong> ${items}`;
     });
     return { html: `<p>${lines.join("<br>")}</p>` };
@@ -13274,8 +13274,8 @@
     if (r.simpleStyle === "yesNo") {
       line = value > 0 ? `<strong>${escapeHtml(r.label)}</strong> is done for today ✓ (${escapeHtml(found.contextName)}).` : `<strong>${escapeHtml(r.label)}</strong> isn't logged yet today (${escapeHtml(found.contextName)}).`;
     } else {
-      line = `<strong>${escapeHtml(r.label)}</strong>: ${escapeHtml(formatValue(value))}${goal > 0 ? " / " + escapeHtml(formatValue(goal)) : ""} ${escapeHtml(r.unit || "")} today`;
-      if (goal > 0) { const toGo = Math.max(goal - value, 0); line += toGo > 0 ? ` — ${escapeHtml(formatValue(toGo))} ${escapeHtml(r.unit || "")} to go.` : ` — goal hit! 🎉`; }
+      line = `<strong>${escapeHtml(r.label)}</strong>: ${escapeHtml(formatCount(value))}${goal > 0 ? " / " + escapeHtml(formatCount(goal)) : ""} ${escapeHtml(r.unit || "")} today`;
+      if (goal > 0) { const toGo = Math.max(goal - value, 0); line += toGo > 0 ? ` — ${escapeHtml(formatCount(toGo))} ${escapeHtml(r.unit || "")} to go.` : ` — goal hit! 🎉`; }
       else line += ".";
     }
     return { html: `<p>${line}</p>` };
@@ -14380,7 +14380,7 @@
   // notice, not a button suffix.)
   function addEntryButtonLabel(rule, amount) {
     if (rule.inputMethod === "toggle") return "✓ Mark done";
-    return `Post ${formatValue(amount)} ${rule.unit} ${rule.label}`;
+    return `Post ${formatMetricPhrase(amount, rule.unit, rule.label)}`;
   }
 
   function renderInputRow(item, scope = "personal") {
@@ -15149,7 +15149,7 @@
   }
 
   function formatMetricValue(value, metric, options = {}) {
-    const formatted = formatValue(value);
+    const formatted = formatCount(value);
     if (metric.type === "points") return options.compact ? formatted : `${formatted} points`;
     if (options.compact) return formatted;
     return `${formatted} ${metric.unit}`;
@@ -15830,27 +15830,39 @@
   function entryLogText(entry, rule) {
     const label = rule?.label || entry.label || "Entry";
     const unit = rule?.unit || entry.unit || "units";
-    const amount = formatValue(entry.amount);
     if (rule?.inputMethod === "toggle" || unit === "done") return label;
-    const compactUnits = new Set(["g", "mg", "kg", "oz", "lb"]);
-    const valueText = compactUnits.has(String(unit).toLowerCase())
-      ? `${amount}${unit}`
-      : `${amount} ${unit}`;
-    return `${valueText} ${label}`;
+    return formatMetricPhrase(entry.amount, unit, label);
+  }
+
+  // Comma-grouped count for display ("13253" → "13,253"). Never use where the string is parsed back.
+  function formatCount(value) {
+    const num = Number(value || 0);
+    const rounded = Number.isInteger(num) ? num : Math.round(num * 100) / 100;
+    return rounded.toLocaleString("en-US");
+  }
+
+  // "{comma value} {unit} {name}" — the shared metric phrasing for device nudges, activity/leaderboard
+  // rows and the post button. Drops a name that merely echoes the unit (fixes "8,500 steps steps" /
+  // "steps Steps") but keeps a distinct one ("1,500 reps Pushups"). Compact units (g/kg/oz…) hug the
+  // number. Pass label "" for the name-less variant ("8,500 steps").
+  function formatMetricPhrase(value, unit, label) {
+    const grouped = formatCount(value);
+    const u = String(unit || "").trim();
+    const l = String(label || "").trim();
+    if (!u) return l ? `${grouped} ${l}` : grouped;
+    const compact = new Set(["g", "mg", "kg", "oz", "lb"]);
+    const valueUnit = compact.has(u.toLowerCase()) ? `${grouped}${u}` : `${grouped} ${u}`;
+    if (!l || l.toLowerCase() === u.toLowerCase()) return valueUnit;
+    return `${valueUnit} ${l}`;
   }
 
   // Clean one-line metric for a logged-progress feed post: "{value} {unit}" with the number
-  // comma-grouped and NO trailing rule name (entryLogText appends the label — this does not, so
-  // we get "8,500 steps", not "8500 steps Steps"). Yes/no or unit-less entries → just the label.
+  // comma-grouped and NO trailing rule name. Yes/no or unit-less entries → just the label.
   function entryMetricText(entry, rule) {
     const unit = (rule && rule.unit) || entry.unit || "";
     const label = (rule && rule.label) || entry.label || "Entry";
     if ((rule && rule.inputMethod === "toggle") || unit === "done" || !unit) return label;
-    const num = Number(entry.amount || 0);
-    const rounded = Number.isInteger(num) ? num : Math.round(num * 100) / 100;
-    const grouped = rounded.toLocaleString("en-US");
-    const compactUnits = new Set(["g", "mg", "kg", "oz", "lb"]);
-    return compactUnits.has(String(unit).toLowerCase()) ? `${grouped}${unit}` : `${grouped} ${unit}`;
+    return formatMetricPhrase(entry.amount, unit, "");
   }
 
   function goalAmountForRule(ruleInput) {
@@ -16693,10 +16705,9 @@
   function memberEntryText(entry, rule) {
     const label = rule?.label || entry.label || "Entry";
     const unit = rule?.unit || entry.unit || "units";
-    const amount = formatValue(entry.amount);
     if (rule?.inputMethod === "toggle" || unit === "done") return `${label} completed`;
     if (Number(entry.amount) === 1 && String(unit).toLowerCase().startsWith("session")) return `${label} completed`;
-    return `${amount} ${unit} ${label}`;
+    return formatMetricPhrase(entry.amount, unit, label);
   }
 
   function renderMemberProgressRow(ruleInput, values) {

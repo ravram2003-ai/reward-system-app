@@ -9636,9 +9636,12 @@ body.onboarding-locked .coach-panel { display: none; }
 .world-lb-row.is-me .world-lb-pts { color: #3ddc97; }
 
 /* Recent posts. */
-.world-post { display: flex; gap: 9px; align-items: center; background: #0d231b; border-radius: 10px; padding: 7px 9px; margin-bottom: 5px; }
+.world-post { display: flex; gap: 9px; align-items: center; background: #0d231b; border-radius: 10px; padding: 7px 9px; margin-bottom: 5px; min-width: 0; overflow: hidden; }
 .world-post:last-child { margin-bottom: 0; }
 .tile-personal .world-post { background: #170f29; }
+.world-post-thumb { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 9px; overflow: hidden; background: #0a1813; display: block; }
+.world-post-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.world-post-thumb.is-unavailable { background: #16241f; }
 .world-post-main { min-width: 0; flex: 1 1 auto; }
 .world-post-line { font-size: 0.68rem; margin: 0; color: #eef2f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .world-post-meta { font-size: 0.56rem; color: #7fc7b0; margin: 1px 0 0; }
@@ -9694,6 +9697,7 @@ body.onboarding-locked .coach-panel { display: none; }
 /* Tighten section bodies to fit a half-width slot: drop avatars, shrink type + bars. */
 .world-slot .world-cap { font-size: 0.53rem; }
 .world-slot .world-av { display: none; }
+.world-slot .world-post-thumb { display: none; }
 .world-slot .world-lb-row { gap: 5px; padding: 2px 0; font-size: 0.62rem; background: transparent; }
 .world-slot .world-lb-row.is-me { background: transparent; }
 .world-slot .world-lb-rank { width: 9px; }

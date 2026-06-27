@@ -1714,6 +1714,7 @@
     if (!entryId) return;
     let item = feedItemById(String(entryId));
     if (!item) item = buildFeedItemForEntry((state.communityEntries || []).find((e) => e.id === entryId));
+    if (!item) item = profilePostItemCache.get(String(entryId)) || null;
     if (!item) { showToast("That post isn't available"); return; }
     openPostOverlay(item);
   }
@@ -1761,16 +1762,13 @@
 
   // Like/comment counts for a single overlay post that may not be in the live feed list.
   function ensureEntrySocial(entryId) {
-    if (!signalsReady() || !isDbEntryId(entryId) || !window.PointwellSignals || typeof window.PointwellSignals.getEntriesSocial !== "function") return;
+    if (!signalsReady() || !isDbEntryId(entryId)) return;
     if (feedSocialFetched.has(String(entryId))) return;
+    const sig = feedSignalsFor(entryId);
+    if (typeof sig.social !== "function") return;
     feedSocialFetched.add(String(entryId));
-    Promise.resolve(window.PointwellSignals.getEntriesSocial([entryId])).then((rows) => {
-      (rows || []).forEach((r) => {
-        if (r && r.entry_id) feedSocialCache.set(String(r.entry_id), {
-          like_count: Number(r.like_count) || 0, comment_count: Number(r.comment_count) || 0,
-          liked_by_me: !!r.liked_by_me, last_comment_name: r.last_comment_name || "", last_comment_body: r.last_comment_body || ""
-        });
-      });
+    Promise.resolve(sig.social([entryId])).then((rows) => {
+      (rows || []).forEach(cacheFeedSocialRow);
       replaceFeedCard(entryId);
     }).catch(() => {});
   }
@@ -4293,25 +4291,43 @@
   }
 
   function confirmDeletePost(entryId, btn) {
-    const entry = (state.communityEntries || []).find((item) => item.id === entryId);
+    const sig = feedSignalsFor(entryId);
+    const isProfile = sig.profile;
+    const entry = isProfile ? profilePostItemCache.get(String(entryId)) : (state.communityEntries || []).find((item) => item.id === entryId);
     if (!entry) { closeDeletePostConfirm(); return; }
     const cancelBtn = document.querySelector("[data-postdel-cancel]");
     if (btn) { btn.disabled = true; btn.textContent = "Deleting…"; }   // in-flight: block double-submit
     if (cancelBtn) cancelBtn.disabled = true;
-    const finishLocal = () => { closeDeletePostConfirm(); deleteCommunityEntry(entryId, "Post deleted"); };
+    const finishLocal = () => {
+      closeDeletePostConfirm();
+      if (isProfile) { removeProfilePostLocally(entryId); closePostOverlay(); showToast("Post deleted"); }
+      else deleteCommunityEntry(entryId, "Post deleted");
+    };
     const fail = (msg) => {
       if (btn) { btn.disabled = false; btn.textContent = "Delete"; } // keep the post; let them retry
       if (cancelBtn) cancelBtn.disabled = false;
       showToast(msg || "Couldn't delete the post");
     };
     const uid = state.account && state.account.userId;
-    const canDb = signalsReady() && isDbEntryId(entryId) && window.PointwellSignals
-      && typeof window.PointwellSignals.deleteCommunityEntry === "function";
+    const canDb = signalsReady() && isDbEntryId(entryId) && typeof sig.del === "function";
     if (!canDb) { finishLocal(); return; }   // local/demo post — no DB row to delete
-    Promise.resolve(window.PointwellSignals.deleteCommunityEntry(entryId, uid)).then((res) => {
+    Promise.resolve(sig.del(entryId, uid)).then((res) => {
       if (res && res.error) { fail(communityDbError(res.error, "Couldn't delete the post")); return; }
       finishLocal();
     }).catch(() => fail("Couldn't delete the post"));
+  }
+
+  // Drop a deleted profile post from every local cache + re-render the surfaces it appears on.
+  function removeProfilePostLocally(postId) {
+    const id = String(postId);
+    feedProfilePosts = (feedProfilePosts || []).filter((p) => String(p.id) !== id);
+    profilePostItemCache.delete(id);
+    if (profileOverview && Array.isArray(profileOverview.posts)) {
+      profileOverview.posts = profileOverview.posts.filter((p) => String(p.entry_id) !== id);
+    }
+    saveState();
+    render();
+    if (state.activeView === "profile-page") renderProfilePage();
   }
 
   function saveCommunitySummaryForMember(community, userId) {
@@ -7355,6 +7371,10 @@
   const feedSavedEntries = new Set();  // entryIds bookmarked this session (local-only, no backend)
   const feedSocialFetched = new Set(); // entryIds already requested (prevents refetch loops)
   let feedItems = [];
+  // Profile posts (personal posts on a profile; profile-posts.sql). Server truth, rebuilt on load:
+  let feedProfilePosts = [];              // raw profile_posts rows from people I follow → the Friends feed
+  let profilePostAuthors = {};            // authorId -> { name, avatarUrl } (from profileFollowing; profiles RLS is self-only)
+  const profilePostItemCache = new Map(); // postId -> built feed item, so openEntryPost can open a profile post
   // Discover (ranked public feed) state — fetched once per session via the discover_feed RPC.
   let discoverFeedRows = [];     // raw rows from discover_feed
   let discoverFeedItems = [];    // mapped into the { entry, community, member, rule, when, discover } shape
@@ -7574,13 +7594,14 @@
 
   function renderCommunityFeed() {
     if (!els.communityFeed) return;
-    feedItems = (state.communityEntries || [])
-      .map(buildFeedItemForEntry)
-      .filter(Boolean)
+    // Friends feed = my communities' check-ins + profile posts from people I follow, newest first.
+    const communityItems = (state.communityEntries || []).map(buildFeedItemForEntry).filter(Boolean);
+    const profileItems = (feedProfilePosts || []).map((p) => buildFeedItemForProfilePost(p, profilePostAuthors[p.user_id])).filter(Boolean);
+    feedItems = communityItems.concat(profileItems)
       .sort((a, b) => String(b.when).localeCompare(String(a.when)))
-      .slice(0, 15);
+      .slice(0, 20);
 
-    // Hide entirely when there's nothing to show (no joined communities at all);
+    // Hide entirely when there's nothing to show (no communities AND no followed posts);
     // show a friendly empty state when you have communities but no logs yet.
     if (!feedItems.length && !state.communities.length) {
       els.communityFeed.hidden = true;
@@ -7615,29 +7636,38 @@
     renderActiveFeed();
   }
 
+  // Cache one social row (community get_entries_social returns entry_id; profile
+  // get_profile_posts_social returns post_id — both map to the shared cache by id).
+  function cacheFeedSocialRow(r) {
+    const id = r && (r.entry_id || r.post_id);
+    if (!id) return false;
+    feedSocialCache.set(String(id), {
+      like_count: Number(r.like_count) || 0,
+      comment_count: Number(r.comment_count) || 0,
+      liked_by_me: !!r.liked_by_me,
+      last_comment_name: r.last_comment_name || "",
+      last_comment_body: r.last_comment_body || ""
+    });
+    return true;
+  }
+
   function fetchFeedSocial() {
-    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.getEntriesSocial !== "function") return;
-    const missing = feedItems
-      .map((item) => item.entry.id)
-      .filter((id) => isDbEntryId(id) && !feedSocialFetched.has(String(id)));
-    if (!missing.length) return;
-    missing.forEach((id) => feedSocialFetched.add(String(id)));
-    Promise.resolve(window.PointwellSignals.getEntriesSocial(missing)).then((rows) => {
-      let any = false;
-      (rows || []).forEach((r) => {
-        if (r && r.entry_id) {
-          feedSocialCache.set(String(r.entry_id), {
-            like_count: Number(r.like_count) || 0,
-            comment_count: Number(r.comment_count) || 0,
-            liked_by_me: !!r.liked_by_me,
-            last_comment_name: r.last_comment_name || "",
-            last_comment_body: r.last_comment_body || ""
-          });
-          any = true;
-        }
-      });
-      if (any) refreshActiveFeedSurface();
-    }).catch(() => {});
+    if (!signalsReady() || !window.PointwellSignals) return;
+    const S = window.PointwellSignals;
+    const commIds = [], profIds = [];
+    feedItems.forEach((item) => {
+      const id = item.entry.id;
+      if (!isDbEntryId(id) || feedSocialFetched.has(String(id))) return;
+      if (item.entry.kind === "profile_post") profIds.push(id); else commIds.push(id);
+    });
+    if (!commIds.length && !profIds.length) return;
+    commIds.concat(profIds).forEach((id) => feedSocialFetched.add(String(id)));
+    const apply = (rows) => { let any = false; (rows || []).forEach((r) => { if (cacheFeedSocialRow(r)) any = true; }); return any; };
+    const calls = [];
+    if (commIds.length && typeof S.getEntriesSocial === "function") calls.push(Promise.resolve(S.getEntriesSocial(commIds)).then(apply).catch(() => false));
+    if (profIds.length && typeof S.getProfilePostsSocial === "function") calls.push(Promise.resolve(S.getProfilePostsSocial(profIds)).then(apply).catch(() => false));
+    if (!calls.length) return;
+    Promise.all(calls).then((results) => { if (results.some(Boolean)) refreshActiveFeedSurface(); }).catch(() => {});
   }
 
   const FEED_HEART_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>`;
@@ -7652,9 +7682,10 @@
     const isDiscover = !!item.discover;
     const name = escapeHtml(item.member.name || "Member");
     const points = item.rule ? scoring.calculateRule(item.rule, entry.amount).totalPoints : 0;
-    const rel = window.PointwellSignals.formatRelativeTime(item.when, Date.now()) || "";
+    const rel = (window.PointwellSignals && typeof window.PointwellSignals.formatRelativeTime === "function") ? (window.PointwellSignals.formatRelativeTime(item.when, Date.now()) || "") : "";
     const relText = rel === "just now" || !rel ? (rel || "") : rel + " ago";
-    const sub = escapeHtml(item.community.name) + (relText ? " · " + escapeHtml(relText) : "");
+    // Profile posts have no community → sub is just the relative time; community posts show "Name · time".
+    const sub = [item.community ? item.community.name : "", relText].filter(Boolean).map(escapeHtml).join(" · ");
     const goal = item.rule ? goalAmountForRule(item.rule) : 0;
     const milestone = goal > 0 && numberOrDefault(entry.amount, 0) >= goal;
     // A post upgraded from a wearable sync keeps a small "via Fitbit" badge.
@@ -7870,7 +7901,7 @@
 
   function feedItemById(entryId) {
     if (postOverlayItem && String(postOverlayItem.entry.id) === String(entryId)) return postOverlayItem;
-    return feedItems.find((item) => String(item.entry.id) === String(entryId)) || null;
+    return feedItems.find((item) => String(item.entry.id) === String(entryId)) || profilePostItemCache.get(String(entryId)) || null;
   }
 
   // The {entry, community, member, rule, when} feed-item shape for one loaded entry — shared by the
@@ -7883,6 +7914,50 @@
     if (!member) return null;
     const rule = (community.system.rules || []).map(scoring.normalizeRule).find((item) => item.id === entry.ruleId);
     return { entry: entry, community: community, member: member, rule: rule, when: entry.timestamp || entry.dateKey || entry.date || "" };
+  }
+
+  // A profile post (profile_posts row) as a feed item — same {entry, member, when} shape so it
+  // renders through renderFeedPost, but community + rule are null (a profile post belongs to no
+  // community/rule). entry.kind = "profile_post" routes likes/comments to the parallel tables.
+  // `author` is { name, avatarUrl } (mine for my own posts, else from profilePostAuthors). Caches
+  // the built item by id so openEntryPost can open it from the profile or feed.
+  function buildFeedItemForProfilePost(post, author) {
+    if (!post || !post.id) return null;
+    const myId = state.account && state.account.userId;
+    const authorId = post.user_id || post.userId || "";
+    const mine = !!(authorId && myId && authorId === myId);
+    const a = author || profilePostAuthors[authorId] || {};
+    const name = mine ? (state.profile.name || "You") : (a.name || a.display_name || "Member");
+    const avatarUrl = mine ? state.profile.avatarUrl : (a.avatarUrl || a.avatar_url || "");
+    const when = post.created_at || post.timestamp || "";
+    const item = {
+      entry: {
+        id: post.id,
+        userId: mine ? "me" : authorId,
+        message: post.message || "",
+        photoPath: post.photo_path || post.photoPath || "",
+        timestamp: when,
+        kind: "profile_post"
+      },
+      community: null,
+      member: { id: mine ? "me" : authorId, userId: authorId, name: name, avatarUrl: avatarUrl, color: avatarColor(name) },
+      rule: null,
+      when: when
+    };
+    profilePostItemCache.set(String(post.id), item);
+    return item;
+  }
+
+  // Route a feed item's social/like/comment/delete calls to the right signals — the parallel
+  // profile_post_* fns for a profile post, else the community feed-social fns. One indirection so
+  // every handler (like, comment, delete, social) stays UI-identical and just picks its backend.
+  function feedSignalsFor(entryId) {
+    const item = feedItemById(String(entryId));
+    const S = window.PointwellSignals || {};
+    if (item && item.entry && item.entry.kind === "profile_post") {
+      return { profile: true, like: S.likeProfilePost, unlike: S.unlikeProfilePost, social: S.getProfilePostsSocial, comments: S.getProfilePostComments, addComment: S.addProfilePostComment, del: S.deleteProfilePost };
+    }
+    return { profile: false, like: S.likeEntry, unlike: S.unlikeEntry, social: S.getEntriesSocial, comments: S.getEntryComments, addComment: S.addEntryComment, del: S.deleteCommunityEntry };
   }
 
   // Re-render a single feed card in place so other cards' comment inputs keep their
@@ -7982,7 +8057,9 @@
     const next = { ...before, liked_by_me: !wasLiked, like_count: Math.max(0, (before.like_count || 0) + (wasLiked ? -1 : 1)) };
     feedSocialCache.set(String(entryId), next);
     updateFeedLikeUi(entryId, next);
-    const fn = wasLiked ? window.PointwellSignals.unlikeEntry : window.PointwellSignals.likeEntry;
+    const sig = feedSignalsFor(entryId);
+    const fn = wasLiked ? sig.unlike : sig.like;
+    if (typeof fn !== "function") { feedSocialCache.set(String(entryId), before); updateFeedLikeUi(entryId, before); return; }
     Promise.resolve(fn(entryId, state.account.userId)).then((res) => {
       if (res && res.error) {
         feedSocialCache.set(String(entryId), before); // revert to server truth
@@ -8063,8 +8140,9 @@
   function expandFeedComments(entryId) {
     feedCommentsOpen.add(String(entryId));
     replaceFeedCard(entryId);
-    if (!window.PointwellSignals || typeof window.PointwellSignals.getEntryComments !== "function") return;
-    Promise.resolve(window.PointwellSignals.getEntryComments(entryId)).then((rows) => {
+    const sig = feedSignalsFor(entryId);
+    if (typeof sig.comments !== "function") return;
+    Promise.resolve(sig.comments(entryId)).then((rows) => {
       feedCommentsCache.set(String(entryId), Array.isArray(rows) ? rows : []);
       replaceFeedCard(entryId);
     }).catch(() => {});
@@ -8079,7 +8157,9 @@
     const liveCard = liveRoot && liveRoot.querySelector(`[data-feed-entry="${entryId}"]`);
     const liveInput = liveCard && liveCard.querySelector("[data-feed-comment-input]");
     if (liveInput) liveInput.value = "";
-    Promise.resolve(window.PointwellSignals.addEntryComment(entryId, state.account.userId, body)).then((res) => {
+    const sig = feedSignalsFor(entryId);
+    if (typeof sig.addComment !== "function") { showToast("Couldn't post comment"); return; }
+    Promise.resolve(sig.addComment(entryId, state.account.userId, body)).then((res) => {
       if (!res || res.error) { showToast((res && res.error && res.error.message) || "Couldn't post comment"); return; }
       const before = feedSocialFor(entryId);
       const myName = state.profile.name;
@@ -8109,7 +8189,7 @@
     const card = msgBtn.closest("[data-feed-entry]");
     const item = card && feedItemById(card.dataset.feedEntry);
     if (!item) return;
-    openChatConversation(item.member.userId, item.member.name, item.community.id);
+    openChatConversation(item.member.userId, item.member.name, item.community ? item.community.id : "");
     state.activeView = "chats";
     saveState();
     render();
@@ -9755,6 +9835,31 @@
     loadProfileOverview(id);
   }
 
+  // Fetch a profile's personal posts (profile_posts) + their like/comment counts, map them into the
+  // SAME post shape get_profile_overview returns (so the grid/list render unchanged), cache each as
+  // a feed item for openEntryPost, and seed the social cache. Mutates row.posts (merged, newest first).
+  async function loadProfilePostsInto(row, id) {
+    const S = window.PointwellSignals;
+    if (!S || typeof S.fetchProfilePosts !== "function") return;
+    const posts = (await S.fetchProfilePosts(id, 30)) || [];
+    if (!posts.length) return;
+    const social = {};
+    if (typeof S.getProfilePostsSocial === "function") {
+      const rows = (await S.getProfilePostsSocial(posts.map((p) => p.id))) || [];
+      rows.forEach((r) => { if (r && r.post_id) social[String(r.post_id)] = r; });
+    }
+    const author = { name: row.display_name, avatarUrl: row.avatar_url };
+    const mapped = posts.map((p) => {
+      const s = social[String(p.id)] || {};
+      buildFeedItemForProfilePost(p, author);   // so tapping the tile/card opens the overlay
+      cacheFeedSocialRow({ post_id: p.id, like_count: s.like_count, comment_count: s.comment_count, liked_by_me: s.liked_by_me, last_comment_name: s.last_comment_name, last_comment_body: s.last_comment_body });
+      feedSocialFetched.add(String(p.id)); // counts are fresh → don't refetch when the overlay opens
+      return { entry_id: p.id, photo_path: p.photo_path || "", message: p.message || "", like_count: Number(s.like_count) || 0, comment_count: Number(s.comment_count) || 0, updated_at: p.created_at, entry_date: p.created_at, community_name: "", kind: "profile_post" };
+    });
+    row.posts = (row.posts || []).concat(mapped)
+      .sort((a, b) => String(b.updated_at || b.entry_date || "").localeCompare(String(a.updated_at || a.entry_date || "")));
+  }
+
   async function loadProfileOverview(id) {
     if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.getProfileOverview !== "function") {
       profileOverviewLoading = false; profileOverview = null; renderProfilePage(); return;
@@ -9778,6 +9883,13 @@
     // Attach follower/following counts + the gated bio to the profile row for the hero.
     if (row && counts) { row.follower_count = counts.follower_count; row.following_count = counts.following_count; }
     if (row) row.bio = bio;
+    // Merge this profile's PROFILE posts (personal posts; profile-posts.sql) into row.posts so they
+    // render in the same grid/list as community posts. RLS already gated the fetch; we cache each as
+    // a feed item (so tapping opens the overlay) + seed its social counts.
+    if (row && row.can_view) {
+      try { await loadProfilePostsInto(row, id); } catch (e) { /* best-effort: community posts still show */ }
+      if (String(state.profileUserId) !== String(id)) return; // navigated away during the posts fetch
+    }
     profileOverviewLoading = false;
     profileOverview = row;
     if (state.activeView === "profile-page") renderProfilePage();
@@ -10199,7 +10311,8 @@
     const entryId = escapeHtml(String(p.entry_id));
     const name = escapeHtml(o.display_name || "Member");
     const when = escapeHtml(window.PointwellSignals.formatRelativeTime(p.updated_at || p.entry_date, Date.now()) || "");
-    const sub = escapeHtml(p.community_name || "Community") + (when ? " · " + when : "");
+    // A profile post has no community → sub is just the time; a community post shows "Name · time".
+    const sub = [p.community_name ? escapeHtml(p.community_name) : "", when].filter(Boolean).join(" · ");
     const photoPath = p.photo_path || "";
     const photoHtml = photoPath ? `<div class="ig-photo" data-entry-photo="${escapeHtml(photoPath)}" role="img" aria-label="Post photo"><img alt="" loading="lazy"></div>` : "";
     const message = p.message ? `<div class="ig-caption"><span class="ig-name">${name}</span>${escapeHtml(String(p.message))}</div>` : "";
@@ -13949,10 +14062,9 @@
   }
 
   // ── Post offer → destination picker → composer ───────────────────────────────
-  // After any coach log, offer to turn it into a post. Destinations: the user's OWN feed
-  // (always) + every community they're a member of. Community posts publish through the
-  // existing community_entries path (follower/member-visible today). "Your feed" creates a
-  // LOCAL personal entry only for now — see coachSubmitPersonalPost's TODO.
+  // After any coach log, offer to turn it into a post. Destinations: your PROFILE (always, when
+  // signed in — a profile_posts row your followers see in their feed) + every community you're a
+  // member of (community posts publish through the community_entries path).
 
   // A community entry is "mine" if it carries the local "me" id OR my real account uid
   // (community entries reload from the DB keyed by the real uid).
@@ -13960,36 +14072,6 @@
     if (!entry) return false;
     if (entry.userId === "me") return true;
     return !!(state.account && state.account.userId && entry.userId === state.account.userId);
-  }
-
-  // The personal-feed source for "Your feed": the just-logged personal activity. Prefer an
-  // entry already logged to a personal system (→ enrich it, never re-add the amount, so no
-  // double count); otherwise map the first logged rule's label to a personal rule, falling
-  // back to the primary personal system + the logged rule itself for a fresh local entry.
-  // Returns null only when there is nothing logged or no personal system to store it in.
-  function coachPersonalPostSource() {
-    const logged = coach.lastLogged || [];
-    if (!logged.length) return null;
-    for (let i = 0; i < logged.length; i++) {
-      const l = logged[i];
-      if (l.contextType !== "personal") continue;
-      const sys = (state.systems || []).find((s) => s.id === l.contextId);
-      const r = resolveQuickLogRule("personal", l.contextId, l.ruleId);
-      if (sys && r) return { system: sys, rule: r.rule, amount: l.amount, alreadyLogged: true };
-    }
-    const sys = primaryPersonalSystem();
-    if (!sys) return null;
-    const first = logged[0];
-    const firstResolved = resolveQuickLogRule(first.contextType, first.contextId, first.ruleId);
-    if (!firstResolved) return null;
-    const sysRules = (sys.rules || []).map(scoring.normalizeRule)
-      .filter((r) => r.simpleStyle !== "penalty" && r.dataSource !== "calculated");
-    if (!sysRules.length) return null;
-    const label = String(firstResolved.rule.label || "").toLowerCase();
-    // Always a REAL rule of this system (matching label, else its first loggable rule) — never a
-    // foreign community rule, which would write an orphan ruleId into the personal entries.
-    const rule = sysRules.find((r) => String(r.label || "").toLowerCase() === label) || sysRules[0];
-    return { system: sys, rule: rule, amount: first.amount, alreadyLogged: false };
   }
 
   // Resolve a community to a post target: the rule matching a just-logged label if any
@@ -14013,12 +14095,13 @@
     return { contextId: community.id, contextName: community.name || "Community", ruleId: rule.id, label: rule.label, amount: amount, alreadyLogged: alreadyLogged, matchedByLabel: matchedByLabel };
   }
 
-  // All post destinations for the just-logged activity: your own feed (always, when there's
-  // somewhere to store it) + every community you're a member of, matching ones first.
+  // All post destinations: your profile (always, when signed in — a profile post is a standalone
+  // photo/caption your followers see in their feed) + every community you're a member of, matching
+  // ones first.
   function coachPostDestinations() {
     const out = [];
-    if (coachPersonalPostSource()) {
-      out.push({ kind: "personal", id: "personal", name: "Your feed", sub: "Only you can see this for now", matching: true });
+    if (state.account && state.account.userId) {
+      out.push({ kind: "personal", id: "personal", name: "Your profile", sub: "Shows on your profile + your followers' feed", matching: true });
     }
     (state.communities || []).forEach((c) => {
       const tgt = coachCommunityTarget(c);
@@ -14081,9 +14164,8 @@
   function coachChooseDestination(kind, id) {
     let post;
     if (kind === "personal") {
-      const src = coachPersonalPostSource();
-      if (!src) { coachSayText("I couldn't find your personal activity to post — try logging something first."); return; }
-      post = { kind: "personal", name: "Your feed", system: src.system, rule: src.rule, amount: src.amount, alreadyLogged: src.alreadyLogged };
+      if (!(state.account && state.account.userId)) { coachSayText("Sign in to post to your profile."); return; }
+      post = { kind: "personal", name: "Your profile" };
     } else {
       const community = (state.communities || []).find((c) => c.id === id);
       if (!community) { coachSayText("That community isn't available anymore."); return; }
@@ -14133,7 +14215,7 @@
       : `<button type="button" class="ghost-button small coach-post-addphoto" data-coach-post-photo>📷 Add photo</button>`;
     const canPost = coachPostCanSubmit();
     coach.post.cardEl.innerHTML = `
-      <p class="coach-card-title">Post to ${escapeHtml(p.name || "your feed")}</p>
+      <p class="coach-card-title">Post to ${escapeHtml(p.name || "your profile")}</p>
       <label class="coach-field"><span>Caption</span>
         <textarea data-coach-post-caption maxlength="${ENTRY_MESSAGE_MAX}" rows="2" placeholder="Say something…">${escapeHtml(p.caption || "")}</textarea></label>
       ${photoSlot}
@@ -14222,89 +14304,32 @@
     coachSayText("Okay — logged, not posted.");
   }
 
-  function coachLatestPersonalEntry(systemId, ruleId, dateKey) {
-    const mine = (state.quickEntries || []).filter((e) => e.systemId === systemId && e.ruleId === ruleId && (e.dateKey || e.date) === dateKey);
-    return mine[mine.length - 1] || null;
-  }
-
-  // "Your feed" post. PLACEHOLDER for this diff: it creates/enriches a LOCAL personal entry
-  // (reusing the exact personal Add Entry path — photo → personal/<uid>, then enrich or
-  // addQuickLogPersonalEntry) so the post shows in the user's OWN app. It is NOT yet visible
-  // to followers.
-  // TODO(personal-feed backend, next diff): persist this to a dedicated personal_posts table
-  // with follow-gated RLS + likes/comments generalized off community_entries.id, so "Your
-  // feed" posts actually reach followers. Do NOT route it through community_entries.
+  // Post to your PROFILE: persist a profile_posts row (photo and/or caption) via uploadProfilePost
+  // so it survives reload, shows on your profile, and reaches your followers' Friends feed (RLS-
+  // gated). The activity itself was already logged during the quick-log; a profile post is the
+  // SOCIAL artifact only — it never touches community_entries or re-logs an amount (no double-count).
   async function coachSubmitPersonalPost(p) {
-    const system = p.system;
-    if (!system) { coachSayText("That system isn't available anymore."); return; }
-    const rule = p.rule;
     const uid = state.account && state.account.userId;
+    if (!signalsReady() || !uid || !window.PointwellSignals || typeof window.PointwellSignals.uploadProfilePost !== "function") {
+      coachSayText("Sign in to post to your profile."); return;
+    }
     const caption = (p.caption || "").trim().slice(0, ENTRY_MESSAGE_MAX);
-
     let photoPath = "";
-    if (p.file) {
-      if (!signalsReady() || !uid || !window.PointwellSignals || typeof window.PointwellSignals.uploadEntryPhoto !== "function") {
-        coachSayText("Sign in to attach photos — posting without it.");
-      } else {
-        const up = await window.PointwellSignals.uploadEntryPhoto(p.file, "personal/" + uid);
-        if (up.error || !up.path) coachSayText("Couldn't upload the photo — posting without it.");
-        else photoPath = up.path;
-      }
+    if (p.file && typeof window.PointwellSignals.uploadEntryPhoto === "function") {
+      const up = await window.PointwellSignals.uploadEntryPhoto(p.file, "personal/" + uid);
+      if (up.error || !up.path) coachSayText("Couldn't upload the photo — posting without it.");
+      else photoPath = up.path;
     }
-
-    const today = getTodayKey();
-    // CRITICAL double-count rule: gate on p.alreadyLogged, NEVER on whether a local row was
-    // found (the community branch does the same). A just-tracked SYNCED metric is already
-    // counted in state.syncProgress and has NO quickEntry — re-adding it would double-count.
-    if (p.alreadyLogged) {
-      const existing = coachLatestPersonalEntry(system.id, rule.id, today);
-      if (existing) {
-        // A hand-logged manual entry already holds the amount → enrich it in place.
-        if (caption) existing.message = caption;
-        if (photoPath) existing.photoPath = photoPath;
-      } else {
-        // Synced metric (lives in syncProgress, not quickEntries) → record the caption/photo as
-        // a viaSource "materialized" entry. todayValuesForSystem EXCLUDES viaSource rows from the
-        // manual total, so the post keeps its content WITHOUT re-adding the already-counted amount.
-        coachAddPersonalPostEntry(system, rule, normalizeAddEntryAmount(p.amount, rule), caption, photoPath);
-      }
-    } else {
-      // No prior entry for this activity → a genuine new local personal log.
-      addQuickLogPersonalEntry(system, rule, normalizeAddEntryAmount(p.amount, rule), caption);
-      if (photoPath) { const t = coachLatestPersonalEntry(system.id, rule.id, today); if (t) t.photoPath = photoPath; }
-    }
-    syncDraftInputsFromEntries(system);
-    saveState();
-
+    if (!caption && !photoPath) { showToast("Add a caption or photo to post"); return; }
+    const res = await Promise.resolve(window.PointwellSignals.uploadProfilePost(uid, caption, photoPath)).catch(() => ({ error: { message: "post failed" } }));
+    if (res.error || !res.post) { coachSayText("Couldn't post to your profile — try again."); return; }
+    // Cache it as a feed item so it opens in the overlay; your profile re-fetches it on open and
+    // followers pull it into their Friends feed (both via the RLS-gated reads).
+    buildFeedItemForProfilePost(res.post, { name: state.profile.name, avatarUrl: state.profile.avatarUrl });
     coachFinalizePostCard();
     coach.post = null;
     render();
-    coachSay(`<p>✅ Added to <strong>your feed</strong>. <span class="coach-post-note">Only you can see this for now — follower sharing is coming soon.</span></p>`);
-  }
-
-  // A "materialized" post of an already-counted synced value: a viaSource quickEntry carrying
-  // the caption/photo. todayValuesForSystem skips viaSource rows (app.js: "if (entry.viaSource)
-  // return") since they're superseded by syncProgress, so this NEVER adds to the rule's total —
-  // it just gives the synced metric a local post. Mirrors the Add Entry "share synced value" path.
-  function coachAddPersonalPostEntry(system, rule, amount, message, photoPath) {
-    state.quickEntries = state.quickEntries || [];
-    state.quickEntries.push({
-      id: makeId("quick"),
-      date: getTodayKey(),
-      dateKey: getTodayKey(),
-      createdAt: new Date().toISOString(),
-      systemId: system.id,
-      rewardSystemId: system.id,
-      ruleId: rule.id,
-      label: rule.label,
-      unit: rule.unit,
-      amount: amount,
-      message: message,
-      photoPath: photoPath,
-      source: "manual-adjustment",
-      viaSource: rule.dataSource && rule.dataSource !== "manual" && rule.dataSource !== "calculated" ? rule.dataSource : "synced",
-    });
-    autoSaveToday(system);
+    coachSay(`<p>✅ Posted to <strong>your profile</strong>. Your followers will see it in their feed.</p>`);
   }
 
   // ── Food photo → calorie/macro estimate ─────────────────────────────────────
@@ -19671,8 +19696,32 @@
       state.selectedCommunityId = state.communities[0] ? state.communities[0].id : "";
     }
     await loadChallengesFromDb(); // head-to-head duels load alongside the community data they score from
+    await loadFollowedProfilePosts(); // profile posts from people I follow → the Friends feed
     saveState();
     render();
+  }
+
+  // Pull the profile posts of people I follow for the Friends feed. profileFollowing (a SECURITY
+  // DEFINER read of my follow graph) gives both the author ids AND their name/avatar (profiles RLS
+  // is self-only, so this is how a followed author is identified). RLS on profile_posts then
+  // returns only the posts I'm allowed to see (public, or private-but-approved-follower).
+  async function loadFollowedProfilePosts() {
+    feedProfilePosts = [];
+    profilePostAuthors = {};
+    const uid = state.account && state.account.userId;
+    if (!signalsReady() || !uid || !window.PointwellSignals) return;
+    try {
+      const following = (typeof window.PointwellSignals.profileFollowing === "function")
+        ? (await window.PointwellSignals.profileFollowing(uid)) || [] : [];
+      const ids = [];
+      following.forEach((f) => {
+        if (!f || !f.id) return;
+        ids.push(f.id);
+        profilePostAuthors[f.id] = { name: f.display_name || "Member", avatarUrl: f.avatar_url || "" };
+      });
+      if (!ids.length || typeof window.PointwellSignals.fetchFollowedProfilePosts !== "function") return;
+      feedProfilePosts = (await window.PointwellSignals.fetchFollowedProfilePosts(ids, 40)) || [];
+    } catch (e) { /* best-effort: the feed still shows community check-ins */ }
   }
 
   // ── Public reward systems (copyable) ────────────────────────────────────────

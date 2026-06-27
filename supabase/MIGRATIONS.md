@@ -89,6 +89,23 @@ you know what's live in production.
   *(after #6 communities — needs `communities`, `community_members`, `is_community_member`)*.
   Applied to the live project (ref `ejoccpqbozgzixrejlhd`) on 2026-06-26; verified 4 policies present
   (1 INSERT, 1 SELECT, 2 UPDATE) + `challenges` table.
+- [ ] **24. profile-posts.sql** — PROFILE posts (personal posts on your profile + your followers'
+  feed, independent of any community): a `profile_posts` table (`user_id`, `photo_path`, `message`,
+  `created_at`; CHECK needs a photo OR message) + **parallel** `profile_post_likes` /
+  `profile_post_comments` (same shape as the community like/comment tables, so the SAME feed UI is
+  reused) + read RPCs `get_profile_posts_social` / `get_profile_post_comments`. RLS reuses the
+  canonical profile gate: author-only write; SELECT is follow-gated — PUBLIC author readable by
+  anyone incl. **signed-out/anon** (Discover), PRIVATE author readable only by the author +
+  approved followers (`are_friends`); the anon key can't read a private author's posts or their
+  likes/comments. Chose parallel tables over a polymorphic target because generalizing the live
+  `entry_likes`/`entry_comments` (FK + PK + RLS hard-wired to community membership, authenticated-only)
+  would be a risky rewrite of tables holding data. *(after #13 profile-view — needs `can_view_profile`;
+  also friends.sql `profile_is_public`/`are_friends`, messaging.sql `is_blocked_between`, profiles)*.
+  ⚠ This migration `grant execute ... to anon` on `profile_is_public(uuid)` (needed so the anon read
+  policy can evaluate public-ness). Re-running **#5 friends.sql** later re-REVOKES that anon grant —
+  re-run #24 afterward to restore signed-out reads of public profile posts. Profile-post photos reuse
+  the existing **entry-photo** storage bucket (no new bucket). **Until this runs, profile-posts code
+  loads but every read/write fails.**
 
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).

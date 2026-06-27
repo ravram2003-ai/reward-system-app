@@ -9921,6 +9921,29 @@ body.onboarding-locked .coach-panel { display: none; }
 .world-rule-main { flex: 1 1 auto; min-width: 0; }
 .world-rule-name { font-size: 0.81rem; color: #f3f6f4; margin: 0; overflow: hidden; text-overflow: ellipsis; }
 .world-rule-loggedtag { color: #7fe9c0; font-weight: 600; font-size: 0.74rem; }
+/* Today-row synced badge: a rule with a connected device source (shows alongside the manual + Log). */
+.world-rule-synced { display: inline-flex; align-items: center; gap: 3px; font-size: 0.66rem; font-weight: 600; color: #8fd0ff; background: #0f2230; border: 1px solid #244a5a; border-radius: 7px; padding: 1px 6px; margin-left: 6px; white-space: nowrap; vertical-align: middle; }
+
+/* ── Rule editor: multi-source checkboxes (Manual + Fitbit + Whoop) ── */
+.rule-source-checks { display: grid; gap: 7px; }
+.community-rule-srcfield { display: grid; gap: 6px; }
+/* Source checkboxes + their metric span the full editor grid width (the grid is multi-column). */
+.community-rule-editor-grid .community-rule-srcfield,
+.community-rule-editor-grid .community-rule-metricfield { grid-column: 1 / -1; }
+.community-rule-srclabel, .rule-metric-field > span { font-size: 0.72rem; color: #8aa39a; }
+.rule-source-row { display: flex; align-items: center; gap: 10px; border-radius: 11px; padding: 10px 12px; background: #11181a; border: 1px solid #243029; cursor: pointer; }
+.rule-source-row input { width: 18px; height: 18px; flex: 0 0 auto; accent-color: #2f9d6f; margin: 0; }
+.rule-source-em { font-size: 1rem; flex: 0 0 auto; }
+.rule-source-nm { flex: 1 1 auto; min-width: 0; font-size: 0.8rem; color: #cfe0d9; }
+.rule-source-hint { font-size: 0.62rem; border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
+.rule-source-hint.is-manual { color: #9bf3cf; }
+.rule-source-hint.is-conn { color: #8fd0ff; background: #0f2230; border: 1px solid #244a5a; }
+.rule-source-hint.is-off { color: #7c8d87; }
+.rule-source-row.on { background: #11201a; border-color: #2a5a45; }
+.rule-source-row.on .rule-source-nm { color: #eaf2ee; }
+.rule-source-calc { margin: 0; font-size: 0.74rem; color: #9aa8a3; background: #0e1714; border: 1px solid #243029; border-radius: 10px; padding: 10px 12px; }
+.rule-metric-field { display: grid; gap: 6px; margin-top: 10px; }
+.rule-metric-field select:disabled { opacity: 0.5; }
 .world-rule-track { height: 5px; border-radius: 3px; background: #241c3a; margin-top: 6px; overflow: hidden; }
 .world-rule-fill { height: 100%; border-radius: 3px; background: #9a7fe0; transition: width 0.45s ease; }
 .world-rule-value { flex: 0 0 auto; font-size: 0.72rem; color: #b6a3e6; font-variant-numeric: tabular-nums; }

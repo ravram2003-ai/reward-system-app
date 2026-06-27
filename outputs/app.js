@@ -2905,9 +2905,8 @@
       "addThresholdButton",
       "extraThresholdList",
       "ruleInputMethodInput",
-      "ruleDataSourceInput",
+      "ruleSourceChecks",
       "ruleSourceMetricInput",
-      "ruleManualOverrideInput",
       "ruleDataSourceHelp",
       "rulePreviewText",
       "ruleCategoryInput",
@@ -3034,9 +3033,8 @@
       "ccRuleEveryAmountInput",
       "ccRulePointsLabel",
       "ccRulePointsInput",
-      "ccRuleDataSourceInput",
+      "ccRuleSourceChecks",
       "ccRuleSourceMetricInput",
-      "ccRuleManualOverrideInput",
       "ccRuleSubmitLabel",
       "createCommunityReview",
       "createCommunityBackButton",
@@ -3449,9 +3447,6 @@
     els.communityDraftRuleForm.addEventListener("submit", saveCommunityDraftRule);
     els.ccAddAnotherRuleButton.addEventListener("click", openCommunityDraftRuleForm);
     els.ccRuleTypeInput.addEventListener("change", updateCcRuleBuilderVisibility);
-    els.ccRuleDataSourceInput.addEventListener("change", () => {
-      els.ccRuleSourceMetricInput.innerHTML = renderSourceMetricOptionHtml(els.ccRuleDataSourceInput.value || "manual", "");
-    });
     els.cancelCcRuleEditButton.addEventListener("click", () => {
       editingCommunityDraftRuleId = "";
       communityDraftRuleFormOpen = false;
@@ -5231,9 +5226,7 @@
       els.rulePenaltyModeInput,
       els.addThresholdButton,
       els.ruleInputMethodInput,
-      els.ruleDataSourceInput,
       els.ruleSourceMetricInput,
-      els.ruleManualOverrideInput,
       els.ruleCategoryInput,
       els.ruleMaxDailyPointsInput,
       els.ruleInputMaxInput,
@@ -8964,9 +8957,9 @@
       const logged = isYesNo ? total > 0 : (goal > 0 ? total >= goal : total > 0);
       const manualOff = isRuleSynced(rule) && rule.allowManualOverride === false;
       const ruleId = escapeHtml(rule.id);
-      const nameHtml = logged
+      const nameHtml = (logged
         ? `${escapeHtml(rule.label || "Rule")} <span class="world-rule-loggedtag">✓ logged</span>`
-        : escapeHtml(rule.label || "Rule");
+        : escapeHtml(rule.label || "Rule")) + ruleSyncedBadgeHtml(rule);
       const action = logged
         ? `<span class="world-rule-done" aria-hidden="true">✓</span>`
         : (manualOff ? "" : `<button class="world-rule-log${isYesNo ? " is-yesno" : ""}" type="button" data-quick-log-rule="${ruleId}">${isYesNo ? "✓ Done" : "+ Log"}</button>`);
@@ -9010,9 +9003,9 @@
       const logged = isYesNo ? total > 0 : (goal > 0 ? total >= goal : total > 0);
       const manualOff = isRuleSynced(rule) && rule.allowManualOverride === false;
       const ruleId = escapeHtml(rule.id);
-      const nameHtml = logged
+      const nameHtml = (logged
         ? `${escapeHtml(rule.label || "Rule")} <span class="world-rule-loggedtag">✓ logged</span>`
-        : escapeHtml(rule.label || "Rule");
+        : escapeHtml(rule.label || "Rule")) + ruleSyncedBadgeHtml(rule);
       // Yes/no → one-tap "✓ Done"; counter → "+ Log" opens the composer so the amount is yours to type.
       const action = logged
         ? `<span class="world-rule-done" aria-hidden="true">✓</span>`
@@ -10666,7 +10659,7 @@
   function fanOutSyncedMetricsToContexts(provider) {
     let updated = 0;
     const countRule = (rule) => {
-      if (provider && rule.dataSource !== provider) return;
+      if (provider && !ruleDeviceSources(rule).includes(provider)) return;
       const value = syncedValueForRule(rule, { userId: "me", date: todayIso });
       if (value !== null && Number(value) > 0) updated += 1;
     };
@@ -11082,11 +11075,18 @@
     }
     return syncedValueForRule(rule, { userId, date }) ?? 0;
   }
-  // The device's CURRENT total for the rule's own source+metric (null if not a connected device rule).
+  // The device's CURRENT value for the rule's metric — the MAX across its checked + connected device
+  // sources (NEVER the sum: two devices reporting the same metric → take the highest, no double-count).
+  // null if the rule has no connected device source. A source lacking this metric contributes nothing.
   function deviceTotalForRule(rule) {
-    if (!isExternalRuleSynced(rule) || !isSourceConnected(rule.dataSource)) return null;
-    const v = Number((state.mockSyncData?.[rule.dataSource] || {})[rule.sourceMetric]);
-    return Number.isFinite(v) ? v : null;
+    const sources = ruleConnectedDeviceSources(rule);
+    if (!sources.length) return null;
+    let max = null;
+    sources.forEach((src) => {
+      const v = Number((state.mockSyncData?.[src] || {})[rule.sourceMetric]);
+      if (Number.isFinite(v) && (max === null || v > max)) max = v;
+    });
+    return max;
   }
   // Sum of TODAY's HAND-logged (non-synced) entries for a rule across personal + community.
   function manualSumTodayForRule(ruleId) {
@@ -11277,7 +11277,7 @@
       const community = (state.communities || []).find((c) => c.id === target.contextId);
       if (!community || community.allowDeviceAutosync !== true) return false;
       const resolved = resolveQuickLogRule(target.contextType, target.contextId, target.ruleId);
-      return !!(resolved && isSourceConnected(resolved.rule.dataSource));
+      return !!(resolved && ruleConnectedDeviceSources(resolved.rule).length);
     }
     return state.profile.allowAutoSync !== false; // personal default ON
   }
@@ -11503,7 +11503,7 @@
       const rule = scoring.normalizeRule(rawRule);
       if (rule.simpleStyle === "penalty") return;                       // penalties aren't logged toward a goal
       if (rule.dataSource === "calculated") return;                     // derived totals, not directly logged
-      const externalSynced = rule.dataSource && rule.dataSource !== "manual" && rule.dataSource !== "calculated";
+      const externalSynced = isExternalRuleSynced(rule);
       if (externalSynced && rule.allowManualOverride === false) return; // manual logging is off for this rule
       catalog.push({
         id: rule.id,
@@ -13168,13 +13168,20 @@
       rawRule = s && (s.rules || []).find((x) => x.id === ruleId);
     }
     if (!rawRule) return false;
-    rawRule.dataSource = source;
+    // Multi-source: ADD this device source to the rule's set (keep any existing devices), set the
+    // metric, and keep dataSource as the primary (first device) for back-compat.
+    const existing = ruleDeviceSources(rawRule);
+    if (existing.indexOf(source) === -1) existing.push(source);
+    rawRule.dataSources = existing;
+    rawRule.dataSource = existing[0] || source;
     rawRule.sourceMetric = metric;
-    // Defensive: scoring.normalizeRule resets a dataSource that isn't in its source allowlist back
-    // to "manual" on every read — which would silently re-drop the metric (the very bug this fixes).
-    // If that would happen for this source, undo and report failure instead of black-holing it.
-    if (scoring.normalizeRule(rawRule).dataSource !== source) {
-      rawRule.dataSource = "manual"; delete rawRule.sourceMetric; return false;
+    // Defensive: scoring.normalizeRule drops a source that isn't a supported wearable — which would
+    // silently re-drop the metric (the very bug this fixes). If the source didn't survive, undo it.
+    if (!ruleDeviceSources(scoring.normalizeRule(rawRule)).includes(source)) {
+      rawRule.dataSources = existing.filter((s) => s !== source);
+      rawRule.dataSource = rawRule.dataSources[0] || "manual";
+      if (!rawRule.dataSources.length) delete rawRule.sourceMetric;
+      return false;
     }
     return true;
   }
@@ -13611,7 +13618,7 @@
     return sys ? numberOrDefault(todayValuesForSystem(normalizeSystem(sys))[rule.id], 0) : 0;
   }
   function coachRuleValueOrDevice(rule, contextType, contextId) {
-    if (rule.dataSource && rule.dataSource !== "manual" && rule.dataSource !== "calculated" && isSourceConnected(rule.dataSource)) {
+    if (ruleConnectedDeviceSources(rule).length) {
       const d = deviceTotalForRule(rule);
       if (d != null) return d;
     }
@@ -13623,7 +13630,7 @@
     let best = null;
     const scan = (sys, contextType, contextId, contextName) => (sys.rules || []).map(scoring.normalizeRule).forEach((r) => {
       if (keys.indexOf(r.sourceMetric) === -1) return;
-      const connected = !!(r.dataSource && r.dataSource !== "manual" && r.dataSource !== "calculated" && isSourceConnected(r.dataSource));
+      const connected = ruleConnectedDeviceSources(r).length > 0;
       const cand = { rule: r, contextType, contextId, contextName, connected };
       if (connected && (!best || !best.connected)) best = cand;
       else if (!best) best = cand;
@@ -16505,16 +16512,14 @@
             <span>Points</span>
             <input data-community-rule-field="points" type="number" step="0.25" value="${escapeHtml(String(points || 0))}">
           </label>
-          <label>
-            <span>Data source</span>
-            <select data-community-rule-field="dataSource">
-              ${renderDataSourceOptionHtml(item.dataSource || "manual")}
-            </select>
-          </label>
-          <label>
-            <span>Metric</span>
+          <div class="community-rule-srcfield">
+            <span class="community-rule-srclabel">Pull from — tick any combination</span>
+            ${renderRuleSourceChecksHtml(item)}
+          </div>
+          <label class="community-rule-metricfield">
+            <span>Metric (for device sources)</span>
             <select data-community-rule-field="sourceMetric">
-              ${renderSourceMetricOptionHtml(item.dataSource || "manual", item.sourceMetric || "manual")}
+              ${renderDeviceMetricOptionsHtml(item.sourceMetric || "")}
             </select>
           </label>
         </div>
@@ -16527,14 +16532,7 @@
   }
 
   function bindCommunityRuleEditors() {
-    Array.from(els.communityRules.querySelectorAll('[data-community-rule-field="dataSource"]')).forEach((select) => {
-      select.addEventListener("change", () => {
-        const row = select.closest("[data-community-rule-id]");
-        const metricSelect = row?.querySelector('[data-community-rule-field="sourceMetric"]');
-        if (!metricSelect) return;
-        metricSelect.innerHTML = renderSourceMetricOptionHtml(select.value || "manual", "");
-      });
-    });
+    // Source is a checkbox group + a static device-metric select now (no per-source re-render needed).
     Array.from(els.communityRules.querySelectorAll("[data-edit-community-rule]")).forEach((button) => {
       button.addEventListener("click", () => {
         const row = button.closest("[data-community-rule-id]");
@@ -17296,9 +17294,7 @@
       inputMin: 0,
       inputMax,
       inputStep,
-      dataSource: els.ruleDataSourceInput.value || "manual",
-      sourceMetric: els.ruleSourceMetricInput.value || "manual",
-      allowManualOverride: els.ruleManualOverrideInput.checked
+      ...buildRuleSourceFields(els.ruleSourceChecks, els.ruleSourceMetricInput)
     });
   }
 
@@ -17360,9 +17356,7 @@
     els.rulePenaltyModeInput.value = item.penaltyMode;
     els.ruleMaxDailyPointsInput.value = item.maxDailyPoints;
     els.ruleInputMethodInput.value = item.inputMethod;
-    els.ruleDataSourceInput.value = item.dataSource || "manual";
-    renderRuleSourceMetricOptions(item.dataSource || "manual", item.sourceMetric || "manual");
-    els.ruleManualOverrideInput.checked = item.allowManualOverride !== false;
+    fillRuleSourceControls(els.ruleSourceChecks, els.ruleSourceMetricInput, item);
     els.ruleInputMaxInput.value = item.inputMax;
     els.ruleInputStepInput.value = item.inputStep;
     renderExtraThresholds(item.extraThresholds);
@@ -17392,9 +17386,7 @@
     els.rulePenaltyModeInput.value = "fixed";
     els.ruleMaxDailyPointsInput.value = "";
     els.ruleInputMethodInput.value = "slider";
-    els.ruleDataSourceInput.value = "manual";
-    renderRuleSourceMetricOptions("manual", "manual");
-    els.ruleManualOverrideInput.checked = true;
+    fillRuleSourceControls(els.ruleSourceChecks, els.ruleSourceMetricInput, scoring.createRule());
     els.ruleInputMaxInput.value = "";
     els.ruleInputStepInput.value = "";
     renderExtraThresholds([]);
@@ -17403,67 +17395,18 @@
     renderRulePreview();
   }
 
-  function renderRuleSourceMetricOptions(source, selectedMetric = "") {
-    if (!els.ruleSourceMetricInput) return;
-    const dataSource = source || "manual";
-    const options = sourceMetricOptions[dataSource] || sourceMetricOptions.manual;
-    const fallback = suggestedSourceMetric(dataSource);
-    const selected = options.some((option) => option.id === selectedMetric)
-      ? selectedMetric
-      : (options.some((option) => option.id === fallback) ? fallback : options[0]?.id || "manual");
-    els.ruleSourceMetricInput.innerHTML = options.map((option) => `
-      <option value="${escapeHtml(option.id)}"${option.id === selected ? " selected" : ""}>${escapeHtml(option.label)}</option>
-    `).join("");
-    els.ruleSourceMetricInput.value = selected;
-  }
-
   function updateRuleSourceControls() {
-    if (!els.ruleDataSourceInput || !els.ruleSourceMetricInput) return;
-    const source = els.ruleDataSourceInput.value || "manual";
-    const previousMetric = els.ruleSourceMetricInput.value || "";
-    renderRuleSourceMetricOptions(source, previousMetric);
-    const isManual = source === "manual";
-    els.ruleSourceMetricInput.disabled = isManual;
-    els.ruleManualOverrideInput.disabled = isManual;
-    if (isManual) els.ruleManualOverrideInput.checked = true;
-    els.ruleDataSourceHelp.textContent = ruleSourceHelpText(source, els.ruleSourceMetricInput.value);
-  }
-
-  function suggestedSourceMetric(source) {
-    const text = `${els.ruleLabelInput?.value || ""} ${els.ruleUnitInput?.value || ""}`.toLowerCase();
-    if (source === "calculated") {
-      if (text.includes("workout") || text.includes("exercise")) return "workout-minutes";
-      if (text.includes("spend")) return "net-spending";
-      return "total-calories";
+    if (!els.ruleSourceChecks || !els.ruleSourceMetricInput) return;
+    const calc = els.ruleSourceChecks.dataset.calc || "";
+    const hasDevice = !calc && readRuleSourceChecks(els.ruleSourceChecks).dataSources.length > 0;
+    els.ruleSourceMetricInput.disabled = !hasDevice;
+    if (els.ruleDataSourceHelp) {
+      els.ruleDataSourceHelp.textContent = calc
+        ? "Calculated total — its value is derived, not logged or synced."
+        : (hasDevice
+          ? "Device sources auto-sync; two devices reporting the same metric → the highest value, never the sum. Manual adds on top."
+          : "Manual rules use Add Entry.");
     }
-    if (source === "google-health") {
-      if (text.includes("sleep")) return "sleep-hours";
-      if (text.includes("resting") || text.includes("heart")) return "resting-heart-rate";
-      if (text.includes("calorie")) return "active-calories";
-      return "steps";
-    }
-    if (source === "whoop") {
-      if (text.includes("sleep performance")) return "sleep-performance";
-      if (text.includes("sleep")) return "sleep-hours";
-      if (text.includes("recovery")) return "recovery";
-      if (text.includes("hrv")) return "hrv";
-      if (text.includes("strain")) return "strain";
-      if (text.includes("calorie")) return "calories";
-      if (text.includes("resting") || text.includes("heart")) return "resting-heart-rate";
-      return "recovery";
-    }
-    return "manual";
-  }
-
-  function ruleSourceHelpText(source, metric) {
-    if (source === "manual") return "Manual rules use Add Entry.";
-    if (source === "calculated") return `${sourceMetricLabel(source, metric)} is calculated from other tracked values.`;
-    // Only real wearables (Fitbit / Whoop) remain as synced sources.
-    const status = integrationStatus(source);
-    const connection = status === "connected"
-      ? "Connected — syncs live from your device."
-      : `Connect ${dataSourceLabel(source)} in Profile to sync this automatically.`;
-    return `${sourceMetricLabel(source, metric)} updates from your ${dataSourceLabel(source)} account. ${connection}`;
   }
 
   function bindRuleBuilderEvents() {
@@ -17485,9 +17428,7 @@
       els.rulePenaltyEnabledInput,
       els.rulePenaltyModeInput,
       els.ruleInputMethodInput,
-      els.ruleDataSourceInput,
       els.ruleSourceMetricInput,
-      els.ruleManualOverrideInput,
       els.ruleMaxDailyPointsInput,
       els.ruleInputMaxInput,
       els.ruleInputStepInput
@@ -17495,6 +17436,7 @@
       input.addEventListener("input", handleRuleBuilderChange);
       input.addEventListener("change", handleRuleBuilderChange);
     });
+    if (els.ruleSourceChecks) els.ruleSourceChecks.addEventListener("change", handleRuleBuilderChange);
 
     els.addThresholdButton.addEventListener("click", () => {
       const thresholds = collectExtraThresholds();
@@ -17733,15 +17675,20 @@
       const unit = row.querySelector('[data-community-rule-field="unit"]')?.value.trim() || original.unit;
       const goal = Math.max(numberOrDefault(row.querySelector('[data-community-rule-field="goal"]')?.value, goalAmountForRule(original)), 0);
       const pointsInput = numberOrDefault(row.querySelector('[data-community-rule-field="points"]')?.value, original.everyPoints || original.goalPoints || original.yesNoPoints || original.penaltyPoints);
-      const dataSource = row.querySelector('[data-community-rule-field="dataSource"]')?.value || original.dataSource || "manual";
-      const metricOptions = sourceMetricOptions[dataSource] || sourceMetricOptions.manual;
-      const rawMetric = row.querySelector('[data-community-rule-field="sourceMetric"]')?.value || original.sourceMetric || metricOptions[0]?.id || "manual";
-      const sourceMetric = metricOptions.some((option) => option.id === rawMetric) ? rawMetric : metricOptions[0]?.id || "manual";
       const nextRule = scoring.normalizeRule({ ...original, label, unit });
       nextRule.metric = label.toLowerCase();
-      nextRule.dataSource = dataSource;
-      nextRule.sourceMetric = sourceMetric;
-      nextRule.allowManualOverride = original.allowManualOverride !== false;
+      // Source CHECKBOXES → dataSources (device set) + allowManualOverride. Calculated rules are
+      // derived (no checkboxes shown) → preserved as normalized above.
+      if (original.dataSource !== "calculated") {
+        const src = readRuleSourceChecks(row);
+        const opts = deviceMetricOptions();
+        const rawMetric = row.querySelector('[data-community-rule-field="sourceMetric"]')?.value || original.sourceMetric || "";
+        const validMetric = opts.some((o) => o.id === rawMetric) ? rawMetric : (opts[0] ? opts[0].id : "manual");
+        nextRule.dataSources = src.dataSources;
+        nextRule.dataSource = src.dataSources[0] || "manual";
+        nextRule.sourceMetric = src.dataSources.length ? validMetric : "manual";
+        nextRule.allowManualOverride = src.allowManualOverride;
+      }
       if (nextRule.simpleStyle === "penalty") {
         nextRule.minimumRequired = goal;
         nextRule.penaltyPoints = pointsInput > 0 ? -pointsInput : pointsInput;
@@ -17990,11 +17937,11 @@
     els.createCommunityNextButton.hidden = step >= createCommunitySteps.length - 1;
     els.createCommunityCompleteButton.hidden = step !== createCommunitySteps.length - 1;
 
-    if (!els.ccRuleDataSourceInput.options.length) {
-      els.ccRuleDataSourceInput.innerHTML = renderDataSourceOptionHtml("manual");
-    }
     if (!els.ccRuleSourceMetricInput.options.length) {
-      els.ccRuleSourceMetricInput.innerHTML = renderSourceMetricOptionHtml(els.ccRuleDataSourceInput.value || "manual", "");
+      els.ccRuleSourceMetricInput.innerHTML = renderDeviceMetricOptionsHtml("");
+    }
+    if (els.ccRuleSourceChecks && !els.ccRuleSourceChecks.children.length) {
+      fillRuleSourceControls(els.ccRuleSourceChecks, els.ccRuleSourceMetricInput, scoring.createRule());
     }
 
     renderCommunityDraftRules();
@@ -18076,9 +18023,7 @@
       els.ccRuleGoalInput.value = type === "penalty" ? editing.minimumRequired : editing.dailyTarget;
       els.ccRuleEveryAmountInput.value = editing.everyAmount;
       els.ccRulePointsInput.value = communityDraftRulePoints(editing, type);
-      els.ccRuleDataSourceInput.innerHTML = renderDataSourceOptionHtml(editing.dataSource || "manual");
-      els.ccRuleSourceMetricInput.innerHTML = renderSourceMetricOptionHtml(editing.dataSource || "manual", editing.sourceMetric || "manual");
-      els.ccRuleManualOverrideInput.checked = editing.allowManualOverride !== false;
+      fillRuleSourceControls(els.ccRuleSourceChecks, els.ccRuleSourceMetricInput, scoring.normalizeRule(editing));
       els.ccRuleFormTitle.textContent = `Editing ${editing.label}`;
       els.ccRuleSubmitLabel.textContent = "Save rule";
       els.cancelCcRuleEditButton.hidden = false;
@@ -18107,9 +18052,7 @@
     els.ccRuleGoalInput.value = "";
     els.ccRuleEveryAmountInput.value = "";
     els.ccRulePointsInput.value = "";
-    els.ccRuleDataSourceInput.innerHTML = renderDataSourceOptionHtml("manual");
-    els.ccRuleSourceMetricInput.innerHTML = renderSourceMetricOptionHtml("manual", "manual");
-    els.ccRuleManualOverrideInput.checked = true;
+    fillRuleSourceControls(els.ccRuleSourceChecks, els.ccRuleSourceMetricInput, scoring.createRule());
     els.ccRuleFormTitle.textContent = "Add community rule";
     els.ccRuleSubmitLabel.textContent = "Add rule";
     els.cancelCcRuleEditButton.hidden = true;
@@ -18136,19 +18079,17 @@
     const goal = Math.max(numberOrDefault(els.ccRuleGoalInput.value, 0), 0);
     const everyAmount = Math.max(numberOrDefault(els.ccRuleEveryAmountInput.value, 1), 1);
     const points = numberOrDefault(els.ccRulePointsInput.value, 0);
-    const dataSource = els.ccRuleDataSourceInput.value || "manual";
-    const metricOptions = sourceMetricOptions[dataSource] || sourceMetricOptions.manual;
-    const rawMetric = els.ccRuleSourceMetricInput.value || metricOptions[0]?.id || "manual";
-    const sourceMetric = metricOptions.some((option) => option.id === rawMetric) ? rawMetric : (metricOptions[0]?.id || "manual");
+    const srcFields = buildRuleSourceFields(els.ccRuleSourceChecks, els.ccRuleSourceMetricInput);
     const overrides = {
       id,
       label,
       category: draft.category.trim() || "Community",
       metric: label.toLowerCase(),
       unit,
-      dataSource,
-      sourceMetric,
-      allowManualOverride: els.ccRuleManualOverrideInput.checked,
+      dataSource: srcFields.dataSource,
+      sourceMetric: srcFields.sourceMetric,
+      dataSources: srcFields.dataSources,
+      allowManualOverride: srcFields.allowManualOverride,
       inputMethod: type === "yesNo" ? "toggle" : "slider",
       inputMax: Math.max(goal * 2, everyAmount * 2, 10),
       inputStep: 1,
@@ -19977,21 +19918,84 @@
     return dataSourceOptions.find((option) => option.id === source)?.label || "Manual Entry";
   }
 
-  function renderDataSourceOptionHtml(selectedSource) {
-    return dataSourceOptions.map((option) => `
-      <option value="${escapeHtml(option.id)}"${option.id === selectedSource ? " selected" : ""}>${escapeHtml(option.label)}</option>
-    `).join("");
+
+  function deviceSourceEmoji(src) { return src === "whoop" ? "🟥" : "⌚"; }
+
+  // The union of device metrics across all real wearables (deduped) — the Metric dropdown applies to
+  // whichever device sources are checked; a source lacking the chosen metric just contributes nothing.
+  function deviceMetricOptions() {
+    const seen = {}; const out = [];
+    Array.from(REAL_WEARABLE_SOURCES).forEach((src) => {
+      (sourceMetricOptions[src] || []).forEach((opt) => { if (!seen[opt.id]) { seen[opt.id] = true; out.push(opt); } });
+    });
+    return out;
+  }
+  function renderDeviceMetricOptionsHtml(selectedMetric) {
+    const opts = deviceMetricOptions();
+    const sel = opts.some((o) => o.id === selectedMetric) ? selectedMetric : (opts[0] ? opts[0].id : "");
+    return opts.map((o) => `<option value="${escapeHtml(o.id)}"${o.id === sel ? " selected" : ""}>${escapeHtml(o.label)}</option>`).join("");
   }
 
-  function renderSourceMetricOptionHtml(source, selectedMetric) {
-    const options = sourceMetricOptions[source] || sourceMetricOptions.manual;
-    const selected = options.some((option) => option.id === selectedMetric)
-      ? selectedMetric
-      : options[0]?.id || "manual";
-    return options.map((option) => `
-      <option value="${escapeHtml(option.id)}"${option.id === selected ? " selected" : ""}>${escapeHtml(option.label)}</option>
-    `).join("");
+  // Source CHECKBOXES for a rule editor: Manual + each real wearable (with a connected hint). All
+  // three editors (community inline, personal builder, community-create builder) render this and read
+  // it back with readRuleSourceChecks. A CALCULATED rule shows a read-only note (its derived value
+  // isn't logged/synced) so editing + saving preserves it.
+  function renderRuleSourceChecksHtml(ruleInput) {
+    const rule = scoring.normalizeRule(ruleInput);
+    if (rule.dataSource === "calculated") {
+      return `<div class="rule-source-checks is-calculated"><p class="rule-source-calc">🧮 Calculated total — its value is derived, not logged or synced.</p></div>`;
+    }
+    const devices = ruleDeviceSources(rule);
+    const row = (src, emoji, label, on, hint, hintClass) =>
+      `<label class="rule-source-row${on ? " on" : ""}">
+        <input type="checkbox" data-rule-src="${escapeHtml(src)}"${on ? " checked" : ""}>
+        <span class="rule-source-em" aria-hidden="true">${emoji}</span>
+        <span class="rule-source-nm">${escapeHtml(label)}</span>
+        <span class="rule-source-hint ${hintClass}">${escapeHtml(hint)}</span>
+      </label>`;
+    const rows = [row("manual", "✍️", "Manual entry", rule.allowManualOverride !== false, "+ Log", "is-manual")];
+    Array.from(REAL_WEARABLE_SOURCES).forEach((src) => {
+      const connected = isSourceConnected(src);
+      rows.push(row(src, deviceSourceEmoji(src), dataSourceLabel(src), devices.indexOf(src) !== -1, connected ? "connected" : "not connected", connected ? "is-conn" : "is-off"));
+    });
+    return `<div class="rule-source-checks">${rows.join("")}</div>`;
   }
+
+  // Read source checkboxes within a container → { dataSources, allowManualOverride }. Never returns a
+  // no-source rule: if nothing is checked, keep Manual on (so there's always a way to get a value).
+  function readRuleSourceChecks(rootEl) {
+    const boxes = rootEl ? Array.from(rootEl.querySelectorAll('input[type="checkbox"][data-rule-src]')) : [];
+    const dataSources = boxes.filter((b) => b.checked && b.getAttribute("data-rule-src") !== "manual")
+      .map((b) => b.getAttribute("data-rule-src")).filter((s) => REAL_WEARABLE_SOURCES.has(s));
+    const manualBox = boxes.find((b) => b.getAttribute("data-rule-src") === "manual");
+    let allowManualOverride = manualBox ? manualBox.checked : true;
+    if (!dataSources.length && !allowManualOverride) allowManualOverride = true;
+    return { dataSources, allowManualOverride };
+  }
+
+  // A builder's source checkboxes (+ device-metric select) → rule source fields. A calculated rule is
+  // preserved via the container's data-calc flag (set by fill*), since the checkboxes don't cover it.
+  function buildRuleSourceFields(checksEl, metricEl) {
+    const calc = checksEl && checksEl.dataset ? (checksEl.dataset.calc || "") : "";
+    if (calc) return { dataSource: "calculated", dataSources: [], sourceMetric: calc, allowManualOverride: false };
+    const s = readRuleSourceChecks(checksEl);
+    const metric = metricEl ? (metricEl.value || "manual") : "manual";
+    return {
+      dataSources: s.dataSources,
+      dataSource: s.dataSources[0] || "manual",
+      sourceMetric: s.dataSources.length ? metric : "manual",
+      allowManualOverride: s.allowManualOverride
+    };
+  }
+  // Populate a builder's source checkboxes + device-metric select from a rule (+ flag calculated).
+  function fillRuleSourceControls(checksEl, metricEl, rule) {
+    if (checksEl) {
+      checksEl.innerHTML = renderRuleSourceChecksHtml(rule);
+      checksEl.dataset.calc = rule.dataSource === "calculated" ? (rule.sourceMetric || "") : "";
+    }
+    if (metricEl) metricEl.innerHTML = renderDeviceMetricOptionsHtml(rule.dataSource === "calculated" ? "" : (rule.sourceMetric || ""));
+  }
+
 
   function sourceMetricLabel(source, metric) {
     const options = sourceMetricOptions[source] || sourceMetricOptions.manual;
@@ -20003,22 +20007,49 @@
     return rule.dataSource && rule.dataSource !== "manual";
   }
 
+  // The DEVICE sources (real wearables) a rule pulls from. Multi-source: normalizeRule stores
+  // rule.dataSources; back-compat falls back to a one-element set from the old single dataSource.
+  function ruleDeviceSources(ruleInput) {
+    const rule = ruleInput && ruleInput.dataSources !== undefined ? ruleInput : scoring.normalizeRule(ruleInput);
+    const list = Array.isArray(rule.dataSources)
+      ? rule.dataSources
+      : (REAL_WEARABLE_SOURCES.has(rule.dataSource) ? [rule.dataSource] : []);
+    return list.filter((s) => REAL_WEARABLE_SOURCES.has(s));
+  }
+  // The rule's device sources that are currently connected (the ones that can contribute a value).
+  function ruleConnectedDeviceSources(ruleInput) {
+    return ruleDeviceSources(ruleInput).filter(isSourceConnected);
+  }
+
   function isExternalRuleSynced(ruleInput) {
-    const rule = scoring.normalizeRule(ruleInput);
-    return isRuleSynced(rule) && rule.dataSource !== "calculated";
+    return ruleDeviceSources(ruleInput).length > 0;
   }
 
   function ruleSourceSummary(ruleInput) {
     const rule = scoring.normalizeRule(ruleInput);
-    if (!isRuleSynced(rule)) return "Data source: Manual Entry";
-    return `Data source: ${dataSourceLabel(rule.dataSource)} - ${sourceMetricLabel(rule.dataSource, rule.sourceMetric)}`;
+    if (rule.dataSource === "calculated") return `Data source: Calculated - ${sourceMetricLabel("calculated", rule.sourceMetric)}`;
+    const devices = ruleDeviceSources(rule);
+    if (!devices.length) return "Data source: Manual Entry";
+    const names = devices.map((s) => dataSourceLabel(s)).join(" + ") + (rule.allowManualOverride !== false ? " + Manual" : "");
+    return `Data source: ${names} - ${sourceMetricLabel(devices[0], rule.sourceMetric)}`;
+  }
+
+  // A small "⟳ {device}" badge for a Today rule row when the rule has a connected device source
+  // (shown alongside the manual "+ Log" when both Manual and a device are checked — per the ref).
+  function ruleSyncedBadgeHtml(ruleInput) {
+    const rule = scoring.normalizeRule(ruleInput);
+    if (rule.dataSource === "calculated") return ` <span class="world-rule-synced">🧮 Calculated</span>`;
+    const connected = ruleConnectedDeviceSources(rule);
+    if (!connected.length) return "";
+    const label = connected.length === 1 ? wearableShortLabel(connected[0]) : "Synced";
+    return ` <span class="world-rule-synced">⟳ ${escapeHtml(label)}</span>`;
   }
 
   function shortRuleValueSourceLabel(ruleInput) {
     const rule = scoring.normalizeRule(ruleInput);
-    if (!isRuleSynced(rule)) return "Manual";
     if (rule.dataSource === "calculated") return "Calculated";
-    return isSourceConnected(rule.dataSource) ? "Synced" : "Not connected";
+    if (!ruleDeviceSources(rule).length) return "Manual";
+    return ruleConnectedDeviceSources(rule).length ? "Synced" : "Not connected";
   }
 
   function integrationStatus(source) {
@@ -20036,10 +20067,21 @@
     const date = options.date || todayIso;
     if (date !== todayIso) return null;
     if (options.userId && options.userId !== "me") return null;
-    if (isExternalRuleSynced(rule) && !isSourceConnected(rule.dataSource)) return null;
-    const sourceData = state.mockSyncData?.[rule.dataSource] || defaultMockSyncData[rule.dataSource] || {};
-    const value = sourceData[rule.sourceMetric];
-    return Number.isFinite(Number(value)) ? Number(value) : 0;
+    if (rule.dataSource === "calculated") {
+      const sourceData = state.mockSyncData?.calculated || defaultMockSyncData.calculated || {};
+      const value = sourceData[rule.sourceMetric];
+      return Number.isFinite(Number(value)) ? Number(value) : 0;
+    }
+    // Device rule: the MAX across its connected device sources for the metric (never the sum).
+    const sources = ruleConnectedDeviceSources(rule);
+    if (!sources.length) return null;
+    let max = null;
+    sources.forEach((src) => {
+      const data = state.mockSyncData?.[src] || defaultMockSyncData[src] || {};
+      const v = Number(data[rule.sourceMetric]);
+      if (Number.isFinite(v) && (max === null || v > max)) max = v;
+    });
+    return max === null ? 0 : max;
   }
 
   // Synthetic "synced" rows for the entries list — calculated rules show their formula value;

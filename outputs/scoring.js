@@ -83,6 +83,7 @@
       inputStep: numberOrDefault(rule.inputStep, inferInputStep(unit, inputMethod)),
       dataSource: source.dataSource,
       sourceMetric: source.sourceMetric,
+      dataSources: source.dataSources,
       allowManualOverride: rule.allowManualOverride !== false,
       style: rule.style,
       type: rule.type,
@@ -111,6 +112,7 @@
       extraThresholds: rule.extraThresholds || [],
       dataSource: rule.dataSource,
       sourceMetric: rule.sourceMetric || rule.syncedMetric,
+      dataSources: rule.dataSources,
       allowManualOverride: rule.allowManualOverride
     };
 
@@ -391,9 +393,18 @@
       : (rule.dataSource === undefined && rule.sourceMetric === undefined ? inferred.dataSource : "manual");
     const sourceMetric = cleanText(rule.sourceMetric || rule.syncedMetric || "")
       || (dataSource === inferred.dataSource ? inferred.sourceMetric : dataSource);
+    // Multi-source: the DEVICE sources (real wearables) a rule pulls from. A stored dataSources
+    // array wins; otherwise back-compat from the single dataSource (one-element set if it's a real
+    // wearable). dataSource stays the PRIMARY (first device, else manual/calculated) so every existing
+    // single-source check keeps working. Manual stays the allowManualOverride flag (not in this set).
+    const realWearables = new Set(["google-health", "whoop"]);
+    const deviceSources = Array.isArray(rule.dataSources)
+      ? rule.dataSources.filter((s) => realWearables.has(s))
+      : (realWearables.has(dataSource) ? [dataSource] : []);
     return {
-      dataSource,
-      sourceMetric: sourceMetric || "manual"
+      dataSource: deviceSources[0] || dataSource,
+      sourceMetric: sourceMetric || "manual",
+      dataSources: deviceSources
     };
   }
 

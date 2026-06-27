@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260626-profileposts">
+    <link rel="stylesheet" href="styles.css?v=20260626-multisource">
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
@@ -668,27 +668,13 @@
                 </section>
 
                 <section class="builder-step wide-field" aria-label="Data source">
-                  <div class="step-label">Data source</div>
-                  <div class="form-grid compact-grid">
-                    <label>
-                      <span>Data source</span>
-                      <select id="ruleDataSourceInput">
-                        <option value="manual">Manual Entry</option>
-                        <option value="google-health">Google Health (Fitbit)</option>
-                        <option value="whoop">Whoop</option>
-                        <option value="calculated">Calculated Total</option>
-                      </select>
-                    </label>
-                    <label>
-                      <span>Synced metric</span>
-                      <select id="ruleSourceMetricInput"></select>
-                    </label>
-                  </div>
-                  <label class="toggle-label source-override-toggle">
-                    <input id="ruleManualOverrideInput" type="checkbox" checked>
-                    <span>Allow manual adjustment</span>
+                  <div class="step-label">Pull from — tick any combination</div>
+                  <div id="ruleSourceChecks" class="rule-source-checks"></div>
+                  <label class="rule-metric-field">
+                    <span>Metric (for device sources)</span>
+                    <select id="ruleSourceMetricInput"></select>
                   </label>
-                  <small class="source-help" id="ruleDataSourceHelp">Manual rules use Add Entry.</small>
+                  <small class="source-help" id="ruleDataSourceHelp">Manual rules use Add Entry; device sources auto-sync (two devices → the highest value, never the sum).</small>
                 </section>
 
                 <section class="rule-preview wide-field" aria-live="polite">
@@ -1037,20 +1023,11 @@
                 </section>
 
                 <section class="builder-step wide-field" aria-label="Data source">
-                  <div class="step-label">Data source</div>
-                  <div class="form-grid compact-grid">
-                    <label>
-                      <span>Data source</span>
-                      <select id="ccRuleDataSourceInput"></select>
-                    </label>
-                    <label>
-                      <span>Synced metric</span>
-                      <select id="ccRuleSourceMetricInput"></select>
-                    </label>
-                  </div>
-                  <label class="toggle-label source-override-toggle">
-                    <input id="ccRuleManualOverrideInput" type="checkbox" checked>
-                    <span>Allow manual adjustment</span>
+                  <div class="step-label">Pull from — tick any combination</div>
+                  <div id="ccRuleSourceChecks" class="rule-source-checks"></div>
+                  <label class="rule-metric-field">
+                    <span>Metric (for device sources)</span>
+                    <select id="ccRuleSourceMetricInput"></select>
                   </label>
                 </section>
 
@@ -1567,13 +1544,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260626-profileposts"></script>
-    <script src="auth-helpers.js?v=20260626-profileposts"></script>
-    <script src="scoring.js?v=20260626-profileposts"></script>
-    <script src="insight.js?v=20260626-profileposts"></script>
-    <script src="signals.js?v=20260626-profileposts"></script>
-    <script src="wearables.js?v=20260626-profileposts"></script>
-    <script type="module" src="auth.js?v=20260626-profileposts"></script>
-    <script src="app.js?v=20260626-profileposts"></script>
+    <script src="supabase-config.js?v=20260626-multisource"></script>
+    <script src="auth-helpers.js?v=20260626-multisource"></script>
+    <script src="scoring.js?v=20260626-multisource"></script>
+    <script src="insight.js?v=20260626-multisource"></script>
+    <script src="signals.js?v=20260626-multisource"></script>
+    <script src="wearables.js?v=20260626-multisource"></script>
+    <script type="module" src="auth.js?v=20260626-multisource"></script>
+    <script src="app.js?v=20260626-multisource"></script>
   </body>
 </html>

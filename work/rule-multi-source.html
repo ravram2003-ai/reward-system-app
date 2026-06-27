@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — rule editor: multi-source checkboxes (Manual + Fitbit + Whoop)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#050807; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; display:flex; justify-content:center; padding:24px 12px; }
+  .wrap { width:100%; max-width:460px; }
+  .card { background:#0c0f0e; border:1px solid #1e2826; border-radius:16px; padding:16px; }
+  .lab { font-size:11px; color:#8aa39a; margin:0 0 9px; }
+  .src { display:flex; align-items:center; gap:11px; border-radius:11px; padding:11px 13px; margin-bottom:7px; }
+  .src .box { width:20px; height:20px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:12px; flex-shrink:0; }
+  .src .em { font-size:15px; } .src .nm { flex:1; font-size:12.5px; }
+  .src.on { background:#11201a; border:1px solid #2a5a45; } .src.on .box { background:#1c4d3b; color:#5cf3b8; } .src.on .nm { color:#eaf2ee; }
+  .src.dev { background:#0f1a20; border:1px solid #244a5a; } .src.dev .box { background:#0f2230; border:1px solid #5cb0f3; color:#5cb0f3; } .src.dev .nm { color:#eaf2ee; }
+  .src.off { background:#11181a; border:1px solid #243029; } .src.off .box { background:#11181a; border:1px solid #2c3a35; } .src.off .nm { color:#9fb0aa; }
+  .tag { font-size:9px; border-radius:6px; padding:1px 6px; } .tag.conn { color:#5cb0f3; background:#0f2230; border:1px solid #244a5a; } .tag.hint { font-size:10px; color:#7c8d87; }
+  .metric { background:#11181a; border:1px solid #243029; border-radius:10px; padding:9px 11px; font-size:12.5px; color:#eaf2ee; display:flex; justify-content:space-between; }
+  .note { background:#0e1714; border:1px solid #243029; border-radius:10px; padding:10px 12px; }
+  .note p { font-size:10.5px; color:#9aa8a3; margin:0; line-height:1.45; }
+  .today { background:#0b100e; border:1px solid #161f1c; border-radius:14px; padding:13px; margin-top:13px; }
+  .trow { display:flex; align-items:center; gap:11px; background:#0e1417; border:1px solid #1c2a30; border-radius:12px; padding:11px; }
+  .bar { height:5px; border-radius:3px; background:#0e2330; margin-top:6px; } .bar > i { display:block; height:5px; border-radius:3px; background:#5cb0f3; }
+  .log { font-size:11px; padding:7px 13px; border-radius:11px; background:#1c4d3b; color:#9bf3cf; border:none; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <div style="display:flex;align-items:center;gap:9px;margin-bottom:5px;"><span style="font-size:17px;">👟</span><strong style="font-size:15px;color:#f3f6f4;">Steps</strong></div>
+    <p class="lab">Pull from — tick any combination</p>
+
+    <div class="src on"><span class="box">✓</span><span class="em">✍️</span><span class="nm">Manual entry</span><span class="tag hint">+ Log</span></div>
+    <div class="src dev"><span class="box">✓</span><span class="em">⌚</span><span class="nm">Google Health (Fitbit)</span><span class="tag conn">connected</span></div>
+    <div class="src off" style="margin-bottom:12px;"><span class="box"></span><span class="em">🟥</span><span class="nm">Whoop</span><span class="tag hint">not connected</span></div>
+
+    <div style="margin-bottom:12px;"><p class="lab" style="margin:0 0 5px;">Metric (for the device sources)</p><div class="metric">Steps <span style="color:#7c8d87;">▾</span></div></div>
+
+    <div class="note"><p>⚠️ Two devices reporting the same metric → use the <strong style="color:#cfd8d4;">highest</strong> value, never the sum (no double-count). Manual adds/corrects on top.</p></div>
+  </div>
+
+  <div class="today">
+    <p style="font-size:11px;color:#cfe9df;font-weight:600;margin:0 0 9px;">→ Today (synced + manual together)</p>
+    <div class="trow"><span style="font-size:16px;">👟</span><div style="flex:1;"><div style="display:flex;align-items:center;gap:6px;"><p style="font-size:13px;color:#f3f6f4;margin:0;">Steps</p><span class="tag conn">⟳ Fitbit</span></div><div class="bar"><i style="width:80%;"></i></div></div><span style="font-size:10px;color:#7c8d87;">8,000</span><button class="log">+ Log</button></div>
+  </div>
+
+  <p style="font-size:10.5px;color:#7c8d87;margin:11px 2px 0;text-align:center;line-height:1.5;">Sources are checkboxes (Manual + Fitbit + Whoop, any combo) · one Metric for the device sources · multi-device = take the highest, not the sum · result: a rule that auto-syncs AND has a manual + Log.</p>
+</div>
+</body>
+</html>

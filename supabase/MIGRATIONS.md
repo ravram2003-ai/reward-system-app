@@ -106,6 +106,12 @@ you know what's live in production.
   re-run #24 afterward to restore signed-out reads of public profile posts. Profile-post photos reuse
   the existing **entry-photo** storage bucket (no new bucket). **Until this runs, profile-posts code
   loads but every read/write fails.**
+- [ ] **25. autosync-default-on.sql** — make community device auto-count ON by default: flips
+  `communities.allow_device_autosync` column DEFAULT to true and backfills existing rows that are
+  null OR false to true (the old false was the wrong default, not a deliberate opt-out). The owner
+  opt-OUT is preserved (client reads `allow_device_autosync !== false`; Settings can set it false).
+  Idempotent. *(after #21 community-device-autosync — alters the same column)*. **Run this so THE
+  BOYS' Steps (and every synced community rule) auto-fills instead of showing 0 with a manual + Log.**
 
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).

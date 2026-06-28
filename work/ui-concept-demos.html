@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Pointwell — 5 UI concept demos (interactive)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; }
+  body {
+    background:#050807; color:#eef2f0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    display:flex; flex-direction:column; align-items:center;
+    padding:14px 10px 0; min-height:100%;
+  }
+  .phone {
+    width:100%; max-width:390px; flex:1;
+    background:#070b0a; border:1px solid #131b18; border-radius:30px;
+    overflow:hidden; display:flex; flex-direction:column; position:relative;
+    box-shadow:0 20px 60px rgba(0,0,0,.6);
+  }
+  .stage { flex:1; position:relative; overflow:hidden; }
+  .screen { position:absolute; inset:0; display:none; flex-direction:column; }
+  .screen.active { display:flex; }
+  .scrollpad { flex:1; overflow:auto; }
+
+  /* tab bar */
+  .tabs { display:flex; gap:4px; padding:8px; background:#0a100d; border-top:1px solid #131b18; }
+  .tab { flex:1; text-align:center; font-size:9px; color:#5f7268; padding:7px 2px; border-radius:11px; cursor:pointer; line-height:1.3; transition:.15s; }
+  .tab .ic { font-size:16px; display:block; margin-bottom:2px; }
+  .tab.on { background:#11201a; color:#7fe9c0; }
+
+  .schead { padding:16px 18px 6px; }
+  .schead h2 { font-size:17px; margin:0; letter-spacing:-.3px; color:#f3f6f4; }
+  .schead p { font-size:11px; color:#6f827a; margin:4px 0 0; line-height:1.4; }
+
+  .pill { display:inline-block; font-size:10px; color:#7fc7b0; background:#11201a; border:1px solid #214034; border-radius:20px; padding:3px 10px; }
+  .reset { font-size:10px; color:#6f827a; background:#0e1714; border:1px solid #1c2a24; border-radius:9px; padding:6px 11px; cursor:pointer; }
+
+  /* ---------- 1. SWIPE DECK ---------- */
+  #deckZone { flex:1; position:relative; display:flex; align-items:center; justify-content:center; }
+  .deck { position:relative; width:260px; height:330px; }
+  .dcard {
+    position:absolute; inset:0; border-radius:24px; padding:22px;
+    background:linear-gradient(165deg,#101a16,#0a120f); border:1px solid #1e2c26;
+    display:flex; flex-direction:column; box-shadow:0 14px 34px rgba(0,0,0,.5);
+    cursor:grab; touch-action:none; will-change:transform;
+  }
+  .dcard .emoji { font-size:46px; }
+  .dcard h3 { font-size:23px; margin:14px 0 4px; color:#f3f6f4; }
+  .dcard .sub { font-size:13px; color:#8aa39a; }
+  .dcard .foot { margin-top:auto; font-size:11px; color:#5f7268; display:flex; justify-content:space-between; }
+  .hint { position:absolute; top:18px; font-size:13px; font-weight:800; letter-spacing:.5px; padding:5px 11px; border-radius:9px; opacity:0; transition:opacity .1s; }
+  .hint.done { right:18px; color:#5cf3b8; border:2px solid #5cf3b8; transform:rotate(12deg); }
+  .hint.skip { left:18px; color:#ff6b7d; border:2px solid #ff6b7d; transform:rotate(-12deg); }
+  .hint.log  { left:50%; transform:translateX(-50%); top:140px; color:#7fb6ff; border:2px solid #7fb6ff; }
+  .deckdone { text-align:center; }
+  .deckdone .big { font-size:46px; }
+  .swipebtns { display:flex; gap:14px; justify-content:center; padding:6px 0 18px; }
+  .sbtn { width:54px; height:54px; border-radius:50%; border:1px solid #243029; background:#0e1714; font-size:20px; cursor:pointer; }
+  .sbtn.skip { color:#ff6b7d; } .sbtn.log { color:#7fb6ff; } .sbtn.done { color:#5cf3b8; background:#11201a; border-color:#214034; }
+  .counter { text-align:center; font-size:12px; color:#7fc7b0; padding:4px 0 0; }
+
+  /* ---------- 2. AMBIENT ---------- */
+  #ambStage { flex:1; position:relative; overflow:hidden; }
+  #glow { position:absolute; left:0; right:0; bottom:0; height:8%; background:linear-gradient(0deg,#0d3a2a,#0d3a2a 40%,rgba(13,58,42,0)); transition:height .6s cubic-bezier(.2,.8,.2,1); pointer-events:none; }
+  #glowLine { position:absolute; left:0; right:0; bottom:8%; height:1px; background:linear-gradient(90deg,transparent,#3ddc97,transparent); box-shadow:0 0 18px 2px rgba(61,220,151,.5); transition:bottom .6s cubic-bezier(.2,.8,.2,1); }
+  .ambpct { position:absolute; top:14px; left:0; right:0; text-align:center; }
+  .ambpct .n { font-size:40px; font-weight:800; color:#f3f6f4; letter-spacing:-1px; }
+  .ambpct .l { font-size:11px; color:#6f827a; }
+  .ambhabits { position:absolute; left:14px; right:14px; bottom:14px; top:84px; display:flex; flex-direction:column; justify-content:flex-end; gap:9px; }
+  .amb { display:flex; align-items:center; gap:11px; background:rgba(14,23,20,.7); border:1px solid #1c2a24; border-radius:14px; padding:12px 14px; cursor:pointer; transition:.3s; backdrop-filter:blur(2px); }
+  .amb.done { border-color:#2a5a45; background:rgba(17,32,26,.8); }
+  .amb .e { font-size:20px; } .amb .t { flex:1; font-size:14px; color:#eaf2ee; } .amb .c { font-size:18px; color:#3c4d46; }
+  .amb.done .c { color:#5cf3b8; }
+  .amb.done .t { color:#cfe9df; }
+
+  /* ---------- 3. ORBIT ---------- */
+  #orbitWrap { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; }
+  .orbit { position:relative; width:320px; height:320px; }
+  .ring { position:absolute; border-radius:50%; border:1px solid #111a16; left:50%; top:50%; transform:translate(-50%,-50%); }
+  .center { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:62px; height:62px; border-radius:50%; background:radial-gradient(circle,#355d91,#23436e); border:2px solid #3ddc97; display:flex; flex-direction:column; align-items:center; justify-content:center; box-shadow:0 0 28px rgba(61,220,151,.4); z-index:5; }
+  .center b { font-size:12px; } .center small { font-size:9px; color:#bfe9d8; }
+  .orb { position:absolute; left:50%; top:50%; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:#fff; transition:transform 1.4s cubic-bezier(.3,.8,.3,1), width .6s, height .6s; }
+  .orb.rival { box-shadow:0 0 14px rgba(240,201,122,.6); border:2px solid #f0c97a; }
+  .olabel { position:absolute; left:50%; top:50%; font-size:9px; color:#f5d99a; transition:transform 1.4s cubic-bezier(.3,.8,.3,1); white-space:nowrap; }
+
+  /* ---------- 4. ONE THING ---------- */
+  #oneWrap { flex:1; display:flex; flex-direction:column; }
+  .otlist { padding:14px; display:flex; flex-direction:column; gap:9px; }
+  .ot { display:flex; align-items:center; gap:12px; background:#0e1714; border:1px solid #1c2a24; border-radius:14px; padding:13px 14px; cursor:pointer; transition:.25s; }
+  .ot .e { font-size:20px; } .ot .t { flex:1; font-size:14px; color:#eaf2ee; }
+  .ot .ck { width:24px; height:24px; border-radius:50%; border:2px solid #2c3a35; display:flex; align-items:center; justify-content:center; font-size:13px; color:transparent; }
+  .ot.done { opacity:.45; } .ot.done .t { text-decoration:line-through; color:#7c8d87; } .ot.done .ck { background:#1c4d3b; border-color:#1c4d3b; color:#5cf3b8; }
+  .focus { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:20px; position:relative; }
+  .focus .gw { position:absolute; top:0; left:50%; transform:translateX(-50%); width:320px; height:320px; background:radial-gradient(circle,rgba(61,220,151,.14),transparent 70%); }
+  .ring2 { width:170px; height:170px; position:relative; margin:0 auto 22px; }
+  .ring2 .arc { width:170px; height:170px; border-radius:50%; filter:drop-shadow(0 0 16px rgba(61,220,151,.35)); }
+  .ring2 .inner { position:absolute; inset:13px; border-radius:50%; background:#0b1210; display:flex; align-items:center; justify-content:center; font-size:34px; }
+  .focus h3 { font-size:22px; color:#f3f6f4; margin:0; letter-spacing:-.3px; }
+  .focus p { font-size:14px; color:#9fb0aa; margin:6px 0 22px; }
+  .biglog { background:#1c4d3b; border:none; border-radius:15px; color:#9bf3cf; font-size:15px; font-weight:600; padding:15px 44px; cursor:pointer; }
+  .allglow { position:absolute; inset:0; background:radial-gradient(circle at 50% 60%,rgba(61,220,151,.22),transparent 65%); opacity:0; transition:opacity .8s; pointer-events:none; }
+
+  /* ---------- 5. RIBBON ---------- */
+  #ribWrap { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; padding:18px; }
+  .ribcard { width:100%; background:#0b0805; border:1px solid #3a2c12; border-radius:18px; padding:16px; }
+  .ribhead { display:flex; align-items:center; gap:9px; margin-bottom:14px; }
+  .ribhead .fire { font-size:24px; filter:drop-shadow(0 0 8px rgba(240,160,60,.5)); }
+  .ribhead b { font-size:17px; color:#f5d99a; } .ribhead p { font-size:10px; color:#8a7a55; margin:0; }
+  .ribbon { display:flex; align-items:flex-end; gap:5px; height:64px; }
+  .cell { flex:1; border-radius:5px; background:#160f08; transition:height .5s, background .5s, box-shadow .5s; }
+  .ribdays { display:flex; gap:5px; margin-top:6px; }
+  .ribdays span { flex:1; text-align:center; font-size:8px; color:#5a4f3a; }
+  .ribnote { font-size:10px; color:#8a7a55; text-align:center; margin-top:10px; }
+  .ribbtn { background:linear-gradient(90deg,#b86a1a,#e0972f); border:none; border-radius:13px; color:#1a1206; font-size:14px; font-weight:700; padding:14px 30px; cursor:pointer; box-shadow:0 0 18px rgba(224,151,47,.35); }
+  .ribbtn.spent { background:#160f08; color:#5a4f3a; box-shadow:none; cursor:default; }
+
+  .toast { position:absolute; left:50%; bottom:14px; transform:translateX(-50%) translateY(20px); background:#11201a; border:1px solid #2a5a45; color:#9bf3cf; font-size:12px; padding:9px 16px; border-radius:20px; opacity:0; transition:.3s; pointer-events:none; z-index:30; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="stage" id="stage">
+
+    <!-- 1 SWIPE DECK -->
+    <div class="screen active" id="s-deck">
+      <div class="schead">
+        <h2>Clear your day</h2>
+        <p>Swipe right = done · up = log an amount · left = skip. Drag the card or use the buttons.</p>
+      </div>
+      <div class="counter" id="deckCount">0 of 5 done</div>
+      <div id="deckZone"><div class="deck" id="deck"></div></div>
+      <div class="swipebtns">
+        <button class="sbtn skip" onclick="deckSwipe('left')">✕</button>
+        <button class="sbtn log" onclick="deckSwipe('up')">＋</button>
+        <button class="sbtn done" onclick="deckSwipe('right')">✓</button>
+      </div>
+    </div>
+
+    <!-- 2 AMBIENT -->
+    <div class="screen" id="s-amb">
+      <div class="schead" style="position:relative;z-index:4;">
+        <h2>Ambient progress</h2>
+        <p>Tap habits to finish them. The screen fills with light as your day climbs.</p>
+      </div>
+      <div id="ambStage">
+        <div class="ambpct"><div class="n" id="ambN">0%</div><div class="l">of today</div></div>
+        <div id="glow"></div><div id="glowLine"></div>
+        <div class="ambhabits" id="ambHabits"></div>
+      </div>
+    </div>
+
+    <!-- 3 ORBIT -->
+    <div class="screen" id="s-orbit">
+      <div class="schead">
+        <h2>Rivals orbit</h2>
+        <p>You're the center. Closer orbit = closer in points. Log to pull rivals outward.</p>
+      </div>
+      <div id="orbitWrap">
+        <div class="orbit" id="orbit"></div>
+        <button class="biglog" onclick="orbitLog()" style="padding:13px 34px;">＋ Log a point</button>
+        <div class="pill" id="orbitMsg">You're 2nd · 3 behind Jacob</div>
+      </div>
+    </div>
+
+    <!-- 4 ONE THING -->
+    <div class="screen" id="s-one">
+      <div class="schead" id="oneHead">
+        <h2>One thing left</h2>
+        <p>Finish habits. When one remains, everything collapses to it.</p>
+      </div>
+      <div id="oneWrap"><div class="otlist" id="otList"></div></div>
+    </div>
+
+    <!-- 5 RIBBON -->
+    <div class="screen" id="s-rib">
+      <div class="schead">
+        <h2>Momentum heat-ribbon</h2>
+        <p>Each day glows by how much you did. Light today so the trail doesn't go dark.</p>
+      </div>
+      <div id="ribWrap">
+        <div class="ribcard">
+          <div class="ribhead"><span class="fire">🔥</span><div><b id="ribStreak">6-day streak</b><p>your hottest stretch this month</p></div></div>
+          <div class="ribbon" id="ribbon"></div>
+          <div class="ribdays"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span><span>M</span><span style="color:#f0c97a;">today</span></div>
+          <div class="ribnote">Brighter = bigger day · the lit trail is your streak.</div>
+        </div>
+        <button class="ribbtn" id="ribBtn" onclick="ribLight()">Light today 🔥</button>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab on" data-s="deck"><span class="ic">🗂️</span>Swipe</div>
+    <div class="tab" data-s="amb"><span class="ic">🌗</span>Ambient</div>
+    <div class="tab" data-s="orbit"><span class="ic">🪐</span>Orbit</div>
+    <div class="tab" data-s="one"><span class="ic">🎯</span>One thing</div>
+    <div class="tab" data-s="rib"><span class="ic">🔥</span>Ribbon</div>
+  </div>
+</div>
+
+<script>
+const toastEl = document.getElementById('toast');
+let toastT;
+function toast(msg){ toastEl.textContent=msg; toastEl.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>toastEl.classList.remove('show'),1400); }
+
+// tab switching
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.screen').forEach(x=>x.classList.remove('active'));
+  t.classList.add('on');
+  document.getElementById('s-'+t.dataset.s).classList.add('active');
+});
+
+/* ============ 1. SWIPE DECK ============ */
+const deckData = [
+  {e:'👟',n:'Steps',s:'Goal 8,000 today'},
+  {e:'💧',n:'Water',s:'6 of 8 glasses'},
+  {e:'🏋️',n:'Workout',s:'Lift — 45 min'},
+  {e:'📖',n:'Read',s:'20 pages'},
+  {e:'🧘',n:'Meditate',s:'10 min'},
+];
+let deckIdx=0, deckDone=0;
+const deckEl=document.getElementById('deck');
+function renderDeck(){
+  deckEl.innerHTML='';
+  if(deckIdx>=deckData.length){
+    deckEl.innerHTML='<div class="dcard deckdone" style="cursor:default;align-items:center;justify-content:center;"><div class="big">🎉</div><h3 style="margin:10px 0 2px;">Day cleared</h3><div class="sub">Nice — '+deckDone+' logged</div></div>';
+    return;
+  }
+  for(let i=Math.min(deckIdx+2,deckData.length-1); i>=deckIdx; i--){
+    const d=deckData[i], depth=i-deckIdx;
+    const c=document.createElement('div');
+    c.className='dcard';
+    c.style.transform=`scale(${1-depth*0.05}) translateY(${depth*14}px)`;
+    c.style.zIndex=10-depth; c.style.opacity=depth>1?0.5:1;
+    c.innerHTML=`<div class="hint done">DONE</div><div class="hint log">LOG</div><div class="hint skip">SKIP</div>
+      <div class="emoji">${d.e}</div><h3>${d.n}</h3><div class="sub">${d.s}</div>
+      <div class="foot"><span>← skip</span><span>↑ log</span><span>done →</span></div>`;
+    deckEl.appendChild(c);
+    if(depth===0) attachDrag(c);
+  }
+}
+function attachDrag(card){
+  let sx,sy,dx=0,dy=0,drag=false;
+  const dn=card.querySelector('.hint.done'),lg=card.querySelector('.hint.log'),sk=card.querySelector('.hint.skip');
+  const down=e=>{drag=true;card.style.transition='none';card.style.cursor='grabbing';const p=pt(e);sx=p.x;sy=p.y;};
+  const move=e=>{ if(!drag)return; const p=pt(e); dx=p.x-sx; dy=p.y-sy;
+    card.style.transform=`translate(${dx}px,${dy}px) rotate(${dx*0.06}deg)`;
+    dn.style.opacity=dx>40?Math.min(1,dx/120):0;
+    sk.style.opacity=dx<-40?Math.min(1,-dx/120):0;
+    lg.style.opacity=(dy<-40&&Math.abs(dx)<60)?Math.min(1,-dy/120):0;
+  };
+  const up=()=>{ if(!drag)return; drag=false; card.style.cursor='grab';
+    if(dy<-90&&Math.abs(dx)<70) fly('up');
+    else if(dx>90) fly('right');
+    else if(dx<-90) fly('left');
+    else { card.style.transition='transform .25s'; card.style.transform=''; dn.style.opacity=lg.style.opacity=sk.style.opacity=0; }
+    dx=dy=0;
+  };
+  function fly(dir){
+    card.style.transition='transform .35s ease-in, opacity .35s';
+    const x=dir==='right'?500:dir==='left'?-500:0, y=dir==='up'?-600:60;
+    card.style.transform=`translate(${x}px,${y}px) rotate(${x*0.05}deg)`; card.style.opacity=0;
+    setTimeout(()=>commit(dir),200);
+  }
+  card.onmousedown=down; window.addEventListener('mousemove',move); window.addEventListener('mouseup',up);
+  card.ontouchstart=down; card.ontouchmove=e=>{move(e);e.preventDefault();}; card.ontouchend=up;
+  card._cleanup=()=>{window.removeEventListener('mousemove',move);window.removeEventListener('mouseup',up);};
+}
+function pt(e){ return e.touches?{x:e.touches[0].clientX,y:e.touches[0].clientY}:{x:e.clientX,y:e.clientY}; }
+function commit(dir){
+  const name=deckData[deckIdx]?.n||'';
+  if(dir==='right'){deckDone++;toast('✓ '+name+' done');}
+  else if(dir==='up'){deckDone++;toast('＋ Logged '+name);}
+  else toast('Skipped '+name);
+  deckIdx++;
+  document.getElementById('deckCount').textContent=Math.min(deckDone,deckData.length)+' of '+deckData.length+' done';
+  renderDeck();
+}
+function deckSwipe(dir){ const c=deckEl.querySelector('.dcard'); if(!c||deckIdx>=deckData.length)return;
+  c.style.transition='transform .35s ease-in, opacity .35s';
+  const x=dir==='right'?500:dir==='left'?-500:0,y=dir==='up'?-600:60;
+  c.style.transform=`translate(${x}px,${y}px)`; c.style.opacity=0; setTimeout(()=>commit(dir),200);
+}
+renderDeck();
+
+/* ============ 2. AMBIENT ============ */
+const ambData=[{e:'🧘',t:'Meditate',d:true},{e:'💧',t:'Water',d:true},{e:'👟',t:'Steps',d:false},{e:'🏋️',t:'Workout',d:false},{e:'📖',t:'Read',d:false}];
+const ambHabits=document.getElementById('ambHabits');
+function renderAmb(){
+  ambHabits.innerHTML='';
+  ambData.forEach((h,i)=>{
+    const el=document.createElement('div');
+    el.className='amb'+(h.d?' done':'');
+    el.innerHTML=`<span class="e">${h.e}</span><span class="t">${h.t}</span><span class="c">${h.d?'✓':'○'}</span>`;
+    el.onclick=()=>{ h.d=!h.d; renderAmb(); updateAmb(); if(h.d)toast('✓ '+h.t); };
+    ambHabits.appendChild(el);
+  });
+}
+function updateAmb(){
+  const done=ambData.filter(h=>h.d).length, pct=Math.round(done/ambData.length*100);
+  document.getElementById('ambN').textContent=pct+'%';
+  const h=8+pct*0.82; // 8% baseline → ~90%
+  document.getElementById('glow').style.height=h+'%';
+  document.getElementById('glowLine').style.bottom=h+'%';
+  if(pct===100)toast('🎉 Day complete');
+}
+renderAmb(); updateAmb();
+
+/* ============ 3. ORBIT ============ */
+const orbit=document.getElementById('orbit');
+let me=9;
+const rivals=[
+  {n:'Jcb',pts:12,c:'#9a4a2c',rival:true,ang:-35},
+  {n:'Rv',pts:7,c:'#2f7a5c',ang:135},
+  {n:'Rb',pts:5,c:'#7a5cc4',ang:55},
+  {n:'Mia',pts:3,c:'#9a7fc4',ang:215},
+  {n:'🥇',pts:18,c:'#c9821f',ang:-80,leader:true},
+];
+function buildOrbit(){
+  orbit.innerHTML='';
+  [60,110,150].forEach(r=>{const ring=document.createElement('div');ring.className='ring';ring.style.width=ring.style.height=(r*2)+'px';orbit.appendChild(ring);});
+  const cen=document.createElement('div');cen.className='center';cen.innerHTML='<b>You</b><small id="cenP">'+me+' pts</small>';orbit.appendChild(cen);
+  rivals.forEach((rv,i)=>{
+    const o=document.createElement('div');o.className='orb'+(rv.rival?' rival':'');o.style.background=rv.c;o.id='orb'+i;o.textContent=rv.n;
+    orbit.appendChild(o);
+    const l=document.createElement('div');l.className='olabel';l.id='lab'+i;l.style.color=rv.rival?'#f5d99a':'#6f827a';
+    orbit.appendChild(l);
+  });
+  positionOrbit();
+}
+function positionOrbit(){
+  rivals.forEach((rv,i)=>{
+    const gap=Math.abs(rv.pts-me);
+    const radius=40+gap*16; // closer in points = closer in
+    const size=rv.leader?30:rv.rival?40:32;
+    const a=rv.ang*Math.PI/180;
+    const x=Math.cos(a)*radius, y=Math.sin(a)*radius;
+    const o=document.getElementById('orb'+i);
+    o.style.width=o.style.height=size+'px';
+    o.style.transform=`translate(-50%,-50%) translate(${x}px,${y}px)`;
+    const l=document.getElementById('lab'+i);
+    l.textContent=rv.leader?'🥇 leader':(rv.pts>me?'+'+(rv.pts-me)+(rv.rival?' rival':''):(rv.pts<me?'-'+(me-rv.pts):'tied'));
+    l.style.transform=`translate(-50%,-50%) translate(${x}px,${y-size/2-10}px)`;
+  });
+  const cp=document.getElementById('cenP'); if(cp)cp.textContent=me+' pts';
+}
+function orbitLog(){
+  me++;
+  positionOrbit();
+  const ahead=rivals.filter(r=>r.pts>me).sort((a,b)=>a.pts-b.pts)[0];
+  const msg=document.getElementById('orbitMsg');
+  if(!ahead){ msg.textContent='🏆 You are in the lead!'; toast('You took the lead!'); }
+  else { msg.textContent=`${ahead.pts-me} behind ${ahead.n==='🥇'?'the leader':ahead.n}`; toast('＋1 — rivals pulled in'); }
+}
+buildOrbit();
+
+/* ============ 4. ONE THING ============ */
+const otData=[{e:'🧘',t:'Meditate',d:true},{e:'💧',t:'Water',d:true},{e:'📖',t:'Read',d:true},{e:'🏋️',t:'Workout',d:true},{e:'👟',t:'Steps',d:false}];
+const oneWrap=document.getElementById('oneWrap');
+function renderOne(){
+  const remaining=otData.filter(h=>!h.d);
+  const head=document.getElementById('oneHead');
+  if(remaining.length===1){
+    const h=remaining[0];
+    head.style.display='none';
+    oneWrap.innerHTML=`<div class="focus">
+      <div class="allglow" id="allGlow"></div><div class="gw"></div>
+      <p style="position:absolute;top:14px;left:0;right:0;font-size:12px;color:#5f7268;">${otData.length-1} of ${otData.length} done</p>
+      <div class="ring2"><div class="arc" style="background:conic-gradient(#3ddc97 ${(otData.length-1)/otData.length*100}%,#15241d 0);"></div><div class="inner">${h.e}</div></div>
+      <h3>One more to finish 💪</h3><p><b style="color:#eaf2ee;">${h.t}</b> — last one today</p>
+      <button class="biglog" onclick="finishOne()">＋ Log it</button>
+      <p style="font-size:11px;color:#5f7268;margin-top:16px;">Everything else is done — close out your day.</p>
+    </div>`;
+  } else if(remaining.length===0){
+    head.style.display='none';
+    oneWrap.innerHTML=`<div class="focus"><div class="gw"></div><div style="font-size:54px;">🎉</div><h3 style="margin-top:14px;">Day complete</h3><p>All ${otData.length} done. See you tomorrow.</p><button class="reset" onclick="resetOne()">Replay demo</button></div>`;
+  } else {
+    head.style.display='';
+    let html='<div class="otlist">';
+    otData.forEach((h,i)=>{ html+=`<div class="ot${h.d?' done':''}" onclick="toggleOne(${i})"><span class="e">${h.e}</span><span class="t">${h.t}</span><span class="ck">✓</span></div>`; });
+    html+='</div>'; oneWrap.innerHTML=html;
+  }
+}
+function toggleOne(i){ otData[i].d=!otData[i].d; renderOne(); }
+function finishOne(){ otData.forEach(h=>h.d=true); renderOne(); const g=document.getElementById('allGlow'); toast('🎉 Day complete'); }
+function resetOne(){ otData.forEach((h,i)=>h.d=i<3); otData[4].d=false; otData[3].d=false; renderOne(); }
+renderOne();
+
+/* ============ 5. RIBBON ============ */
+const ribHeights=[40,55,30,70,85,65,78,90]; // past 8 days
+const ribbon=document.getElementById('ribbon');
+let ribLit=false;
+function buildRibbon(){
+  ribbon.innerHTML='';
+  ribHeights.forEach((h,i)=>{
+    const c=document.createElement('div');c.className='cell';
+    c.style.height=h+'%';
+    const lit=i>=2; // streak starts day 3
+    c.style.background=lit?`linear-gradient(0deg,#7a4a12,${shade(h)})`:'#160f08';
+    if(lit)c.style.boxShadow='0 0 8px rgba(201,130,31,.4)';
+    ribbon.appendChild(c);
+  });
+  // today cell (empty/dashed until lit)
+  const t=document.createElement('div');t.className='cell';t.id='todayCell';
+  t.style.height='50%'; t.style.border='1.5px dashed #5a4420'; t.style.background='#160f08';
+  ribbon.appendChild(t);
+}
+function shade(h){ const v=Math.round(180+h*0.5); return `rgb(${v},${Math.round(v*0.62)},${Math.round(v*0.28)})`; }
+function ribLight(){
+  if(ribLit)return; ribLit=true;
+  const t=document.getElementById('todayCell');
+  t.style.border='none'; t.style.height='88%';
+  t.style.background='linear-gradient(0deg,#b86a1a,#f5d99a)';
+  t.style.boxShadow='0 0 16px rgba(245,217,154,.8)';
+  document.getElementById('ribStreak').textContent='7-day streak';
+  const b=document.getElementById('ribBtn'); b.textContent='Today lit 🔥'; b.classList.add('spent');
+  toast('🔥 Streak extended to 7');
+}
+buildRibbon();
+</script>
+</body>
+</html>

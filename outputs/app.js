@@ -10731,7 +10731,8 @@
     if (options.manual && auto.applied.length) showToast("Synced — auto-counted your latest progress.");
     else if (options.manual && !trimmed) showToast("You're all caught up — nothing new to log.");
     render();
-    coachShowAutoSyncRecap(auto.applied, auto.lastLogged); // confirmation + "post?" offer in the Coach thread
+    flushAutoWires(); // "Now tracking … · Undo" for any freshly-wired rule + persist owner edits to the DB
+    coachShowAutoSyncRecap(auto.applied, auto.lastLogged); // recap + the ONLY follow-up question: "post?"
   }
 
   // Re-sync + rebuild catch-up when the app regains focus, so data that lands while the user is
@@ -11161,6 +11162,7 @@
   }
 
   function buildCatchUp() {
+    pendingAutoWires = []; // collected by recordAutoWire during this pass; flushed by runCatchUp
     const targets = loggableRuleTargets();
     const today = getTodayKey();
     const devices = [];
@@ -11180,16 +11182,24 @@
           // connected source (syncIncrementPreview non-null) — can receive the incremental delta.
           // A MANUAL rule that merely matches by LABEL cannot; don't black-hole the metric on it.
           let reconcilable = matched.filter((m) => syncIncrementPreview(m.t.rule));
-          // AUTO-CONNECT: silently wire any unlinked COMMUNITY rule whose owner enabled device
-          // auto-sync to this feed, so it reconciles like a synced rule (Steps auto-count on login —
-          // no manual "Connect?" tap). Personal rules keep the explicit-connect flow. coachConnectRuleFeed
-          // mutates the RAW stored rule, so re-resolve to read the freshly-wired (normalized) rule.
+          // AUTO-WIRE obvious matches SILENTLY (no "Connect?" card): an exact metric, or a whole-word
+          // canonical-name match (steps→"Steps"). Personal rules + community rules the user OWNS get
+          // wired here, then reconcile like any synced rule. A community rule a MEMBER doesn't own is
+          // left untouched (the shared system is owner-write) — once the owner wires it, the member's
+          // own device fills via the reconcilable path. Weak/ambiguous matches stay manual, no nag.
+          // coachConnectRuleFeed mutates the RAW stored rule, so re-resolve for the normalized one.
           matched.forEach((m) => {
-            if (m.t.contextType !== "community" || !communityAllowsAutosync(m.t.contextId)) return;
-            if (reconcilable.some((r) => r.t.contextId === m.t.contextId && r.t.ruleId === m.t.ruleId)) return; // already linked
-            if (!coachConnectRuleFeed(m.t.contextType, m.t.contextId, m.t.ruleId, source, metric)) return;
-            const wired = resolveQuickLogRule(m.t.contextType, m.t.contextId, m.t.ruleId);
-            if (wired && syncIncrementPreview(wired.rule)) reconcilable.push({ t: Object.assign({}, m.t, { rule: wired.rule, sourceMetric: wired.rule.sourceMetric }), score: m.score });
+            const t = m.t;
+            if (reconcilable.some((r) => r.t.contextId === t.contextId && r.t.ruleId === t.ruleId)) return; // already wired
+            if (!isHighConfidenceDeviceMatch(t.rule, source, metric)) return;
+            if (t.contextType === "community") { if (!canAutoWireCommunityRule(t.contextId)) return; }
+            else if (state.profile.allowAutoSync === false) return; // personal opt-out
+            if (!coachConnectRuleFeed(t.contextType, t.contextId, t.ruleId, source, metric)) return;
+            const wired = resolveQuickLogRule(t.contextType, t.contextId, t.ruleId);
+            if (wired && syncIncrementPreview(wired.rule)) {
+              reconcilable.push({ t: Object.assign({}, t, { rule: wired.rule, sourceMetric: wired.rule.sourceMetric }), score: m.score });
+              recordAutoWire(t, source, metric);
+            }
           });
           if (reconcilable.length > 1) reconcilable.sort((a, b) => b.score - a.score); // keep `best` the strongest match
           if (reconcilable.length) {
@@ -11210,21 +11220,8 @@
             });
             return;
           }
-          // A manual rule matches by LABEL but nothing is device-reconcilable yet (e.g. a hand-
-          // logged "Steps" rule + Fitbit steps). Don't drop the metric — offer to CONNECT the
-          // device feed to that existing rule. Deduped once per new value, like the create offer.
-          if (canOfferTracking(metric) && !wearableValueSeen(source, metric, current, today)) {
-            const t0 = matched[0].t;
-            offers.push({
-              source, metric, connect: true,
-              contextType: t0.contextType, contextId: t0.contextId, contextName: t0.contextName, ruleId: t0.ruleId,
-              label: sourceMetricLabel(source, metric), ruleLabel: t0.label,
-              sourceLabel: wearableShortLabel(source),
-              unit: t0.unit || "",
-              current, increment: current, unknown: false, conflictMine: 0, points: 0,
-              targets: [], primary: "", checked: false,
-            });
-          }
+          // No reconcilable target and no obvious auto-wire (a weak/ambiguous match, or a community
+          // rule this member doesn't own) → leave it manual. No "Connect a feed" card, no nag.
           return;
         }
         // No rule maps to this metric at all — surface it once per new value with a "start
@@ -11275,18 +11272,100 @@
     if (!target) return false;
     if (target.contextType === "community") {
       const community = (state.communities || []).find((c) => c.id === target.contextId);
-      if (!community || community.allowDeviceAutosync !== true) return false;
+      if (!community || community.allowDeviceAutosync === false) return false; // default ON; only an explicit opt-out disables
       const resolved = resolveQuickLogRule(target.contextType, target.contextId, target.ruleId);
       return !!(resolved && ruleConnectedDeviceSources(resolved.rule).length);
     }
     return state.profile.allowAutoSync !== false; // personal default ON
   }
 
-  // Owner opted this community into letting members' connected-device totals auto-count. Used to
-  // decide whether to auto-WIRE an unlinked community rule to a feed at catch-up build time.
+  // Does this community allow members' connected-device totals to auto-count? Default ON — only an
+  // explicit owner opt-out (allowDeviceAutosync === false) disables it. Used to gate auto-wiring.
   function communityAllowsAutosync(communityId) {
     const c = (state.communities || []).find((x) => x.id === communityId);
-    return !!(c && c.allowDeviceAutosync === true);
+    return !!(c && c.allowDeviceAutosync !== false);
+  }
+
+  // ── Silent device auto-wiring (no "Connect a feed" card) ──────────────────────
+  // A device metric "obviously" belongs to a rule when it's an EXACT sourceMetric match OR the
+  // metric's canonical name is a WHOLE WORD in the rule label (steps→"Steps", calories→"Calories
+  // within target", sleep→"Sleep 7+ hours"). Weak/ambiguous matches (steps→"Cardio") are NOT wired.
+  function deviceMetricCanonical(metric) {
+    const m = String(metric || "").toLowerCase();
+    if (m === "steps") return "steps";
+    if (m.indexOf("calorie") !== -1) return "calories";
+    if (m.indexOf("sleep") !== -1) return "sleep";
+    if (m.indexOf("distance") !== -1) return "distance";
+    return ""; // minutes / spending / etc. stay ambiguous → require an exact metric match
+  }
+  function isHighConfidenceDeviceMatch(rule, source, metric) {
+    if (!rule) return false;
+    if (rule.sourceMetric && rule.sourceMetric === metric) return true; // exact metric (ruleMatchScore 3)
+    const canon = deviceMetricCanonical(metric);
+    if (!canon) return false;
+    return String(rule.label || "").toLowerCase().split(/[^a-z]+/).indexOf(canon) !== -1; // whole-word
+  }
+  // May the CURRENT user silently wire a COMMUNITY rule? Only the OWNER may (wiring edits the shared
+  // communities.system jsonb — a member write would fail RLS), and only when auto-count isn't opted out.
+  function canAutoWireCommunityRule(communityId) {
+    const c = (state.communities || []).find((x) => x.id === communityId);
+    return !!(c && communityAllowsAutosync(communityId) && isCommunityAdmin(c));
+  }
+  // Rules freshly auto-wired during the current buildCatchUp pass — flushAutoWires() (in runCatchUp)
+  // persists owner edits to the DB and shows a "Now tracking … · Undo" confirmation for each.
+  let pendingAutoWires = [];
+  function recordAutoWire(t, source, metric) {
+    pendingAutoWires.push({ contextType: t.contextType, contextId: t.contextId, ruleId: t.ruleId,
+      ruleLabel: t.label, source: source, metric: metric,
+      sourceLabel: wearableShortLabel(source), metricLabel: sourceMetricLabel(source, metric) });
+  }
+  // After a catch-up pass: persist any OWNER-wired community systems to the DB (so the wiring sticks
+  // across reload + reaches every member), then show one non-blocking "Now tracking … · Undo" card
+  // per freshly-wired rule. The increment itself already applied via the normal sync path.
+  function flushAutoWires() {
+    const wires = pendingAutoWires; pendingAutoWires = [];
+    if (!wires.length) return;
+    const persisted = {};
+    wires.forEach((w) => {
+      if (w.contextType === "community" && !persisted[w.contextId]) {
+        const c = (state.communities || []).find((x) => x.id === w.contextId);
+        if (c && isCommunityAdmin(c) && isServerBackedCommunity(c) && signalsReady() && window.PointwellSignals && typeof window.PointwellSignals.updateCommunityMedia === "function") {
+          persisted[w.contextId] = true;
+          Promise.resolve(window.PointwellSignals.updateCommunityMedia(c.id, { system: c.system }))
+            .then((res) => { if (res && res.error) showToast("Tracking here, but the rule didn't sync to the community"); }).catch(() => {});
+        }
+      }
+      const tok = escapeHtml(w.contextType + "|" + w.contextId + "|" + w.ruleId + "|" + w.source);
+      coachSay(`
+        <div class="coach-card coach-sync-card is-active" data-coach-autowire-card>
+          <p class="coach-card-title">⌚ Now tracking <strong>${escapeHtml(w.ruleLabel || w.metricLabel)}</strong> from ${escapeHtml(w.sourceLabel)}</p>
+          <div class="coach-card-actions"><button type="button" class="ghost-button small" data-coach-undo-autowire="${tok}">Undo</button></div>
+        </div>`);
+    });
+    if (typeof renderCoachLauncher === "function") renderCoachLauncher();
+  }
+  // Undo a silent auto-wire: drop the device source from the rule (back to manual if it was the only
+  // one), re-persist for an owner, and re-render. The already-counted value for today stays.
+  function coachUndoAutoWire(tok, cardEl) {
+    const p = String(tok).split("|"); // contextType|contextId|ruleId|source
+    const contextType = p[0], contextId = p[1], ruleId = p[2], source = p[3];
+    let community = contextType === "community" ? (state.communities || []).find((c) => c.id === contextId) : null;
+    let rawRule = community ? ((community.system && community.system.rules) || []).find((r) => r.id === ruleId) : null;
+    if (!rawRule && contextType === "personal") { const s = (state.systems || []).find((x) => x.id === contextId); rawRule = s && (s.rules || []).find((r) => r.id === ruleId); }
+    if (rawRule) {
+      const left = ruleDeviceSources(rawRule).filter((s) => s !== source);
+      rawRule.dataSources = left;
+      rawRule.dataSource = left[0] || "manual";
+      if (!left.length) rawRule.sourceMetric = "manual";
+      if (community && isCommunityAdmin(community) && isServerBackedCommunity(community) && signalsReady() && window.PointwellSignals && typeof window.PointwellSignals.updateCommunityMedia === "function") {
+        Promise.resolve(window.PointwellSignals.updateCommunityMedia(community.id, { system: community.system }))
+          .then((res) => { if (res && res.error) showToast("Stopped here, but the change didn't sync to the community"); }).catch(() => {});
+      }
+      saveState();
+      render();
+    }
+    if (cardEl) { cardEl.classList.remove("is-active"); cardEl.classList.add("is-done"); Array.from(cardEl.querySelectorAll("button")).forEach((b) => { b.disabled = true; }); }
+    showToast("Stopped auto-tracking from " + wearableShortLabel(source));
   }
 
   // On login / app-open / each device sync, auto-apply connected-device increments into eligible
@@ -12718,6 +12797,7 @@
   // turn it on — mirrors maybeShowChallengeNudge (self-contained coach card, persisted signature so
   // a reload doesn't re-nag). Tapping Enable flips the flag + immediately reconciles today's totals.
   function maybeShowAutosyncEnableHint() {
+    return; // Auto-count is ON by default now — the "enable it?" nudge is obsolete (only the post offer asks).
     if (onboardingActive) return;
     if (coachLearning().proactiveOff) return;
     if (!coachShouldPeekType("autosync")) return;       // owner keeps dismissing → back off
@@ -12999,18 +13079,7 @@
 
   function coachPostDeviceNudge(d) {
     const tok = escapeHtml(d.source + "|" + d.metric);
-    if (d.connect) {
-      coachSay(`
-        <div class="coach-card coach-nudge-card is-active">
-          <div class="coach-nudge-head"><span class="via-source-tag">${escapeHtml(d.sourceLabel)}</span> Connect a feed</div>
-          <p class="coach-card-title">${escapeHtml(d.sourceLabel)} shows ${escapeHtml(formatMetricPhrase(d.current, d.unit, d.label.toLowerCase()))} today — track it with your ${escapeHtml(d.ruleLabel)} rule?</p>
-          <div class="coach-card-actions">
-            <button type="button" class="ghost-button small" data-coach-connectdismiss="${tok}">Not now</button>
-            <button type="button" class="primary-button small" data-coach-connect="${tok}">Connect</button>
-          </div>
-        </div>`);
-      return;
-    }
+    // ("Connect a feed" cards are retired — obvious device metrics auto-wire to their rule silently.)
     if (d.noRule) {
       coachSay(`
         <div class="coach-card coach-nudge-card is-active">
@@ -13714,7 +13783,7 @@
         line += toGo > 0 ? ` — ${escapeHtml(formatCount(toGo))} to go to hit ${escapeHtml(formatCount(goal))}` : ` — past your ${escapeHtml(formatCount(goal))} goal! 🎉`;
       }
       line += ".";
-      if (found && !found.connected) line += ` Your <strong>${escapeHtml(found.rule.label)}</strong> rule isn't wired to ${escapeHtml(device.sourceLabel)} yet — I'll offer to connect it the next time it syncs.`;
+      if (found && !found.connected) line += ` Your <strong>${escapeHtml(found.rule.label)}</strong> rule isn't wired to ${escapeHtml(device.sourceLabel)} yet — it'll auto-link the next time it syncs if it's an obvious match.`;
       return { html: `<p>${line}</p>` };
     }
     if (!found) return { html: `<p>I don't see a ${escapeHtml(m)} tracker set up or a device sending it — add one in Build (and connect a device) and I'll track it.</p>` };
@@ -14485,6 +14554,8 @@
     const asEnable = t.closest("[data-coach-autosync-enable]");
     if (asEnable) { coachAutosyncEnable(asEnable.dataset.coachAutosyncEnable, card()); return; }
     if (t.closest("[data-coach-autosync-dismiss]")) { coachAutosyncDismiss(card()); return; }
+    const undoWire = t.closest("[data-coach-undo-autowire]");
+    if (undoWire) { coachUndoAutoWire(undoWire.dataset.coachUndoAutowire, undoWire.closest("[data-coach-autowire-card]")); return; }
     if (t.closest("[data-coach-behind]")) { coachBehindCatchUp(card()); return; }
     if (t.closest("[data-coach-behinddismiss]")) { coachBehindDismiss(card()); return; }
     if (t.closest("[data-coach-softdismiss]")) { coachSoftDismiss(card()); return; }
@@ -17649,16 +17720,15 @@
     analytics.defaultPeriod = COMMUNITY_PERIODS.some((item) => item.id === els.ccDefaultPeriodInput.value) ? els.ccDefaultPeriodInput.value : "weekly";
     analytics.metric = els.ccMetricInput.value === "completion" ? "completion" : "points";
     community.analytics = analytics;
-    // Device auto-sync opt-in is a top-level community column (NOT analytics). Persist it server-side
-    // via the existing owner-gated community-update path so it applies for every member, not just
-    // this device — unlike the rest of community settings, which are local-only today.
-    if (els.ccAllowDeviceAutosync) {
-      community.allowDeviceAutosync = els.ccAllowDeviceAutosync.checked;
-      if (signalsReady() && isServerBackedCommunity(community) && window.PointwellSignals && typeof window.PointwellSignals.updateCommunityMedia === "function") {
-        Promise.resolve(window.PointwellSignals.updateCommunityMedia(community.id, { allow_device_autosync: community.allowDeviceAutosync }))
-          .then((res) => { if (res && res.error) showToast("Saved here, but the auto-sync setting didn't sync"); })
-          .catch(() => {});
-      }
+    if (els.ccAllowDeviceAutosync) community.allowDeviceAutosync = els.ccAllowDeviceAutosync.checked;
+    // Persist the RULES (data source + metric + goals) AND the auto-count opt-out to the shared
+    // community row so they survive a reload and apply for every member — owner-only via the existing
+    // community-update path (RLS rejects non-owners). Without the `system` write, rule edits lived
+    // only in localStorage and were silently lost on the next DB fetch (the data-source persistence bug).
+    if (signalsReady() && isServerBackedCommunity(community) && window.PointwellSignals && typeof window.PointwellSignals.updateCommunityMedia === "function") {
+      Promise.resolve(window.PointwellSignals.updateCommunityMedia(community.id, { system: community.system, allow_device_autosync: community.allowDeviceAutosync }))
+        .then((res) => { if (res && res.error) showToast("Saved here, but the rules didn't sync to the community"); })
+        .catch(() => {});
     }
     saveState();
     showToast("Community settings saved");
@@ -19600,9 +19670,10 @@
       // they survive a reload — fetchMyCommunities selects *, so the row has these columns.
       coverUrl: row.cover_url || "",
       iconUrl: row.icon_url || "",
-      // Owner opt-in to auto-count members' connected-device totals on login/sync (fetchMyCommunities
-      // selects *, so the column is present). Default false until the owner enables it.
-      allowDeviceAutosync: row.allow_device_autosync === true,
+      // Auto-count members' connected-device totals on login/sync. Default ON: only an explicit
+      // false (the owner opting out) disables it — null/undefined/true all mean on. (fetchMyCommunities
+      // selects *, so the column is present.)
+      allowDeviceAutosync: row.allow_device_autosync !== false,
       system: normalizeSystem(system),
       members: members,
       logs: [],

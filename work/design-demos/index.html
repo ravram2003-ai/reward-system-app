@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — design exploration</title>
+<style>
+  :root{--bg:#050807;--panel:#0b100e;--raise:#11201a;--line:#1b2521;--line-2:#243029;--ink:#eef2f0;--ink-dim:#9fb0aa;--ink-mute:#7c8d87;--mint:#5cf3b8;--green:#3ddc97;--green-deep:#1c4d3b;--green-line:#2c5a48;--blue:#5cb0f3;--amber:#f0c97a;--rose:#f59ab0;color-scheme:dark;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;}
+  body{min-height:100vh;background:radial-gradient(130% 80% at 50% -15%,#0b1814 0%,#050807 58%);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;padding:42px 20px 70px;}
+  .wrap{max-width:920px;margin:0 auto;}
+  .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--mint),var(--green));color:#04140e;display:grid;place-items:center;font-weight:800;font-size:18px;}
+  .head{display:flex;align-items:center;gap:13px;margin-bottom:6px;}
+  h1{font-size:30px;font-weight:760;letter-spacing:-.02em;margin:0;}
+  .sub{color:var(--ink-dim);font-size:15px;line-height:1.55;max-width:640px;margin:10px 0 4px;}
+  .sub b{color:var(--ink);font-weight:600;}
+  .hint{color:var(--ink-mute);font-size:13px;margin:18px 0 26px;}
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}
+  @media(max-width:680px){.grid{grid-template-columns:1fr;}}
+  a.card{display:flex;flex-direction:column;gap:11px;text-decoration:none;color:inherit;background:linear-gradient(180deg,var(--panel),#090d0b);border:1px solid var(--line);border-radius:20px;padding:20px;transition:transform .25s cubic-bezier(.2,.8,.2,1),border-color .25s ease,box-shadow .25s ease;position:relative;overflow:hidden;}
+  a.card:hover{transform:translateY(-3px);border-color:var(--green-line);box-shadow:0 14px 40px -22px rgba(92,243,184,.45);}
+  a.card::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--accent,var(--mint));opacity:.85;}
+  .num{font-size:12px;font-weight:700;color:var(--ink-mute);letter-spacing:.08em;}
+  .row{display:flex;align-items:center;gap:11px;}
+  .glyph{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-size:21px;background:#0c1512;border:1px solid var(--line-2);flex:0 0 auto;}
+  .name{font-size:18px;font-weight:680;letter-spacing:-.01em;}
+  .dim{font-size:11.5px;font-weight:650;color:var(--accent,var(--mint));text-transform:uppercase;letter-spacing:.06em;margin-top:2px;}
+  .why{color:var(--ink-dim);font-size:13.5px;line-height:1.5;}
+  .go{margin-top:2px;font-size:13px;font-weight:650;color:var(--accent,var(--mint));display:inline-flex;align-items:center;gap:6px;}
+  .foot{color:var(--ink-mute);font-size:12.5px;line-height:1.6;margin-top:30px;text-align:center;}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head"><div class="logo">P</div><h1>Pointwell — design exploration</h1></div>
+    <p class="sub">Six UI concepts, each attacking a <b>different</b> friction in a habit / reward app. Built as live, self-contained demos — tap, drag, type, watch them move. Always-dark, calm, native-feeling.</p>
+    <p class="hint">↓ Open any one (best at a narrow / phone width — each is a 390px screen).</p>
+
+    <div class="grid">
+      <a class="card" href="swipe-stack.html" style="--accent:var(--mint)">
+        <div class="num">01</div>
+        <div class="row"><div class="glyph">🃏</div><div><div class="name">Swipe Stack</div><div class="dim">Speed · logging</div></div></div>
+        <div class="why">Your whole day as a card stack — swipe right to log, left to skip, up to enter an amount. The daily check-in in ten seconds instead of tap-tap-tap.</div>
+        <span class="go">Open demo →</span>
+      </a>
+
+      <a class="card" href="day-ring.html" style="--accent:var(--green)">
+        <div class="num">02</div>
+        <div class="row"><div class="glyph">◍</div><div><div class="name">Day Ring</div><div class="dim">Glanceability</div></div></div>
+        <div class="why">Your entire day as one radial gauge — every habit is an arc that fills with progress, one number in the middle. No list to scroll; the whole day in a glance.</div>
+        <span class="go">Open demo →</span>
+      </a>
+
+      <a class="card" href="momentum.html" style="--accent:var(--mint)">
+        <div class="num">03</div>
+        <div class="row"><div class="glyph">📈</div><div><div class="name">Momentum</div><div class="dim">Motivation framing</div></div></div>
+        <div class="why">Reward showing up, not just big days. A consistency score + a contribution heatmap that turns "I keep skipping" into a pattern you can see and beat.</div>
+        <span class="go">Open demo →</span>
+      </a>
+
+      <a class="card" href="command-bar.html" style="--accent:var(--blue)">
+        <div class="num">04</div>
+        <div class="row"><div class="glyph">⌘</div><div><div class="name">Command Bar</div><div class="dim">Input</div></div></div>
+        <div class="why">One smart bar. Type the way you think — "ran 30 min", "slept 8h", "8000 steps" — watch it parse live and log anywhere. Power-user speed, zero menus.</div>
+        <span class="go">Open demo →</span>
+      </a>
+
+      <a class="card" href="reward-vault.html" style="--accent:var(--green)">
+        <div class="num">05</div>
+        <div class="row"><div class="glyph">🫙</div><div><div class="name">Reward Vault</div><div class="dim">Purpose</div></div></div>
+        <div class="why">It's a <i>reward</i> system, but points are abstract. Pick a real reward and watch a vessel fill toward it — effort you can see, with a satisfying unlock.</div>
+        <span class="go">Open demo →</span>
+      </a>
+
+      <a class="card" href="ambient-room.html" style="--accent:var(--rose)">
+        <div class="num">06</div>
+        <div class="row"><div class="glyph">🜂</div><div><div class="name">Ambient Room</div><div class="dim">Healthy social</div></div></div>
+        <div class="why">Social motivation without a feed. Your circle as a calm, living room of avatars that glow when friends show up — presence over performance, no scroll, no shame.</div>
+        <span class="go">Open demo →</span>
+      </a>
+    </div>
+
+    <p class="foot">Concept demos for Pointwell · not wired to the real app · vanilla HTML/CSS/JS, no dependencies.</p>
+  </div>
+</body>
+</html>

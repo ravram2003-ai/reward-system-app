@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Pointwell · Day Ring</title>
+<style>
+:root{--bg:#050807;--panel:#0b100e;--panel-2:#0c100e;--raise:#11201a;--line:#1b2521;--line-2:#243029;--ink:#eef2f0;--ink-dim:#9fb0aa;--ink-mute:#7c8d87;--mint:#5cf3b8;--green:#3ddc97;--green-deep:#1c4d3b;--green-line:#2c5a48;--blue:#5cb0f3;--blue-bg:#0f2230;--blue-line:#244a5a;--amber:#f0c97a;--rose:#f59ab0;--r:18px;--r-sm:12px;color-scheme:dark;}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;}
+body{min-height:100vh;background:radial-gradient(130% 90% at 50% -20%,#0b1814 0%,#050807 55%);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;padding:22px 0 40px;}
+
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;}
+
+.screen{width:390px;max-width:100vw;padding:0 16px;}
+
+.statusbar{display:flex;align-items:center;justify-content:space-between;padding:6px 2px 14px;font-size:13px;color:var(--ink-dim);font-weight:600;}
+.logo{width:26px;height:26px;background:linear-gradient(135deg,var(--mint),var(--green));color:#04140e;border-radius:8px;display:grid;place-items:center;font-weight:800;font-size:15px;}
+
+h1{font-size:24px;font-weight:700;margin:0 2px 2px;letter-spacing:-.4px;}
+
+.subline{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-mute);margin:0 2px 6px;font-weight:500;min-height:18px;}
+.subline b{color:var(--ink-dim);font-weight:600;}
+.subline .dot{width:3px;height:3px;border-radius:50%;background:var(--line-2);}
+.subline .pct{color:var(--mint);font-weight:700;}
+
+/* ---- RING ---- */
+.ringwrap{position:relative;width:280px;height:280px;margin:6px auto 4px;display:grid;place-items:center;}
+.ring{width:280px;height:280px;transform:rotate(-90deg);overflow:visible;}
+.ring .track{fill:none;stroke:var(--line);stroke-width:13;stroke-linecap:round;opacity:.55;}
+.ring .arc{fill:none;stroke-width:13;stroke-linecap:round;transition:stroke-dasharray 1.05s cubic-bezier(.2,.8,.2,1),stroke-dashoffset 1.05s cubic-bezier(.2,.8,.2,1),stroke .45s ease,opacity .45s ease;}
+
+.center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;}
+.center .big{font-size:64px;font-weight:800;letter-spacing:-2.5px;line-height:1;background:linear-gradient(160deg,var(--mint),var(--green));-webkit-background-clip:text;background-clip:text;color:transparent;font-variant-numeric:tabular-nums;}
+.center .big .sym{font-size:26px;font-weight:700;vertical-align:top;margin-left:1px;-webkit-text-fill-color:var(--green);opacity:.85;}
+.center .sub{margin-top:7px;font-size:13px;color:var(--ink-dim);font-weight:600;letter-spacing:.1px;}
+.center .sub b{color:var(--ink);font-weight:800;}
+
+/* center pulse on update */
+@keyframes centerPop{0%{transform:scale(1);}40%{transform:scale(1.07);}100%{transform:scale(1);}}
+.center.pop .big{animation:centerPop .5s cubic-bezier(.2,.8,.2,1);}
+
+/* arc complete flash */
+@keyframes arcFlash{0%{stroke-width:13;}50%{stroke-width:17;}100%{stroke-width:13;}}
+.ring .arc.flash{animation:arcFlash .55s cubic-bezier(.2,.8,.2,1);}
+
+/* tick burst at center */
+.tick{position:absolute;top:50%;left:50%;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;background:radial-gradient(circle,rgba(92,243,184,.30),transparent 70%);display:grid;place-items:center;opacity:0;pointer-events:none;}
+.tick svg{width:24px;height:24px;}
+@keyframes tickBurst{0%{opacity:0;transform:scale(.4);}30%{opacity:1;transform:scale(1.1);}100%{opacity:0;transform:scale(1.5);}}
+.tick.go{animation:tickBurst .7s cubic-bezier(.2,.8,.2,1);}
+
+/* ---- CHIPS ---- */
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:18px 0 4px;}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:8px 12px 8px 9px;background:var(--panel);border:1px solid var(--line);border-radius:999px;cursor:pointer;user-select:none;transition:transform .35s cubic-bezier(.2,.8,.2,1),background .35s ease,border-color .35s ease,box-shadow .35s ease;position:relative;}
+.chip:active{transform:scale(.94);}
+.chip .emo{font-size:15px;line-height:1;width:18px;text-align:center;}
+.chip .lbl{font-size:13px;font-weight:650;color:var(--ink);letter-spacing:-.1px;}
+.chip .val{font-size:11px;font-weight:600;color:var(--ink-mute);font-variant-numeric:tabular-nums;}
+.chip .check{width:15px;height:15px;display:none;}
+.chip.done{background:var(--green-deep);border-color:var(--green-line);}
+.chip.done .lbl{color:var(--mint);}
+.chip.done .val{display:none;}
+.chip.done .check{display:block;}
+
+/* next-up pulse */
+@keyframes nextPulse{0%,100%{box-shadow:0 0 0 0 rgba(92,243,184,0);border-color:var(--line);}50%{box-shadow:0 0 0 3px rgba(92,243,184,.13);border-color:var(--green-line);}}
+.chip.nextup{animation:nextPulse 2.1s cubic-bezier(.4,0,.6,1) infinite;}
+.chip.nextup .lbl{color:#cdeee2;}
+
+/* completed chip just now: little settle */
+@keyframes chipPop{0%{transform:scale(1);}45%{transform:scale(1.09);}100%{transform:scale(1);}}
+.chip.justdone{animation:chipPop .5s cubic-bezier(.2,.8,.2,1);}
+
+.cap{width:390px;max-width:100vw;padding:14px 18px 0;color:var(--ink-mute);font-size:12px;line-height:1.5;text-align:center;}
+.cap b{color:var(--ink-dim);}
+
+@media (prefers-reduced-motion:reduce){
+  .ring .arc{transition:none;}
+  .chip.nextup{animation:none;border-color:var(--green-line);box-shadow:0 0 0 2px rgba(92,243,184,.12);}
+}
+</style>
+</head>
+<body>
+<h2 class="sr-only">Pointwell Today screen: a radial Day Ring where each of six habits is an arc segment showing progress, with the overall completion percent at the center. Tap a habit chip to log progress.</h2>
+
+<div class="screen">
+  <div class="statusbar">
+    <span>9:41</span>
+    <span class="logo">P</span>
+  </div>
+
+  <h1>Today</h1>
+  <p class="subline" id="subline"><b>Tap a habit to log</b><span class="dot"></span>you're <span class="pct" id="subpct">0%</span> through today</p>
+
+  <div class="ringwrap">
+    <svg class="ring" id="ring" viewBox="0 0 280 280" aria-hidden="true">
+      <g id="tracks"></g>
+      <g id="arcs"></g>
+    </svg>
+    <div class="center" id="center">
+      <div class="big"><span id="bignum">0</span><span class="sym">%</span></div>
+      <div class="sub"><b id="donecount">0</b> of 6 done</div>
+    </div>
+    <div class="tick" id="tick">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.2 4.2L19 7" stroke="#5cf3b8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+  </div>
+
+  <div class="chips" id="chips"></div>
+</div>
+
+<p class="cap"><b>Day Ring</b> — your entire day as one glanceable ring, no scrolling a list.</p>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---- habit model ----
+  // type 'yn' = yes/no (tap = done). type 'count' = goal-based; tap adds `step`.
+  var habits = [
+    {id:'lift',  emo:'💪', label:'Lifting',  type:'yn',    done:true,  short:'Lifting'},
+    {id:'steps', emo:'👟', label:'Steps',    type:'count', cur:8000,  goal:10000, step:2000, unit:'',   short:'Steps', fmt:'k'},
+    {id:'sleep', emo:'😴', label:'Sleep',    type:'yn',    done:true,  short:'Sleep 7+'},
+    {id:'prot',  emo:'🍗', label:'Protein',  type:'count', cur:90,    goal:150,   step:30,   unit:'g',  short:'Protein', fmt:'g'},
+    {id:'cardio',emo:'◇',  label:'Cardio',   type:'count', cur:0,     goal:30,    step:15,   unit:'m',  short:'Cardio', fmt:'m'},
+    {id:'mind',  emo:'🧘', label:'Mindful',  type:'count', cur:0,     goal:10,    step:10,   unit:'m',  short:'Mindful',fmt:'m'}
+  ];
+
+  function pct(h){
+    if(h.type==='yn') return h.done?1:0;
+    return Math.max(0,Math.min(1,h.cur/h.goal));
+  }
+  function isDone(h){ return pct(h) >= 0.999; }
+  function overallPct(){
+    var s=0; for(var i=0;i<habits.length;i++) s+=pct(habits[i]);
+    return s/habits.length;
+  }
+  function doneCount(){
+    var c=0; for(var i=0;i<habits.length;i++) if(isDone(habits[i])) c++;
+    return c;
+  }
+
+  // ---- value formatting for chips ----
+  function shortNum(n){
+    if(n>=1000){ var k=n/1000; return (k%1===0?k.toFixed(0):k.toFixed(1))+'k'; }
+    return String(n);
+  }
+  function chipVal(h){
+    if(h.type==='yn') return '';
+    if(h.fmt==='k') return shortNum(h.cur)+'/'+shortNum(h.goal);
+    return h.cur+'/'+h.goal+(h.unit||'');
+  }
+
+  // ---- SVG ring geometry ----
+  // 6 equal segments around a circle, separated by even gaps.
+  var SIZE=280, CX=140, CY=140, R=118; // radius of stroke centerline
+  var CIRC=2*Math.PI*R;
+  var N=habits.length;
+  var GAP_PX=12;                       // visual gap between segments (in path units)
+  var segLen=(CIRC-GAP_PX*N)/N;        // arc length available per segment for the TRACK
+  var arcEls={}, trackEls={};
+
+  var SVGNS='http://www.w3.org/2000/svg';
+  var tracksG=document.getElementById('tracks');
+  var arcsG=document.getElementById('arcs');
+
+  // Build a circle whose dash pattern carves one segment, rotated into place.
+  // dasharray = [visibleLen, restOfCircle]; we then rotate the whole circle so the
+  // visible chunk lands at the segment's start angle.
+  function segStartOffset(i){
+    // distance (in path units) from path origin (3 o'clock, but ring is rotated -90deg via CSS
+    // so origin renders at 12 o'clock) to the start of segment i.
+    return i*(segLen+GAP_PX) + GAP_PX/2;
+  }
+
+  function makeCircle(cls){
+    var c=document.createElementNS(SVGNS,'circle');
+    c.setAttribute('cx',CX); c.setAttribute('cy',CY); c.setAttribute('r',R);
+    c.setAttribute('class',cls);
+    return c;
+  }
+
+  habits.forEach(function(h,i){
+    var start=segStartOffset(i);
+    // TRACK: full segment, faint
+    var t=makeCircle('track');
+    t.setAttribute('stroke-dasharray', segLen+' '+(CIRC-segLen));
+    t.setAttribute('stroke-dashoffset', -start);
+    tracksG.appendChild(t);
+    trackEls[h.id]=t;
+
+    // ARC: filled portion, starts at 0 length, animates to pct*segLen
+    var a=makeCircle('arc');
+    a.setAttribute('data-id',h.id);
+    a.setAttribute('stroke-dashoffset', -start);
+    a.setAttribute('stroke-dasharray', '0 '+CIRC); // start empty
+    arcsG.appendChild(a);
+    arcEls[h.id]=a;
+  });
+
+  // color of an arc by its progress
+  function arcColor(h){
+    var p=pct(h);
+    if(p>=0.999) return 'url(#g_full)';
+    if(p>0)      return 'var(--mint)';
+    return 'var(--line-2)';
+  }
+  function arcOpacity(h){
+    var p=pct(h);
+    if(p>=0.999) return '1';
+    if(p>0)      return String(0.45+p*0.4); // partial: dimmer, brighter as it fills
+    return '0';
+  }
+
+  // gradient def (mint -> green) for completed arcs
+  (function defs(){
+    var defs=document.createElementNS(SVGNS,'defs');
+    var lg=document.createElementNS(SVGNS,'linearGradient');
+    lg.setAttribute('id','g_full');
+    lg.setAttribute('x1','0');lg.setAttribute('y1','0');lg.setAttribute('x2','1');lg.setAttribute('y2','1');
+    var s1=document.createElementNS(SVGNS,'stop');s1.setAttribute('offset','0');s1.setAttribute('stop-color','#5cf3b8');
+    var s2=document.createElementNS(SVGNS,'stop');s2.setAttribute('offset','1');s2.setAttribute('stop-color','#3ddc97');
+    lg.appendChild(s1);lg.appendChild(s2);defs.appendChild(lg);
+    document.getElementById('ring').insertBefore(defs,document.getElementById('ring').firstChild);
+  })();
+
+  // set an arc's filled length (optionally without transition)
+  function paintArc(h){
+    var a=arcEls[h.id];
+    var len=pct(h)*segLen;
+    a.setAttribute('stroke-dasharray', len+' '+(CIRC-len));
+    a.setAttribute('stroke', arcColor(h));
+    a.style.opacity = arcOpacity(h);
+  }
+
+  // ---- center count-up ----
+  var bignum=document.getElementById('bignum');
+  var donecountEl=document.getElementById('donecount');
+  var subpct=document.getElementById('subpct');
+  var centerEl=document.getElementById('center');
+  var displayedPct=0;
+
+  function animateNumber(from,to,dur,cb){
+    var t0=performance.now();
+    function frame(now){
+      var k=Math.min(1,(now-t0)/dur);
+      var e=1-Math.pow(1-k,3); // ease-out cubic
+      var v=Math.round(from+(to-from)*e);
+      cb(v);
+      if(k<1) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function updateCenter(pop,animate){
+    var target=Math.round(overallPct()*100);
+    var from=displayedPct;
+    displayedPct=target;
+    if(animate===false){
+      bignum.textContent=target; subpct.textContent=target+'%';
+    } else {
+      animateNumber(from,target,650,function(v){
+        bignum.textContent=v;
+        subpct.textContent=v+'%';
+      });
+    }
+    donecountEl.textContent=doneCount();
+    if(pop){
+      centerEl.classList.remove('pop'); void centerEl.offsetWidth; centerEl.classList.add('pop');
+    }
+  }
+
+  // ---- chips ----
+  var chipsEl=document.getElementById('chips');
+  var chipEls={};
+
+  function buildChips(){
+    habits.forEach(function(h){
+      var c=document.createElement('button');
+      c.className='chip';
+      c.setAttribute('data-id',h.id);
+      c.setAttribute('aria-label',h.label);
+      c.innerHTML =
+        '<span class="emo">'+h.emo+'</span>'+
+        '<span class="lbl">'+h.short+'</span>'+
+        '<span class="val">'+chipVal(h)+'</span>'+
+        '<svg class="check" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.2 4.2L19 7" stroke="#5cf3b8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      c.addEventListener('click',function(){ onChip(h); });
+      chipsEl.appendChild(c);
+      chipEls[h.id]=c;
+    });
+  }
+
+  function refreshChip(h){
+    var c=chipEls[h.id];
+    c.querySelector('.val').textContent=chipVal(h);
+    c.classList.toggle('done', isDone(h));
+  }
+
+  // find lowest-progress not-done habit -> "next up"
+  function updateNextUp(){
+    var best=null, bestP=2;
+    habits.forEach(function(h){
+      if(isDone(h)) return;
+      var p=pct(h);
+      if(p<bestP){ bestP=p; best=h; }
+    });
+    habits.forEach(function(h){
+      chipEls[h.id].classList.toggle('nextup', best && h.id===best.id);
+    });
+  }
+
+  // ---- tick burst ----
+  var tickEl=document.getElementById('tick');
+  function burst(){
+    tickEl.classList.remove('go'); void tickEl.offsetWidth; tickEl.classList.add('go');
+  }
+
+  // ---- chip tap -> log ----
+  function onChip(h){
+    var wasDone=isDone(h);
+    if(h.type==='yn'){
+      h.done=true;
+    }else{
+      h.cur=Math.min(h.goal, h.cur+h.step);
+    }
+    var nowDone=isDone(h);
+
+    paintArc(h);
+    refreshChip(h);
+    updateCenter(true);
+    updateNextUp();
+    updateSubline();
+
+    var a=arcEls[h.id];
+    a.classList.remove('flash'); void a.offsetWidth; a.classList.add('flash');
+
+    if(nowDone && !wasDone){
+      burst();
+      var c=chipEls[h.id];
+      c.classList.remove('justdone'); void c.offsetWidth; c.classList.add('justdone');
+    }
+  }
+
+  // subline already mostly static; just keep pct synced via updateCenter (shares subpct)
+  function updateSubline(){ /* subpct handled in updateCenter's count-up */ }
+
+  // ---- init + entrance animation ----
+  buildChips();
+  habits.forEach(refreshChip);
+  updateNextUp();
+
+  // Render the seeded state RELIABLY on load: paint arcs to their values (the CSS transition
+  // animates them filling in) and set the center % instantly, so the ring never sits stuck at 0%
+  // even if requestAnimationFrame is throttled on first paint. Tapping a chip still animates.
+  function start(){
+    habits.forEach(paintArc);   // arcs fill via the stroke-dasharray transition
+    updateCenter(false, false); // center % shows the seeded value immediately
+  }
+  // arcs start empty for one frame so the transition has somewhere to animate FROM, then fill.
+  requestAnimationFrame(start);
+  setTimeout(start, 60);   // belt-and-suspenders if rAF is throttled
+  window.addEventListener('load', start);
+})();
+</script>
+</body>
+</html>

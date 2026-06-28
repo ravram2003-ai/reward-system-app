@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pointwell — Reward Vault</title>
+<style>
+:root{--bg:#050807;--panel:#0b100e;--panel-2:#0c100e;--raise:#11201a;--line:#1b2521;--line-2:#243029;--ink:#eef2f0;--ink-dim:#9fb0aa;--ink-mute:#7c8d87;--mint:#5cf3b8;--green:#3ddc97;--green-deep:#1c4d3b;--green-line:#2c5a48;--blue:#5cb0f3;--blue-bg:#0f2230;--blue-line:#244a5a;--amber:#f0c97a;--rose:#f59ab0;--r:18px;--r-sm:12px;color-scheme:dark;}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;}
+body{min-height:100vh;background:radial-gradient(130% 90% at 50% -20%,#0b1814 0%,#050807 55%);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;padding:22px 0 40px;}
+
+.screen{width:390px;max-width:100vw;padding:0 16px;}
+
+/* status bar */
+.statusbar{display:flex;align-items:center;justify-content:space-between;height:30px;font-size:14px;font-weight:600;color:var(--ink);letter-spacing:.2px;}
+.statusbar .right{display:flex;align-items:center;gap:8px;}
+.logo{width:26px;height:26px;background:linear-gradient(135deg,var(--mint),var(--green));color:#04140e;border-radius:8px;display:grid;place-items:center;font-weight:800;font-size:15px;}
+
+h1{font-size:24px;font-weight:700;letter-spacing:-.3px;margin:14px 0 2px;}
+.sub{color:var(--ink-mute);font-size:13px;margin:0 0 18px;}
+
+/* ---- hero stage ---- */
+.stage{position:relative;display:flex;flex-direction:column;align-items:center;margin-top:6px;}
+
+.goal-label{display:flex;align-items:center;gap:7px;font-size:14px;color:var(--ink-dim);font-weight:600;margin-bottom:16px;}
+.goal-emoji{font-size:17px;}
+.goal-edit{margin-left:2px;width:24px;height:24px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--ink-mute);display:grid;place-items:center;cursor:pointer;transition:.18s;padding:0;}
+.goal-edit:active{transform:scale(.92);}
+.goal-edit:hover{border-color:var(--line-2);color:var(--ink-dim);}
+
+.vesselwrap{position:relative;width:170px;display:flex;justify-content:center;}
+.vessel{position:relative;width:150px;height:240px;}
+
+/* floating +today chip */
+.todaychip{position:absolute;top:30px;right:-14px;z-index:6;background:var(--raise);border:1px solid var(--green-line);color:var(--mint);font-size:12px;font-weight:700;padding:6px 11px;border-radius:999px;box-shadow:0 6px 18px rgba(0,0,0,.45);animation:floaty 4.2s ease-in-out infinite;display:flex;align-items:center;gap:5px;white-space:nowrap;}
+@keyframes floaty{0%,100%{transform:translateY(0);}50%{transform:translateY(-6px);}}
+
+/* numbers overlaid on vessel */
+.readout{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);text-align:center;z-index:5;pointer-events:none;}
+.pct{font-size:40px;font-weight:800;letter-spacing:-1.5px;line-height:1;color:var(--ink);text-shadow:0 2px 14px rgba(0,0,0,.6);}
+.frac{margin-top:7px;font-size:14px;font-weight:600;color:var(--ink-dim);text-shadow:0 1px 8px rgba(0,0,0,.7);}
+.frac b{color:var(--mint);font-weight:700;}
+
+/* unlock burst sits over vessel */
+.burst{position:absolute;inset:0;z-index:7;pointer-events:none;opacity:0;}
+
+/* pace line */
+.pace{margin:20px 0 0;font-size:12.5px;color:var(--ink-mute);text-align:center;display:flex;align-items:center;gap:7px;line-height:1.4;}
+.pace svg{flex:none;opacity:.85;}
+.pace b{color:var(--ink-dim);font-weight:600;}
+
+/* primary action */
+.cta{margin:18px auto 0;display:block;width:100%;max-width:300px;height:54px;border:none;border-radius:16px;background:linear-gradient(135deg,var(--mint),var(--green));color:#04140e;font-size:16px;font-weight:800;letter-spacing:.1px;cursor:pointer;box-shadow:0 10px 26px rgba(60,220,150,.26),inset 0 1px 0 rgba(255,255,255,.25);transition:transform .12s cubic-bezier(.2,.8,.2,1),box-shadow .2s,opacity .2s;display:flex;align-items:center;justify-content:center;gap:8px;}
+.cta:active{transform:scale(.965);box-shadow:0 6px 16px rgba(60,220,150,.22),inset 0 1px 0 rgba(255,255,255,.25);}
+.cta.cta-next{background:var(--raise);color:var(--mint);border:1px solid var(--green-line);box-shadow:0 8px 20px rgba(0,0,0,.4);}
+.cta .plus{font-size:19px;}
+
+/* unlocked banner */
+.banner{margin:14px 0 0;border:1px solid var(--green-line);background:linear-gradient(135deg,rgba(60,220,150,.14),rgba(28,77,59,.28));border-radius:var(--r);padding:16px 16px 15px;text-align:center;opacity:0;transform:translateY(8px) scale(.98);transition:opacity .4s,transform .4s;display:none;}
+.banner.show{opacity:1;transform:none;display:block;}
+.banner .big{font-size:16px;font-weight:800;color:var(--ink);}
+.banner .lil{font-size:13px;color:var(--ink-dim);margin-top:4px;}
+
+/* divider */
+.rowhead{margin:30px 0 12px;display:flex;align-items:baseline;justify-content:space-between;}
+.rowhead h2{font-size:13px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;color:var(--ink-mute);margin:0;}
+.rowhead .count{font-size:12px;color:var(--ink-mute);}
+
+/* unlocked rewards row */
+.shelf{display:flex;gap:10px;overflow-x:auto;padding:2px 0 6px;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+.shelf::-webkit-scrollbar{display:none;}
+.medal{flex:none;display:flex;flex-direction:column;align-items:center;gap:7px;width:78px;}
+.medal .disc{width:54px;height:54px;border-radius:50%;background:var(--panel);border:1px solid var(--line);display:grid;place-items:center;font-size:23px;position:relative;}
+.medal .disc::after{content:"";position:absolute;right:-1px;bottom:-1px;width:17px;height:17px;border-radius:50%;background:var(--green-deep);border:1px solid var(--green-line);background-image:radial-gradient(circle at 50% 42%,var(--mint) 0 2px,transparent 2.5px);}
+.medal .nm{font-size:11px;color:var(--ink-mute);text-align:center;line-height:1.25;}
+
+/* edit-goal sheet */
+.scrim{position:fixed;inset:0;background:rgba(2,5,4,.62);backdrop-filter:blur(3px);opacity:0;pointer-events:none;transition:opacity .25s;z-index:40;}
+.scrim.open{opacity:1;pointer-events:auto;}
+.sheet{position:fixed;left:50%;bottom:0;translate:-50% 100%;width:390px;max-width:100vw;background:var(--panel);border-top-left-radius:22px;border-top-right-radius:22px;border:1px solid var(--line);border-bottom:none;padding:10px 18px 26px;z-index:41;transition:translate .32s cubic-bezier(.2,.85,.2,1);box-shadow:0 -16px 40px rgba(0,0,0,.5);}
+.sheet.open{translate:-50% 0;}
+.grip{width:38px;height:5px;border-radius:3px;background:var(--line-2);margin:4px auto 14px;}
+.sheet h3{font-size:17px;font-weight:700;margin:0 0 3px;}
+.sheet p.hint{font-size:12.5px;color:var(--ink-mute);margin:0 0 16px;}
+.field{margin-bottom:13px;}
+.field label{display:block;font-size:11px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;color:var(--ink-mute);margin-bottom:6px;}
+.field input{width:100%;height:46px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:15px;padding:0 14px;outline:none;transition:border-color .18s;font-family:inherit;}
+.field input:focus{border-color:var(--green-line);}
+.field.row2{display:flex;gap:11px;}
+.field.row2>div{flex:1;}
+.sheet .save{margin-top:6px;width:100%;height:50px;border:none;border-radius:14px;background:linear-gradient(135deg,var(--mint),var(--green));color:#04140e;font-size:15px;font-weight:800;cursor:pointer;transition:transform .12s;}
+.sheet .save:active{transform:scale(.97);}
+
+.cap{width:390px;max-width:100vw;padding:14px 18px 0;color:var(--ink-mute);font-size:12px;line-height:1.5;text-align:center;}
+
+/* reduced motion */
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.001s!important;}
+}
+</style>
+</head>
+<body>
+  <h2 class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);">A reward-tracking screen with a glass vault that fills with mint-green liquid as you log wins toward a chosen reward, and unlocks when full.</h2>
+
+  <div class="screen">
+    <div class="statusbar">
+      <span>9:41</span>
+      <span class="right"><span class="logo">P</span></span>
+    </div>
+
+    <h1>Your reward</h1>
+    <p class="sub">Every win raises the level. Fill it to unlock.</p>
+
+    <div class="stage">
+      <div class="goal-label">
+        <span class="goal-emoji" id="goalEmoji">👟</span>
+        <span id="goalName">New running shoes</span>
+        <span style="color:var(--ink-mute);font-weight:500">·</span>
+        <span id="goalTarget" style="color:var(--ink-mute);font-weight:500">500 pts</span>
+        <button class="goal-edit" id="editBtn" aria-label="Edit goal" title="Edit goal">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        </button>
+      </div>
+
+      <div class="vesselwrap">
+        <div class="todaychip" id="todayChip">+30 today</div>
+
+        <div class="vessel">
+          <svg width="150" height="240" viewBox="0 0 150 240" aria-hidden="true" style="position:absolute;inset:0;">
+            <defs>
+              <!-- clip to inner glass shape so liquid stays inside -->
+              <clipPath id="jarClip">
+                <path d="M30 12 H120 a8 8 0 0 1 8 8 V40 a14 14 0 0 0 6 11 a16 16 0 0 1 6 13 V210 a22 22 0 0 1 -22 22 H46 a22 22 0 0 1 -22 -22 V64 a16 16 0 0 1 6 -13 a14 14 0 0 0 6 -11 V20 a8 8 0 0 1 8 -8 Z"/>
+              </clipPath>
+              <linearGradient id="liq" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="var(--mint)"/>
+                <stop offset="1" stop-color="var(--green-deep)"/>
+              </linearGradient>
+              <linearGradient id="glassShine" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stop-color="rgba(255,255,255,.10)"/>
+                <stop offset=".18" stop-color="rgba(255,255,255,.015)"/>
+                <stop offset="1" stop-color="rgba(255,255,255,0)"/>
+              </linearGradient>
+              <radialGradient id="glow" cx="50%" cy="78%" r="60%">
+                <stop offset="0" stop-color="rgba(92,243,184,.5)"/>
+                <stop offset="1" stop-color="rgba(92,243,184,0)"/>
+              </radialGradient>
+            </defs>
+
+            <!-- glass body fill -->
+            <path d="M30 12 H120 a8 8 0 0 1 8 8 V40 a14 14 0 0 0 6 11 a16 16 0 0 1 6 13 V210 a22 22 0 0 1 -22 22 H46 a22 22 0 0 1 -22 -22 V64 a16 16 0 0 1 6 -13 a14 14 0 0 0 6 -11 V20 a8 8 0 0 1 8 -8 Z"
+                  fill="rgba(255,255,255,.018)" stroke="var(--line-2)" stroke-width="2"/>
+
+            <!-- liquid group, clipped -->
+            <g clip-path="url(#jarClip)">
+              <!-- soft glow under surface -->
+              <rect id="glowRect" x="0" y="0" width="150" height="240" fill="url(#glow)"/>
+              <!-- the body of liquid -->
+              <rect id="liquidBody" x="0" y="0" width="150" height="240" fill="url(#liq)"/>
+              <!-- two animated wave surfaces for parallax -->
+              <path id="wave1" fill="var(--mint)" opacity="0.95" d=""/>
+              <path id="wave2" fill="rgba(92,243,184,.45)" d=""/>
+              <!-- inner glass shine on top of liquid -->
+              <rect x="0" y="0" width="150" height="240" fill="url(#glassShine)"/>
+            </g>
+
+            <!-- rim highlight -->
+            <path d="M30 12 H120 a8 8 0 0 1 8 8 V40" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="2" stroke-linecap="round"/>
+            <!-- tick marks -->
+            <g stroke="var(--line-2)" stroke-width="1.5" stroke-linecap="round" opacity=".55">
+              <line x1="120" y1="80" x2="128" y2="80"/>
+              <line x1="122" y1="125" x2="128" y2="125"/>
+              <line x1="120" y1="170" x2="128" y2="170"/>
+            </g>
+          </svg>
+
+          <div class="readout">
+            <div class="pct" id="pctText">86%</div>
+            <div class="frac"><b id="curText">430</b> / <span id="denText">500</span></div>
+          </div>
+
+          <!-- unlock burst -->
+          <svg class="burst" id="burst" viewBox="0 0 150 240" aria-hidden="true">
+            <g id="rays" stroke="var(--mint)" stroke-width="3" stroke-linecap="round"></g>
+            <g id="sparks"></g>
+          </svg>
+        </div>
+      </div>
+
+      <div class="pace" id="paceLine">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--mint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l2.5 2"/></svg>
+        <span id="paceText"><b>70 to go.</b> At your pace (~45/day), unlocked in ~2 days.</span>
+      </div>
+
+      <button class="cta" id="logBtn"><span class="plus">＋</span> Log a win +15</button>
+
+      <div class="banner" id="banner">
+        <div class="big" id="bannerBig">Reward unlocked! 🎉</div>
+        <div class="lil" id="bannerLil">New running shoes is yours.</div>
+      </div>
+    </div>
+
+    <div class="rowhead">
+      <h2>Already unlocked</h2>
+      <span class="count" id="shelfCount">3 rewards</span>
+    </div>
+    <div class="shelf" id="shelf">
+      <div class="medal"><div class="disc">🎧</div><div class="nm">Headphones</div></div>
+      <div class="medal"><div class="disc">🍣</div><div class="nm">Sushi night</div></div>
+      <div class="medal"><div class="disc">📚</div><div class="nm">New book</div></div>
+    </div>
+  </div>
+
+  <!-- edit goal sheet -->
+  <div class="scrim" id="scrim"></div>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Edit goal">
+    <div class="grip"></div>
+    <h3>Edit your reward</h3>
+    <p class="hint">Choose what you're filling toward. Pick anything that motivates you.</p>
+    <div class="field row2">
+      <div style="flex:0 0 76px;max-width:76px">
+        <label>Icon</label>
+        <input id="inEmoji" value="👟" maxlength="2" style="text-align:center;font-size:20px">
+      </div>
+      <div>
+        <label>Reward</label>
+        <input id="inName" value="New running shoes" maxlength="34">
+      </div>
+    </div>
+    <div class="field">
+      <label>Points to unlock</label>
+      <input id="inTarget" value="500" inputmode="numeric">
+    </div>
+    <button class="save" id="saveGoal">Save goal</button>
+  </div>
+
+  <p class="cap"><b style="color:var(--ink-dim)">Reward Vault</b> — points are abstract; see exactly what you're filling toward.</p>
+
+<script>
+(function(){
+  "use strict";
+
+  // ----- state -----
+  var state = {
+    emoji: "👟",
+    name: "New running shoes",
+    target: 500,
+    current: 430,
+    today: 30,
+    pace: 45,           // ~ pts/day
+    unlockedShown: false
+  };
+
+  // next-reward queue once one is unlocked
+  var nextRewards = [
+    {emoji:"💆", name:"Rest-day massage", target:300},
+    {emoji:"🎬", name:"Movie & popcorn", target:250},
+    {emoji:"🥾", name:"Weekend hike trip", target:600},
+    {emoji:"☕", name:"Fancy coffee run", target:180}
+  ];
+  var nextIdx = 0;
+
+  // ----- element refs -----
+  var $ = function(id){ return document.getElementById(id); };
+  var liquidBody = $("liquidBody"), glowRect = $("glowRect");
+  var wave1 = $("wave1"), wave2 = $("wave2");
+  var pctText = $("pctText"), curText = $("curText"), denText = $("denText");
+  var paceText = $("paceText"), paceLine = $("paceLine");
+  var logBtn = $("logBtn"), banner = $("banner"), bannerBig = $("bannerBig"), bannerLil = $("bannerLil");
+  var goalEmoji = $("goalEmoji"), goalName = $("goalName"), goalTarget = $("goalTarget");
+  var todayChip = $("todayChip"), burst = $("burst"), rays = $("rays"), sparks = $("sparks");
+
+  // ----- geometry of the inner jar (matches clip path) -----
+  // usable liquid band roughly y=14 (top inside) -> y=230 (bottom inside)
+  var TOP_Y = 16, BOT_Y = 230;
+  var BAND = BOT_Y - TOP_Y;
+
+  // displayedLevel is animated separately from logical current so fill eases
+  var displayedFrac = state.current / state.target;
+  var targetFrac = displayedFrac;
+
+  // ----- wave animation -----
+  var t0 = performance.now();
+  function buildWavePath(surfaceY, amp, phase, dir){
+    // a smooth sine across width 0..150, then close down to bottom
+    var pts = [];
+    var W = 150, seg = 10;
+    for(var x=0; x<=W; x+=W/seg){
+      var y = surfaceY + Math.sin((x/W)*Math.PI*2*1.4 + phase*dir) * amp;
+      pts.push([x,y]);
+    }
+    var d = "M0," + (surfaceY) + " ";
+    // start at left surface
+    d = "M" + pts[0][0].toFixed(1) + "," + pts[0][1].toFixed(1) + " ";
+    for(var i=1;i<pts.length;i++){
+      // quadratic-ish smoothing via simple L (segments small enough)
+      d += "L" + pts[i][0].toFixed(1) + "," + pts[i][1].toFixed(1) + " ";
+    }
+    d += "L150,240 L0,240 Z";
+    return d;
+  }
+
+  function frameTick(now){
+    // ease displayed toward target
+    displayedFrac += (targetFrac - displayedFrac) * 0.12;
+    if(Math.abs(targetFrac - displayedFrac) < 0.0005) displayedFrac = targetFrac;
+
+    var clamped = Math.max(0, Math.min(1, displayedFrac));
+    var surfaceY = BOT_Y - clamped * BAND;
+
+    // when very full, lift slightly so it reads as overflowing-full
+    var elapsed = (now - t0) / 1000;
+    var amp = clamped >= 0.999 ? 1.4 : 3.2;             // calmer when full
+    var p1 = elapsed * 1.1;
+    var p2 = elapsed * 0.7;
+
+    wave1.setAttribute("d", buildWavePath(surfaceY, amp, p1, 1));
+    wave2.setAttribute("d", buildWavePath(surfaceY + 3, amp*0.7, p2, -1));
+
+    // body rect from surface down
+    liquidBody.setAttribute("y", surfaceY.toFixed(1));
+    liquidBody.setAttribute("height", (240 - surfaceY).toFixed(1));
+
+    // glow tracks the surface
+    glowRect.setAttribute("y", (surfaceY - 40).toFixed(1));
+
+    requestAnimationFrame(frameTick);
+  }
+  requestAnimationFrame(frameTick);
+
+  // ----- text / derived UI -----
+  function fmt(n){ return Math.round(n).toLocaleString(); }
+
+  function recompute(){
+    var cur = Math.min(state.current, state.target);
+    var pct = Math.round((cur / state.target) * 100);
+    pctText.textContent = pct + "%";
+    curText.textContent = fmt(state.current);
+    denText.textContent = fmt(state.target);
+
+    goalEmoji.textContent = state.emoji;
+    goalName.textContent = state.name;
+    goalTarget.textContent = fmt(state.target) + " pts";
+
+    todayChip.textContent = "+" + state.today + " today";
+
+    var remaining = Math.max(0, state.target - state.current);
+    if(remaining > 0){
+      var days = Math.max(1, Math.ceil(remaining / state.pace));
+      var dayWord = days === 1 ? "day" : "days";
+      paceText.innerHTML = "<b>" + fmt(remaining) + " to go.</b> At your pace (~" + state.pace + "/day), unlocked in ~" + days + " " + dayWord + ".";
+      paceLine.style.display = "";
+    } else {
+      paceText.innerHTML = "<b>Filled to the top.</b> Tap below to claim your reward.";
+    }
+  }
+
+  // ----- haptic-ish bump on the number -----
+  function bumpReadout(){
+    pctText.animate(
+      [{transform:"scale(1)"},{transform:"scale(1.14)"},{transform:"scale(1)"}],
+      {duration:340, easing:"cubic-bezier(.2,.8,.2,1)"}
+    );
+  }
+
+  // ----- splash ripple at the surface on log -----
+  function splash(){
+    var wrap = document.querySelector(".vesselwrap");
+    var clamped = Math.max(0, Math.min(1, state.current/state.target));
+    var surfaceY = BOT_Y - clamped * BAND;        // in 0..240 svg space
+    // map svg y (out of 240) to px within 240px vessel; vessel is centered, width 150 in 170 wrap
+    var topPx = surfaceY;                          // vessel is 240px tall == svg 240
+    for(var i=0;i<3;i++){
+      (function(i){
+        var dot = document.createElement("span");
+        dot.style.cssText = "position:absolute;left:50%;top:"+topPx+"px;width:8px;height:8px;border-radius:50%;background:var(--mint);transform:translate(-50%,-50%);pointer-events:none;z-index:6;";
+        wrap.appendChild(dot);
+        dot.animate(
+          [
+            {opacity:.9, transform:"translate(-50%,-50%) translateX("+((i-1)*4)+"px) scale(.4)"},
+            {opacity:0, transform:"translate(-50%,-50%) translateX("+((i-1)*26)+"px) translateY(-18px) scale(1)"}
+          ],
+          {duration:520, easing:"cubic-bezier(.2,.7,.3,1)"}
+        ).onfinish = function(){ dot.remove(); };
+      })(i);
+    }
+    // a wider ring
+    var ring = document.createElement("span");
+    ring.style.cssText="position:absolute;left:50%;top:"+topPx+"px;width:40px;height:14px;border:1.5px solid var(--mint);border-radius:50%;transform:translate(-50%,-50%);opacity:.6;pointer-events:none;z-index:6;";
+    wrap.appendChild(ring);
+    ring.animate(
+      [{opacity:.55,transform:"translate(-50%,-50%) scale(.5)"},{opacity:0,transform:"translate(-50%,-50%) scale(1.5)"}],
+      {duration:560,easing:"ease-out"}
+    ).onfinish=function(){ ring.remove(); };
+  }
+
+  // ----- UNLOCK moment -----
+  function buildBurst(){
+    rays.innerHTML = ""; sparks.innerHTML = "";
+    var cx=75, cy=150;
+    for(var i=0;i<12;i++){
+      var ang = (i/12)*Math.PI*2;
+      var x1 = cx + Math.cos(ang)*18, y1 = cy + Math.sin(ang)*18;
+      var x2 = cx + Math.cos(ang)*64, y2 = cy + Math.sin(ang)*64;
+      var ln = document.createElementNS("http://www.w3.org/2000/svg","line");
+      ln.setAttribute("x1",x1); ln.setAttribute("y1",y1);
+      ln.setAttribute("x2",x1); ln.setAttribute("y2",y1);
+      rays.appendChild(ln);
+      ln.animate(
+        [{x2:x1,y2:y1,opacity:1},{x2:x2,y2:y2,opacity:0}],
+        {duration:620,delay:i*8,easing:"cubic-bezier(.2,.8,.2,1)",fill:"forwards"}
+      );
+    }
+    for(var k=0;k<14;k++){
+      var c = document.createElementNS("http://www.w3.org/2000/svg","circle");
+      var a = Math.random()*Math.PI*2, dist = 30+Math.random()*60;
+      c.setAttribute("cx",cx); c.setAttribute("cy",cy);
+      c.setAttribute("r", (1.5+Math.random()*2).toFixed(1));
+      c.setAttribute("fill", k%2? "var(--mint)":"var(--amber)");
+      sparks.appendChild(c);
+      c.animate(
+        [{cx:cx,cy:cy,opacity:1},{cx:cx+Math.cos(a)*dist,cy:cy+Math.sin(a)*dist*1.1,opacity:0}],
+        {duration:700+Math.random()*300,delay:60+Math.random()*120,easing:"cubic-bezier(.2,.7,.3,1)",fill:"forwards"}
+      );
+    }
+  }
+
+  function doUnlock(){
+    state.unlockedShown = true;
+    bumpReadout();
+    // burst
+    burst.style.opacity = "1";
+    buildBurst();
+    // vessel glow pulse
+    var v = document.querySelector(".vessel");
+    v.animate(
+      [
+        {filter:"drop-shadow(0 0 0px rgba(92,243,184,0))"},
+        {filter:"drop-shadow(0 0 26px rgba(92,243,184,.75))"},
+        {filter:"drop-shadow(0 0 8px rgba(92,243,184,.25))"}
+      ],
+      {duration:1100,easing:"ease-out",fill:"forwards"}
+    );
+    setTimeout(function(){ burst.style.opacity="0"; }, 1000);
+
+    // banner + switch CTA to "set next reward"
+    bannerBig.innerHTML = "Reward unlocked! 🎉";
+    bannerLil.textContent = state.name + " is yours.";
+    banner.classList.add("show");
+
+    logBtn.classList.add("cta-next");
+    logBtn.innerHTML = "Set next reward →";
+    logBtn.dataset.mode = "next";
+  }
+
+  function setNextReward(){
+    var r = nextRewards[nextIdx % nextRewards.length];
+    nextIdx++;
+
+    // archive the just-unlocked reward onto the shelf
+    addToShelf(state.emoji, state.name);
+
+    state.emoji = r.emoji;
+    state.name = r.name;
+    state.target = r.target;
+    state.current = Math.round(r.target * 0.18); // start lower, a little progress
+    state.today = 0;
+    state.unlockedShown = false;
+
+    targetFrac = state.current / state.target;
+
+    // reset chrome
+    banner.classList.remove("show");
+    logBtn.classList.remove("cta-next");
+    logBtn.innerHTML = '<span class="plus">＋</span> Log a win +15';
+    logBtn.dataset.mode = "log";
+
+    // sync edit inputs
+    $("inEmoji").value = state.emoji;
+    $("inName").value = state.name;
+    $("inTarget").value = state.target;
+
+    recompute();
+    // gentle settle pulse on new vessel
+    pctText.animate([{opacity:.2},{opacity:1}],{duration:500,easing:"ease-out"});
+  }
+
+  function addToShelf(emoji, name){
+    var shelf = $("shelf");
+    var el = document.createElement("div");
+    el.className = "medal";
+    el.style.opacity = "0";
+    el.innerHTML = '<div class="disc">'+emoji+'</div><div class="nm">'+name.replace(/</g,"&lt;")+'</div>';
+    shelf.insertBefore(el, shelf.firstChild);
+    el.animate([{opacity:0,transform:"scale(.8)"},{opacity:1,transform:"scale(1)"}],{duration:420,easing:"cubic-bezier(.2,.8,.2,1)",fill:"forwards"});
+    var n = shelf.querySelectorAll(".medal").length;
+    $("shelfCount").textContent = n + (n===1?" reward":" rewards");
+  }
+
+  // ----- main button -----
+  logBtn.dataset.mode = "log";
+  logBtn.addEventListener("click", function(){
+    if(logBtn.dataset.mode === "next"){
+      setNextReward();
+      return;
+    }
+    if(state.current >= state.target) return; // already full, waiting for unlock tap path
+    state.current = Math.min(state.target, state.current + 15);
+    state.today += 15;
+    targetFrac = state.current / state.target;
+
+    bumpReadout();
+    splash();
+    recompute();
+
+    // little press feedback handled by :active
+
+    if(state.current >= state.target && !state.unlockedShown){
+      // small delay so the fill visibly reaches the top first
+      setTimeout(doUnlock, 360);
+    }
+  });
+
+  // ----- edit goal sheet -----
+  var scrim = $("scrim"), sheet = $("sheet");
+  function openSheet(){
+    $("inEmoji").value = state.emoji;
+    $("inName").value = state.name;
+    $("inTarget").value = state.target;
+    scrim.classList.add("open"); sheet.classList.add("open");
+  }
+  function closeSheet(){ scrim.classList.remove("open"); sheet.classList.remove("open"); }
+  $("editBtn").addEventListener("click", openSheet);
+  scrim.addEventListener("click", closeSheet);
+
+  $("saveGoal").addEventListener("click", function(){
+    var em = $("inEmoji").value.trim() || "🎁";
+    var nm = ($("inName").value.trim() || "My reward").slice(0,34);
+    var tg = parseInt(($("inTarget").value||"").replace(/[^0-9]/g,""),10);
+    if(!tg || tg < 10) tg = 100;
+
+    state.emoji = em;
+    state.name = nm;
+    state.target = tg;
+    if(state.current > tg) state.current = tg;        // don't exceed new target
+    targetFrac = state.current / state.target;
+
+    // if editing pulled us out of an unlocked state, restore log mode
+    if(state.current < state.target){
+      state.unlockedShown = false;
+      banner.classList.remove("show");
+      logBtn.classList.remove("cta-next");
+      logBtn.innerHTML = '<span class="plus">＋</span> Log a win +15';
+      logBtn.dataset.mode = "log";
+    }
+
+    recompute();
+    bumpReadout();
+    closeSheet();
+
+    // if the new (lower) goal already sits at/over the top, offer the unlock
+    if(state.current >= state.target && !state.unlockedShown){
+      setTimeout(doUnlock, 380);
+    }
+  });
+
+  // ----- init -----
+  recompute();
+})();
+</script>
+</body>
+</html>

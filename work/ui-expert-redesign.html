@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Pointwell — expert redesign concepts</title>
+<style>
+  :root{
+    color-scheme:dark;
+    --bg:#050807; --phone:#080d0b; --card:#0d1411; --card2:#0e1714;
+    --line:#18211d; --line2:#22302a;
+    --tx:#eef2f0; --tx2:#9fb4ab; --tx3:#6f827a;
+    --grn:#3ddc97; --grn-dim:#1c4d3b; --grn-deep:#0e2c22;
+    --amber:#f0b84a; --danger:#ff5a6e; --blue:#5b8bd0;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      radial-gradient(700px 360px at 18% -8%, #0c1a15 0%, rgba(12,26,21,0) 60%),
+      var(--bg);
+    color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;
+    min-height:100%;display:flex;flex-direction:column;align-items:center;
+    padding:26px 14px 40px;gap:18px;
+  }
+  .head-note{max-width:880px;width:100%;text-align:center}
+  .head-note h1{font-size:19px;margin:0 0 4px;letter-spacing:-.4px}
+  .head-note p{font-size:12.5px;color:var(--tx3);margin:0}
+  .switch{display:inline-flex;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px;gap:4px;margin-top:12px}
+  .switch button{font:inherit;font-size:12.5px;font-weight:600;color:var(--tx2);background:transparent;border:0;border-radius:9px;padding:8px 16px;cursor:pointer;transition:.2s}
+  .switch button.on{background:var(--grn-deep);color:var(--grn);box-shadow:inset 0 0 0 1px #1f5a45}
+
+  .stage{display:flex;gap:30px;flex-wrap:wrap;justify-content:center;align-items:flex-start}
+  .col{display:flex;flex-direction:column;align-items:center;gap:10px}
+  .col .lab{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--tx3);font-weight:700}
+  .col .lab.good{color:var(--grn)}
+
+  /* phone */
+  .phone{width:390px;height:812px;background:var(--phone);border:1px solid #131b18;border-radius:36px;
+    overflow:hidden;display:flex;flex-direction:column;position:relative;box-shadow:0 30px 80px rgba(0,0,0,.6)}
+  .scr{position:absolute;inset:0;display:none;flex-direction:column}
+  .scr.on{display:flex}
+  .scroll{flex:1;overflow:auto;-webkit-overflow-scrolling:touch}
+  .pad{padding:6px 16px 132px}
+
+  svg.i{width:22px;height:22px;display:block;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round}
+  svg.s{width:18px;height:18px}
+
+  /* header */
+  header{display:flex;align-items:center;gap:10px;padding:15px 16px 8px;position:relative;z-index:5}
+  .brand{font-size:17px;font-weight:800;letter-spacing:-.4px;margin-right:auto;display:flex;align-items:center;gap:8px}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--grn);box-shadow:0 0 12px var(--grn)}
+  .hbtn{width:42px;height:42px;border-radius:13px;background:var(--card2);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;color:var(--tx);position:relative;cursor:pointer}
+  .hbtn .bdg{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
+    background:var(--danger);color:#fff;font-size:9.5px;font-weight:800;display:flex;align-items:center;justify-content:center;border:2px solid var(--phone)}
+  .av{width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#3a6ea8,#243f63);border:1px solid #2a4566;cursor:pointer}
+
+  h2.title{font-size:27px;margin:6px 0 2px;letter-spacing:-.7px;font-weight:800}
+  .sub{font-size:12.5px;color:var(--tx3);margin:0}
+  .titrow{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+  .streak-chip{display:inline-flex;align-items:center;gap:6px;background:#160f06;border:1px solid #3a2c12;
+    border-radius:999px;padding:7px 12px;margin-top:8px;cursor:pointer}
+  .streak-chip .fl{font-size:15px;filter:drop-shadow(0 0 6px rgba(240,160,60,.55))}
+  .streak-chip b{font-size:13px;color:#f5d99a}
+  .streak-chip small{font-size:10.5px;color:#9a8253}
+
+  /* hero */
+  .hero{display:flex;align-items:center;gap:18px;background:
+      radial-gradient(120px 90px at 84% 10%, rgba(61,220,151,.10), rgba(61,220,151,0) 70%),
+      var(--card);border:1px solid var(--line);border-radius:20px;padding:18px 18px;margin:16px 0 18px;position:relative;overflow:hidden}
+  .ring{width:92px;height:92px;position:relative;flex-shrink:0}
+  .ring .ctr{position:absolute;inset:11px;border-radius:50%;background:#0a110e;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .ring .pct{font-size:23px;font-weight:800;line-height:1}
+  .ring .of{font-size:9px;color:var(--tx3);letter-spacing:.5px;margin-top:2px}
+  .hero h3{font-size:18px;margin:0 0 4px;letter-spacing:-.3px}
+  .hero p{font-size:12.5px;color:var(--tx2);margin:0 0 12px}
+  .hero .cta{display:inline-flex;align-items:center;gap:8px;background:var(--grn);color:#04130d;
+    font-weight:700;font-size:13px;border:0;border-radius:11px;padding:10px 15px;cursor:pointer}
+
+  .secrow{display:flex;align-items:center;justify-content:space-between;margin:0 2px 11px}
+  .eyebrow{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--tx3);font-weight:700}
+  .seg{display:inline-flex;background:#0a110e;border:1px solid var(--line);border-radius:10px;padding:3px}
+  .seg button{font:inherit;font-size:11.5px;font-weight:600;color:var(--tx3);background:transparent;border:0;border-radius:7px;padding:6px 12px;cursor:pointer}
+  .seg button.on{background:var(--grn-deep);color:var(--grn)}
+
+  /* habit row */
+  .habit{display:flex;align-items:center;gap:13px;background:var(--card);border:1px solid var(--line);
+    border-radius:16px;padding:13px 14px;margin-bottom:11px;cursor:pointer;transition:.18s;position:relative}
+  .habit:active{transform:scale(.99)}
+  .habit.done{background:linear-gradient(90deg,rgba(28,77,59,.30),rgba(13,20,17,.4));border-color:#1c3d30}
+  .htile{width:46px;height:46px;border-radius:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--grn);background:var(--grn-deep);border:1px solid #1c4636}
+  .htile.b{color:#7fb0ea;background:#0c1622;border-color:#1d2c40}
+  .htile.a{color:#e9b765;background:#1a1206;border-color:#3a2c12}
+  .htile.p{color:#b79be8;background:#140f1f;border-color:#2a2140}
+  .hmid{flex:1;min-width:0}
+  .hmid .nm{font-size:15px;font-weight:700;display:flex;align-items:center;gap:7px}
+  .src{font-size:9px;font-weight:700;letter-spacing:.3px;color:#8fb6ff;background:#0e1830;border:1px solid #1d3157;border-radius:6px;padding:2px 6px;display:inline-flex;align-items:center;gap:3px}
+  .hmid .mt{font-size:11.5px;color:var(--tx3);margin:3px 0 8px}
+  .bar{height:6px;border-radius:6px;background:#0c1813;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,#2f9d6f,var(--grn))}
+  .hck{width:30px;height:30px;border-radius:50%;flex-shrink:0;border:2px solid #2b3a34;display:flex;align-items:center;justify-content:center;color:transparent}
+  .hck.done{background:var(--grn);border-color:var(--grn);color:#04130d}
+  .hck.go{border-color:#2f6b53;color:var(--grn)}
+
+  /* bottom nav with docked center Log */
+  .nav{position:absolute;left:0;right:0;bottom:0;height:84px;background:linear-gradient(0deg,#070b0a 72%,rgba(7,11,10,.0));
+    display:flex;align-items:flex-start;justify-content:space-between;padding:12px 22px 0;z-index:30;border-top:1px solid #101713}
+  .nav::before{content:"";position:absolute;inset:0;background:#070b0a;z-index:-1}
+  .nv{display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--tx3);font-size:10px;font-weight:600;width:52px;cursor:pointer}
+  .nv.on{color:var(--grn)}
+  .logbtn{width:58px;height:58px;border-radius:19px;margin-top:-20px;background:linear-gradient(135deg,#34b07e,#1c4d3b);
+    border:3px solid #070b0a;color:#eafff5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+    box-shadow:0 10px 26px rgba(47,157,111,.45);cursor:pointer;flex-shrink:0}
+  .logbtn span{font-size:9px;font-weight:800;letter-spacing:.3px}
+
+  /* communities cards */
+  .csub{font-size:12.5px;color:var(--tx3);margin:0 0 16px}
+  .cc{display:block;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px;margin-bottom:13px;cursor:pointer;position:relative;overflow:hidden}
+  .cc-top{display:flex;align-items:center;gap:13px}
+  .cav{width:50px;height:50px;border-radius:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800;color:#fff}
+  .cc h4{font-size:16px;margin:0 0 3px;letter-spacing:-.2px;display:flex;align-items:center;gap:8px}
+  .cc .meta{font-size:11.5px;color:var(--tx3);display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .rank{display:inline-flex;align-items:center;gap:4px;font-weight:700;color:var(--grn)}
+  .rank.dn{color:var(--amber)}
+  .nudge{margin-left:auto;text-align:right;flex-shrink:0}
+  .nudge .big{font-size:13px;font-weight:800}
+  .nudge .sm{font-size:10px;color:var(--tx3)}
+  .ccbar{display:flex;align-items:center;gap:10px;margin-top:13px;padding-top:12px;border-top:1px solid #141d19}
+  .faces{display:flex}
+  .faces span{width:26px;height:26px;border-radius:50%;border:2px solid var(--card);margin-left:-8px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff}
+  .faces span:first-child{margin-left:0}
+  .glow{font-size:11px;color:var(--tx2)}
+  .pill{margin-left:auto;font-size:10.5px;font-weight:700;color:var(--grn);background:var(--grn-deep);border:1px solid #1f5a45;border-radius:999px;padding:5px 11px}
+  .pill.amber{color:var(--amber);background:#1a1206;border-color:#3a2c12}
+  .summary{display:flex;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:13px 15px;margin-bottom:16px;align-items:center}
+  .summary .mini{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--grn)}
+  .summary b{font-size:13px}.summary small{font-size:11px;color:var(--tx3);display:block}
+
+  .legend{font-size:11px;color:var(--tx3);text-align:center;margin:4px 0 2px}
+</style>
+</head>
+<body>
+  <div class="head-note">
+    <h1>Pointwell — redesign concepts</h1>
+    <p>Same dark identity, sharper hierarchy. Key fixes: a real SVG icon set, one progress hero, a docked Log button that never covers content, and Community cards that earn their space.</p>
+    <div class="switch">
+      <button class="on" data-s="today" onclick="sw('today',this)">Today</button>
+      <button data-s="comm" onclick="sw('comm',this)">Communities</button>
+    </div>
+  </div>
+
+  <div class="stage">
+   <div class="col">
+    <div class="lab good">Redesigned</div>
+    <div class="phone">
+
+      <!-- ===== TODAY ===== -->
+      <div class="scr on" id="today">
+        <header>
+          <div class="brand"><span class="dot"></span>Pointwell</div>
+          <div class="hbtn" title="Alerts">
+            <svg class="i" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+            <span class="bdg">3</span>
+          </div>
+          <div class="hbtn" title="Chats">
+            <svg class="i" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/></svg>
+            <span class="bdg">2</span>
+          </div>
+          <div class="av" title="Profile"></div>
+        </header>
+
+        <div class="scroll"><div class="pad">
+          <div class="titrow">
+            <div>
+              <h2 class="title">Today</h2>
+              <p class="sub">Friday, June 27 · 3 of 5 done</p>
+            </div>
+            <div class="streak-chip"><span class="fl">🔥</span><b>6</b><small>day streak</small></div>
+          </div>
+
+          <div class="hero">
+            <div class="ring">
+              <svg width="92" height="92" viewBox="0 0 92 92">
+                <circle cx="46" cy="46" r="40" stroke="#15241d" stroke-width="9" fill="none"/>
+                <circle cx="46" cy="46" r="40" stroke="#3ddc97" stroke-width="9" fill="none" stroke-linecap="round"
+                  stroke-dasharray="251" stroke-dashoffset="100" transform="rotate(-90 46 46)"/>
+              </svg>
+              <div class="ctr"><div class="pct">60%</div><div class="of">TODAY</div></div>
+            </div>
+            <div>
+              <h3>2 habits to go</h3>
+              <p>Steps and Meditate left. You're on track.</p>
+              <button class="cta">
+                <svg class="s" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+                Log next habit
+              </button>
+            </div>
+          </div>
+
+          <div class="secrow">
+            <div class="eyebrow">Today's habits</div>
+            <div class="seg"><button class="on">List</button><button>Swipe</button></div>
+          </div>
+
+          <!-- Steps (in progress) -->
+          <div class="habit">
+            <div class="htile a">
+              <svg class="i" viewBox="0 0 24 24"><path d="M4 20s.5-3 2-4 1-3 1-3"/><path d="M9 13c1-2 .5-4 2-5s3 0 3 2-1 3-1 5 1 3 2 4"/><circle cx="14" cy="4.6" r="1.4"/></svg>
+            </div>
+            <div class="hmid">
+              <div class="nm">Steps <span class="src"><svg class="s" style="width:11px;height:11px" viewBox="0 0 24 24"><path d="M12 2v20M2 12h20"/></svg>Fitbit</span></div>
+              <div class="mt">6,400 / 8,000 steps</div>
+              <div class="bar"><i style="width:80%"></i></div>
+            </div>
+            <div class="hck go"><svg class="s" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
+          </div>
+
+          <!-- Water done -->
+          <div class="habit done">
+            <div class="htile b">
+              <svg class="i" viewBox="0 0 24 24"><path d="M12 2.5S5.5 9 5.5 14a6.5 6.5 0 0 0 13 0C18.5 9 12 2.5 12 2.5z"/></svg>
+            </div>
+            <div class="hmid">
+              <div class="nm">Water</div>
+              <div class="mt">8 / 8 glasses · done</div>
+              <div class="bar"><i style="width:100%"></i></div>
+            </div>
+            <div class="hck done"><svg class="s" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div>
+          </div>
+
+          <!-- Workout done -->
+          <div class="habit done">
+            <div class="htile">
+              <svg class="i" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11"/><path d="M3 9l3-3 3 3M21 15l-3 3-3-3M4 4l2 2M18 18l2 2"/></svg>
+            </div>
+            <div class="hmid">
+              <div class="nm">Workout</div>
+              <div class="mt">45 / 45 min · done</div>
+              <div class="bar"><i style="width:100%"></i></div>
+            </div>
+            <div class="hck done"><svg class="s" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div>
+          </div>
+
+          <!-- Read done -->
+          <div class="habit done">
+            <div class="htile p">
+              <svg class="i" viewBox="0 0 24 24"><path d="M12 6.5C10.5 5 8 4.5 4 5v13c4-.5 6.5 0 8 1.5 1.5-1.5 4-2 8-1.5V5c-4-.5-6.5 0-8 1.5z"/><path d="M12 6.5v13"/></svg>
+            </div>
+            <div class="hmid">
+              <div class="nm">Read</div>
+              <div class="mt">20 / 20 pages · done</div>
+              <div class="bar"><i style="width:100%"></i></div>
+            </div>
+            <div class="hck done"><svg class="s" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg></div>
+          </div>
+
+          <!-- Meditate to do -->
+          <div class="habit">
+            <div class="htile">
+              <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="2"/><path d="M5 20c1.5-4 4-5.5 7-5.5s5.5 1.5 7 5.5M12 14.5V9M12 11l4.5-1.5M12 11L7.5 9.5"/></svg>
+            </div>
+            <div class="hmid">
+              <div class="nm">Meditate</div>
+              <div class="mt">0 / 10 min</div>
+              <div class="bar"><i style="width:0%"></i></div>
+            </div>
+            <div class="hck go"><svg class="s" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div>
+          </div>
+        </div></div>
+
+        <div class="nav">
+          <div class="nv on"><svg class="i" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>Today</div>
+          <div class="nv"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 13h8M8 16h5"/></svg>Feed</div>
+          <div class="logbtn"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>LOG</span></div>
+          <div class="nv"><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5"/><path d="M16 5.5a3 3 0 0 1 0 5M21 20c0-2.4-1.7-4.2-4-4.8"/></svg>Circles</div>
+          <div class="nv"><svg class="i" viewBox="0 0 24 24"><path d="M14 7l3 3M3 21l3-1 11-11a2.1 2.1 0 0 0-3-3L3 18z"/></svg>Build</div>
+        </div>
+      </div>
+
+      <!-- ===== COMMUNITIES ===== -->
+      <div class="scr" id="comm">
+        <header>
+          <div class="brand"><span class="dot"></span>Pointwell</div>
+          <div class="hbtn"><svg class="i" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="bdg">3</span></div>
+          <div class="hbtn"><svg class="i" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/></svg><span class="bdg">2</span></div>
+          <div class="av"></div>
+        </header>
+        <div class="scroll"><div class="pad">
+          <h2 class="title">Circles</h2>
+          <p class="csub">Shared reward systems with your people.</p>
+
+          <div class="summary">
+            <div class="mini"><svg class="i" viewBox="0 0 24 24"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg></div>
+            <div><b>2 circles need you today</b><small>You slipped to 3rd in THE BOYS · Sunrise Runners is 84% logged</small></div>
+          </div>
+
+          <!-- THE BOYS -->
+          <div class="cc">
+            <div class="cc-top">
+              <div class="cav" style="background:linear-gradient(135deg,#7a3b22,#c2622f)">B</div>
+              <div style="flex:1;min-width:0">
+                <h4>THE BOYS</h4>
+                <div class="meta"><span class="rank dn"><svg class="s" style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>3rd</span>· 5 members · shared system</div>
+              </div>
+              <div class="nudge"><div class="big" style="color:var(--amber)">−3</div><div class="sm">to 2nd</div></div>
+            </div>
+            <div class="ccbar">
+              <div class="faces">
+                <span style="background:#c2622f">L</span><span style="background:#7a4fd0">J</span><span style="background:#2f9d6f">R</span><span style="background:#2b3a34">+2</span>
+              </div>
+              <div class="glow">Jacob passed you 2h ago</div>
+              <div class="pill amber">Log to catch up</div>
+            </div>
+          </div>
+
+          <!-- Sunrise Runners -->
+          <div class="cc">
+            <div class="cc-top">
+              <div class="cav" style="background:linear-gradient(135deg,#26456f,#3a6ea8)">S</div>
+              <div style="flex:1;min-width:0">
+                <h4>Sunrise Runners</h4>
+                <div class="meta"><span class="rank"><svg class="s" style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg>12th</span>· 128 members</div>
+              </div>
+              <div class="nudge"><div class="big" style="color:var(--grn)">84%</div><div class="sm">logged today</div></div>
+            </div>
+            <div class="ccbar">
+              <div class="faces">
+                <span style="background:#3a6ea8">A</span><span style="background:#c2622f">M</span><span style="background:#2f9d6f">K</span><span style="background:#2b3a34">+9</span>
+              </div>
+              <div class="glow">Group on a 9-day streak</div>
+              <div class="pill">On track</div>
+            </div>
+          </div>
+
+          <!-- Deep Work Club -->
+          <div class="cc">
+            <div class="cc-top">
+              <div class="cav" style="background:linear-gradient(135deg,#3a2a66,#6e54c0)">D</div>
+              <div style="flex:1;min-width:0">
+                <h4>Deep Work Club</h4>
+                <div class="meta"><span class="rank"><svg class="s" style="width:13px;height:13px" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>1st</span>· 42 members</div>
+              </div>
+              <div class="nudge"><div class="big" style="color:var(--grn)">★</div><div class="sm">you lead</div></div>
+            </div>
+            <div class="ccbar">
+              <div class="faces">
+                <span style="background:#6e54c0">D</span><span style="background:#2f9d6f">Y</span><span style="background:#3a6ea8">P</span><span style="background:#2b3a34">+39</span>
+              </div>
+              <div class="glow">3 rivals within 5 points</div>
+              <div class="pill">Defend lead</div>
+            </div>
+          </div>
+        </div></div>
+
+        <div class="nav">
+          <div class="nv"><svg class="i" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>Today</div>
+          <div class="nv"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 13h8M8 16h5"/></svg>Feed</div>
+          <div class="logbtn"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>LOG</span></div>
+          <div class="nv on"><svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5"/><path d="M16 5.5a3 3 0 0 1 0 5M21 20c0-2.4-1.7-4.2-4-4.8"/></svg>Circles</div>
+          <div class="nv"><svg class="i" viewBox="0 0 24 24"><path d="M14 7l3 3M3 21l3-1 11-11a2.1 2.1 0 0 0-3-3L3 18z"/></svg>Build</div>
+        </div>
+      </div>
+
+    </div>
+   </div>
+  </div>
+
+<script>
+function sw(s,btn){
+  document.querySelectorAll('.switch button').forEach(b=>b.classList.toggle('on',b===btn));
+  document.querySelectorAll('.scr').forEach(x=>x.classList.toggle('on',x.id===s));
+}
+</script>
+</body>
+</html>

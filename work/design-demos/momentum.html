@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pointwell — Momentum</title>
+<style>
+:root{--bg:#050807;--panel:#0b100e;--panel-2:#0c100e;--raise:#11201a;--line:#1b2521;--line-2:#243029;--ink:#eef2f0;--ink-dim:#9fb0aa;--ink-mute:#7c8d87;--mint:#5cf3b8;--green:#3ddc97;--green-deep:#1c4d3b;--green-line:#2c5a48;--blue:#5cb0f3;--blue-bg:#0f2230;--blue-line:#244a5a;--amber:#f0c97a;--rose:#f59ab0;--r:18px;--r-sm:12px;color-scheme:dark;}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;}
+body{min-height:100vh;background:radial-gradient(130% 90% at 50% -20%,#0b1814 0%,#050807 55%);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;padding:22px 0 40px;}
+
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0;}
+
+.screen{width:390px;max-width:100vw;padding:0 16px;}
+
+/* status bar */
+.statusbar{display:flex;align-items:center;justify-content:space-between;height:44px;}
+.statusbar .time{font-size:15px;font-weight:600;letter-spacing:.2px;}
+.logo{width:26px;height:26px;background:linear-gradient(135deg,var(--mint),var(--green));color:#04140e;border-radius:8px;display:grid;place-items:center;font-weight:800;font-size:15px;}
+
+h1{font-size:24px;font-weight:700;margin:6px 0 2px;letter-spacing:-.3px;}
+.subhead{color:var(--ink-mute);font-size:13px;margin:0 0 18px;}
+
+/* hero momentum card */
+.hero{background:linear-gradient(180deg,var(--raise),var(--panel));border:1px solid var(--line);border-radius:var(--r);padding:18px 18px 6px;position:relative;overflow:hidden;}
+.hero-top{display:flex;align-items:flex-end;justify-content:space-between;}
+.hero-label{color:var(--ink-mute);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1.2px;margin:0 0 4px;}
+.score-row{display:flex;align-items:baseline;gap:8px;}
+.score{font-size:54px;font-weight:800;line-height:.9;letter-spacing:-2px;color:var(--ink);font-variant-numeric:tabular-nums;}
+.score-max{font-size:16px;font-weight:600;color:var(--ink-mute);}
+.trend{display:inline-flex;align-items:center;gap:5px;background:rgba(92,243,184,.1);border:1px solid var(--green-line);color:var(--mint);font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;}
+.trend .arrow{font-size:10px;}
+
+.wave-wrap{margin:10px -18px 0;position:relative;height:96px;}
+.wave-wrap svg{display:block;width:100%;height:100%;}
+
+/* switcher */
+.switcher{display:flex;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:5px;margin:16px 0 14px;}
+.seg{flex:1;border:none;background:transparent;color:var(--ink-dim);font-size:13px;font-weight:600;font-family:inherit;padding:9px 4px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:color .25s,background .25s;position:relative;}
+.seg .ico{font-size:15px;line-height:1;}
+.seg .lbl{transition:opacity .2s;}
+.seg.active{background:var(--raise);color:var(--ink);box-shadow:0 1px 0 rgba(255,255,255,.03) inset, 0 4px 12px rgba(0,0,0,.35);}
+.seg.active .ico{filter:drop-shadow(0 0 6px rgba(92,243,184,.35));}
+
+/* heatmap card */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 16px 18px;}
+.card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.card-title{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;}
+.card-title .h-ico{font-size:16px;}
+.card-sub{color:var(--ink-mute);font-size:11.5px;font-weight:600;}
+
+.heat-shell{transition:opacity .28s ease, transform .28s ease;}
+.heat-shell.fading{opacity:0;transform:translateY(4px);}
+
+.months{display:flex;padding-left:18px;margin-bottom:6px;height:13px;}
+.month-lbl{color:var(--ink-mute);font-size:10px;font-weight:600;flex-shrink:0;}
+
+.heat-grid{display:flex;gap:5px;}
+.weekdays{display:grid;grid-template-rows:repeat(7,1fr);gap:4px;width:14px;flex-shrink:0;}
+.wd{font-size:9px;color:var(--ink-mute);font-weight:600;display:flex;align-items:center;height:18px;line-height:1;}
+.cols{display:flex;gap:4px;flex:1;}
+.col{display:grid;grid-template-rows:repeat(7,1fr);gap:4px;flex:1;}
+.cell{aspect-ratio:1;border-radius:4px;background:var(--line);cursor:pointer;transform:scale(.4);opacity:0;transition:transform .42s cubic-bezier(.2,.8,.25,1),opacity .42s ease,box-shadow .18s ease;}
+.cell.in{transform:scale(1);opacity:1;}
+.cell.l1{background:#143a2c;}
+.cell.l2{background:#1e6b4b;}
+.cell.l3{background:#2fae74;}
+.cell.l4{background:var(--mint);box-shadow:0 0 8px rgba(92,243,184,.45);}
+.cell.sel{outline:1.5px solid var(--ink);outline-offset:1px;}
+
+.legend{display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-top:14px;color:var(--ink-mute);font-size:10.5px;font-weight:600;}
+.legend .swatches{display:flex;gap:3px;}
+.legend .sw{width:11px;height:11px;border-radius:3px;}
+
+/* tooltip */
+.tip{position:absolute;z-index:20;background:#0a0d0c;border:1px solid var(--line-2);border-radius:10px;padding:8px 10px;font-size:11.5px;line-height:1.45;color:var(--ink);box-shadow:0 8px 24px rgba(0,0,0,.55);pointer-events:none;opacity:0;transform:translateY(4px) scale(.96);transition:opacity .16s ease,transform .16s ease;white-space:nowrap;}
+.tip.show{opacity:1;transform:translateY(0) scale(1);}
+.tip b{color:var(--ink);font-weight:700;}
+.tip .dim{color:var(--ink-dim);}
+.tip .ok{color:var(--mint);font-weight:700;}
+.tip .miss{color:var(--ink-mute);font-weight:700;}
+.tip::after{content:"";position:absolute;bottom:-5px;left:var(--ax,50%);transform:translateX(-50%) rotate(45deg);width:9px;height:9px;background:#0a0d0c;border-right:1px solid var(--line-2);border-bottom:1px solid var(--line-2);}
+
+/* insight */
+.insights{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px;}
+.ins{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);padding:13px 13px;}
+.ins .top{font-size:18px;line-height:1;margin-bottom:8px;}
+.ins .big{font-size:15px;font-weight:700;color:var(--ink);line-height:1.25;}
+.ins .small{font-size:11px;color:var(--ink-mute);margin-top:3px;font-weight:600;}
+.ins.wide{grid-column:1 / -1;display:flex;align-items:center;gap:12px;}
+.ins.wide .top{margin:0;font-size:20px;}
+.ins.wide .txt .big{font-size:14px;}
+
+.cap{width:390px;max-width:100vw;padding:14px 18px 0;color:var(--ink-mute);font-size:12px;line-height:1.5;text-align:center;}
+
+@media (max-width:430px){.screen{width:100%;}}
+</style>
+</head>
+<body>
+<h2 class="sr-only">Pointwell Momentum screen: a 0 to 100 consistency score with a 30-day trend wave, a contributions-style heatmap of daily logging for a selectable habit, and consistency insights.</h2>
+
+<div class="screen">
+  <div class="statusbar">
+    <span class="time">9:41</span>
+    <span class="logo">P</span>
+  </div>
+
+  <h1>Momentum</h1>
+  <p class="subhead">Showing up beats showing off.</p>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-top">
+      <div>
+        <p class="hero-label">Momentum</p>
+        <div class="score-row">
+          <span class="score" id="score">0</span>
+          <span class="score-max">/ 100</span>
+        </div>
+      </div>
+      <span class="trend"><span class="arrow">▲</span><span id="trendTxt">up 6 this week</span></span>
+    </div>
+    <div class="wave-wrap">
+      <svg id="wave" viewBox="0 0 358 96" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="waveFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="var(--mint)" stop-opacity="0.30"/>
+            <stop offset="60%" stop-color="var(--mint)" stop-opacity="0.07"/>
+            <stop offset="100%" stop-color="var(--mint)" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path id="waveArea" fill="url(#waveFill)" stroke="none"></path>
+        <path id="waveLine" fill="none" stroke="var(--mint)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+        <circle id="waveDot" r="3.5" fill="var(--mint)" opacity="0"></circle>
+      </svg>
+    </div>
+  </section>
+
+  <!-- SWITCHER -->
+  <div class="switcher" id="switcher" role="tablist" aria-label="Habit">
+    <button class="seg active" data-h="steps" role="tab"><span class="ico">👟</span><span class="lbl">Steps</span></button>
+    <button class="seg" data-h="sleep" role="tab"><span class="ico">😴</span><span class="lbl">Sleep</span></button>
+    <button class="seg" data-h="lift" role="tab"><span class="ico">💪</span><span class="lbl">Lifting</span></button>
+  </div>
+
+  <!-- HEATMAP -->
+  <section class="card" style="position:relative;">
+    <div class="card-head">
+      <div class="card-title"><span class="h-ico" id="hIco">👟</span><span id="hName">Steps</span></div>
+      <div class="card-sub" id="hSub">last 13 weeks</div>
+    </div>
+
+    <div class="heat-shell" id="heatShell">
+      <div class="months" id="months"></div>
+      <div class="heat-grid">
+        <div class="weekdays">
+          <span class="wd">M</span><span class="wd"></span><span class="wd">W</span><span class="wd"></span><span class="wd">F</span><span class="wd"></span><span class="wd"></span>
+        </div>
+        <div class="cols" id="cols"></div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span>Less</span>
+      <span class="swatches">
+        <span class="sw" style="background:var(--line)"></span>
+        <span class="sw" style="background:#143a2c"></span>
+        <span class="sw" style="background:#1e6b4b"></span>
+        <span class="sw" style="background:#2fae74"></span>
+        <span class="sw" style="background:var(--mint)"></span>
+      </span>
+      <span>More</span>
+    </div>
+
+    <div class="tip" id="tip"></div>
+  </section>
+
+  <!-- INSIGHTS -->
+  <div class="insights">
+    <div class="ins wide">
+      <span class="top">🔥</span>
+      <div class="txt">
+        <div class="big" id="insBestDay">You're most consistent on Tuesdays</div>
+        <div class="small" id="insBestDaySub">87% logged on that day</div>
+      </div>
+    </div>
+    <div class="ins">
+      <div class="top">⛓️</div>
+      <div class="big"><span id="insStreak">11</span>-day streak</div>
+      <div class="small">your best run</div>
+    </div>
+    <div class="ins">
+      <div class="top">✅</div>
+      <div class="big"><span id="insRate">82</span>% on track</div>
+      <div class="small">last 13 weeks</div>
+    </div>
+  </div>
+</div>
+
+<p class="cap"><b style="color:var(--ink-dim)">Momentum</b> — rewards showing up, not just big days. Consistency you can finally see.</p>
+
+<script>
+(function(){
+  "use strict";
+
+  var WEEKS = 13, DAYS = 7, TOTAL = WEEKS*DAYS; // 91 days
+  var MS_DAY = 86400000;
+  var DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  var DOW_FULL = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  var MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  // tiny seeded PRNG so patterns are stable per habit but believable
+  function rng(seed){var s=seed>>>0;return function(){s=(s*1664525+1013904223)>>>0;return s/4294967296;};}
+
+  // ---- habit configs ---------------------------------------------------
+  // Each builds a level 0..4 per day plus a value string for the tooltip.
+  var HABITS = {
+    steps:{
+      ico:"👟", name:"Steps", sub:"last 13 weeks",
+      score:78, trend:"up 6 this week",
+      unit:"Steps", goal:8000,
+      // weekday bias indexed by JS getDay (Sun..Sat); Tuesday strongest
+      bias:[0.52,0.70,0.95,0.72,0.66,0.60,0.38], // Sun,Mon,Tue,Wed,Thu,Fri,Sat
+      seed:7,
+      // recent strong stretch
+      recentBoost:0.9,
+      fmt:function(v){return v.toLocaleString();},
+      base:9200, spread:4200
+    },
+    sleep:{
+      ico:"😴", name:"Sleep", sub:"7h+ nights",
+      score:71, trend:"up 4 this week",
+      unit:"Sleep", goal:7,
+      bias:[0.80,0.58,0.66,0.60,0.55,0.42,0.78], // weekends better
+      seed:23,
+      recentBoost:0.7,
+      fmt:function(v){var h=Math.floor(v);var m=Math.round((v-h)*60);return h+"h "+(m<10?"0":"")+m+"m";},
+      base:7.1, spread:1.9
+    },
+    lift:{
+      ico:"💪", name:"Lifting", sub:"sessions logged",
+      score:64, trend:"up 9 this week",
+      unit:"Lift", goal:1,
+      bias:[0.30,0.72,0.34,0.74,0.30,0.66,0.36], // Mon/Wed/Fri-ish pattern (program days)
+      seed:51,
+      recentBoost:0.85,
+      fmt:function(v){return v+(v===1?" set":" sets");},
+      base:18, spread:14
+    }
+  };
+
+  // anchor "today" so grid ends on a real-ish recent date
+  var today = new Date(2026,5,27); // Jun 27 2026 (month is 0-based)
+  // align so last column's bottom cell = today's weekday position handled below
+
+  function buildData(key){
+    var h = HABITS[key];
+    var rand = rng(h.seed);
+    var cells = []; // length TOTAL, oldest -> newest
+    // newest day = today; oldest = today - (TOTAL-1)
+    for(var i=0;i<TOTAL;i++){
+      var daysAgo = (TOTAL-1) - i;
+      var d = new Date(today.getTime() - daysAgo*MS_DAY);
+      var dow = d.getDay(); // 0 Sun..6 Sat
+      var p = h.bias[dow];
+      // recent 18 days get a believable strong stretch
+      if(daysAgo < 18) p = p*0.5 + h.recentBoost*0.5;
+      // some random gaps
+      var r = rand();
+      var active = r < (p);
+      var level = 0, value = 0;
+      if(active){
+        // intensity scaled by how strongly above threshold + noise
+        var strength = (p - r) / Math.max(p,0.001); // 0..1-ish
+        strength = Math.max(0, Math.min(1, strength*0.8 + rand()*0.35));
+        level = 1 + Math.round(strength*3); // 1..4
+        if(level>4) level=4;
+        value = h.base + (strength-0.5)*h.spread*2;
+        if(key==="lift"){ value = Math.max(6, Math.round(value/3)*3); }
+        else if(key==="sleep"){ value = Math.round((h.base + (strength-0.4)*h.spread)*10)/10; if(value>9.4)value=9.4; if(value<6)value=6; }
+        else { value = Math.max(3500, Math.round((h.base + (strength-0.5)*h.spread)/100)*100); }
+      } else {
+        // missed day; occasionally a tiny partial
+        if(rand()<0.18 && daysAgo>=18){ level=1; value = key==="sleep"? 6.1 : (key==="lift"? 6 : 3800); }
+      }
+      cells.push({date:d,dow:dow,level:level,value:value});
+    }
+    return cells;
+  }
+
+  function computeInsights(cells,key){
+    var h = HABITS[key];
+    // best weekday by hit-rate
+    var hit=[0,0,0,0,0,0,0], tot=[0,0,0,0,0,0,0];
+    cells.forEach(function(c){ tot[c.dow]++; if(c.level>0) hit[c.dow]++; });
+    var bestDow=1,bestRate=-1;
+    for(var d=0;d<7;d++){ var rt = tot[d]? hit[d]/tot[d]:0; if(rt>bestRate){bestRate=rt;bestDow=d;} }
+    // longest streak
+    var best=0,cur=0;
+    cells.forEach(function(c){ if(c.level>0){cur++; if(cur>best)best=cur;} else cur=0; });
+    // overall rate
+    var active=0; cells.forEach(function(c){ if(c.level>0)active++; });
+    var rate = Math.round(active/cells.length*100);
+    return {
+      bestDow:bestDow,
+      bestRate:Math.round(bestRate*100),
+      streak:best,
+      rate:rate
+    };
+  }
+
+  // ---- rendering -------------------------------------------------------
+  var colsEl = document.getElementById("cols");
+  var monthsEl = document.getElementById("months");
+  var tip = document.getElementById("tip");
+  var heatShell = document.getElementById("heatShell");
+  var hIco = document.getElementById("hIco");
+  var hName = document.getElementById("hName");
+  var hSub = document.getElementById("hSub");
+
+  var currentKey = "steps";
+  var currentCells = [];
+  var selectedCell = null;
+  var staggerTimers = [];
+
+  function clearTimers(){ staggerTimers.forEach(function(t){clearTimeout(t);}); staggerTimers=[]; }
+
+  function renderHeatmap(cells, animate){
+    clearTimers();
+    colsEl.innerHTML="";
+    monthsEl.innerHTML="";
+    selectedCell=null;
+    hideTip();
+
+    // build columns (weeks). cells oldest->newest, 7 per column, top row = Sun? We'll map row0=Mon for label friendliness.
+    // Use dow ordering Mon..Sun so M/W/F labels line up (rows: Mon,Tue,Wed,Thu,Fri,Sat,Sun)
+    function rowFor(dow){ return (dow+6)%7; } // Sun(0)->6, Mon(1)->0 ...
+
+    var colEls=[];
+    var monthMark=[]; // track month label per column
+    for(var w=0;w<WEEKS;w++){
+      var col=document.createElement("div"); col.className="col";
+      // create 7 placeholders rows in Mon..Sun order
+      var rowCells=new Array(7).fill(null);
+      for(var dd=0;dd<7;dd++){
+        var idx = w*7+dd;
+        var c = cells[idx];
+        var row = rowFor(c.dow);
+        rowCells[row]=c;
+      }
+      // first cell of week for month label
+      var firstC = rowCells[0]||rowCells.find(function(x){return x;});
+      monthMark.push(firstC?firstC.date:null);
+
+      for(var rr=0;rr<7;rr++){
+        var c2=rowCells[rr];
+        var cell=document.createElement("div");
+        cell.className="cell"+(c2&&c2.level?(" l"+c2.level):"");
+        if(c2){
+          cell.dataset.idx = cells.indexOf(c2);
+          (function(cellNode,data){
+            cellNode.addEventListener("click",function(e){ onCellTap(cellNode,data); e.stopPropagation(); });
+          })(cell,c2);
+        } else {
+          cell.style.visibility="hidden";
+        }
+        col.appendChild(cell);
+        colEls.push({node:cell,w:w,r:rr});
+      }
+      colsEl.appendChild(col);
+    }
+
+    // month labels: show when month changes across columns
+    var lastMonth=-1;
+    for(var m=0;m<monthMark.length;m++){
+      var span=document.createElement("span");
+      span.className="month-lbl";
+      span.style.flex="1";
+      var dt=monthMark[m];
+      if(dt && dt.getMonth()!==lastMonth){ span.textContent=MON[dt.getMonth()]; lastMonth=dt.getMonth(); }
+      else span.textContent="";
+      monthsEl.appendChild(span);
+    }
+
+    // animate in with diagonal stagger
+    if(animate){
+      colEls.forEach(function(ce){
+        var delay = ce.w*26 + ce.r*16;
+        var t=setTimeout(function(){ ce.node.classList.add("in"); }, delay);
+        staggerTimers.push(t);
+      });
+    } else {
+      colEls.forEach(function(ce){ ce.node.classList.add("in"); });
+    }
+  }
+
+  function onCellTap(node, data){
+    if(selectedCell) selectedCell.classList.remove("sel");
+    if(selectedCell===node){ selectedCell=null; hideTip(); return; }
+    node.classList.add("sel");
+    selectedCell=node;
+    showTip(node,data);
+  }
+
+  function showTip(node,data){
+    var h=HABITS[currentKey];
+    var d=data.date;
+    var dateStr = DOW[d.getDay()]+" "+MON[d.getMonth()]+" "+d.getDate();
+    var body;
+    if(data.level>0){
+      body = "<b>"+dateStr+"</b><br><span class='dim'>"+h.unit+" "+h.fmt(data.value)+"</span> <span class='ok'>✓</span>";
+    } else {
+      body = "<b>"+dateStr+"</b><br><span class='miss'>No log</span>";
+    }
+    tip.innerHTML=body;
+    tip.classList.add("show");
+
+    // position above the cell, relative to the card
+    var card = node.closest(".card");
+    var cr = card.getBoundingClientRect();
+    var nr = node.getBoundingClientRect();
+    var tr = tip.getBoundingClientRect();
+    var cx = (nr.left - cr.left) + nr.width/2;
+    var left = cx - tr.width/2;
+    var minL = 6, maxL = cr.width - tr.width - 6;
+    if(left<minL) left=minL;
+    if(left>maxL) left=maxL;
+    var top = (nr.top - cr.top) - tr.height - 9;
+    if(top<2) top = (nr.bottom - cr.top) + 9; // flip below if no room
+    tip.style.left = left+"px";
+    tip.style.top = top+"px";
+    // arrow x relative to tip
+    var ax = cx - left;
+    ax = Math.max(10, Math.min(tr.width-10, ax));
+    tip.style.setProperty("--ax", ax+"px");
+  }
+  function hideTip(){ tip.classList.remove("show"); }
+  document.querySelector(".card").addEventListener("click",function(){ if(selectedCell){selectedCell.classList.remove("sel");selectedCell=null;} hideTip(); });
+
+  // ---- wave ------------------------------------------------------------
+  var waveLine = document.getElementById("waveLine");
+  var waveArea = document.getElementById("waveArea");
+  var waveDot = document.getElementById("waveDot");
+  var W=358,Hh=96,PAD_T=14,PAD_B=10;
+
+  function buildWavePoints(key){
+    // 30 days of momentum trending up, derived loosely from habit
+    var h=HABITS[key];
+    var rand=rng(h.seed+99);
+    var pts=[]; var n=30;
+    var start = h.score - 16; // ramp up to current score
+    for(var i=0;i<n;i++){
+      var t=i/(n-1);
+      var v = start + (h.score-start)*Math.pow(t,0.85);
+      v += Math.sin(i*0.9)*2.4 + (rand()-0.5)*4.2;
+      pts.push(v);
+    }
+    pts[n-1]=h.score;
+    // map to coords (value range ~ score-22 .. score+6)
+    var lo=h.score-24, hi=h.score+4;
+    var coords=[];
+    for(var j=0;j<n;j++){
+      var x = (j/(n-1))*W;
+      var norm=(pts[j]-lo)/(hi-lo);
+      var y = PAD_T + (1-norm)*(Hh-PAD_T-PAD_B);
+      coords.push([x,y]);
+    }
+    return coords;
+  }
+
+  function smoothPath(coords){
+    if(!coords.length) return "";
+    var d="M "+coords[0][0].toFixed(1)+" "+coords[0][1].toFixed(1);
+    for(var i=0;i<coords.length-1;i++){
+      var p0=coords[i], p1=coords[i+1];
+      var mx=(p0[0]+p1[0])/2;
+      d+=" Q "+p0[0].toFixed(1)+" "+p0[1].toFixed(1)+" "+mx.toFixed(1)+" "+((p0[1]+p1[1])/2).toFixed(1);
+      d+=" T "+p1[0].toFixed(1)+" "+p1[1].toFixed(1);
+    }
+    return d;
+  }
+  // simpler robust smoothing: cardinal-ish with quadratic midpoints
+  function lineThrough(coords){
+    if(coords.length<2) return "M0 0";
+    var d="M "+coords[0][0].toFixed(1)+" "+coords[0][1].toFixed(1);
+    for(var i=1;i<coords.length;i++){
+      var prev=coords[i-1], cur=coords[i];
+      var cx=(prev[0]+cur[0])/2;
+      d+=" Q "+prev[0].toFixed(1)+" "+prev[1].toFixed(1)+" "+cx.toFixed(1)+" "+((prev[1]+cur[1])/2).toFixed(1);
+      d+=" L "+cur[0].toFixed(1)+" "+cur[1].toFixed(1);
+    }
+    return d;
+  }
+
+  function renderWave(key, animate){
+    var coords=buildWavePoints(key);
+    var line=lineThrough(coords);
+    waveLine.setAttribute("d",line);
+    var area=line+" L "+W+" "+Hh+" L 0 "+Hh+" Z";
+    waveArea.setAttribute("d",area);
+
+    var last=coords[coords.length-1];
+    waveDot.setAttribute("cx",last[0].toFixed(1));
+    waveDot.setAttribute("cy",last[1].toFixed(1));
+
+    var len = waveLine.getTotalLength();
+    if(animate){
+      waveDot.style.opacity="0";
+      waveLine.style.transition="none";
+      waveLine.style.strokeDasharray=len+" "+len;
+      waveLine.style.strokeDashoffset=len;
+      waveArea.style.transition="none";
+      waveArea.style.opacity="0";
+      // force reflow
+      void waveLine.getBoundingClientRect();
+      waveLine.style.transition="stroke-dashoffset 1.25s cubic-bezier(.25,.8,.3,1)";
+      waveLine.style.strokeDashoffset="0";
+      waveArea.style.transition="opacity .9s ease .35s";
+      waveArea.style.opacity="1";
+      setTimeout(function(){
+        waveDot.style.transition="opacity .4s ease";
+        waveDot.style.opacity="1";
+        pulseDot();
+      },1050);
+    } else {
+      waveLine.style.transition="none";
+      waveLine.style.strokeDasharray="none";
+      waveLine.style.strokeDashoffset="0";
+      waveArea.style.opacity="1";
+      waveDot.style.opacity="1";
+    }
+  }
+  function pulseDot(){
+    waveDot.animate([
+      {r:3.5,opacity:1},{r:6,opacity:.35},{r:3.5,opacity:1}
+    ],{duration:2400,iterations:Infinity,easing:"ease-in-out"});
+  }
+
+  // ---- score count-up --------------------------------------------------
+  function animateScore(target){
+    var el=document.getElementById("score");
+    var start=performance.now(),dur=1100,from=0;
+    function step(now){
+      var t=Math.min(1,(now-start)/dur);
+      var e=1-Math.pow(1-t,3);
+      el.textContent=Math.round(from+(target-from)*e);
+      if(t<1) requestAnimationFrame(step);
+      else el.textContent=target;
+    }
+    requestAnimationFrame(step);
+  }
+
+  // ---- header / insights update ---------------------------------------
+  function setInsights(ins,key){
+    document.getElementById("insBestDay").textContent="You're most consistent on "+DOW_FULL[ins.bestDow]+"s";
+    document.getElementById("insBestDaySub").textContent=ins.bestRate+"% logged on that day";
+    document.getElementById("insStreak").textContent=ins.streak;
+    document.getElementById("insRate").textContent=ins.rate;
+  }
+
+  function loadHabit(key, opts){
+    opts=opts||{};
+    var h=HABITS[key];
+    currentKey=key;
+    currentCells=buildData(key);
+    var ins=computeInsights(currentCells,key);
+
+    hIco.textContent=h.ico;
+    hName.textContent=h.name;
+    hSub.textContent=h.sub;
+    document.getElementById("trendTxt").textContent=h.trend;
+
+    setInsights(ins,key);
+    renderWave(key, opts.animate);
+    renderHeatmap(currentCells, opts.animate);
+
+    if(opts.animate) animateScore(h.score);
+    else document.getElementById("score").textContent=h.score;
+  }
+
+  // crossfade on switch
+  function switchHabit(key){
+    if(key===currentKey) return;
+    heatShell.classList.add("fading");
+    // fade wave/score subtly too
+    var wave=document.getElementById("wave");
+    wave.style.transition="opacity .22s ease";
+    wave.style.opacity="0.25";
+    setTimeout(function(){
+      loadHabit(key,{animate:false});
+      // re-trigger light entrance
+      heatShell.classList.remove("fading");
+      wave.style.opacity="1";
+      // gentle re-stagger of heatmap on switch
+      reStagger();
+      // small wave redraw animation
+      renderWave(key,true);
+      animateScore(HABITS[key].score);
+    },230);
+  }
+  function reStagger(){
+    // restart entrance for visual feedback
+    var cells=colsEl.querySelectorAll(".cell");
+    cells.forEach(function(c){ c.classList.remove("in"); });
+    var cols=colsEl.querySelectorAll(".col");
+    cols.forEach(function(col,w){
+      col.querySelectorAll(".cell").forEach(function(c,r){
+        setTimeout(function(){ c.classList.add("in"); }, w*20+r*12);
+      });
+    });
+  }
+
+  // ---- switcher wiring -------------------------------------------------
+  document.getElementById("switcher").addEventListener("click",function(e){
+    var btn=e.target.closest(".seg"); if(!btn) return;
+    var key=btn.dataset.h;
+    document.querySelectorAll(".seg").forEach(function(s){s.classList.remove("active");s.setAttribute("aria-selected","false");});
+    btn.classList.add("active"); btn.setAttribute("aria-selected","true");
+    switchHabit(key);
+  });
+
+  // reposition tip on resize/scroll close
+  window.addEventListener("resize",function(){ hideTip(); if(selectedCell){selectedCell.classList.remove("sel");selectedCell=null;} });
+
+  // ---- init ------------------------------------------------------------
+  loadHabit("steps",{animate:true});
+  document.querySelector('.seg.active').setAttribute("aria-selected","true");
+})();
+</script>
+</body>
+</html>

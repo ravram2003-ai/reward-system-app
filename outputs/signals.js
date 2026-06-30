@@ -895,6 +895,60 @@
     }
   }
 
+  // ── Post-first feed: ONE post fans out to many feeds (post-first-feed.sql, #26) ──
+  // A post = caption + photo + the AI-parsed activity, published to any mix of the author's profile
+  // and the communities its rules match. RLS gates visibility; photos reuse the entry-photos bucket.
+
+  // Insert one post (author = me). activity = [{ruleLabel, emoji, amount, unit}]. Returns { error, post }.
+  async function createPost(userId, caption, photoPath, activity, isShared) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(userId))) return { error: { message: "Sign in to post." } };
+    var cap = (caption == null ? "" : String(caption)).trim().slice(0, 2000);
+    var photo = photoPath ? String(photoPath) : null;
+    var acts = Array.isArray(activity) ? activity : [];
+    if (!cap && !photo && !acts.length) return { error: { message: "Add a photo, caption, or activity." } };
+    try {
+      var res = await sb.from("posts").insert({
+        author_user: userId, caption: cap || null, photo_path: photo,
+        activity: acts, is_shared: isShared !== false
+      }).select().single();
+      if (res.error) return { error: res.error };
+      return { error: null, post: res.data || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // Fan a post out to one feed: target_type 'profile' (target_id = author) or 'community' (community id),
+  // with the per-target point rollup. RLS only lets the post's author insert, for a community they belong
+  // to or their own profile. Returns { error }.
+  async function addPostTarget(postId, targetType, targetId, points) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(postId)) || !UUID_RE.test(String(targetId))) return { error: { message: "Couldn't share that." } };
+    if (targetType !== "profile" && targetType !== "community") return { error: { message: "Bad target." } };
+    try {
+      var res = await sb.from("post_targets").insert({
+        post_id: postId, target_type: targetType, target_id: targetId, points: Number(points) || 0
+      });
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
+  // Delete one of MY posts (cascades post_targets, likes, comments, and the linked community_entries
+  // — so the points it logged are removed too). Author-only RLS is the real guard. Returns { error }.
+  async function deletePost(postId, userId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(postId)) || !userId) return { error: { message: "Couldn't delete that." } };
+    try {
+      var res = await sb.from("posts").delete().eq("id", postId).eq("author_user", userId);
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
+
   // Every community the user belongs to, with its members (names via a definer
   // function, since profiles RLS is self-only) and the shared entries.
   async function fetchMyCommunities(userId) {
@@ -1571,6 +1625,9 @@
     addProfilePostComment: addProfilePostComment,
     getProfilePostComments: getProfilePostComments,
     deleteProfilePostComment: deleteProfilePostComment,
+    createPost: createPost,
+    addPostTarget: addPostTarget,
+    deletePost: deletePost,
     fetchMyCommunities: fetchMyCommunities,
     createChallenge: createChallenge,
     fetchMyChallenges: fetchMyChallenges,

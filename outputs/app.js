@@ -295,6 +295,14 @@
   // Optional message + photo for the next Add Entry. Both optional; reset after save.
   let addEntryAttachment = { message: "", file: null, previewUrl: "" };
   const ENTRY_PHOTO_MAX_BYTES = 5 * 1024 * 1024; // ~5 MB cap (protects free-tier storage)
+  // Post-first composer ("logging IS posting"): one post = photo + caption + AI-parsed
+  // activity that fans out to the worlds (communities/profile) it matches. See
+  // openPostComposer / renderPostComposer / publishPostComposer.
+  let postComposer = null; // null when closed; an object (see resetPostComposer) when open
+  let postComposerParsing = false;
+  let postComposerPublishing = false;
+  let postComposerAddOpen = false; // is the manual "+ add activity" picker expanded?
+  let postComposerAltOpen = false; // is the "+ Post to another world" (non-matching) picker expanded?
   // Pending profile-picture change on the Profile page: a chosen-but-unsaved file +
   // local preview, or a flag to clear the saved picture. Applied on "Save profile".
   let profileAvatarDraft = { file: null, previewUrl: "", remove: false };
@@ -305,6 +313,7 @@
   // Guards the async profile save so a double-click can't upload the avatar twice.
   let profileSaving = false;
   const ENTRY_MESSAGE_MAX = 280;
+  const POST_CAPTION_MAX = 2000; // posts.caption schema cap (post-first composer captions)
   let topCardDraftBlocks = null;
   let weeklyChartDraftBlocks = null;
   let communityDraft = null;
@@ -2783,6 +2792,10 @@
       "customizeTopCardSystemSelect",
       "customizeChartsSystemSelect",
       "createFab",
+      "postComposerView",
+      "postComposerMount",
+      "postComposerPhotoInput",
+      "postComposerSnapInput",
       "backToDashboardButton",
       "cancelTopCardButton",
       "saveTopCardButton",
@@ -3133,6 +3146,7 @@
     els.views = {
       dashboard: els.dashboardView,
       "add-entry": els.addEntryView,
+      "post-composer": els.postComposerView,
       "customize-top-card": els.customizeTopCardView,
       "customize-charts": els.customizeChartsView,
       systems: els.systemsView,
@@ -3176,8 +3190,10 @@
     if (els.feedTabs) els.feedTabs.addEventListener("click", onFeedTabClick);
 
     // The "+" FAB is the single entry point for logging (creating systems/communities
-    // lives in Build). openAddEntryPage guards the no-system / no-rules cases with a toast.
-    if (els.createFab) els.createFab.addEventListener("click", openAddEntryPage);
+    // lives in Build). The post-first composer ("logging IS posting") is now that entry
+    // point; openPostComposer guards the no-world case with a toast.
+    if (els.createFab) els.createFab.addEventListener("click", openPostComposer);
+    bindPostComposerEvents();
     // Bubble-tile home: tap a tile to open it; long-press (touch) / click-drag (desktop)
     // to reorder. Top two of the new order become the featured/large tiles (drag up to
     // feature, down to shrink); order persists in state.homeLayout.order.
@@ -3548,6 +3564,7 @@
     renderChrome();
     renderActiveView();
     renderDashboard();
+    renderPostComposer();
     renderSystems();
     renderDiscover();
     renderFeed();
@@ -3580,7 +3597,7 @@
         // someone else's profile-page (opened from the feed/leaderboard).
         ? ownProfileActive
         : (tab.dataset.view === state.activeView
-          || ((state.activeView === "add-entry" || state.activeView === "customize-top-card" || state.activeView === "customize-charts") && tab.dataset.view === "dashboard"));
+          || ((state.activeView === "add-entry" || state.activeView === "post-composer" || state.activeView === "customize-top-card" || state.activeView === "customize-charts") && tab.dataset.view === "dashboard"));
       tab.classList.toggle("active", isActive);
       tab.setAttribute("aria-current", isActive ? "page" : "false");
     });
@@ -3858,6 +3875,774 @@
     saveState();
     render();
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Post-first composer — "logging IS posting". One post = photo + caption + the
+  // activity the AI parsed from your words. The AI matches that activity to the
+  // worlds (communities/systems) whose rules it fits and pre-toggles them ON; you
+  // flip any off; one "Share to feeds" switch keeps it private. Publishing fans the
+  // single post out to every ON world (scored via the existing community/personal
+  // write path) + your profile. Reuses parseLog + buildLoggableRuleCatalog (activity),
+  // scoring.calculateRule (points), uploadEntryPhoto (media), and createPost/
+  // addPostTarget/addCommunityEntry (persistence). Replaces the old "log, then ask
+  // Want to turn this into a post?" flow as the "+" FAB target.
+
+  function resetPostComposer() {
+    if (postComposer && postComposer.previewUrl) {
+      try { URL.revokeObjectURL(postComposer.previewUrl); } catch (e) { /* ignore */ }
+    }
+    postComposer = {
+      caption: "",
+      file: null,
+      previewUrl: "",
+      isShared: false,  // DEFAULT = quiet log. Turn "Share as a post" ON to reveal photo+caption.
+      parsed: false,
+      parsedCaption: "",
+      activity: [],     // [{_id,label,emoji,amount,unit,isYesNo,srcContextType,srcContextId,srcRuleId}]
+      targets: [],      // recomputed from activity (profile + each world)
+      userToggled: {},  // key -> true once the user manually flips a destination
+      addedWorlds: {}   // key -> true for a non-matching community added via "+ Post to another world"
+    };
+    postComposerParsing = false;
+    postComposerPublishing = false;
+    postComposerAddOpen = false;
+    postComposerAltOpen = false;
+  }
+
+  function openPostComposer() {
+    var hasWorlds = (state.systems || []).length || (state.communities || []).length;
+    var signedIn = !!(state.account && state.account.userId);
+    if (!hasWorlds && !signedIn) { showToast("Create a reward system first"); return; }
+    resetPostComposer();
+    state.activeView = "post-composer";
+    saveState();
+    render();
+    requestAnimationFrame(function () {
+      var ta = els.postComposerMount && els.postComposerMount.querySelector("[data-pc-caption]");
+      if (ta && ta.focus) ta.focus();
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    });
+  }
+
+  // Normalized full rules a world can be logged toward (same exclusions as the
+  // quick-log catalog: no penalties, no calculated totals, no manual-off synced rules).
+  function postComposerLoggableRules(rules) {
+    return (rules || []).map(scoring.normalizeRule).filter(function (rule) {
+      if (rule.simpleStyle === "penalty") return false;
+      if (rule.dataSource === "calculated") return false;
+      if (isExternalRuleSynced(rule) && rule.allowManualOverride === false) return false;
+      return true;
+    });
+  }
+
+  // Every world the post can fan out to: communities first, then personal systems.
+  function postComposerWorlds() {
+    var worlds = [];
+    (state.communities || []).forEach(function (c) {
+      var sys = normalizeSystem(c.system || { rules: [] });
+      var rules = postComposerLoggableRules(sys.rules);
+      worlds.push({ type: "community", id: c.id, name: c.name || "Community", emoji: postComposerWorldEmoji(rules), rules: rules });
+    });
+    (state.systems || []).forEach(function (s) {
+      var sys = normalizeSystem(s);
+      var rules = postComposerLoggableRules(sys.rules);
+      worlds.push({ type: "personal", id: s.id, name: s.title || "System", emoji: postComposerWorldEmoji(rules), rules: rules });
+    });
+    return worlds;
+  }
+
+  function postComposerWorldEmoji(rules) {
+    return (rules && rules.length) ? draftRuleIcon(rules[0]) : "🌐";
+  }
+
+  function normPostLabel(s) { return String(s || "").toLowerCase().trim(); }
+
+  // Does a parsed activity belong in this rule? Exact when it IS the rule the parse
+  // resolved to; otherwise a whole-word overlap of the activity label against the
+  // rule label/unit (mirrors ruleMatchScore's label test, so "Steps" hits "Daily
+  // steps" but never "Cardio minutes").
+  function activityMatchesRule(activity, rule) {
+    if (activity.srcRuleId && activity.srcRuleId === rule.id) return true;
+    var words = normPostLabel(activity.label).split(/[^a-z0-9]+/).filter(function (w) { return w.length > 2; });
+    if (!words.length) return false;
+    // Whole-word overlap (NOT substring) so "Steps" hits "Daily steps" but "Car"
+    // never matches "Cardio". Tokenize the rule's label+unit the same way.
+    var hayWords = (String(rule.label || "") + " " + String(rule.unit || "")).toLowerCase().split(/[^a-z0-9]+/);
+    return words.some(function (w) { return hayWords.indexOf(w) > -1; });
+  }
+
+  // Match every activity to at most one rule in this world (each rule used once) and
+  // sum the points those logs would earn (scoring.calculateRule — the same math the
+  // leaderboard uses). Returns the matched rules + total points.
+  function worldMatchForActivities(worldRules, activities) {
+    var used = {};
+    var matchedRules = [];
+    var points = 0;
+    (activities || []).forEach(function (act) {
+      var best = null;
+      for (var i = 0; i < worldRules.length; i++) {
+        var rule = worldRules[i];
+        if (used[rule.id]) continue;
+        if (activityMatchesRule(act, rule)) { best = rule; break; }
+      }
+      if (!best) return;
+      used[best.id] = true;
+      var amt = normalizeAddEntryAmount(act.amount, best);
+      var calc = scoring.calculateRule(best, amt);
+      points += numberOrDefault(calc.totalPoints, 0);
+      matchedRules.push({ ruleId: best.id, ruleLabel: best.label, amount: amt, activityId: act._id });
+    });
+    return { matchedRules: matchedRules, points: roundScore(points) };
+  }
+
+  // Rebuild the destination list from the current activity. Auto-toggle = profile ON,
+  // matched worlds ON, unmatched worlds OFF — unless the user has manually flipped a
+  // destination, in which case their choice is preserved.
+  function recomputePostComposerTargets() {
+    if (!postComposer) return;
+    var prevOn = {};
+    (postComposer.targets || []).forEach(function (t) { prevOn[t.key] = t.on; });
+    var acts = postComposer.activity || [];
+    var toggled = postComposer.userToggled || {};
+    var targets = [];
+    var uid = state.account && state.account.userId;
+    targets.push({
+      key: "profile", type: "profile", id: uid || "", name: "Your profile", emoji: "",
+      on: toggled["profile"] ? !!prevOn["profile"] : true,
+      matched: true, matchedLabels: [], points: 0, matchedRules: []
+    });
+    postComposerWorlds().forEach(function (w) {
+      var key = w.type + ":" + w.id;
+      var m = worldMatchForActivities(w.rules, acts);
+      var matched = m.matchedRules.length > 0;
+      targets.push({
+        key: key, type: w.type, id: w.id, name: w.name, emoji: w.emoji,
+        on: toggled[key] ? !!prevOn[key] : matched,
+        matched: matched,
+        matchedLabels: m.matchedRules.map(function (r) { return r.ruleLabel; }),
+        points: m.points, matchedRules: m.matchedRules
+      });
+    });
+    postComposer.targets = targets;
+  }
+
+  function activityFromQuickLogEntry(e) {
+    var resolved = resolveQuickLogRule(e.contextType, e.contextId, e.ruleId);
+    if (!resolved) return null;
+    var rule = resolved.rule;
+    var isYesNo = rule.simpleStyle === "yesNo";
+    // A post attaches what you DID — a yes/no activity is always "done" (there is no
+    // "skip" to post about), so it can never sit at amount 0 with no way to flip it.
+    var amount = isYesNo ? 1 : e.amount;
+    return {
+      _id: makeId("pc-act"),
+      label: rule.label,
+      emoji: draftRuleIcon(rule),
+      amount: amount,
+      unit: rule.unit || "",
+      isYesNo: isYesNo,
+      srcContextType: e.contextType, srcContextId: e.contextId, srcRuleId: e.ruleId
+    };
+  }
+
+  function mergeParsedActivities(entries) {
+    if (!postComposer) return;
+    var have = {};
+    (postComposer.activity || []).forEach(function (a) { have[normPostLabel(a.label)] = true; });
+    (entries || []).forEach(function (e) {
+      var act = activityFromQuickLogEntry(e);
+      if (!act) return;
+      var k = normPostLabel(act.label);
+      if (have[k]) return;
+      have[k] = true;
+      postComposer.activity.push(act);
+    });
+  }
+
+  // Read the caption with the AI and attach whatever activity it finds. Idempotent on
+  // identical text. Degrades gracefully with no AI / no rules (the post still works as
+  // a plain photo+caption with manual destination toggles).
+  async function runPostComposerParse(opts) {
+    opts = opts || {};
+    if (!postComposer) return;
+    var caption = String(postComposer.caption || "").trim();
+    if (!caption) {
+      postComposer.parsed = false; postComposer.parsedCaption = "";
+      recomputePostComposerTargets(); renderPostComposer(); return;
+    }
+    if (!opts.force && postComposer.parsedCaption === caption) return;
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.parseLog !== "function") {
+      postComposer.parsed = true; postComposer.parsedCaption = caption;
+      recomputePostComposerTargets(); renderPostComposer(); return;
+    }
+    var catalog = buildLoggableRuleCatalog();
+    if (!catalog.length) {
+      postComposer.parsed = true; postComposer.parsedCaption = caption;
+      recomputePostComposerTargets(); renderPostComposer(); return;
+    }
+    postComposerParsing = true; renderPostComposer();
+    try {
+      var res = await window.PointwellSignals.parseLog(caption, catalog);
+      postComposerParsing = false;
+      if (!postComposer) return; // composer was closed while we awaited the AI
+      if (res.error) { renderPostComposer(); return; }
+      var entries = (res.entries || []).map(normalizeQuickLogEntry).filter(Boolean);
+      mergeParsedActivities(entries);
+      postComposer.parsed = true; postComposer.parsedCaption = caption;
+      recomputePostComposerTargets(); renderPostComposer();
+    } catch (e) {
+      postComposerParsing = false; renderPostComposer();
+    }
+  }
+
+  // Submit affordance for the AI box (the ↑ button / Enter): run the existing parse + attach on
+  // the current text. In LOG mode the box is a transient activity-entry field, so clear it after
+  // so the next line stacks another activity. In POST mode the same text is the caption, so the
+  // activity is attached but the caption is left intact.
+  async function submitPostComposerActivity() {
+    if (!postComposer || postComposerPublishing) return;
+    var text = String(postComposer.caption || "").trim();
+    if (!text) return;
+    await runPostComposerParse({ force: true });
+    if (!postComposer) return; // closed mid-parse
+    if (postComposer.isShared !== true) {
+      postComposer.caption = "";
+      postComposer.parsed = false;
+      postComposer.parsedCaption = "";
+      renderPostComposer();
+      requestAnimationFrame(function () {
+        var ta = els.postComposerMount && els.postComposerMount.querySelector("[data-pc-caption]");
+        if (ta && ta.focus) ta.focus();
+      });
+    }
+  }
+
+  function postComposerChoosePhoto(file) {
+    if (!file || !postComposer) return;
+    if (!/^image\//i.test(file.type || "")) { showToast("That's not an image — choose a photo"); return; }
+    if (file.size > ENTRY_PHOTO_MAX_BYTES) { showToast("Photo is too big (max 5 MB) — pick a smaller one"); return; }
+    if (postComposer.previewUrl) { try { URL.revokeObjectURL(postComposer.previewUrl); } catch (e) { /* ignore */ } }
+    postComposer.file = file;
+    postComposer.previewUrl = URL.createObjectURL(file);
+    recomputePostComposerTargets(); // a photo makes the profile target a real post
+    renderPostComposer();
+  }
+
+  function postComposerRemovePhoto() {
+    if (!postComposer) return;
+    if (postComposer.previewUrl) { try { URL.revokeObjectURL(postComposer.previewUrl); } catch (e) { /* ignore */ } }
+    postComposer.file = null; postComposer.previewUrl = "";
+    recomputePostComposerTargets(); renderPostComposer();
+  }
+
+  // Snap a meal/workout photo → AI estimate → attach the activity (e.g. a meal photo logs its
+  // calories). Reuses the EXISTING vision path (estimateFood + buildEstimateDraftRows, the same
+  // one the coach/quick-log "Snap" uses). The textarea text is sent as the hint. The photo is
+  // also kept so it carries into a shared post (it's only uploaded if you Share as a post).
+  async function postComposerSnapPhoto(file) {
+    if (!file || !postComposer) return;
+    if (!/^image\//i.test(file.type || "")) { showToast("That's not an image — choose a photo"); return; }
+    if (file.size > ENTRY_PHOTO_MAX_BYTES) { showToast("Photo is too big (max 5 MB) — pick a smaller one"); return; }
+    if (postComposer.previewUrl) { try { URL.revokeObjectURL(postComposer.previewUrl); } catch (e) { /* ignore */ } }
+    postComposer.file = file;
+    postComposer.previewUrl = URL.createObjectURL(file);
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.estimateFood !== "function" || typeof fileToBase64Parts !== "function") {
+      showToast("Sign in to analyze photos");
+      recomputePostComposerTargets(); renderPostComposer(); return;
+    }
+    postComposerParsing = true; renderPostComposer(); // reuse the "reading…" indicator
+    try {
+      var parts = await fileToBase64Parts(file);
+      var hint = String(postComposer.caption || "").trim();
+      var res = await window.PointwellSignals.estimateFood(parts.data, parts.mediaType, hint);
+      postComposerParsing = false;
+      if (!postComposer) return; // closed while analyzing
+      if (res.error || !res.estimate || res.estimate.kind === "other") {
+        showToast((res.error && res.error.message) || "Couldn't read that photo — type it instead.");
+        recomputePostComposerTargets(); renderPostComposer(); return;
+      }
+      var rows = buildEstimateDraftRows(res.estimate); // {contextType,contextId,ruleId,amount,...}
+      if (!rows.length) {
+        showToast(res.estimate.kind === "workout"
+          ? "No workout rule (minutes / distance / calories) to log this to — add one in Build."
+          : "No calories/protein rule to log this to — add one in Build.");
+        recomputePostComposerTargets(); renderPostComposer(); return;
+      }
+      mergeParsedActivities(rows); // map the estimate onto activity chips (editable amounts)
+      postComposer.parsed = true;
+      recomputePostComposerTargets(); renderPostComposer();
+      showToast("Added from your photo — tweak the numbers if needed");
+    } catch (e) {
+      postComposerParsing = false;
+      if (postComposer) renderPostComposer();
+      showToast("Couldn't analyze the photo — try again.");
+    }
+  }
+
+  // Catalog rules not already attached, for the manual "+ add activity" picker.
+  function postComposerAddableRules() {
+    var have = {};
+    (postComposer.activity || []).forEach(function (a) { have[normPostLabel(a.label)] = true; });
+    var seen = {};
+    return buildLoggableRuleCatalog().filter(function (c) {
+      var k = normPostLabel(c.label);
+      if (have[k] || seen[k]) return false; // one chip per label, even across worlds
+      seen[k] = true;
+      return true;
+    });
+  }
+
+  function postComposerAddActivity(contextType, contextId, ruleId) {
+    var entry = normalizeQuickLogEntry({ contextType: contextType, contextId: contextId, ruleId: ruleId, amount: undefined, confidence: 1 });
+    if (!entry) return;
+    var resolved = resolveQuickLogRule(contextType, contextId, ruleId);
+    // Manual add: default a number rule to a sensible amount so it scores something.
+    if (resolved && !entry.isYesNo) entry.amount = suggestedEntryAmount(resolved.rule);
+    mergeParsedActivities([entry]);
+    postComposerAddOpen = false;
+    recomputePostComposerTargets(); renderPostComposer();
+  }
+
+  function postComposerCanPublish() {
+    if (!postComposer) return false;
+    var hasActivity = (postComposer.activity || []).length > 0;
+    // Log mode: you need at least one activity to log (a bare log needs no caption/photo).
+    if (postComposer.isShared !== true) return hasActivity;
+    // Post mode: a real post needs a photo, caption, or activity.
+    var hasCaption = !!String(postComposer.caption || "").trim();
+    var hasPhoto = !!postComposer.file;
+    return hasCaption || hasPhoto || hasActivity;
+  }
+
+  // Non-matching communities (a feed but no rule for this activity) the user could still
+  // share to via the explicit "+ Post to another world" picker. Personal systems have no
+  // feed, so they never appear here.
+  function postComposerAltWorlds() {
+    if (!postComposer) return [];
+    return (postComposer.targets || []).filter(function (t) {
+      return t.type === "community" && !t.matched && !(postComposer.addedWorlds && postComposer.addedWorlds[t.key]);
+    });
+  }
+
+  function renderPostComposer() {
+    var mount = els.postComposerMount;
+    if (!mount) return;
+    if (state.activeView !== "post-composer" || !postComposer) { mount.innerHTML = ""; return; }
+
+    var pc = postComposer;
+    var sharing = pc.isShared === true; // true = post mode; false (default) = quiet log mode
+    var authorName = (state.profile && state.profile.name) ? state.profile.name : "You";
+    var avatarUrl = state.profile && state.profile.avatarUrl ? state.profile.avatarUrl : "";
+    var avatar = avatarUrl
+      ? `<span class="pc-avatar" style="background-image:url('${escapeHtml(avatarUrl)}')"></span>`
+      : `<span class="pc-avatar pc-avatar-fallback">${escapeHtml((authorName[0] || "Y").toUpperCase())}</span>`;
+
+    // Photo attach only exists in post mode (a quiet log has no photo).
+    var photoSlot = pc.previewUrl
+      ? `<div class="pc-photo has-photo"><img src="${escapeHtml(pc.previewUrl)}" alt="Post photo preview"><button type="button" class="pc-photo-remove" data-pc-photo-remove aria-label="Remove photo">×</button></div>`
+      : `<button type="button" class="pc-photo pc-photo-add" data-pc-photo aria-label="Add a photo"><span class="pc-photo-cam" aria-hidden="true">📷</span><span class="pc-photo-text">Photo</span></button>`;
+
+    var activityChips = (pc.activity || []).map(renderPostComposerActivityChip).join("");
+    var parsingChip = postComposerParsing ? `<span class="pc-chip pc-chip-loading"><span class="pc-spinner" aria-hidden="true"></span>Reading…</span>` : "";
+    // Activities attach from the AI input (↑ / Enter). Manual rule picking stays as a quiet fallback link.
+    var addManualLink = `<button type="button" class="pc-add-manual" data-pc-add aria-expanded="${postComposerAddOpen ? "true" : "false"}">＋ Add manually</button>`;
+    var addPicker = postComposerAddOpen ? renderPostComposerAddPicker() : "";
+    var activityHint = "";
+    if (!postComposerParsing && pc.parsed && !(pc.activity || []).length) {
+      activityHint = `<p class="pc-activity-hint">No activity detected${sharing ? " — add one above, or just post the photo/caption." : " — type what you did, or add one above."}</p>`;
+    } else if (!pc.parsed && !(pc.activity || []).length) {
+      activityHint = `<p class="pc-activity-hint">Type what you did and the AI attaches the activity + matches it to your worlds.</p>`;
+    }
+
+    // Destinations show ONLY worlds whose rule matches the activity. In post mode the profile
+    // target leads, plus any non-matching community explicitly added via "+ Post to another world".
+    var worldTargets = (pc.targets || []).filter(function (t) { return t.type !== "profile"; });
+    var visibleWorlds = worldTargets.filter(function (t) {
+      return t.matched || (sharing && pc.addedWorlds && pc.addedWorlds[t.key]);
+    });
+    var destRows = "";
+    if (sharing) {
+      var profileTgt = (pc.targets || []).find(function (t) { return t.type === "profile"; });
+      if (profileTgt) destRows += renderPostComposerTargetRow(profileTgt);
+    }
+    destRows += visibleWorlds.map(renderPostComposerTargetRow).join("");
+
+    var altBtn = "";
+    var altPicker = "";
+    if (sharing) {
+      if (postComposerAltWorlds().length) altBtn = `<button type="button" class="pc-alt-add" data-pc-alt aria-expanded="${postComposerAltOpen ? "true" : "false"}"><span aria-hidden="true">＋</span> Post to another world</button>`;
+      altPicker = postComposerAltOpen ? renderPostComposerAltPicker() : "";
+    }
+    var destHint = (!visibleWorlds.length && !destRows)
+      ? `<p class="pc-activity-hint">Log an activity above and the worlds it counts in show up here.</p>`
+      : "";
+
+    // Only the visible (matched, or explicitly added) ON worlds contribute points.
+    var worldsOn = visibleWorlds.filter(function (t) { return t.on; });
+    var pts = roundScore(worldsOn.reduce(function (sum, t) { return sum + numberOrDefault(t.points, 0); }, 0));
+    var profileOn = sharing && (pc.targets || []).some(function (t) { return t.type === "profile" && t.on; });
+    var onCount = worldsOn.length + (profileOn ? 1 : 0);
+    var canPublish = postComposerCanPublish();
+    var ptsLabel = pts > 0 ? ` · +${formatPoints(pts)} pts` : "";
+    var publishLabel = sharing
+      ? (onCount > 0 ? `Post to ${onCount}${ptsLabel}` : "Post")
+      : `Log${ptsLabel}`;
+    if (postComposerPublishing) publishLabel = sharing ? "Posting…" : "Logging…";
+
+    var shareRow = `
+      <button type="button" class="pc-share-row${sharing ? " is-on" : " is-off"}" data-pc-share role="switch" aria-checked="${sharing ? "true" : "false"}">
+        <span class="pc-share-icon" aria-hidden="true">${sharing ? "📣" : "📝"}</span>
+        <span class="pc-share-text">
+          <span class="pc-share-title">Share as a post</span>
+          <span class="pc-share-sub">${sharing ? "On · posts to your profile + the worlds below" : "Off · just logging. Turn on to add a photo + caption"}</span>
+        </span>
+        <span class="pc-toggle" aria-hidden="true"><span class="pc-knob"></span></span>
+      </button>`;
+
+    mount.innerHTML = `
+      <div class="pc-head">
+        <button type="button" class="pc-back" data-pc-back aria-label="Cancel"${postComposerPublishing ? " disabled" : ""}>‹</button>
+        <span class="pc-eyebrow">${sharing ? "New post" : "New entry"}</span>
+        <span class="pc-author">${escapeHtml(authorName)}</span>
+        ${avatar}
+      </div>
+
+      <div class="pc-media-row">
+        ${sharing ? photoSlot : ""}
+        <label class="pc-caption-wrap">
+          <textarea data-pc-caption class="pc-caption" rows="${sharing ? 3 : 2}" maxlength="${POST_CAPTION_MAX}" placeholder="${sharing ? "Write a caption…" : "What did you do? e.g. leg day with the boys, 8000 steps"}">${escapeHtml(pc.caption || "")}</textarea>
+          <div class="pc-caption-bar">
+            <button type="button" class="pc-cap-btn pc-cap-cam" data-pc-snap aria-label="Snap a meal or workout for the AI to estimate"><span aria-hidden="true">📷</span></button>
+            <span class="pc-caption-foot"><span aria-hidden="true">✨</span> ${sharing ? "Caption · AI reads it for activity" : "Type, or snap a photo"}${postComposerParsing ? " · reading…" : ""}</span>
+            <button type="button" class="pc-cap-btn pc-caption-submit" data-pc-caption-submit aria-label="Log activity"><span aria-hidden="true">↑</span></button>
+          </div>
+        </label>
+      </div>
+
+      <div class="pc-section-label">Attached from your log</div>
+      <div class="pc-activity">${activityChips}${parsingChip}</div>
+      <div class="pc-add-manual-row">${addManualLink}</div>
+      ${addPicker}
+      ${activityHint}
+
+      <div class="pc-section-label pc-dests-label">${sharing ? "Posts to" : "Counts toward"}</div>
+      <div class="pc-dests">${destRows}</div>
+      ${altBtn}
+      ${altPicker}
+      ${destHint}
+
+      ${shareRow}
+
+      <button type="button" class="pc-publish" data-pc-publish${canPublish && !postComposerPublishing ? "" : " disabled"}>${escapeHtml(publishLabel)}</button>
+      <p class="pc-foot-note">${sharing ? "One post, many feeds — the same like/comment thread everywhere it appears." : "Just logging — counts toward your goals, nothing posted. Turn on “Share as a post” to post it."}</p>
+    `;
+  }
+
+  function renderPostComposerActivityChip(act) {
+    var amountHtml;
+    if (act.isYesNo) {
+      // Posting a yes/no rule = you did it. Show a fixed "done" check; remove the chip to drop it.
+      amountHtml = `<span class="pc-chip-amt pc-chip-done" aria-hidden="true">✓ done</span>`;
+    } else {
+      amountHtml = `<input type="number" class="pc-chip-amt-input" data-pc-amt="${escapeHtml(act._id)}" value="${escapeHtml(String(act.amount))}" min="0" step="1" inputmode="decimal" aria-label="${escapeHtml(act.label)} amount">`;
+    }
+    var unit = act.unit && !act.isYesNo ? `<span class="pc-chip-unit">${escapeHtml(act.unit)}</span>` : "";
+    return `
+      <span class="pc-chip pc-chip-activity" data-pc-chip="${escapeHtml(act._id)}">
+        <span class="pc-chip-emoji" aria-hidden="true">${escapeHtml(act.emoji || "◆")}</span>
+        <span class="pc-chip-label">${escapeHtml(act.label)}</span>
+        ${amountHtml}${unit}
+        <button type="button" class="pc-chip-x" data-pc-chip-remove="${escapeHtml(act._id)}" aria-label="Remove ${escapeHtml(act.label)}">×</button>
+      </span>`;
+  }
+
+  function renderPostComposerAddPicker() {
+    var rules = postComposerAddableRules();
+    if (!rules.length) return `<div class="pc-add-picker"><p class="pc-activity-hint">Every rule is already attached.</p></div>`;
+    var opts = rules.map(function (c) {
+      return `<button type="button" class="pc-add-option" data-pc-add-rule data-ctx-type="${escapeHtml(c.contextType)}" data-ctx-id="${escapeHtml(c.contextId)}" data-rule-id="${escapeHtml(c.id)}">
+        <span class="pc-add-option-label">${escapeHtml(c.label)}</span>
+        <span class="pc-add-option-ctx">${escapeHtml(c.contextName || "")}</span>
+      </button>`;
+    }).join("");
+    return `<div class="pc-add-picker">${opts}</div>`;
+  }
+
+  function renderPostComposerTargetRow(t) {
+    // Only matched worlds, the profile, or an explicitly-added community reach this row, so
+    // there is never a "no match" entry. A matched world shows what it matched + its points; an
+    // added non-matching community is a pure-social share (no rule here → no points).
+    var sub;
+    if (t.type === "profile") {
+      sub = "Posts to your profile + your followers' feed";
+    } else if (t.matched) {
+      sub = `matches ${escapeHtml(t.matchedLabels.join(" + "))}${t.points ? " · +" + formatPoints(t.points) + " pts" : ""}`;
+    } else {
+      sub = "Social post · no points here";
+    }
+    var icon = t.type === "profile"
+      ? `<span class="pc-dest-icon pc-dest-icon-profile" aria-hidden="true">👤</span>`
+      : `<span class="pc-dest-icon" aria-hidden="true">${escapeHtml(t.emoji || "🌐")}</span>`;
+    return `
+      <button type="button" class="pc-dest-row${t.on ? " is-on" : ""}" data-pc-target="${escapeHtml(t.key)}" role="switch" aria-checked="${t.on ? "true" : "false"}">
+        ${icon}
+        <span class="pc-dest-text">
+          <span class="pc-dest-name">${escapeHtml(t.name)}</span>
+          <span class="pc-dest-sub">${sub}</span>
+        </span>
+        <span class="pc-toggle" aria-hidden="true"><span class="pc-knob"></span></span>
+      </button>`;
+  }
+
+  // The "+ Post to another world" dropdown (post mode only): non-matching communities you can
+  // still share to for a pure-social post. Selecting one reveals it as an ON destination.
+  function renderPostComposerAltPicker() {
+    var worlds = postComposerAltWorlds();
+    if (!worlds.length) return `<div class="pc-add-picker"><p class="pc-activity-hint">No other communities to post to.</p></div>`;
+    var opts = worlds.map(function (t) {
+      return `<button type="button" class="pc-add-option" data-pc-alt-world="${escapeHtml(t.key)}">
+        <span class="pc-add-option-label">${escapeHtml(t.name)}</span>
+        <span class="pc-add-option-ctx">social post · no points</span>
+      </button>`;
+    }).join("");
+    return `<div class="pc-add-picker">${opts}</div>`;
+  }
+
+  // One-time delegated wiring on the static post-composer section (innerHTML of the
+  // mount is replaced every render, so listeners live on the parent).
+  function bindPostComposerEvents() {
+    var view = els.postComposerView;
+    if (!view || view.dataset.pcBound === "1") return;
+    view.dataset.pcBound = "1";
+
+    view.addEventListener("click", function (event) {
+      if (!postComposer) return;
+      if (postComposerPublishing) return; // ignore all composer input while a publish is in flight
+      var t = event.target;
+      if (t.closest("[data-pc-back]")) { closePostComposer(); return; }
+      if (t.closest("[data-pc-photo]")) { if (els.postComposerPhotoInput) els.postComposerPhotoInput.click(); return; }
+      if (t.closest("[data-pc-photo-remove]")) { postComposerRemovePhoto(); return; }
+      var removeChip = t.closest("[data-pc-chip-remove]");
+      if (removeChip) {
+        var rid = removeChip.getAttribute("data-pc-chip-remove");
+        postComposer.activity = (postComposer.activity || []).filter(function (a) { return a._id !== rid; });
+        recomputePostComposerTargets(); renderPostComposer(); return;
+      }
+      if (t.closest("[data-pc-caption-submit]")) { submitPostComposerActivity(); return; }
+      if (t.closest("[data-pc-snap]")) { if (els.postComposerSnapInput) els.postComposerSnapInput.click(); return; }
+      if (t.closest("[data-pc-add]")) { postComposerAddOpen = !postComposerAddOpen; renderPostComposer(); return; }
+      var addRule = t.closest("[data-pc-add-rule]");
+      if (addRule) { postComposerAddActivity(addRule.getAttribute("data-ctx-type"), addRule.getAttribute("data-ctx-id"), addRule.getAttribute("data-rule-id")); return; }
+      if (t.closest("[data-pc-alt]")) { postComposerAltOpen = !postComposerAltOpen; renderPostComposer(); return; }
+      var altWorld = t.closest("[data-pc-alt-world]");
+      if (altWorld) {
+        var altKey = altWorld.getAttribute("data-pc-alt-world");
+        postComposer.addedWorlds[altKey] = true;
+        var altTgt = (postComposer.targets || []).find(function (x) { return x.key === altKey; });
+        if (altTgt) { altTgt.on = true; postComposer.userToggled[altKey] = true; }
+        postComposerAltOpen = false;
+        renderPostComposer(); return;
+      }
+      var targetRow = t.closest("[data-pc-target]");
+      if (targetRow) {
+        var key = targetRow.getAttribute("data-pc-target");
+        var tgt = (postComposer.targets || []).find(function (x) { return x.key === key; });
+        if (tgt) { tgt.on = !tgt.on; postComposer.userToggled[key] = true; renderPostComposer(); }
+        return;
+      }
+      if (t.closest("[data-pc-share]")) {
+        postComposer.isShared = !postComposer.isShared;
+        renderPostComposer(); return;
+      }
+      if (t.closest("[data-pc-publish]")) { publishPostComposer(); return; }
+    });
+
+    // Caption: store on input (no re-render = no caret jump), parse on blur/change.
+    view.addEventListener("input", function (event) {
+      if (!postComposer) return;
+      var ta = event.target.closest("[data-pc-caption]");
+      if (ta) { postComposer.caption = ta.value; return; }
+      var amt = event.target.closest("[data-pc-amt]");
+      if (amt) {
+        var act = (postComposer.activity || []).find(function (a) { return a._id === amt.getAttribute("data-pc-amt"); });
+        if (act) act.amount = numberOrDefault(amt.value, 0); // recompute on change (blur), not each keystroke
+      }
+    });
+    view.addEventListener("change", function (event) {
+      if (!postComposer) return;
+      if (event.target.closest("[data-pc-caption]")) { runPostComposerParse(); return; }
+      if (event.target.closest("[data-pc-amt]")) { recomputePostComposerTargets(); renderPostComposer(); return; }
+    });
+    // Enter (no Shift) in the AI box submits the activity instead of inserting a newline.
+    view.addEventListener("keydown", function (event) {
+      if (!postComposer || postComposerPublishing) return;
+      if (event.key !== "Enter" || event.shiftKey) return;
+      if (!event.target.closest("[data-pc-caption]")) return;
+      event.preventDefault();
+      submitPostComposerActivity();
+    });
+
+    if (els.postComposerPhotoInput) {
+      els.postComposerPhotoInput.addEventListener("change", function (e) {
+        var file = e.target.files && e.target.files[0];
+        if (file) postComposerChoosePhoto(file);
+        e.target.value = ""; // allow re-picking the same file
+      });
+    }
+    if (els.postComposerSnapInput) {
+      els.postComposerSnapInput.addEventListener("change", function (e) {
+        var file = e.target.files && e.target.files[0];
+        if (file) postComposerSnapPhoto(file);
+        e.target.value = ""; // allow re-picking the same file
+      });
+    }
+  }
+
+  function closePostComposer() {
+    if (postComposerPublishing) return; // don't tear down state mid-publish (avoids a null-deref race)
+    resetPostComposer();
+    postComposer = null;
+    state.activeView = "dashboard";
+    saveState();
+    render();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }
+
+  // Publish = ONE posts row, fanned out to every ON destination. Communities get the
+  // existing per-rule scoring write (community_entries, linked by post_id) + a
+  // post_targets row; personal systems get the existing personal write; your profile
+  // gets a profile post_target. Private (Share off) writes the scoring entries only —
+  // no post_targets, no feed exposure. Reuses the proven community/personal log paths.
+  async function publishPostComposer() {
+    if (!postComposer || postComposerPublishing) return;
+    var uid = state.account && state.account.userId;
+    if (!signalsReady() || !uid || !window.PointwellSignals || typeof window.PointwellSignals.createPost !== "function") {
+      showToast("Sign in to post."); return;
+    }
+    // Make sure the AI has read the latest caption before we fan out. The post itself
+    // keeps the full caption (up to POST_CAPTION_MAX); the bridged legacy entry message
+    // is capped at ENTRY_MESSAGE_MAX below for feed parity with other entries.
+    var caption = String(postComposer.caption || "").trim().slice(0, POST_CAPTION_MAX);
+    if (caption && postComposer.parsedCaption !== caption) {
+      await runPostComposerParse({ force: false });
+    }
+    if (!postComposerCanPublish()) { showToast("Add a photo, caption, or activity."); return; }
+
+    postComposerPublishing = true; renderPostComposer();
+
+    var isShared = postComposer.isShared !== false;
+    var activityPayload = (postComposer.activity || []).map(function (a) {
+      return { ruleLabel: a.label, emoji: a.emoji || "", amount: a.amount, unit: a.unit || "" };
+    });
+
+    // Upload the photo once (failure must not lose the post — publish without it). A quiet log
+    // (Share off) never carries a photo, so skip the upload entirely.
+    var photoPath = "";
+    if (isShared && postComposer.file && typeof window.PointwellSignals.uploadEntryPhoto === "function") {
+      try {
+        var up = await window.PointwellSignals.uploadEntryPhoto(postComposer.file, "personal/" + uid);
+        if (up.error || !up.path) showToast("Couldn't upload the photo — posting without it.");
+        else photoPath = up.path;
+      } catch (e) { showToast("Couldn't upload the photo — posting without it."); }
+    }
+
+    var created = await Promise.resolve(window.PointwellSignals.createPost(uid, caption, photoPath, activityPayload, isShared)).catch(function () { return { error: { message: "post failed" } }; });
+    if (created.error || !created.post || !created.post.id) {
+      postComposerPublishing = false; renderPostComposer();
+      showToast((created.error && created.error.message) || "Couldn't publish — try again.");
+      return;
+    }
+    if (!postComposer) { postComposerPublishing = false; return; } // closed mid-publish
+    var postId = created.post.id;
+
+    // Only ON targets that are actually VISIBLE get written — mirrors the render filter so a
+    // world that was toggled on then made non-matching by an activity edit (now hidden) can't be
+    // published behind the user's back. Profile is always eligible (its own gate is in the loop).
+    var addedW = postComposer.addedWorlds || {};
+    var onTargets = (postComposer.targets || []).filter(function (t) {
+      if (!t.on) return false;
+      if (t.type === "profile") return true;
+      return t.matched || (isShared && addedW[t.key]);
+    });
+    var dbWork = [];
+    var anyFeed = false;
+
+    onTargets.forEach(function (t) {
+      if (t.type === "profile") {
+        // A profile target is the social artifact — only when shared AND it's a real
+        // post (photo or caption), never for a bare activity-only log.
+        if (isShared && (caption || photoPath)) {
+          anyFeed = true;
+          dbWork.push(Promise.resolve(window.PointwellSignals.addPostTarget(postId, "profile", uid, 0)).catch(function () { return { error: { message: "x" } }; }));
+        }
+        return;
+      }
+      // World target: write the per-rule scoring entries (shared posts also carry the
+      // caption/photo on the entry so the existing community feed renders the full post
+      // during Phase 2; private logs carry neither, so they stay compact activity). The
+      // legacy entry message mirrors other entries' 280-char cap.
+      var entryMsg = isShared ? caption.slice(0, ENTRY_MESSAGE_MAX) : "";
+      var entryPhoto = isShared ? photoPath : "";
+      if (t.type === "community") {
+        var community = (state.communities || []).find(function (c) { return c.id === t.id; });
+        if (!community) return;
+        (t.matchedRules || []).forEach(function (mr, idx) {
+          var resolved = resolveQuickLogRule("community", t.id, mr.ruleId);
+          if (!resolved) return;
+          var rule = resolved.rule;
+          // Attach caption/photo to the first matched rule only (one post, not one per rule).
+          var msg = idx === 0 ? entryMsg : "";
+          var photo = idx === 0 ? entryPhoto : "";
+          addCommunityEntry(community.id, "me", rule, mr.amount, isRuleSynced(rule) ? "manual-adjustment" : "manual", msg, photo, "", postId);
+          rebaselineRuleSync(rule);
+          dbWork.push(Promise.resolve(pushCommunityEntryToDb(community, rule.id, msg, photo, postId)).catch(function () { return { error: { message: "x" } }; }));
+        });
+        saveCommunitySummaryForMember(community, "me");
+        // In post mode every ON community gets a feed post_target — matched ones carry points,
+        // an explicitly-added non-matching one is a pure-social share (0 points, no entries).
+        if (isShared) {
+          anyFeed = true;
+          dbWork.push(Promise.resolve(window.PointwellSignals.addPostTarget(postId, "community", t.id, t.points)).catch(function () { return { error: { message: "x" } }; }));
+        }
+      } else {
+        // Personal system → the existing personal write (local scoring; no feed/target).
+        var system = (state.systems || []).find(function (s) { return s.id === t.id; });
+        if (!system) return;
+        var normSys = normalizeSystem(system);
+        (t.matchedRules || []).forEach(function (mr, idx) {
+          var rule = (normSys.rules || []).map(scoring.normalizeRule).find(function (r) { return r.id === mr.ruleId; });
+          if (!rule) return;
+          var dateKey = getTodayKey();
+          state.quickEntries = state.quickEntries || [];
+          state.quickEntries.push({
+            id: makeId("quick"), date: dateKey, dateKey, createdAt: new Date().toISOString(),
+            systemId: system.id, rewardSystemId: system.id, ruleId: rule.id,
+            label: rule.label, unit: rule.unit, amount: mr.amount,
+            message: idx === 0 ? entryMsg : "", photoPath: idx === 0 ? entryPhoto : "",
+            source: isRuleSynced(rule) ? "manual-adjustment" : "manual", viaSource: "", postId: postId
+          });
+          rebaselineRuleSync(rule);
+        });
+        syncDraftInputsFromEntries(normalizeSystem(system));
+        autoSaveToday(normalizeSystem(system));
+      }
+    });
+
+    saveState();
+    Promise.all(dbWork).then(function (results) {
+      if (results.some(function (r) { return r && r.error; })) showToast((isShared && anyFeed ? "Posted" : "Logged") + " — but part of it didn't sync.");
+    }).catch(function () {});
+
+    postComposerPublishing = false;
+    resetPostComposer();
+    postComposer = null;
+    // Shared posts land in your feeds; a private log returns you to Today.
+    state.activeView = isShared && anyFeed ? "feed" : "dashboard";
+    saveState();
+    render();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    showToast(isShared && anyFeed ? "Posted" : "Logged");
   }
 
   // ── Friends view + a friend's today activity ───────────────────────────────
@@ -4217,7 +5002,7 @@
     return { date, total, values: communityValuesForMember(communityId, userId, date) };
   }
 
-  function addCommunityEntry(communityId, userId, rule, amount, source = "manual", message = "", photoPath = "", viaSource = "") {
+  function addCommunityEntry(communityId, userId, rule, amount, source = "manual", message = "", photoPath = "", viaSource = "", postId = "") {
     const dateKey = getTodayKey();
     state.communityEntries = state.communityEntries || [];
     state.communityEntries.push({
@@ -4234,7 +5019,8 @@
       message: message || "",
       photoPath: photoPath || "",
       source,
-      viaSource: viaSource || ""
+      viaSource: viaSource || "",
+      postId: postId || ""
     });
   }
 
@@ -8908,7 +9694,92 @@
   // (addDailyEntryFromDraft) but stays on the card so it can animate to its logged state.
   let justLoggedRuleId = ""; // the rule whose card should play the just-logged animation once
 
-  function quickLogRule(ruleId) {
+  // Quiet inline amount entry for COUNTER rules on world / "Your day" rows. Tapping "+ Log"
+  // expands a compact −/＋ stepper on the row (instead of opening any full form/composer);
+  // "Log" writes silently through the SAME entry path as the one-tap ✓ Done (quickLog*), so it
+  // updates points + streak + leaderboard with no post prompt. Only one row edits at a time.
+  let inlineLogRuleId = ""; // counter rule currently showing the inline stepper (world detail)
+  let inlineLogValue = 0;   // its current amount
+
+  function refreshDetailRules() {
+    const world = currentDetailWorld();
+    if (!world) return;
+    if (world.type === "personal" && world.system) renderPersonalRules(world.system);
+    else if (world.community) renderCommunityYourDay(world.community);
+  }
+
+  function openInlineLog(rule) {
+    if (!rule) return;
+    inlineLogRuleId = rule.id;
+    inlineLogValue = suggestedEntryAmount(rule);
+    refreshDetailRules();
+    requestAnimationFrame(() => {
+      const input = document.querySelector("[data-inline-log-amt]");
+      if (input && input.focus) { input.focus(); if (input.select) input.select(); }
+    });
+  }
+
+  function stepInlineLog(rule, dir) {
+    if (!rule) return;
+    const s = entrySliderSettings(rule);
+    inlineLogValue = clampToRange(numberOrDefault(inlineLogValue, 0) + dir * s.step, s.min, s.max);
+    refreshDetailRules();
+  }
+
+  function cancelInlineLog() {
+    inlineLogRuleId = "";
+    refreshDetailRules();
+  }
+
+  // Commit the inline amount through the existing quiet-log path (no composer, no post prompt).
+  function commitInlineLog(rule, kind, community) {
+    if (!rule) return;
+    const s = entrySliderSettings(rule);
+    const amt = clampToRange(numberOrDefault(inlineLogValue, 0), s.min, s.max);
+    if (!(amt > 0)) { showToast("Choose an amount to add"); return; }
+    inlineLogRuleId = ""; // clear first so the post-write render shows the logged state, not the stepper
+    if (kind === "community") quickLogCommunityRule(community, rule.id, amt);
+    else quickLogRule(rule.id, amt);
+  }
+
+  // The compact inline stepper shown in place of "+ Log" while a counter row is being logged.
+  function renderInlineLogControl(rule) {
+    const s = entrySliderSettings(rule);
+    const val = clampToRange(numberOrDefault(inlineLogValue, 0), s.min, s.max);
+    const unit = rule.unit ? `<span class="world-rule-amt-unit">${escapeHtml(rule.unit)}</span>` : "";
+    return `<div class="world-rule-amt">
+        <button type="button" class="world-rule-amt-step" data-inline-step="-1" aria-label="Decrease">−</button>
+        <input type="number" class="world-rule-amt-input" data-inline-log-amt value="${escapeHtml(String(val))}" min="${s.min}" max="${s.max}" step="${s.step}" inputmode="decimal" aria-label="${escapeHtml(rule.label || "amount")} amount">
+        ${unit}
+        <button type="button" class="world-rule-amt-step" data-inline-step="1" aria-label="Increase">＋</button>
+        <button type="button" class="world-rule-amt-log" data-inline-commit>Log</button>
+        <button type="button" class="world-rule-amt-cancel" data-inline-cancel aria-label="Cancel">×</button>
+      </div>`;
+  }
+
+  // Wire the inline stepper's controls after a row list re-renders. `resolve(id)` returns the
+  // normalized rule for the row; kind/community route the commit to the right quiet-log path.
+  function wireInlineLogControls(container, kind, community, resolve) {
+    if (!container) return;
+    Array.from(container.querySelectorAll("[data-inline-open]")).forEach((b) =>
+      b.addEventListener("click", (e) => { e.stopPropagation(); const r = resolve(b.dataset.inlineOpen); if (r) openInlineLog(r); }));
+    Array.from(container.querySelectorAll("[data-inline-step]")).forEach((b) =>
+      b.addEventListener("click", (e) => { e.stopPropagation(); const r = resolve(inlineLogRuleId); if (r) stepInlineLog(r, Number(b.dataset.inlineStep)); }));
+    const commit = container.querySelector("[data-inline-commit]");
+    if (commit) commit.addEventListener("click", (e) => { e.stopPropagation(); const r = resolve(inlineLogRuleId); if (r) commitInlineLog(r, kind, community); });
+    const cancel = container.querySelector("[data-inline-cancel]");
+    if (cancel) cancel.addEventListener("click", (e) => { e.stopPropagation(); cancelInlineLog(); });
+    const amt = container.querySelector("[data-inline-log-amt]");
+    if (amt) {
+      amt.addEventListener("click", (e) => e.stopPropagation());
+      amt.addEventListener("input", () => { inlineLogValue = numberOrDefault(amt.value, 0); });
+      amt.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); const r = resolve(inlineLogRuleId); if (r) commitInlineLog(r, kind, community); } });
+    }
+  }
+
+  // Quiet log of a personal rule. Yes/no → one tap (amount 1). Counter → `amount` is the value the
+  // user entered in the inline stepper; falls back to the suggested amount when none is given.
+  function quickLogRule(ruleId, amount) {
     const world = currentDetailWorld();
     if (!world || world.type !== "personal") return;
     const system = world.system;
@@ -8923,7 +9794,9 @@
     resetAddEntryAttachment();
     composerSourceTag = "";
     aiPrefilledComposer = false;
-    addEntryDraft = { ruleId: rule.id, amount: rule.simpleStyle === "yesNo" ? 1 : suggestedEntryAmount(rule) };
+    const amt = rule.simpleStyle === "yesNo" ? 1
+      : (typeof amount === "number" && isFinite(amount) && amount > 0 ? amount : suggestedEntryAmount(rule));
+    addEntryDraft = { ruleId: rule.id, amount: amt };
     justLoggedRuleId = rule.id;
     addDailyEntryFromDraft({ stayInView: true });
   }
@@ -8960,10 +9833,16 @@
       const nameHtml = (logged
         ? `${escapeHtml(rule.label || "Rule")} <span class="world-rule-loggedtag">✓ logged</span>`
         : escapeHtml(rule.label || "Rule")) + ruleSyncedBadgeHtml(rule);
+      // Yes/no → one-tap silent "✓ Done". Counter → "+ Log" opens a quiet inline stepper on the
+      // row (no full form/composer); while editing, that row shows the stepper.
+      const inlineActive = !isYesNo && rule.id === inlineLogRuleId;
       const action = logged
         ? `<span class="world-rule-done" aria-hidden="true">✓</span>`
-        : (manualOff ? "" : `<button class="world-rule-log${isYesNo ? " is-yesno" : ""}" type="button" data-quick-log-rule="${ruleId}">${isYesNo ? "✓ Done" : "+ Log"}</button>`);
-      return `<div class="world-rule-row${logged ? " is-logged" : ""}${rule.id === justLogged ? " is-just-logged" : ""}">
+        : (manualOff ? ""
+          : (isYesNo
+            ? `<button class="world-rule-log is-yesno" type="button" data-quick-log-rule="${ruleId}">✓ Done</button>`
+            : (inlineActive ? renderInlineLogControl(rule) : `<button class="world-rule-log" type="button" data-inline-open="${ruleId}">+ Log</button>`)));
+      return `<div class="world-rule-row${logged ? " is-logged" : ""}${inlineActive ? " is-logging" : ""}${rule.id === justLogged ? " is-just-logged" : ""}">
           <button class="world-rule-open" type="button" data-open-entry-rule="${ruleId}" aria-label="Edit ${escapeHtml(rule.label || "rule")} entry">
             <span class="world-rule-icon" aria-hidden="true">${draftRuleIcon(rule)}</span>
             <div class="world-rule-main">
@@ -8979,6 +9858,8 @@
       b.addEventListener("click", (e) => { e.stopPropagation(); quickLogRule(b.dataset.quickLogRule); }));
     Array.from(els.personalRules.querySelectorAll("[data-open-entry-rule]")).forEach((b) =>
       b.addEventListener("click", () => openAddEntryForRule(b.dataset.openEntryRule)));
+    wireInlineLogControls(els.personalRules, "personal", null, (id) =>
+      (sys.rules || []).map(scoring.normalizeRule).find((r) => r.id === id));
   }
 
   // "Your day" — the community's rules as rows with x/y progress + an action, shown on the Leaderboard
@@ -9006,15 +9887,17 @@
       const nameHtml = (logged
         ? `${escapeHtml(rule.label || "Rule")} <span class="world-rule-loggedtag">✓ logged</span>`
         : escapeHtml(rule.label || "Rule")) + ruleSyncedBadgeHtml(rule);
-      // Yes/no → one-tap "✓ Done"; counter → "+ Log" opens the composer so the amount is yours to type.
+      // Yes/no → one-tap silent "✓ Done"; counter → "+ Log" opens a quiet inline stepper on the row
+      // (no full form/composer). Tapping the row BODY still opens the full editor for manual edits.
+      const inlineActive = !isYesNo && rule.id === inlineLogRuleId;
       const action = logged
         ? `<span class="world-rule-done" aria-hidden="true">✓</span>`
         : (manualOff ? ""
           : (isYesNo
             ? `<button class="world-rule-log is-yesno" type="button" data-cc-log-rule="${ruleId}">✓ Done</button>`
-            : `<button class="world-rule-log" type="button" data-cc-open-rule="${ruleId}">+ Log</button>`));
-      return `<div class="world-rule-row${logged ? " is-logged" : ""}${rule.id === justLogged ? " is-just-logged" : ""}">
-          <button class="world-rule-open" type="button" data-cc-open-rule="${ruleId}" aria-label="Log ${escapeHtml(rule.label || "rule")}">
+            : (inlineActive ? renderInlineLogControl(rule) : `<button class="world-rule-log" type="button" data-inline-open="${ruleId}">+ Log</button>`)));
+      return `<div class="world-rule-row${logged ? " is-logged" : ""}${inlineActive ? " is-logging" : ""}${rule.id === justLogged ? " is-just-logged" : ""}">
+          <button class="world-rule-open" type="button" data-cc-open-rule="${ruleId}" aria-label="Edit ${escapeHtml(rule.label || "rule")} entry">
             <span class="world-rule-icon" aria-hidden="true">${draftRuleIcon(rule)}</span>
             <div class="world-rule-main">
               <p class="world-rule-name">${nameHtml}</p>
@@ -9029,6 +9912,8 @@
       b.addEventListener("click", (e) => { e.stopPropagation(); quickLogCommunityRule(community, b.dataset.ccLogRule); }));
     Array.from(els.communityYourDay.querySelectorAll("[data-cc-open-rule]")).forEach((b) =>
       b.addEventListener("click", (e) => { e.stopPropagation(); openAddEntryForCommunityRule(community, b.dataset.ccOpenRule); }));
+    wireInlineLogControls(els.communityYourDay, "community", community, (id) =>
+      (sys.rules || []).map(scoring.normalizeRule).find((r) => r.id === id));
   }
 
   // Open the full Add Entry composer pre-pointed at a COMMUNITY rule — the community analog of
@@ -9047,7 +9932,7 @@
   // One-tap community log — the community analog of quickLogRule. Points the active score context at
   // this community so the shared addDailyEntryFromDraft writes a community entry (points + leaderboard
   // update, DB push), then stays on the detail view so the rule card animates to its logged state.
-  function quickLogCommunityRule(community, ruleId) {
+  function quickLogCommunityRule(community, ruleId, amount) {
     const sys = normalizeSystem(community.system);
     const rule = (sys.rules || []).map(scoring.normalizeRule).find((r) => r.id === ruleId);
     if (!rule || rule.simpleStyle === "penalty") return;
@@ -9058,7 +9943,9 @@
     resetAddEntryAttachment();
     composerSourceTag = "";
     aiPrefilledComposer = false;
-    addEntryDraft = { ruleId: rule.id, amount: rule.simpleStyle === "yesNo" ? 1 : suggestedEntryAmount(rule) };
+    const amt = rule.simpleStyle === "yesNo" ? 1
+      : (typeof amount === "number" && isFinite(amount) && amount > 0 ? amount : suggestedEntryAmount(rule));
+    addEntryDraft = { ruleId: rule.id, amount: amt };
     justLoggedRuleId = rule.id;
     addDailyEntryFromDraft({ stayInView: true });
   }
@@ -11377,7 +12264,7 @@
   // unknown-baseline conflict rows (those must stay an explicit Keep/Update choice).
   function autoApplyCatchUp(card) {
     const applied = [];    // [{ sourceLabel, increment, unit, label, contexts:[{type,name,points}] }]
-    const lastLogged = []; // coach.lastLogged shape, for coachOfferPost()
+    const lastLogged = []; // coach.lastLogged shape (used by the explicit post flow)
     if (!card || !Array.isArray(card.devices)) return { applied, lastLogged };
     const touched = new Set();
     const remaining = [];
@@ -11415,8 +12302,8 @@
   }
 
   // After auto-sync applies something, show the compact "Fitbit synced — added X to today"
-  // confirmation (per work/login-recap-autosync.html) and offer to turn it into a post. REUSES
-  // coachOfferPost → coachOpenPostPicker → composer (same destination/learn path; no parallel post).
+  // confirmation (per work/login-recap-autosync.html). It no longer prompts to post — posting is
+  // intent-driven now (the + composer's Share switch / explicit "Log & post").
   function coachShowAutoSyncRecap(applied, lastLogged) {
     if (!applied || !applied.length) return;
     applied.forEach((a) => {
@@ -11435,7 +12322,6 @@
         </div>`);
     });
     coach.lastLogged = lastLogged;
-    coachOfferPost();
     if (typeof renderCoachLauncher === "function") renderCoachLauncher();
   }
 
@@ -13166,7 +14052,7 @@
     render();
     coachFinalizeCard(cardEl);
     coachSay(`<p>✅ Logged +${escapeHtml(formatMetricPhrase(inc, unit, label.toLowerCase()))}.</p>`);
-    if (opts.post) coachOpenPostComposer(); else coachOfferPost();
+    if (opts.post) coachOpenPostComposer(); // explicit "Log & post" only; a quiet log never offers a post
   }
 
   function coachDeviceDismiss(source, metric, cardEl) {
@@ -13211,7 +14097,6 @@
     render();
     coachFinalizeCard(cardEl);
     coachSay(`<p>✅ Now tracking <strong>${escapeHtml(label)}</strong> from ${escapeHtml(srcLabel)} — logged ${escapeHtml(formatMetricPhrase(cur, unit, ""))} today. Edit it anytime in Build.</p>`);
-    coachOfferPost();
   }
 
   function coachTrackDismiss(source, metric, cardEl) {
@@ -13305,7 +14190,6 @@
     render();
     coachFinalizeCard(cardEl);
     coachSay(`<p>✅ Connected <strong>${escapeHtml(label)}</strong> to ${escapeHtml(srcLabel)} — logged ${escapeHtml(formatMetricPhrase(cur, unit, ml))} today. Future syncs add only what's new.</p>`);
-    coachOfferPost();
   }
 
   function coachConnectDismiss(source, metric, cardEl) {
@@ -14106,8 +14990,7 @@
     coach.draft = null;
     coach.draftCardEl = null;
     coachSay(`<p>✅ Logged ${escapeHtml(coachLoggedSummary(finalDraft))}.</p>`);
-    if (wantPost) coachOpenPostComposer();
-    else coachOfferPost();
+    if (wantPost) coachOpenPostComposer(); // explicit "Log & post" only; a quiet log never offers a post
   }
 
   function coachFinalizeDraftCard() {
@@ -14188,29 +15071,12 @@
     return out;
   }
 
-  // Offer to turn the just-logged entry into a post. Shows whenever there's ≥1 destination
-  // (your own feed always counts). Learns dismissals like the other nudges (coachLearnRecord
-  // + coachShouldPeekType suppression after repeated "Not now").
-  function coachOfferPost() {
-    coachPendingCaption = ""; // a normal post offer must never inherit a stale recap prefill
-    if (!(coach.lastLogged || []).length) return;
-    if (!coachPostDestinations().length) return;
-    if (!coachShouldPeekType("post")) return;
-    coachLearnRecord("post", "shown");
-    coachDisableStaleCards();
-    coachSay(`
-      <div class="coach-card coach-postoffer-card is-active" data-coach-postoffer-card>
-        <p class="coach-card-title">Want to turn this into a post?</p>
-        <div class="coach-card-actions">
-          <button type="button" class="ghost-button small" data-coach-postno>Not now</button>
-          <button type="button" class="primary-button small" data-coach-postyes>Yes</button>
-        </div>
-      </div>`);
-    coachScroll();
-  }
+  // NOTE: the post-hoc "Want to turn this into a post?" offer (coachOfferPost) was retired —
+  // posting is now intent-driven (compose via the + FAB / the composer's Share switch, or the
+  // explicit "Log & post" shortcuts below). A quiet log never prompts to post.
 
-  // Step 2: "Where would you like to post it?" — single-select list of destinations. Also
-  // the entry point for the "Log & post" shortcuts (which skip the Yes/Not now offer).
+  // Step 2: "Where would you like to post it?" — single-select list of destinations. The
+  // entry point for the explicit "Log & post" shortcuts (coachOpenPostComposer).
   function coachOpenPostPicker() {
     const dests = coachPostDestinations();
     if (!dests.length) {
@@ -14509,7 +15375,6 @@
     coachFinalizeEstimateCard();
     coach.estimate = null;
     coachSay(`<p>✅ Logged ${escapeHtml(coachLoggedSummary(built))}.</p>`);
-    coachOfferPost();
   }
 
   function coachFinalizeEstimateCard() {
@@ -14571,7 +15436,6 @@
     if (t.closest("[data-coach-recapdismiss]")) { coachRecapDismiss(card()); return; }
     if (t.closest("[data-coach-streaklog]")) { coachStreakLog(card()); return; }
     if (t.closest("[data-coach-streakdismiss]")) { coachStreakDismiss(card()); return; }
-    if (t.closest("[data-coach-postyes]")) { coachLearnRecord("post", "acted"); coachOpenPostPicker(); return; }
     if (t.closest("[data-coach-postno]")) { coachDeclinePost(); return; }
     const postDest = t.closest("[data-coach-postdest]");
     if (postDest) { const parts = postDest.dataset.coachPostdest.split(":"); coachChooseDestination(parts[0], parts.slice(1).join(":")); return; }
@@ -19693,7 +20557,8 @@
       dateKey: entry.entry_date,
       timestamp: entry.updated_at || "",
       message: entry.message || "",
-      photoPath: entry.photo_path || ""
+      photoPath: entry.photo_path || "",
+      postId: entry.post_id || ""
     };
   }
 
@@ -19814,7 +20679,7 @@
 
   // Persist a member's logged check-in for one rule/day to the shared table (the
   // per-rule daily TOTAL, to match the table's one-row-per-rule/day shape).
-  function pushCommunityEntryToDb(community, ruleId, message = "", photoPath = "") {
+  function pushCommunityEntryToDb(community, ruleId, message = "", photoPath = "", postId = "") {
     if (!communitiesAreShared() || !community || !ruleId) return Promise.resolve({ error: null });
     const today = getTodayKey();
     const total = getCommunityEntriesForMemberOnDate(community.id, "me", today)
@@ -19827,10 +20692,11 @@
       amount: total,
       entry_date: today
     };
-    // Only send message/photo_path when set, so a plain add never nulls out an
-    // attachment already on today's aggregated row for this rule.
+    // Only send message/photo_path/post_id when set, so a plain add never nulls out an
+    // attachment (or the post link) already on today's aggregated row for this rule.
     if (message) payload.message = message;
     if (photoPath) payload.photo_path = photoPath;
+    if (postId) payload.post_id = postId;
     return Promise.resolve(window.PointwellSignals.upsertCommunityEntry(payload))
       .catch(() => ({ error: { message: "Couldn't reach the server." } }));
   }

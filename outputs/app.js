@@ -1724,8 +1724,20 @@
     let item = feedItemById(String(entryId));
     if (!item) item = buildFeedItemForEntry((state.communityEntries || []).find((e) => e.id === entryId));
     if (!item) item = profilePostItemCache.get(String(entryId)) || null;
-    if (!item) { showToast("That post isn't available"); return; }
-    openPostOverlay(item);
+    if (item) { openPostOverlay(item); return; }
+    // Not in any loaded feed batch (e.g. a notification about an older post) → fetch it directly
+    // (RLS-gated) so opening a post from a notification always resolves.
+    if (signalsReady() && window.PointwellSignals && typeof window.PointwellSignals.fetchPostById === "function") {
+      Promise.resolve(window.PointwellSignals.fetchPostById(entryId)).then((row) => {
+        if (!row) { showToast("That post isn't available"); return; }
+        const targets = Array.isArray(row.post_targets) ? row.post_targets : [];
+        const commT = targets.find((t) => t.target_type === "community");
+        const built = buildFeedItemForPost(row, null, { communityId: commT ? commT.target_id : null, points: (commT && Number(commT.points)) || 0 });
+        if (built) openPostOverlay(built); else showToast("That post isn't available");
+      }).catch(() => showToast("That post isn't available"));
+      return;
+    }
+    showToast("That post isn't available");
   }
 
   function openPostOverlay(item) {
@@ -4578,25 +4590,20 @@
         }
         return;
       }
-      // World target: write the per-rule scoring entries (shared posts also carry the
-      // caption/photo on the entry so the existing community feed renders the full post
-      // during Phase 2; private logs carry neither, so they stay compact activity). The
-      // legacy entry message mirrors other entries' 280-char cap.
-      var entryMsg = isShared ? caption.slice(0, ENTRY_MESSAGE_MAX) : "";
-      var entryPhoto = isShared ? photoPath : "";
+      // World target: write the per-rule scoring entries (POINTS ONLY). The caption/photo live on
+      // the posts row now — the community feed reads the post card (Phase 3), so we no longer mirror
+      // caption/photo onto community_entries (the old Phase-2 bridge is retired). post_id still links
+      // each scoring row to the post for delete-cascade + leaderboard semantics.
       if (t.type === "community") {
         var community = (state.communities || []).find(function (c) { return c.id === t.id; });
         if (!community) return;
-        (t.matchedRules || []).forEach(function (mr, idx) {
+        (t.matchedRules || []).forEach(function (mr) {
           var resolved = resolveQuickLogRule("community", t.id, mr.ruleId);
           if (!resolved) return;
           var rule = resolved.rule;
-          // Attach caption/photo to the first matched rule only (one post, not one per rule).
-          var msg = idx === 0 ? entryMsg : "";
-          var photo = idx === 0 ? entryPhoto : "";
-          addCommunityEntry(community.id, "me", rule, mr.amount, isRuleSynced(rule) ? "manual-adjustment" : "manual", msg, photo, "", postId);
+          addCommunityEntry(community.id, "me", rule, mr.amount, isRuleSynced(rule) ? "manual-adjustment" : "manual", "", "", "", postId);
           rebaselineRuleSync(rule);
-          dbWork.push(Promise.resolve(pushCommunityEntryToDb(community, rule.id, msg, photo, postId)).catch(function () { return { error: { message: "x" } }; }));
+          dbWork.push(Promise.resolve(pushCommunityEntryToDb(community, rule.id, "", "", postId)).catch(function () { return { error: { message: "x" } }; }));
         });
         saveCommunitySummaryForMember(community, "me");
         // In post mode every ON community gets a feed post_target — matched ones carry points,
@@ -4606,7 +4613,12 @@
           dbWork.push(Promise.resolve(window.PointwellSignals.addPostTarget(postId, "community", t.id, t.points)).catch(function () { return { error: { message: "x" } }; }));
         }
       } else {
-        // Personal system → the existing personal write (local scoring; no feed/target).
+        // Personal system → the existing personal write (local scoring; no feed/post_target). The
+        // personal WORLD detail still renders check-ins from quickEntries (it has no post_target to
+        // read), so a SHARED post keeps its caption/photo on the first entry; a private log carries
+        // neither. (Distinct from the community bridge, which IS retired above.)
+        var pMsg = isShared ? caption.slice(0, ENTRY_MESSAGE_MAX) : "";
+        var pPhoto = isShared ? photoPath : "";
         var system = (state.systems || []).find(function (s) { return s.id === t.id; });
         if (!system) return;
         var normSys = normalizeSystem(system);
@@ -4619,7 +4631,7 @@
             id: makeId("quick"), date: dateKey, dateKey, createdAt: new Date().toISOString(),
             systemId: system.id, rewardSystemId: system.id, ruleId: rule.id,
             label: rule.label, unit: rule.unit, amount: mr.amount,
-            message: idx === 0 ? entryMsg : "", photoPath: idx === 0 ? entryPhoto : "",
+            message: idx === 0 ? pMsg : "", photoPath: idx === 0 ? pPhoto : "",
             source: isRuleSynced(rule) ? "manual-adjustment" : "manual", viaSource: "", postId: postId
           });
           rebaselineRuleSync(rule);
@@ -5073,15 +5085,20 @@
 
   function confirmDeletePost(entryId, btn) {
     const sig = feedSignalsFor(entryId);
-    const isProfile = sig.profile;
-    const entry = isProfile ? profilePostItemCache.get(String(entryId)) : (state.communityEntries || []).find((item) => item.id === entryId);
+    const item = feedItemById(String(entryId));
+    const isPost = !!(item && item.entry && item.entry.kind === "post");
+    const isProfile = sig.profile; // legacy profile_post
+    // A unified post / profile_post is resolved from the item caches; a community entry from state.
+    const entry = isPost ? item
+      : (isProfile ? profilePostItemCache.get(String(entryId)) : (state.communityEntries || []).find((it) => it.id === entryId));
     if (!entry) { closeDeletePostConfirm(); return; }
     const cancelBtn = document.querySelector("[data-postdel-cancel]");
     if (btn) { btn.disabled = true; btn.textContent = "Deleting…"; }   // in-flight: block double-submit
     if (cancelBtn) cancelBtn.disabled = true;
     const finishLocal = () => {
       closeDeletePostConfirm();
-      if (isProfile) { removeProfilePostLocally(entryId); closePostOverlay(); showToast("Post deleted"); }
+      if (isPost) { removePostLocally(entryId); closePostOverlay(); showToast("Post deleted"); }
+      else if (isProfile) { removeProfilePostLocally(entryId); closePostOverlay(); showToast("Post deleted"); }
       else deleteCommunityEntry(entryId, "Post deleted");
     };
     const fail = (msg) => {
@@ -5098,6 +5115,34 @@
     }).catch(() => fail("Couldn't delete the post"));
   }
 
+  // Drop a deleted unified POST from every local cache. The DB cascade also removed the linked
+  // community_entries (the points it logged), so reload communities to re-sum the leaderboards.
+  function removePostLocally(postId) {
+    const id = String(postId);
+    Object.keys(communityPostsByCommunity).forEach((cid) => {
+      communityPostsByCommunity[cid] = (communityPostsByCommunity[cid] || []).filter((it) => String(it.entry.id) !== id);
+    });
+    followedPostItems = (followedPostItems || []).filter((it) => String(it.entry.id) !== id);
+    profilePostItemCache.delete(id);
+    feedItems = (feedItems || []).filter((it) => String(it.entry.id) !== id);
+    if (profileOverview && Array.isArray(profileOverview.posts)) {
+      profileOverview.posts = profileOverview.posts.filter((p) => String(p.entry_id) !== id);
+    }
+    clearFeedEngagementCaches(id);
+    saveState();
+    render();
+    if (typeof loadCommunitiesFromDb === "function") loadCommunitiesFromDb(); // re-sum points after the cascade
+  }
+
+  // Forget a deleted post's cached engagement so it's not retained or re-shown for any new row.
+  function clearFeedEngagementCaches(id) {
+    const k = String(id);
+    feedSocialCache.delete(k);
+    feedSocialFetched.delete(k);
+    feedCommentsCache.delete(k);
+    feedCommentsOpen.delete(k);
+  }
+
   // Drop a deleted profile post from every local cache + re-render the surfaces it appears on.
   function removeProfilePostLocally(postId) {
     const id = String(postId);
@@ -5106,6 +5151,7 @@
     if (profileOverview && Array.isArray(profileOverview.posts)) {
       profileOverview.posts = profileOverview.posts.filter((p) => String(p.entry_id) !== id);
     }
+    clearFeedEngagementCaches(id);
     saveState();
     render();
     if (state.activeView === "profile-page") renderProfilePage();
@@ -8150,6 +8196,10 @@
   const feedSavedEntries = new Set();  // entryIds bookmarked this session (local-only, no backend)
   const feedSocialFetched = new Set(); // entryIds already requested (prevents refetch loops)
   let feedItems = [];
+  // Unified posts (post-first model, #26). Rebuilt on load: post cards grouped by community for the
+  // community feed, and posts to followed profiles for the Friends feed.
+  let communityPostsByCommunity = {};     // communityId -> [feed item], built via buildFeedItemForPost
+  let followedPostItems = [];             // posts to people I follow (profile target) → Friends feed
   // Profile posts (personal posts on a profile; profile-posts.sql). Server truth, rebuilt on load:
   let feedProfilePosts = [];              // raw profile_posts rows from people I follow → the Friends feed
   let profilePostAuthors = {};            // authorId -> { name, avatarUrl } (from profileFollowing; profiles RLS is self-only)
@@ -8373,10 +8423,27 @@
 
   function renderCommunityFeed() {
     if (!els.communityFeed) return;
-    // Friends feed = my communities' check-ins + profile posts from people I follow, newest first.
-    const communityItems = (state.communityEntries || []).map(buildFeedItemForEntry).filter(Boolean);
-    const profileItems = (feedProfilePosts || []).map((p) => buildFeedItemForProfilePost(p, profilePostAuthors[p.user_id])).filter(Boolean);
-    feedItems = communityItems.concat(profileItems)
+    // Friends feed = unified POST cards (post-first) + legacy streams, deduped to ONE card per post.
+    // PRIORITY order matters: post-kind streams FIRST so a post that fans out to a community AND the
+    // author's profile collapses to its richest card (the community card carries the points), and the
+    // legacy bridge/profile variant is the one dropped.
+    const communityPostItems = [];
+    Object.keys(communityPostsByCommunity).forEach((cid) => {
+      (communityPostsByCommunity[cid] || []).forEach((it) => communityPostItems.push(it));
+    });
+    const followedPosts = followedPostItems || []; // unified posts to followed profiles
+    // Legacy: pre-Phase-2 community bare-activity (no backing post) + the frozen profile_posts archive.
+    const legacyCommunityItems = (state.communityEntries || []).filter((e) => !e.postId).map(buildFeedItemForEntry).filter(Boolean);
+    const legacyProfileItems = (feedProfilePosts || []).map((p) => buildFeedItemForProfilePost(p, profilePostAuthors[p.user_id])).filter(Boolean);
+    const seen = new Set();
+    feedItems = communityPostItems
+      .concat(followedPosts, legacyCommunityItems, legacyProfileItems)
+      .filter((it) => {
+        const k = (it.entry && (it.entry.postId || it.entry.id)) || "";
+        if (!k) return true;
+        if (seen.has(k)) return false;
+        seen.add(k); return true;
+      })
       .sort((a, b) => String(b.when).localeCompare(String(a.when)))
       .slice(0, 20);
 
@@ -8433,18 +8500,21 @@
   function fetchFeedSocial() {
     if (!signalsReady() || !window.PointwellSignals) return;
     const S = window.PointwellSignals;
-    const commIds = [], profIds = [];
+    const commIds = [], profIds = [], postIds = [];
     feedItems.forEach((item) => {
       const id = item.entry.id;
       if (!isDbEntryId(id) || feedSocialFetched.has(String(id))) return;
-      if (item.entry.kind === "profile_post") profIds.push(id); else commIds.push(id);
+      if (item.entry.kind === "post") postIds.push(id);
+      else if (item.entry.kind === "profile_post") profIds.push(id);
+      else commIds.push(id);
     });
-    if (!commIds.length && !profIds.length) return;
-    commIds.concat(profIds).forEach((id) => feedSocialFetched.add(String(id)));
+    if (!commIds.length && !profIds.length && !postIds.length) return;
+    commIds.concat(profIds, postIds).forEach((id) => feedSocialFetched.add(String(id)));
     const apply = (rows) => { let any = false; (rows || []).forEach((r) => { if (cacheFeedSocialRow(r)) any = true; }); return any; };
     const calls = [];
     if (commIds.length && typeof S.getEntriesSocial === "function") calls.push(Promise.resolve(S.getEntriesSocial(commIds)).then(apply).catch(() => false));
     if (profIds.length && typeof S.getProfilePostsSocial === "function") calls.push(Promise.resolve(S.getProfilePostsSocial(profIds)).then(apply).catch(() => false));
+    if (postIds.length && typeof S.getPostsSocial === "function") calls.push(Promise.resolve(S.getPostsSocial(postIds)).then(apply).catch(() => false));
     if (!calls.length) return;
     Promise.all(calls).then((results) => { if (results.some(Boolean)) refreshActiveFeedSurface(); }).catch(() => {});
   }
@@ -8460,7 +8530,9 @@
     const isMe = entry.userId === "me";
     const isDiscover = !!item.discover;
     const name = escapeHtml(item.member.name || "Member");
-    const points = item.rule ? scoring.calculateRule(item.rule, entry.amount).totalPoints : 0;
+    // Community-entry cards compute points from the rule; a unified POST carries its per-target
+    // rollup in item.points (no single rule). Profile/legacy posts have neither → 0.
+    const points = item.rule ? scoring.calculateRule(item.rule, entry.amount).totalPoints : (numberOrDefault(item.points, 0));
     const rel = (window.PointwellSignals && typeof window.PointwellSignals.formatRelativeTime === "function") ? (window.PointwellSignals.formatRelativeTime(item.when, Date.now()) || "") : "";
     const relText = rel === "just now" || !rel ? (rel || "") : rel + " ago";
     // Profile posts have no community → sub is just the relative time; community posts show "Name · time".
@@ -8507,9 +8579,17 @@
         </div>`;
 
     // Progress tag in the header (rule glyph + label + signed points), e.g. "🏋️ Workout +2".
-    const tagHtml = item.rule
-      ? `<span class="ig-tag">${draftRuleIcon(item.rule)} ${escapeHtml(item.rule.label)} ${escapeHtml(formatSigned(points))}</span>`
-      : "";
+    // A unified POST has no single rule — bake its activity glyphs + per-target points into the
+    // tag instead (e.g. "💪👟 +4"), so the logged activity rides along on every feed it appears in.
+    const postActs = (entry.kind === "post" && Array.isArray(entry.activity)) ? entry.activity : [];
+    let tagHtml = "";
+    if (item.rule) {
+      tagHtml = `<span class="ig-tag">${draftRuleIcon(item.rule)} ${escapeHtml(item.rule.label)} ${escapeHtml(formatSigned(points))}</span>`;
+    } else if (postActs.length || (entry.kind === "post" && points)) {
+      const glyphs = postActs.slice(0, 3).map(function (a) { return escapeHtml(a.emoji || "◆"); }).join(" ");
+      const ptsLabel = points ? " " + escapeHtml(formatSigned(points)) : "";
+      tagHtml = `<span class="ig-tag">${glyphs}${ptsLabel}</span>`;
+    }
     const affinityHtml = (isDiscover && item.discover.reason)
       ? `<span class="ig-affinity">${escapeHtml(item.discover.reason)}</span>`
       : "";
@@ -8727,12 +8807,61 @@
     return item;
   }
 
-  // Route a feed item's social/like/comment/delete calls to the right signals — the parallel
-  // profile_post_* fns for a profile post, else the community feed-social fns. One indirection so
-  // every handler (like, comment, delete, social) stays UI-identical and just picks its backend.
+  // A POST (posts row, Phase 3) as a feed item — the unified model. Same {entry, member, when}
+  // shape so it renders through renderFeedPost. entry.kind = "post" + entry.postId routes
+  // likes/comments to the SHARED post_likes/post_comments thread (the same thread shows on every
+  // surface the post appears in). `opts.communityId` ties it to a community feed card (+ its points);
+  // for a profile/friends card it's null. Author identity: self → my profile; else a community
+  // member, the followed-author cache, or the provided author. Caches by id for openEntryPost.
+  function buildFeedItemForPost(post, author, opts) {
+    if (!post || !post.id) return null;
+    opts = opts || {};
+    const myId = state.account && state.account.userId;
+    const authorId = post.author_user || post.authorUser || "";
+    const mine = !!(authorId && myId && authorId === myId);
+    const community = opts.communityId ? (state.communities.find((c) => c.id === opts.communityId) || null) : null;
+    let name, avatarUrl;
+    if (mine) {
+      name = (state.profile && state.profile.name) || "You";
+      avatarUrl = (state.profile && state.profile.avatarUrl) || "";
+    } else {
+      const a = author
+        || (community && (community.members || []).find((m) => m.userId === authorId || m.id === authorId))
+        || profilePostAuthors[authorId] || {};
+      name = a.name || a.display_name || "Member";
+      avatarUrl = a.avatarUrl || a.avatar_url || "";
+    }
+    const when = post.created_at || post.timestamp || "";
+    const item = {
+      entry: {
+        id: post.id,
+        postId: post.id,
+        userId: mine ? "me" : authorId,
+        message: post.caption || "",
+        photoPath: post.photo_path || post.photoPath || "",
+        timestamp: when,
+        kind: "post",
+        activity: Array.isArray(post.activity) ? post.activity : []
+      },
+      community: community,
+      member: { id: mine ? "me" : authorId, userId: authorId, name: name, avatarUrl: avatarUrl, color: avatarColor(name) },
+      rule: null,
+      when: when,
+      points: Number(opts.points) || 0
+    };
+    profilePostItemCache.set(String(post.id), item);
+    return item;
+  }
+
+  // Route a feed item's social/like/comment/delete calls to the right signals — post_* for a unified
+  // POST (the shared thread), the parallel profile_post_* for a legacy profile post, else the community
+  // feed-social fns. One indirection so every handler (like, comment, delete, social) stays UI-identical.
   function feedSignalsFor(entryId) {
     const item = feedItemById(String(entryId));
     const S = window.PointwellSignals || {};
+    if (item && item.entry && item.entry.kind === "post") {
+      return { profile: false, like: S.likePost, unlike: S.unlikePost, social: S.getPostsSocial, comments: S.getPostComments, addComment: S.addPostComment, del: S.deletePost };
+    }
     if (item && item.entry && item.entry.kind === "profile_post") {
       return { profile: true, like: S.likeProfilePost, unlike: S.unlikeProfilePost, social: S.getProfilePostsSocial, comments: S.getProfilePostComments, addComment: S.addProfilePostComment, del: S.deleteProfilePost };
     }
@@ -9969,13 +10098,14 @@
     if (!els.worldPosts) return;
     if (world.type === "community") {
       const community = world.community;
-      const items = (state.communityEntries || []).filter((e) => e.communityId === world.id).map((entry) => {
-        const member = (community.members || []).find((m) => m.id === entry.userId);
-        if (!member) return null;
-        const rule = (community.system.rules || []).map(scoring.normalizeRule).find((r) => r.id === entry.ruleId);
-        return { entry: entry, community: community, member: member, rule: rule, when: entry.timestamp || entry.dateKey || entry.date || "" };
-      }).filter(Boolean);
-      const shown = sortCommunityFeed(items).slice(0, 12);
+      // Unified post cards (post-first model) first, then LEGACY bare-activity entries that have no
+      // backing post (plain logs + pre-Phase-2 rows). Entries WITH a post_id are represented by the
+      // post card, so we drop them here (that's the dedup that retires the Phase-2 bridge read).
+      const postItems = communityPostsByCommunity[world.id] || [];
+      const legacyItems = (state.communityEntries || [])
+        .filter((e) => e.communityId === world.id && !e.postId)
+        .map(buildFeedItemForEntry).filter(Boolean);
+      const shown = sortCommunityFeed(postItems.concat(legacyItems)).slice(0, 12);
       if (!shown.length) { els.worldPosts.innerHTML = emptyState("No posts yet — share your progress and it'll show up here."); return; }
       feedItems = shown; // so the shared feed handlers (like/comment/cheer) resolve each card by id
       els.worldPosts.innerHTML = `<div class="community-feed-list">${shown.map(renderFeedPost).join("")}</div>`;
@@ -10720,22 +10850,49 @@
   // a feed item for openEntryPost, and seed the social cache. Mutates row.posts (merged, newest first).
   async function loadProfilePostsInto(row, id) {
     const S = window.PointwellSignals;
-    if (!S || typeof S.fetchProfilePosts !== "function") return;
-    const posts = (await S.fetchProfilePosts(id, 30)) || [];
-    if (!posts.length) return;
-    const social = {};
-    if (typeof S.getProfilePostsSocial === "function") {
-      const rows = (await S.getProfilePostsSocial(posts.map((p) => p.id))) || [];
-      rows.forEach((r) => { if (r && r.post_id) social[String(r.post_id)] = r; });
-    }
+    if (!S) return;
     const author = { name: row.display_name, avatarUrl: row.avatar_url };
-    const mapped = posts.map((p) => {
-      const s = social[String(p.id)] || {};
-      buildFeedItemForProfilePost(p, author);   // so tapping the tile/card opens the overlay
-      cacheFeedSocialRow({ post_id: p.id, like_count: s.like_count, comment_count: s.comment_count, liked_by_me: s.liked_by_me, last_comment_name: s.last_comment_name, last_comment_body: s.last_comment_body });
-      feedSocialFetched.add(String(p.id)); // counts are fresh → don't refetch when the overlay opens
-      return { entry_id: p.id, photo_path: p.photo_path || "", message: p.message || "", like_count: Number(s.like_count) || 0, comment_count: Number(s.comment_count) || 0, updated_at: p.created_at, entry_date: p.created_at, community_name: "", kind: "profile_post" };
-    });
+    const mapped = [];
+    const seen = new Set();
+    const cacheSocial = (postId, s) => {
+      cacheFeedSocialRow({ post_id: postId, like_count: s.like_count, comment_count: s.comment_count, liked_by_me: s.liked_by_me, last_comment_name: s.last_comment_name, last_comment_body: s.last_comment_body });
+      feedSocialFetched.add(String(postId)); // counts are fresh → don't refetch when the overlay opens
+    };
+
+    // PRIMARY: unified posts to this profile (post-first model).
+    if (typeof S.fetchProfilePostsV2 === "function") {
+      const v2 = (await S.fetchProfilePostsV2(id, 30)) || [];
+      const ids = v2.map((r) => r && r.post && r.post.id).filter(Boolean);
+      const social = {};
+      if (ids.length && typeof S.getPostsSocial === "function") {
+        ((await S.getPostsSocial(ids)) || []).forEach((r) => { if (r && r.post_id) social[String(r.post_id)] = r; });
+      }
+      v2.forEach((r) => {
+        const p = r && r.post; if (!p || !p.id) return;
+        const s = social[String(p.id)] || {};
+        buildFeedItemForPost(p, author, { communityId: null, points: r.points }); // overlay opens the post
+        cacheSocial(p.id, s);
+        seen.add(String(p.id));
+        mapped.push({ entry_id: p.id, photo_path: p.photo_path || "", message: p.caption || "", like_count: Number(s.like_count) || 0, comment_count: Number(s.comment_count) || 0, updated_at: p.created_at, entry_date: p.created_at, community_name: "", kind: "post" });
+      });
+    }
+
+    // FALLBACK: legacy profile_posts (frozen pre-Phase-2 archive), deduped by id so nothing vanishes.
+    if (typeof S.fetchProfilePosts === "function") {
+      const legacy = ((await S.fetchProfilePosts(id, 30)) || []).filter((p) => p && p.id && !seen.has(String(p.id)));
+      const social = {};
+      if (legacy.length && typeof S.getProfilePostsSocial === "function") {
+        ((await S.getProfilePostsSocial(legacy.map((p) => p.id))) || []).forEach((r) => { if (r && r.post_id) social[String(r.post_id)] = r; });
+      }
+      legacy.forEach((p) => {
+        const s = social[String(p.id)] || {};
+        buildFeedItemForProfilePost(p, author);
+        cacheSocial(p.id, s);
+        mapped.push({ entry_id: p.id, photo_path: p.photo_path || "", message: p.message || "", like_count: Number(s.like_count) || 0, comment_count: Number(s.comment_count) || 0, updated_at: p.created_at, entry_date: p.created_at, community_name: "", kind: "profile_post" });
+      });
+    }
+
+    if (!mapped.length) return;
     row.posts = (row.posts || []).concat(mapped)
       .sort((a, b) => String(b.updated_at || b.entry_date || "").localeCompare(String(a.updated_at || a.entry_date || "")));
   }
@@ -17218,6 +17375,15 @@
   function entryMetricText(entry, rule) {
     const unit = (rule && rule.unit) || entry.unit || "";
     const label = (rule && rule.label) || entry.label || "Entry";
+    // A unified POST has no single rule/unit — summarize its attached activity chips instead
+    // (e.g. "Lifting · 8,000 steps"), so a bare-log post still reads as "logged X".
+    if (!rule && !unit && Array.isArray(entry.activity) && entry.activity.length) {
+      return entry.activity.map(function (a) {
+        const u = a.unit || "";
+        if (!u || u === "done") return a.ruleLabel || "Logged";
+        return formatMetricPhrase(numberOrDefault(a.amount, 0), u, "");
+      }).filter(Boolean).slice(0, 2).join(" · ");
+    }
     if ((rule && rule.inputMethod === "toggle") || unit === "done" || !unit) return label;
     return formatMetricPhrase(entry.amount, unit, "");
   }
@@ -20573,9 +20739,29 @@
       state.selectedCommunityId = state.communities[0] ? state.communities[0].id : "";
     }
     await loadChallengesFromDb(); // head-to-head duels load alongside the community data they score from
-    await loadFollowedProfilePosts(); // profile posts from people I follow → the Friends feed
+    await loadCommunityPosts();        // unified posts in my communities (post-first model) → world feeds
+    await loadFollowedProfilePosts(); // posts/profile-posts from people I follow → the Friends feed
     saveState();
     render();
+  }
+
+  // Unified posts targeted at my communities → the world / community feed. ONE batched query (no
+  // N+1), grouped by community. Author identity resolves from each community's members.
+  async function loadCommunityPosts() {
+    communityPostsByCommunity = {};
+    const uid = state.account && state.account.userId;
+    if (!signalsReady() || !uid || !window.PointwellSignals || typeof window.PointwellSignals.fetchCommunityPosts !== "function") return;
+    const ids = (state.communities || []).map((c) => c.id).filter(Boolean);
+    if (!ids.length) return;
+    try {
+      const rows = (await window.PointwellSignals.fetchCommunityPosts(ids, 80)) || [];
+      rows.forEach((r) => {
+        if (!r || !r.post) return;
+        const item = buildFeedItemForPost(r.post, null, { communityId: r.communityId, points: r.points });
+        if (!item) return;
+        (communityPostsByCommunity[r.communityId] = communityPostsByCommunity[r.communityId] || []).push(item);
+      });
+    } catch (e) { /* best-effort: the feed still shows legacy activity cards */ }
   }
 
   // Pull the profile posts of people I follow for the Friends feed. profileFollowing (a SECURITY
@@ -20584,6 +20770,7 @@
   // returns only the posts I'm allowed to see (public, or private-but-approved-follower).
   async function loadFollowedProfilePosts() {
     feedProfilePosts = [];
+    followedPostItems = [];
     profilePostAuthors = {};
     const uid = state.account && state.account.userId;
     if (!signalsReady() || !uid || !window.PointwellSignals) return;
@@ -20596,8 +20783,21 @@
         ids.push(f.id);
         profilePostAuthors[f.id] = { name: f.display_name || "Member", avatarUrl: f.avatar_url || "" };
       });
-      if (!ids.length || typeof window.PointwellSignals.fetchFollowedProfilePosts !== "function") return;
-      feedProfilePosts = (await window.PointwellSignals.fetchFollowedProfilePosts(ids, 40)) || [];
+      if (!ids.length) return;
+      // Unified posts to followed profiles (post-first model) — the primary source going forward.
+      if (typeof window.PointwellSignals.fetchFollowedPostsV2 === "function") {
+        const postRows = (await window.PointwellSignals.fetchFollowedPostsV2(ids, 40)) || [];
+        postRows.forEach((r) => {
+          if (!r || !r.post) return;
+          const item = buildFeedItemForPost(r.post, profilePostAuthors[r.post.author_user] || null, { communityId: null, points: r.points });
+          if (item) followedPostItems.push(item);
+        });
+      }
+      // Legacy profile_posts (frozen pre-Phase-2 archive) — kept as a deduped fallback so old posts
+      // don't vanish from the Friends feed.
+      if (typeof window.PointwellSignals.fetchFollowedProfilePosts === "function") {
+        feedProfilePosts = (await window.PointwellSignals.fetchFollowedProfilePosts(ids, 40)) || [];
+      }
     } catch (e) { /* best-effort: the feed still shows community check-ins */ }
   }
 

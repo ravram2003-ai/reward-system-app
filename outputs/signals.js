@@ -949,6 +949,142 @@
     }
   }
 
+  // ── Phase 3 reads: surface posts from their targets. RLS (can_view_post) gates which posts
+  // come back; the inner join to posts also drops targets whose post isn't visible. We order on
+  // post_targets.created_at (≈ the post's, and indexed) to avoid embedded-order quirks. Each
+  // returns one row per (target) carrying the nested post + its per-target points.
+  var POST_COLS = "id, author_user, caption, photo_path, activity, is_shared, created_at";
+
+  // Posts in a set of communities (the community / world feed). Returns [{post, communityId, points}].
+  async function fetchCommunityPosts(communityIds, limit) {
+    var sb = getClient();
+    var ids = Array.isArray(communityIds) ? communityIds.filter(function (x) { return x && UUID_RE.test(String(x)); }) : [];
+    if (!sb || !ids.length) return [];
+    try {
+      var res = await sb.from("post_targets")
+        .select("points, target_id, created_at, posts!inner(" + POST_COLS + ")")
+        .eq("target_type", "community").in("target_id", ids)
+        .order("created_at", { ascending: false }).limit(limit || 60);
+      if (res.error) return [];
+      return (res.data || []).map(function (r) {
+        var post = r && (Array.isArray(r.posts) ? r.posts[0] : r.posts);
+        return post ? { post: post, communityId: r.target_id, points: Number(r.points) || 0 } : null;
+      }).filter(Boolean);
+    } catch (e) { return []; }
+  }
+
+  // Posts authored by people I follow that hit their PROFILE feed (the Friends feed). authorIds
+  // come from profileFollowing (my follow graph). Returns [{post, points}].
+  async function fetchFollowedPostsV2(authorIds, limit) {
+    var sb = getClient();
+    var ids = Array.isArray(authorIds) ? authorIds.filter(function (x) { return x && UUID_RE.test(String(x)); }) : [];
+    if (!sb || !ids.length) return [];
+    try {
+      var res = await sb.from("post_targets")
+        .select("points, target_id, created_at, posts!inner(" + POST_COLS + ")")
+        .eq("target_type", "profile").in("target_id", ids)
+        .order("created_at", { ascending: false }).limit(limit || 40);
+      if (res.error) return [];
+      return (res.data || []).map(function (r) {
+        var post = r && (Array.isArray(r.posts) ? r.posts[0] : r.posts);
+        return post ? { post: post, points: Number(r.points) || 0 } : null;
+      }).filter(Boolean);
+    } catch (e) { return []; }
+  }
+
+  // One user's profile-targeted posts (their profile page). Returns [{post, points}].
+  async function fetchProfilePostsV2(userId, limit) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(userId))) return [];
+    try {
+      var res = await sb.from("post_targets")
+        .select("points, target_id, created_at, posts!inner(" + POST_COLS + ")")
+        .eq("target_type", "profile").eq("target_id", userId)
+        .order("created_at", { ascending: false }).limit(limit || 30);
+      if (res.error) return [];
+      return (res.data || []).map(function (r) {
+        var post = r && (Array.isArray(r.posts) ? r.posts[0] : r.posts);
+        return post ? { post: post, points: Number(r.points) || 0 } : null;
+      }).filter(Boolean);
+    } catch (e) { return []; }
+  }
+
+  // One post by id + its targets I can see (for opening a post from a notification when it isn't
+  // in any loaded feed batch). RLS (can_view_post) gates the post; post_targets RLS gates the
+  // targets (anon/non-member rows are dropped). Returns the post row with `post_targets` or null.
+  async function fetchPostById(postId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(postId))) return null;
+    try {
+      var res = await sb.from("posts")
+        .select(POST_COLS + ", post_targets(target_type, target_id, points)")
+        .eq("id", postId).maybeSingle();
+      return (res.error || !res.data) ? null : res.data;
+    } catch (e) { return null; }
+  }
+
+  // ── Engagement on a POST (shared thread across every feed it appears in) — mirrors the
+  // profile_post_* fns against post_likes / post_comments + the definer RPCs from #26.
+  async function likePost(postId, userId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(postId)) || !userId) return { error: { message: "Couldn't like that." } };
+    try {
+      var res = await sb.from("post_likes").insert({ post_id: postId, user_id: userId });
+      if (res.error && !/duplicate|unique/i.test(res.error.message || "")) return { error: res.error };
+      return { error: null };
+    } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
+  }
+
+  async function unlikePost(postId, userId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(postId)) || !userId) return { error: { message: "Couldn't unlike that." } };
+    try {
+      var res = await sb.from("post_likes").delete().eq("post_id", postId).eq("user_id", userId);
+      return { error: res.error || null };
+    } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
+  }
+
+  async function getPostsSocial(postIds) {
+    var sb = getClient();
+    var list = Array.isArray(postIds) ? postIds.filter(function (x) { return x && UUID_RE.test(String(x)); }) : [];
+    if (!sb || !list.length) return [];
+    try {
+      var res = await sb.rpc("get_posts_social", { pids: list });
+      return res.error ? [] : (res.data || []);
+    } catch (e) { return []; }
+  }
+
+  async function addPostComment(postId, userId, body) {
+    var sb = getClient();
+    var text = String(body || "").trim().slice(0, 2000);
+    if (!sb || !UUID_RE.test(String(postId)) || !userId) return { error: { message: "Couldn't post that." } };
+    if (!text) return { error: { message: "Write a comment first." } };
+    try {
+      var res = await sb.from("post_comments").insert({ post_id: postId, user_id: userId, body: text }).select().single();
+      if (res.error) return { error: res.error };
+      return { error: null, comment: res.data || null };
+    } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
+  }
+
+  async function getPostComments(postId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(postId))) return [];
+    try {
+      var res = await sb.rpc("get_post_comments", { pid: postId });
+      return res.error ? [] : (res.data || []);
+    } catch (e) { return []; }
+  }
+
+  // Delete a comment: own (RLS) OR the post author (RLS also allows author).
+  async function deletePostComment(commentId, userId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(commentId)) || !userId) return { error: { message: "Couldn't delete that." } };
+    try {
+      var res = await sb.from("post_comments").delete().eq("id", commentId);
+      return { error: res.error || null };
+    } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
+  }
+
   // Every community the user belongs to, with its members (names via a definer
   // function, since profiles RLS is self-only) and the shared entries.
   async function fetchMyCommunities(userId) {
@@ -1628,6 +1764,16 @@
     createPost: createPost,
     addPostTarget: addPostTarget,
     deletePost: deletePost,
+    fetchCommunityPosts: fetchCommunityPosts,
+    fetchFollowedPostsV2: fetchFollowedPostsV2,
+    fetchProfilePostsV2: fetchProfilePostsV2,
+    fetchPostById: fetchPostById,
+    likePost: likePost,
+    unlikePost: unlikePost,
+    getPostsSocial: getPostsSocial,
+    addPostComment: addPostComment,
+    getPostComments: getPostComments,
+    deletePostComment: deletePostComment,
     fetchMyCommunities: fetchMyCommunities,
     createChallenge: createChallenge,
     fetchMyChallenges: fetchMyChallenges,

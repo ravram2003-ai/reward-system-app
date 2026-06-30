@@ -112,6 +112,18 @@ you know what's live in production.
   opt-OUT is preserved (client reads `allow_device_autosync !== false`; Settings can set it false).
   Idempotent. *(after #21 community-device-autosync — alters the same column)*. **Run this so THE
   BOYS' Steps (and every synced community rule) auto-fills instead of showing 0 with a manual + Log.**
+- [ ] **26. post-first-feed.sql** — "one post, many feeds" (post-first composer, Phase 1: schema+RLS):
+  `posts` (caption/photo/`activity` jsonb/`is_shared`) + `post_targets` (target_type profile|community,
+  target_id, per-target points) + `post_likes`/`post_comments` (engagement on the POST → shared thread
+  across every feed it appears in) + a nullable `community_entries.post_id` (links the per-rule scoring
+  rows to their post; ON DELETE CASCADE so deleting a post removes its points; leaderboard sum
+  unchanged). RLS: author-only write; a post is visible to the author, else only when SHARED and it has
+  a target the viewer may see — a COMMUNITY target they're a member of, or a PROFILE target they may
+  view (`can_view_profile`). ANON may read a shared post ONLY via a PUBLIC profile target (never a
+  community target, never a private post) — `can_view_post` / `post_is_public_anon` helpers + read RPCs
+  `get_posts_social` / `get_post_comments`. *(after #6 communities, #13 profile-view, #24 profile-posts
+  — reuses is_community_member / can_view_profile / profile_is_public)*. Post photos reuse the existing
+  **entry-photo** bucket. **Phases 2–4 (composer, read paths, delete) are app-only — no further SQL.**
 
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).

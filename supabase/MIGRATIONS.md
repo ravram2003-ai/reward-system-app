@@ -124,6 +124,25 @@ you know what's live in production.
   `get_posts_social` / `get_post_comments`. *(after #6 communities, #13 profile-view, #24 profile-posts
   — reuses is_community_member / can_view_profile / profile_is_public)*. Post photos reuse the existing
   **entry-photo** bucket. **Phases 2–4 (composer, read paths, delete) are app-only — no further SQL.**
+- [ ] **27. compete-contests.sql** — Compete: generalized **contests** (Phase 2 = TEAM battles; Phase 3
+  adds tournaments). Three tables — `contests` (community_id, creator_user, format team|tournament, metric,
+  scoring_mode total|avg_active, start_at/end_at, status pending/active/done), `contest_teams`
+  (contest_id, name, color), `contest_participants` (contest_id, user_id, team_id, seed, eliminated;
+  unique per contest+user) — + `can_read_contest`/`can_manage_contest` SECURITY DEFINER helpers + RLS.
+  RLS: any **member** of the contest's community reads it; the **creator** starts it (as themselves); the
+  **creator or community owner** manages/cancels (teams + participants follow the same gate; an inserted
+  participant must be a community member). Scores are NOT stored — team totals compute in the app from
+  `community_entries` over the window. anon (null auth.uid()) is denied by every policy. Idempotent.
+  *(after #6 communities + #23 challenges — reuses is_community_member / is_community_owner)*. 1v1 duels
+  keep using `challenges`; the Compete hub shows both. **Until this runs, team contests can't be created/read.**
+- [ ] **28. compete-tournaments.sql** — Compete Phase 3: single-elimination **tournament** matches.
+  `contest_matches` (contest_id, round, slot, a_user/b_user, a_score/b_score, winner_user, window_start/end,
+  status pending|active|done; unique per contest+round+slot) + RLS reusing the **#27** helpers — any
+  community member reads (`can_read_contest`), the contest creator or community owner manages
+  (`can_manage_contest`); anon denied. Each round has its own window; when a round's clock ends the app
+  computes both scores from `community_entries` and persists the winner here, then advances. Idempotent.
+  *(after #27 compete-contests — needs `contests` + can_read_contest/can_manage_contest)*. **Until this runs,
+  tournaments can't be created/read.**
 
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).

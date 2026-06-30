@@ -991,6 +991,123 @@
     });
   }
 
+  // ── Compete: generalized contests (team battles; tournaments next). Scores compute in the app
+  //    from community_entries — these calls just persist structure/status. RLS (compete-contests.sql)
+  //    is the real guard: any community member reads; the creator/owner manages; anon is denied. ──
+  async function createContest(payload) {
+    var sb = getClient();
+    if (!sb || !payload || !payload.community_id || !payload.creator_user) return { error: { message: "Couldn't start the contest." } };
+    try {
+      var res = await sb.from("contests").insert({
+        community_id: payload.community_id,
+        creator_user: payload.creator_user,
+        format: payload.format,
+        metric: payload.metric || "points",
+        scoring_mode: payload.scoring_mode || "total",
+        start_at: payload.start_at || null,
+        end_at: payload.end_at || null,
+        status: payload.status || "active"
+      }).select("*").single();
+      if (res.error) return { error: { message: res.error.message || "Couldn't start the contest." } };
+      return { error: null, contest: res.data || null };
+    } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
+  }
+
+  // Every contest in a community I belong to, with its teams + participants embedded. The rows are
+  // scoped ENTIRELY by RLS (read = is_community_member of the contest's community via auth.uid()) —
+  // `userId` is NOT a server filter, just a signed-in guard so we don't query before auth is ready.
+  // Returns [] on failure. One query, no N+1.
+  async function fetchMyContests(userId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(userId))) return [];
+    try {
+      var res = await sb.from("contests")
+        .select("*, contest_teams(*), contest_participants(*), contest_matches(*)")
+        .order("created_at", { ascending: false });
+      return res.error ? [] : (res.data || []);
+    } catch (e) { return []; }
+  }
+
+  // Insert teams; returns the created rows (we need their ids to assign participants).
+  async function addContestTeams(contestId, teams) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(contestId)) || !Array.isArray(teams) || !teams.length) return { error: { message: "Couldn't create teams." } };
+    try {
+      var rows = teams.map(function (t) { return { contest_id: contestId, name: String(t.name || "Team").slice(0, 40), color: t.color || null }; });
+      var res = await sb.from("contest_teams").insert(rows).select("*");
+      if (res.error) return { error: res.error };
+      return { error: null, teams: res.data || [] };
+    } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
+  }
+
+  // Draft participants into the contest. parts = [{ user_id, team_id?, seed? }].
+  async function addContestParticipants(contestId, parts) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(contestId)) || !Array.isArray(parts) || !parts.length) return { error: { message: "Couldn't add players." } };
+    try {
+      var rows = parts.filter(function (p) { return p && UUID_RE.test(String(p.user_id)); }).map(function (p) {
+        return { contest_id: contestId, user_id: p.user_id, team_id: p.team_id || null, seed: (typeof p.seed === "number" ? p.seed : null) };
+      });
+      if (!rows.length) return { error: { message: "No valid players." } };
+      var res = await sb.from("contest_participants").insert(rows);
+      return { error: res.error || null };
+    } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
+  }
+
+  // Status/window patch — creator/owner via RLS. Returns the updated row (or null).
+  async function setContestStatus(contestId, patch) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(contestId)) || !patch) return { error: { message: "Couldn't update that." } };
+    try {
+      var res = await sb.from("contests").update(patch).eq("id", contestId).select("*").maybeSingle();
+      return { error: res.error || null, contest: res.error ? null : (res.data || null) };
+    } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
+  }
+
+  // Cancel a contest (creator/owner via RLS; cascades teams + participants + matches).
+  async function deleteContest(contestId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(contestId))) return { error: { message: "Couldn't delete that." } };
+    try {
+      var res = await sb.from("contests").delete().eq("id", contestId);
+      return { error: res.error || null };
+    } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
+  }
+
+  // ── Tournament bracket (compete-tournaments.sql) — creator/owner write via RLS ──
+  // Insert match shells. matches = [{ round, slot, a_user?, b_user?, window_start?, window_end?, status?,
+  // winner_user?, a_score?, b_score? }]. Returns the created rows.
+  async function addContestMatches(contestId, matches) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(contestId)) || !Array.isArray(matches) || !matches.length) return { error: { message: "Couldn't build the bracket." } };
+    try {
+      var rows = matches.map(function (m) {
+        return {
+          contest_id: contestId, round: m.round, slot: m.slot,
+          a_user: m.a_user || null, b_user: m.b_user || null,
+          a_score: (typeof m.a_score === "number" ? m.a_score : null),
+          b_score: (typeof m.b_score === "number" ? m.b_score : null),
+          winner_user: m.winner_user || null,
+          window_start: m.window_start || null, window_end: m.window_end || null,
+          status: m.status || "pending"
+        };
+      });
+      var res = await sb.from("contest_matches").insert(rows).select("*");
+      if (res.error) return { error: res.error };
+      return { error: null, matches: res.data || [] };
+    } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
+  }
+
+  // Patch one match (set scores/winner/status, or fill an advancing player into a_user/b_user).
+  async function setContestMatch(matchId, patch) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(matchId)) || !patch) return { error: { message: "Couldn't update the match." } };
+    try {
+      var res = await sb.from("contest_matches").update(patch).eq("id", matchId).select("*").maybeSingle();
+      return { error: res.error || null, match: res.error ? null : (res.data || null) };
+    } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
+  }
+
   // ── Community discovery: name search + request-to-join ──────────────────────
 
   // Name search — returns only public + request_to_join communities (private is
@@ -1576,6 +1693,14 @@
     fetchMyChallenges: fetchMyChallenges,
     setChallengeStatus: setChallengeStatus,
     finalizeChallenge: finalizeChallenge,
+    createContest: createContest,
+    fetchMyContests: fetchMyContests,
+    addContestTeams: addContestTeams,
+    addContestParticipants: addContestParticipants,
+    setContestStatus: setContestStatus,
+    deleteContest: deleteContest,
+    addContestMatches: addContestMatches,
+    setContestMatch: setContestMatch,
     isNudgeable: isNudgeable,
     subscribeInbox: subscribeInbox,
     fetchThread: fetchThread,

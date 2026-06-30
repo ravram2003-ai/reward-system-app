@@ -196,6 +196,7 @@
     quickEntries: [],
     communityEntries: [],
     challenges: [],
+    contests: [],
     communityDraftInputs: {},
     knownWorkoutIds: [],   // wearable workout/exercise session ids we've already seen
     pendingWorkout: null,  // a newly-detected workout awaiting the "log it?" prompt
@@ -3121,7 +3122,8 @@
       "communityComposer",
       "communityComposerPhoto",
       "communityFeedSort",
-      "communityMembersPanel",
+      "communityCompetePanel",
+      "communityCompeteHub",
       "communityMembersList",
       "communityAboutPanel",
       "toast"
@@ -8323,7 +8325,7 @@
   const COMMUNITY_HUB_TABS = [
     { id: "feed", label: "Feed" },
     { id: "leaderboard", label: "Leaderboard" },
-    { id: "members", label: "Members" },
+    { id: "compete", label: "Compete" },
     { id: "about", label: "About" }
   ];
   const COMMUNITY_FEED_SORTS = [
@@ -8353,6 +8355,7 @@
     renderCommunityHubTabs();
     renderCommunityComposer(world);
     renderCommunityFeedSort();
+    renderCompeteHub(world);
     renderCommunityMembers(world);
     renderCommunityAbout(world);
     applyCommunityHubTab(analytics);
@@ -8365,7 +8368,7 @@
     // Hide every community-only panel when a PERSONAL world is shown (this runs only from
     // renderPersonalWorldDetail) so none leak in from a previously-viewed community — including the
     // leaderboard + "Your day" panels, which the community path re-shows on its own.
-    ["communityHubTabs", "communityComposer", "communityComposerPhoto", "communityFeedSort", "communityMembersPanel", "communityAboutPanel", "communityLeaderboardPanel", "communityYourDayPanel"].forEach((k) => { if (els[k]) els[k].hidden = true; });
+    ["communityHubTabs", "communityComposer", "communityComposerPhoto", "communityFeedSort", "communityCompetePanel", "communityAboutPanel", "communityLeaderboardPanel", "communityYourDayPanel"].forEach((k) => { if (els[k]) els[k].hidden = true; });
   }
 
   function renderCommunityHubTabs() {
@@ -8832,7 +8835,7 @@
     show("communityLeaderboardPanel", tab === "leaderboard" && lbOn);
     show("communityYourDayPanel", tab === "leaderboard");
     show("worldTrendsPanel", tab === "leaderboard" && trendsOn);
-    show("communityMembersPanel", tab === "members");
+    show("communityCompetePanel", tab === "compete");
     show("communityAboutPanel", tab === "about");
     if (els.personalRulesPanel) els.personalRulesPanel.hidden = true;
   }
@@ -19097,6 +19100,7 @@
   function challengeDuration(id) { return CHALLENGE_DURATIONS.find((d) => d.id === id) || CHALLENGE_DURATIONS[1]; }
   let challengeDraft = null;          // { communityId, opponentUserId, duration, metric, forfeitOn, forfeitText }
   let challengeCelebrated = {};       // challengeId -> true (one-shot win toast guard, session-local)
+  let contestDraft = null;            // Compete "+ New contest" picker: { communityId, window, metric }
 
   function challengeFromDb(row) {
     if (!row) return null;
@@ -19253,13 +19257,15 @@
   }
 
   // ── Setup sheet ──
-  function openChallengeSetup(opponentUserId, communityId) {
+  function openChallengeSetup(opponentUserId, communityId, defaults) {
     if (!signalsReady()) { showToast("Sign in to challenge"); return; }
     if (!opponentUserId || (state.account && state.account.userId === opponentUserId)) return;
     const community = (state.communities || []).find((c) => c.id === communityId)
       || (state.communities || []).find((c) => (c.members || []).some((m) => m.userId === opponentUserId));
     if (!community) { showToast("Challenges are for community members"); return; }
-    challengeDraft = { communityId: community.id, opponentUserId: opponentUserId, duration: "3days", metric: "points", forfeitOn: false, forfeitText: "" };
+    defaults = defaults || {};
+    const dur = CHALLENGE_DURATIONS.some((x) => x.id === defaults.duration) ? defaults.duration : "3days";
+    challengeDraft = { communityId: community.id, opponentUserId: opponentUserId, duration: dur, metric: defaults.metric || "points", forfeitOn: false, forfeitText: "" };
     renderChallengeSetup();
   }
   function renderChallengeSetup() {
@@ -19481,11 +19487,47 @@
     const now = Date.now();
     if (!force && now - lastChallengeFetchAt < 20000) return;
     lastChallengeFetchAt = now;
-    Promise.resolve(loadChallengesFromDb()).then(() => {
+    Promise.all([loadChallengesFromDb(), loadContestsFromDb()]).then(() => {
       renderNotifications();
       if (state.activeView === "community-detail") { try { renderCommunityDetail(); } catch (e) { /* ignore */ } }
       try { maybeShowChallengeNudge(); } catch (e) { /* a freshly-fetched challenge can also coach-nudge */ }
+      // As the creator/owner, advance any tournament whose round clock has ended (best-effort; no-op
+      // when nothing ended). Display already computes results live for everyone via contestMatchResult.
+      try { (state.contests || []).filter((c) => c.format === "tournament" && c.status !== "done").forEach((c) => { contestAdvanceTournament(c); }); } catch (e) { /* ignore */ }
     }).catch(() => {});
+  }
+
+  // Contests (team battles; tournaments next) — load alongside challenges; the Compete hub shows both.
+  async function loadContestsFromDb() {
+    if (!communitiesAreShared() || !state.account || !state.account.userId) return;
+    if (!window.PointwellSignals || typeof window.PointwellSignals.fetchMyContests !== "function") return;
+    const rows = await Promise.resolve(window.PointwellSignals.fetchMyContests(state.account.userId)).catch(() => []);
+    state.contests = (rows || []).map(contestFromDb).filter(Boolean);
+  }
+
+  function contestFromDb(row) {
+    if (!row) return null;
+    const myId = state.account && state.account.userId;
+    return {
+      id: row.id,
+      communityId: row.community_id,
+      creatorUser: row.creator_user,
+      format: row.format,
+      metric: row.metric || "points",
+      scoringMode: row.scoring_mode || "total",
+      startAt: row.start_at || "",
+      endAt: row.end_at || "",
+      status: row.status || "active",
+      createdAt: row.created_at || "",
+      teams: (row.contest_teams || []).map((t) => ({ id: t.id, name: t.name || "Team", color: t.color || "" })),
+      participants: (row.contest_participants || []).map((p) => ({ id: p.id, userId: p.user_id, teamId: p.team_id || "", seed: p.seed, eliminated: !!p.eliminated })),
+      matches: (row.contest_matches || []).map((m) => ({
+        id: m.id, round: m.round, slot: m.slot, aUser: m.a_user || "", bUser: m.b_user || "",
+        aScore: m.a_score, bScore: m.b_score, winnerUser: m.winner_user || "",
+        windowStart: m.window_start || "", windowEnd: m.window_end || "", status: m.status || "pending"
+      })),
+      iAmIn: !!myId && (row.contest_participants || []).some((p) => p.user_id === myId)
+    };
   }
 
   // ── Coach nudge integration (received / behind / won) ──
@@ -19516,6 +19558,38 @@
     const find = (sel) => t.closest && t.closest(sel);
     const close = find("[data-challenge-close]"); if (close) { closeChallengeOverlay(); return; }
     const ndis = find("[data-challenge-nudge-dismiss]"); if (ndis) { coachLearnRecord("challenge", "dismissed"); const card = ndis.closest("[data-challenge-nudge-card]"); if (card) card.classList.remove("is-active"); return; }
+    // Compete "+ New contest" picker
+    const cNew = find("[data-contest-new]"); if (cNew) { event.preventDefault(); openContestPicker(cNew.dataset.contestNew); return; }
+    const cFmt = find("[data-contest-format]"); if (cFmt) {
+      const f = cFmt.dataset.contestFormat;
+      if (f === "duel") renderContestOpponentPicker();
+      else if (f === "team") openContestTeamSetup();
+      else if (f === "tournament") openContestTournamentSetup();
+      return;
+    }
+    const cWin = find("[data-contest-window]"); if (cWin) { if (contestDraft) { contestDraft.window = cWin.dataset.contestWindow; renderContestPicker(); } return; }
+    const cOpp = find("[data-contest-opponent]"); if (cOpp) {
+      const d = contestDraft || {};
+      openChallengeSetup(cOpp.dataset.contestOpponent, d.communityId, { duration: d.window, metric: d.metric });
+      return;
+    }
+    const cSplit = find("[data-contest-split]"); if (cSplit) { if (contestDraft) { contestDraft.split = cSplit.dataset.contestSplit; contestDraft.captains = []; renderContestTeamSetup(); } return; }
+    const cMode = find("[data-contest-scoremode]"); if (cMode) { if (contestDraft) { contestDraft.scoringMode = cMode.dataset.contestScoremode; renderContestTeamSetup(); } return; }
+    const cCap = find("[data-contest-captain]"); if (cCap) {
+      if (contestDraft) {
+        const uid = cCap.dataset.contestCaptain;
+        contestDraft.captains = contestDraft.captains || [];
+        const idx = contestDraft.captains.indexOf(uid);
+        if (idx > -1) contestDraft.captains.splice(idx, 1);
+        else if (contestDraft.captains.length < 2) contestDraft.captains.push(uid);
+        renderContestTeamSetup();
+      }
+      return;
+    }
+    const cCreate = find("[data-contest-create]"); if (cCreate) { createTeamContest(); return; }
+    const cCreateT = find("[data-contest-create-tourney]"); if (cCreateT) { createTournamentContest(); return; }
+    const cView = find("[data-contest-view]"); if (cView) { event.preventDefault(); openContestBattle(cView.dataset.contestView); return; }
+    const cCancel = find("[data-contest-cancel]"); if (cCancel) { cancelContest(cCancel.dataset.contestCancel, cCancel); return; }
     const neu = find("[data-challenge-new]"); if (neu) { const p = String(neu.dataset.challengeNew).split("|"); event.preventDefault(); openChallengeSetup(p[0], p[1] || ""); return; }
     const dur = find("[data-challenge-duration]"); if (dur) { if (challengeDraft) { challengeDraft.duration = dur.dataset.challengeDuration; renderChallengeSetup(); } return; }
     const ftog = find("[data-challenge-forfeit-toggle]"); if (ftog) { if (challengeDraft) { challengeDraft.forfeitOn = !challengeDraft.forfeitOn; renderChallengeSetup(); } return; }
@@ -19530,6 +19604,8 @@
   function onChallengeChange(event) {
     const sel = event.target.closest && event.target.closest("[data-challenge-metric]");
     if (sel && challengeDraft) challengeDraft.metric = sel.value;
+    const cm = event.target.closest && event.target.closest("[data-contest-metric]");
+    if (cm && contestDraft) contestDraft.metric = cm.value;
   }
   function onChallengeInput(event) {
     const ta = event.target.closest && event.target.closest("[data-challenge-forfeit-text]");
@@ -19556,6 +19632,707 @@
     const cls = opts.compact ? "challenge-btn challenge-btn-compact" : "challenge-btn";
     const label = opts.compact ? "⚔️" : "⚔️ Challenge";
     return `<button type="button" class="${cls}" data-challenge-new="${escapeHtml(String(opponentUserId))}|${escapeHtml(String(communityId || ""))}" aria-label="Challenge to a duel">${label}</button>`;
+  }
+
+  // ── Compete hub (the contest feed) ───────────────────────────────────────────
+  // ONE hub for 1v1 / tournaments / teams. Phase 1 populates it from the existing `challenges`
+  // (1v1 duels): Live now (active), Waiting on you (pending where I'm the opponent), and Past
+  // (finished, with result). Cards reuse the global data-challenge-* handlers (view/accept/decline),
+  // so there's no new wiring for those. "+ New contest" opens the format picker.
+  function myPastChallenges(communityId) {
+    return (state.challenges || []).filter((c) => (c.iAmChallenger || c.iAmOpponent)
+      && (!communityId || c.communityId === communityId)
+      && (c.status === "done" || c.status === "declined" || (c.status === "active" && challengeIsEnded(c))))
+      .sort((a, b) => String(b.endAt || b.createdAt || "").localeCompare(String(a.endAt || a.createdAt || "")));
+  }
+
+  function renderCompeteHub(world) {
+    const mount = els.communityCompeteHub;
+    if (!mount) return;
+    if (!world || world.type !== "community") { mount.innerHTML = ""; return; }
+    const cid = world.id;
+    const liveDuels = myActiveChallenges(cid).filter((c) => !challengeIsEnded(c));
+    const contests = myCommunityContests(cid);
+    const liveContests = contests.filter((c) => c.status !== "done" && !contestIsEnded(c));
+    const pastContests = contests.filter((c) => c.status === "done" || contestIsEnded(c));
+    const waiting = myIncomingChallenges(cid);
+    const past = myPastChallenges(cid);
+
+    const head = `<div class="compete-head">
+        <span class="compete-title">Compete</span>
+        <button type="button" class="compete-new" data-contest-new="${escapeHtml(cid)}"><span aria-hidden="true">＋</span> New contest</button>
+      </div>`;
+    const section = (label, html) => html ? `<div class="compete-sec-lbl">${label}</div>${html}` : "";
+    // Live now: contests (team battles + tournaments, richer cards) first, then 1v1 duels.
+    const liveHtml = section("Live now", liveContests.map(renderContestHubCard).join("") + liveDuels.map(renderCompeteLiveCard).join(""));
+    const waitHtml = section("Waiting on you", waiting.map(renderCompeteWaitingCard).join(""));
+    const pastHtml = section("Past", pastContests.map(renderContestHubCard).join("") + past.slice(0, 6).map(renderCompetePastCard).join(""));
+    const hasAny = liveContests.length || liveDuels.length || waiting.length || past.length || pastContests.length;
+    const empty = !hasAny
+      ? `<div class="compete-empty">No contests yet — <strong>＋ New contest</strong> to challenge someone or start a team battle.</div>`
+      : "";
+    mount.innerHTML = head + liveHtml + waitHtml + pastHtml + empty;
+  }
+
+  function renderCompeteLiveCard(c) {
+    const pair = challengeScorePair(c);
+    const lead = pair.lead > 0 ? `up by ${pair.lead}` : (pair.lead < 0 ? `down by ${Math.abs(pair.lead)}` : "all square");
+    return `<button type="button" class="compete-card compete-card-duel" data-challenge-view="${escapeHtml(String(c.id))}">
+        <span class="compete-card-ic" aria-hidden="true">⚔️</span>
+        <span class="compete-card-main">
+          <span class="compete-card-title"><strong>You vs ${escapeHtml(challengeOpponentName(c))}</strong> · ${escapeHtml(lead)}</span>
+          <span class="compete-card-sub">⏱ ${escapeHtml(challengeCountdownText(c))} · 1v1 duel</span>
+        </span>
+        <span class="compete-card-go">View ›</span>
+      </button>`;
+  }
+
+  function renderCompeteWaitingCard(c) {
+    return `<div class="compete-waitcard">
+        ${challengeAvatarHtml(c, challengeOpponentUser(c), "compete-wait-av")}
+        <span class="compete-card-main">
+          <span class="compete-card-title"><strong>${escapeHtml(challengeOpponentName(c))}</strong> challenged you</span>
+          <span class="compete-card-sub">${escapeHtml(challengeMetricLabel(c))} · ${escapeHtml(challengeDuration(c.duration).label)}</span>
+        </span>
+        <button type="button" class="compete-wait-btn ghost" data-challenge-decline="${escapeHtml(String(c.id))}">Decline</button>
+        <button type="button" class="compete-wait-btn accept" data-challenge-accept="${escapeHtml(String(c.id))}">Accept</button>
+      </div>`;
+  }
+
+  function renderCompetePastCard(c) {
+    let result, cls, ic;
+    if (c.status === "declined") { result = "Declined"; cls = "is-neutral"; ic = "👋"; }
+    else {
+      const winner = c.winnerUser || challengeComputedWinner(c);
+      const meUser = c.iAmOpponent ? c.opponentUser : c.challengerUser;
+      ic = "🏁";
+      if (!winner) { result = "Draw"; cls = "is-neutral"; }
+      else if (winner === meUser) { result = "You won 🏆"; cls = "is-win"; }
+      else { result = `${challengeOpponentName(c)} won`; cls = "is-loss"; }
+    }
+    return `<button type="button" class="compete-card compete-card-past ${cls}" data-challenge-view="${escapeHtml(String(c.id))}">
+        <span class="compete-card-ic" aria-hidden="true">${ic}</span>
+        <span class="compete-card-main">
+          <span class="compete-card-title"><strong>You vs ${escapeHtml(challengeOpponentName(c))}</strong></span>
+          <span class="compete-card-sub">${escapeHtml(result)} · 1v1 duel</span>
+        </span>
+        <span class="compete-card-go">View ›</span>
+      </button>`;
+  }
+
+  // ── "+ New contest": format picker → (1v1) opponent picker → existing challenge setup ──
+  function openContestPicker(communityId) {
+    if (!signalsReady()) { showToast("Sign in to start a contest"); return; }
+    const community = (state.communities || []).find((c) => c.id === communityId);
+    if (!community) { showToast("Contests are for community members"); return; }
+    contestDraft = { communityId: communityId, window: "3days", metric: "points" };
+    renderContestPicker();
+  }
+
+  function renderContestPicker() {
+    const d = contestDraft; if (!d) return;
+    const community = (state.communities || []).find((c) => c.id === d.communityId); if (!community) return;
+    const winSeg = CHALLENGE_DURATIONS.map((dur) => `<button type="button" class="challenge-seg${d.window === dur.id ? " on" : ""}" data-contest-window="${dur.id}">${escapeHtml(dur.label)}</button>`).join("");
+    const ruleOpts = (community.system.rules || []).map(scoring.normalizeRule).map((r) => `<option value="${escapeHtml(r.id)}"${d.metric === r.id ? " selected" : ""}>Most ${escapeHtml(r.label || "rule")}</option>`).join("");
+    const metricSel = `<select class="challenge-metric-sel" data-contest-metric><option value="points"${d.metric === "points" ? " selected" : ""}>🏆 Total points</option>${ruleOpts}</select>`;
+    const fmt = (id, ic, name, desc, soon) => `<button type="button" class="contest-format${soon ? " is-soon" : ""}" data-contest-format="${id}">
+        <span class="contest-format-ic" aria-hidden="true">${ic}</span>
+        <span class="contest-format-main"><span class="contest-format-name">${escapeHtml(name)}${soon ? ` <span class="contest-soon">soon</span>` : ""}</span><span class="contest-format-desc">${escapeHtml(desc)}</span></span>
+        <span class="contest-format-go" aria-hidden="true">›</span>
+      </button>`;
+    openChallengeOverlay("contest-picker", "New contest", `
+      <div class="contest-picker-title">New contest</div>
+      <p class="contest-picker-sub">Pick a format · everything scores off your existing points.</p>
+      ${fmt("duel", "⚔️", "1v1 duel", "Head-to-head · most points wins", false)}
+      ${fmt("team", "🟥", "Teams", "Split into squads · team totals battle", false)}
+      ${fmt("tournament", "🏆", "Tournament", "Bracket draw · last one standing", false)}
+      <p class="contest-shared-lbl">Same for every format</p>
+      <div class="contest-shared">
+        <div class="contest-shared-field"><span class="contest-shared-k">Window</span><div class="challenge-seg-row contest-win-seg">${winSeg}</div></div>
+        <div class="contest-shared-field"><span class="contest-shared-k">What counts</span>${metricSel}</div>
+      </div>`);
+  }
+
+  function renderContestOpponentPicker() {
+    const d = contestDraft; if (!d) return;
+    const community = (state.communities || []).find((c) => c.id === d.communityId); if (!community) return;
+    const myId = state.account && state.account.userId;
+    const opps = (community.members || []).filter((m) => m.userId && m.userId !== myId && m.id !== "me" && isDbEntryId(m.userId));
+    if (!opps.length) { showToast("No one to challenge in this community yet"); return; }
+    const rows = opps.map((m) => `<button type="button" class="contest-opp-row" data-contest-opponent="${escapeHtml(String(m.userId))}">
+        ${renderAvatar({ name: m.name, color: m.color, avatarUrl: m.avatarUrl, className: "contest-opp-av" })}
+        <span class="contest-opp-name">${escapeHtml(m.name || "Member")}</span>
+        <span class="contest-opp-go" aria-hidden="true">⚔️</span>
+      </button>`).join("");
+    openChallengeOverlay("contest-opp", "Pick your opponent", `<div class="contest-picker-title">Who are you challenging?</div><div class="contest-opp-list">${rows}</div>`);
+  }
+
+  // ── Contests (team battles; tournaments next) ────────────────────────────────
+  const TEAM_PALETTE = [
+    { name: "Reds", color: "#c0463f" },
+    { name: "Blues", color: "#3a6ea5" },
+    { name: "Greens", color: "#2f9d6f" },
+    { name: "Golds", color: "#c2922e" }
+  ];
+  function contestById(id) { return (state.contests || []).find((c) => String(c.id) === String(id)) || null; }
+  function contestCommunity(contest) { return (state.communities || []).find((c) => c.id === contest.communityId) || null; }
+  function contestEndMs(contest) { return contest.endAt ? Date.parse(contest.endAt) : 0; }
+  function contestIsEnded(contest) { const e = contestEndMs(contest); return e > 0 && Date.now() >= e; }
+  function contestCountdownText(contest) {
+    const e = contestEndMs(contest);
+    if (!e) return "";
+    const ms = e - Date.now();
+    if (ms <= 0) return "ended";
+    const mins = Math.floor(ms / 60000), h = Math.floor(mins / 60), m = mins % 60;
+    if (h >= 24) return Math.floor(h / 24) + "d " + (h % 24) + "h left";
+    return h > 0 ? (h + "h " + m + "m left") : (m + "m left");
+  }
+  // Member display name within a contest's community.
+  function contestMemberName(community, userId) {
+    if (state.account && state.account.userId === userId) return "You";
+    const m = challengeMemberByUser(community, userId);
+    return (m && m.name) || "Member";
+  }
+
+  // The date keys in a contest's window (start_at..end_at, capped to today — future days have no entries).
+  function contestWindowDates(contest) {
+    const startKey = contest.startAt ? localDateKey(new Date(contest.startAt)) : getTodayKey();
+    const endKey = contest.endAt ? localDateKey(new Date(contest.endAt)) : getTodayKey();
+    const today = getTodayKey();
+    const last = endKey < today ? endKey : today;
+    const out = [];
+    const d = new Date(startKey + "T00:00:00");
+    let guard = 0;
+    while (localDateKey(d) <= last && guard < 400) { out.push(localDateKey(d)); d.setDate(d.getDate() + 1); guard += 1; }
+    return out;
+  }
+  // A member's contest score — reuses the community scoring over the window (total points, or one rule).
+  function contestMemberScore(community, userId, contest) {
+    if (!community || !userId) return 0;
+    const localId = (state.account && state.account.userId === userId) ? "me" : userId;
+    const dates = contestWindowDates(contest);
+    if (contest.metric && contest.metric !== "points") {
+      const rule = (community.system.rules || []).map(scoring.normalizeRule).find((r) => r.id === contest.metric);
+      let amount = 0;
+      dates.forEach((dk) => { amount += numberOrDefault(communityValuesForMember(community.id, localId, dk)[contest.metric], 0); });
+      return rule ? roundScore(scoring.calculateRule(rule, amount).totalPoints) : roundScore(amount);
+    }
+    let sum = 0;
+    dates.forEach((dk) => { sum += communityTotalForMember(community, localId, dk); });
+    return roundScore(sum);
+  }
+  // Per-team score with member contributions. avg_active = average over members who actually logged
+  // (>0), so a dead-weight member doesn't sink a team. `value` is what teams are ranked/barred by.
+  function contestTeamScore(contest, team, community) {
+    const members = (contest.participants || []).filter((p) => p.teamId === team.id);
+    const per = members.map((p) => ({ userId: p.userId, name: contestMemberName(community, p.userId), score: community ? contestMemberScore(community, p.userId, contest) : 0 }));
+    per.sort((a, b) => b.score - a.score);
+    const total = roundScore(per.reduce((s, m) => s + m.score, 0));
+    const active = per.filter((m) => m.score > 0).length;
+    const value = contest.scoringMode === "avg_active" ? (active > 0 ? roundScore(total / active) : 0) : total;
+    return { team: team, total: total, value: value, active: active, count: per.length, per: per };
+  }
+  // My team in a contest (or null).
+  function contestMyTeam(contest) {
+    const myId = state.account && state.account.userId;
+    const me = (contest.participants || []).find((p) => p.userId === myId);
+    if (!me || !me.teamId) return null;
+    return (contest.teams || []).find((t) => t.id === me.teamId) || null;
+  }
+
+  // Eligible members to draft (real server members, including me).
+  function contestEligibleMembers(community) {
+    const myId = state.account && state.account.userId;
+    return (community.members || []).filter((m) => {
+      const uid = (m.id === "me") ? myId : m.userId;
+      return uid && isDbEntryId(uid);
+    }).map((m) => ({ userId: (m.id === "me") ? myId : m.userId, name: m.name, color: m.color, avatarUrl: m.avatarUrl, isMe: m.id === "me" }));
+  }
+  // Split options adapted to the roster: a split is offered only when each team can hold ≥2.
+  function contestSplitOptions(n) {
+    const opts = [];
+    if (n >= 4) opts.push({ id: "2", teams: 2, label: "2 × " + Math.floor(n / 2) });
+    if (n >= 8) opts.push({ id: "4", teams: 4, label: "4 × " + Math.floor(n / 4) });
+    if (n >= 4) opts.push({ id: "captains", teams: 2, label: "Captains" });
+    return opts;
+  }
+
+  // ── Team-battle create flow (reached from the format picker's "Teams") ──
+  function openContestTeamSetup() {
+    const d = contestDraft; if (!d) return;
+    const community = (state.communities || []).find((c) => c.id === d.communityId); if (!community) return;
+    const eligible = contestEligibleMembers(community);
+    const opts = contestSplitOptions(eligible.length);
+    if (!opts.length) { showToast("Need at least 4 members for a team battle"); return; }
+    d.format = "team";
+    d.scoringMode = d.scoringMode || "total";
+    d.split = opts.some((o) => o.id === d.split) ? d.split : opts[0].id;
+    d.captains = [];
+    renderContestTeamSetup();
+  }
+  function renderContestTeamSetup() {
+    const d = contestDraft; if (!d) return;
+    const community = (state.communities || []).find((c) => c.id === d.communityId); if (!community) return;
+    const eligible = contestEligibleMembers(community);
+    const opts = contestSplitOptions(eligible.length);
+    const split = opts.find((o) => o.id === d.split) || opts[0];
+    const segs = opts.map((o) => `<button type="button" class="challenge-seg${o.id === d.split ? " on" : ""}" data-contest-split="${o.id}">${escapeHtml(o.label)}</button>`).join("");
+    const scoreSeg = [["total", "Total"], ["avg_active", "Avg per active"]].map(([id, lbl]) =>
+      `<button type="button" class="challenge-seg${d.scoringMode === id ? " on" : ""}" data-contest-scoremode="${id}">${escapeHtml(lbl)}</button>`).join("");
+    let captainsBlock = "";
+    if (d.split === "captains") {
+      const picked = d.captains || [];
+      captainsBlock = `<p class="contest-shared-lbl">Pick 2 captains (${picked.length}/2)</p>
+        <div class="contest-cap-list">${eligible.map((m) => `<button type="button" class="contest-cap-row${picked.indexOf(m.userId) > -1 ? " is-picked" : ""}" data-contest-captain="${escapeHtml(m.userId)}">
+          ${renderAvatar({ name: m.name, color: m.color, avatarUrl: m.avatarUrl, className: "contest-opp-av" })}
+          <span class="contest-opp-name">${escapeHtml(m.isMe ? "You" : (m.name || "Member"))}</span>
+          <span class="contest-cap-check" aria-hidden="true">${picked.indexOf(m.userId) > -1 ? "✓" : ""}</span>
+        </button>`).join("")}</div>`;
+    }
+    const teamCount = split.teams;
+    const ready = d.split !== "captains" || (d.captains || []).length === 2;
+    const winLabel = challengeDuration(d.window).label;
+    openChallengeOverlay("contest-team-setup", "Team battle", `
+      <div class="contest-picker-title">Team battle</div>
+      <p class="contest-picker-sub">${escapeHtml(String(eligible.length))} members · ${escapeHtml(winLabel)} · ${d.metric === "points" ? "total points" : "a rule"}</p>
+      <p class="contest-shared-lbl">Split</p>
+      <div class="challenge-seg-row">${segs}</div>
+      <p class="contest-shared-lbl">Scoring</p>
+      <div class="challenge-seg-row">${scoreSeg}</div>
+      <p class="challenge-field-help">${d.scoringMode === "avg_active" ? "Each team scores the AVERAGE of members who logged — so a quiet member won't sink the team." : "Each team scores the SUM of its members' points over the window."}</p>
+      ${captainsBlock}
+      <button type="button" class="primary-button contest-create-btn" data-contest-create${ready ? "" : " disabled"}>${d.split === "captains" ? "Draft & start" : "Auto-draft " + teamCount + " teams"}</button>
+      <p class="challenge-send-note">Drafts ${escapeHtml(String(eligible.length))} members into ${teamCount} teams · starts now.</p>`);
+  }
+
+  // Shuffle (Fisher–Yates) — order-only randomness, fine for drafting.
+  function contestShuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; }
+    return a;
+  }
+  async function createTeamContest() {
+    const d = contestDraft; if (!d) return;
+    const community = (state.communities || []).find((c) => c.id === d.communityId); if (!community) return;
+    const myId = state.account && state.account.userId;
+    const eligible = contestEligibleMembers(community);
+    const opts = contestSplitOptions(eligible.length);
+    const split = opts.find((o) => o.id === d.split) || opts[0];
+    const teamCount = split.teams;
+    // Build the draft order. Captains: the 2 picked lead; the rest snake between them.
+    let order;
+    if (d.split === "captains") {
+      if ((d.captains || []).length !== 2) { showToast("Pick 2 captains first"); return; }
+      const caps = d.captains.slice();
+      const rest = contestShuffle(eligible.filter((m) => caps.indexOf(m.userId) < 0).map((m) => m.userId));
+      order = caps.concat(rest);
+    } else {
+      order = contestShuffle(eligible.map((m) => m.userId));
+    }
+    // Round-robin (snake) assignment → balanced teams.
+    const assign = {}; // userId -> teamIndex (0..teamCount-1)
+    order.forEach((uid, i) => {
+      const cycle = Math.floor(i / teamCount);
+      const pos = i % teamCount;
+      assign[uid] = (cycle % 2 === 0) ? pos : (teamCount - 1 - pos); // snake for fairness
+    });
+    const days = challengeDuration(d.window).days;
+    const now = new Date();
+    const end = new Date(now.getTime() + days * 86400000);
+
+    const btn = document.querySelector("[data-contest-create]");
+    if (btn) { btn.disabled = true; btn.textContent = "Drafting…"; }
+    const S = window.PointwellSignals;
+    const created = await Promise.resolve(S.createContest({
+      community_id: d.communityId, creator_user: myId, format: "team",
+      metric: d.metric || "points", scoring_mode: d.scoringMode || "total",
+      start_at: now.toISOString(), end_at: end.toISOString(), status: "active"
+    })).catch(() => ({ error: { message: "x" } }));
+    if (created.error || !created.contest) { if (btn) { btn.disabled = false; btn.textContent = "Auto-draft teams"; } showToast((created.error && created.error.message) || "Couldn't start the battle"); return; }
+    const contestId = created.contest.id;
+    const teamPayload = TEAM_PALETTE.slice(0, teamCount).map((t) => ({ name: t.name, color: t.color }));
+    const teamsRes = await Promise.resolve(S.addContestTeams(contestId, teamPayload)).catch(() => ({ error: { message: "x" } }));
+    if (teamsRes.error || !(teamsRes.teams || []).length) { showToast("Couldn't create teams — try again"); if (btn) { btn.disabled = false; btn.textContent = "Auto-draft teams"; } return; }
+    const teamIds = teamsRes.teams.map((t) => t.id);
+    const parts = order.map((uid) => ({ user_id: uid, team_id: teamIds[assign[uid]] || teamIds[0] }));
+    const pRes = await Promise.resolve(S.addContestParticipants(contestId, parts)).catch(() => ({ error: { message: "x" } }));
+    if (pRes.error) {
+      // Drafting failed → don't leave an empty contest+teams behind. Cancel it (cascade) and let them retry.
+      await Promise.resolve(S.deleteContest(contestId)).catch(() => {});
+      if (btn) { btn.disabled = false; btn.textContent = "Auto-draft teams"; }
+      showToast("Couldn't draft the teams — try again");
+      return;
+    }
+    contestDraft = null;
+    closeChallengeOverlay();
+    await loadContestsFromDb();
+    saveState();
+    render();
+    showToast("Team battle on — good luck 🟥🟦");
+    const fresh = contestById(contestId);
+    if (fresh) openContestBattle(fresh.id);
+  }
+
+  // ── Team battle view ──
+  function openContestBattle(id) {
+    const contest = contestById(id); if (!contest) { showToast("That contest isn't available"); return; }
+    if (contest.format === "tournament") openContestBracket(contest.id);
+    else renderContestTeamBattle(contest);
+  }
+  function renderContestTeamBattle(contest) {
+    const community = contestCommunity(contest);
+    const scores = (contest.teams || []).map((t) => contestTeamScore(contest, t, community)).sort((a, b) => b.value - a.value);
+    const ended = contestIsEnded(contest);
+    const myTeam = contestMyTeam(contest);
+    const maxVal = Math.max(1, scores.reduce((m, s) => Math.max(m, s.value), 0));
+    const totalVal = scores.reduce((s, x) => s + x.value, 0) || 1;
+    // Head-to-head bar: stacked segments by each team's value.
+    const bar = `<div class="team-bar">${scores.map((s) => `<div style="width:${Math.round((s.value / totalVal) * 100)}%;background:${escapeHtml(s.team.color || "#3a6ea5")}"></div>`).join("")}</div>`;
+    const lead = scores.length >= 2 ? (scores[0].value === scores[1].value ? "All square" : `${escapeHtml(scores[0].team.name)} lead by ${roundScore(scores[0].value - scores[1].value)}`) : "";
+    const clock = ended ? "ended" : ("⏱ " + contestCountdownText(contest));
+    const teamBlocks = scores.map((s) => {
+      const isMine = myTeam && s.team.id === myTeam.id;
+      const chips = s.per.map((m) => `<span class="team-chip" style="--tc:${escapeHtml(s.team.color || "#3a6ea5")}">${escapeHtml(m.name)} ${m.score}</span>`).join("");
+      const sub = contest.scoringMode === "avg_active" ? `avg of ${s.active}/${s.count}` : `${s.count} players`;
+      return `<div class="team-block">
+          <div class="team-block-head">
+            <span class="team-dot" style="background:${escapeHtml(s.team.color || "#3a6ea5")}"></span>
+            <span class="team-name" style="color:${escapeHtml(s.team.color || "#3a6ea5")}">${escapeHtml(s.team.name)}</span>
+            ${isMine ? `<span class="team-mine">· your team</span>` : ""}
+            <span class="team-sub">${escapeHtml(sub)}</span>
+            <strong class="team-score">${s.value}</strong>
+          </div>
+          <div class="team-chips">${chips || `<span class="team-chip-empty">No points yet</span>`}</div>
+        </div>`;
+    }).join("");
+    const winnerLine = ended && scores.length ? `<p class="contest-winner">🏆 ${escapeHtml(scores[0].team.name)} ${scores[0].value === (scores[1] && scores[1].value) ? "tie" : "win"}</p>` : "";
+    const canManage = (state.account && state.account.userId === contest.creatorUser) || (community && isCommunityAdmin(community));
+    openChallengeOverlay("contest-team-battle", "Team battle", `
+      <div class="contest-team-head">
+        <span class="contest-team-title">🟥🟦 Team battle</span>
+        <span class="contest-team-clock${ended ? " ended" : ""}">${escapeHtml(clock)}</span>
+      </div>
+      <p class="contest-team-meta">${escapeHtml(String((contest.participants || []).length))} players · ${escapeHtml(contest.metric === "points" ? "total points" : "by rule")} · ${contest.scoringMode === "avg_active" ? "avg per active" : "sum"}</p>
+      ${bar}
+      <p class="team-bar-lead">${lead}</p>
+      ${winnerLine}
+      ${teamBlocks}
+      <button type="button" class="primary-button" data-challenge-log="${escapeHtml(String(contest.communityId))}">Log to lift your team</button>
+      ${canManage ? `<button type="button" class="ghost-button contest-cancel-btn" data-contest-cancel="${escapeHtml(String(contest.id))}">Cancel battle</button>` : ""}`);
+  }
+
+  // Hub card for a team contest (shown in the Compete hub's Live now / Past).
+  function renderContestTeamCard(contest) {
+    const community = contestCommunity(contest);
+    const scores = (contest.teams || []).map((t) => contestTeamScore(contest, t, community)).sort((a, b) => b.value - a.value);
+    const myTeam = contestMyTeam(contest);
+    const ended = contestIsEnded(contest);
+    const totalVal = scores.reduce((s, x) => s + x.value, 0) || 1;
+    const bar = `<div class="compete-team-bar">${scores.map((s) => `<div style="width:${Math.round((s.value / totalVal) * 100)}%;background:${escapeHtml(s.team.color || "#3a6ea5")}"></div>`).join("")}</div>`;
+    const names = scores.map((s) => s.team.name).join(" vs ");
+    const mine = myTeam ? ` · you're on ${escapeHtml(myTeam.name)}` : "";
+    const scoreFoot = scores.slice(0, 2).map((s) => `<span style="color:${escapeHtml(s.team.color || "#8fb8e0")}">${escapeHtml(s.team.name)} ${s.value}</span>`).join("");
+    return `<button type="button" class="compete-card compete-card-team" data-contest-view="${escapeHtml(String(contest.id))}">
+        <div class="compete-team-top">
+          <span class="compete-card-ic" aria-hidden="true">🟥🟦</span>
+          <span class="compete-card-main">
+            <span class="compete-card-title"><strong>${escapeHtml(names)}</strong>${mine}</span>
+            <span class="compete-card-sub">team battle · ${ended ? "ended" : escapeHtml(contestCountdownText(contest))}</span>
+          </span>
+          <span class="compete-card-go">View ›</span>
+        </div>
+        ${bar}
+        <div class="compete-team-foot">${scoreFoot}</div>
+      </button>`;
+  }
+  function myCommunityContests(communityId) {
+    return (state.contests || []).filter((c) => c.communityId === communityId && c.iAmIn);
+  }
+  function renderContestHubCard(contest) {
+    return contest.format === "tournament" ? renderContestTournamentCard(contest) : renderContestTeamCard(contest);
+  }
+  async function cancelContest(id, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = "Cancelling…"; }
+    const res = await Promise.resolve(window.PointwellSignals.deleteContest(id)).catch(() => ({ error: { message: "x" } }));
+    if (res && res.error) { if (btn) { btn.disabled = false; btn.textContent = "Cancel"; } showToast("Couldn't cancel — try again"); return; }
+    state.contests = (state.contests || []).filter((c) => String(c.id) !== String(id));
+    closeChallengeOverlay();
+    saveState();
+    render();
+    showToast("Contest cancelled");
+  }
+
+  // ── Tournament (single-elimination bracket) ──────────────────────────────────
+  function nextPow2(n) { let p = 1; while (p < n) p *= 2; return p; }
+  // Standard bracket slot order (seeds 1..b) so top seeds meet late: b=8 → [1,8,4,5,2,7,3,6].
+  function bracketSeedOrder(b) {
+    let order = [1];
+    while (order.length < b) {
+      const sum = order.length * 2 + 1;
+      const next = [];
+      order.forEach((s) => { next.push(s); next.push(sum - s); });
+      order = next;
+    }
+    return order;
+  }
+  function contestTotalRounds(contest) {
+    const n = (contest.participants || []).length;
+    return n > 1 ? Math.round(Math.log2(nextPow2(n))) : 1;
+  }
+  function roundLabel(round, totalRounds) {
+    const fromEnd = totalRounds - round;
+    if (fromEnd === 0) return "Final";
+    if (fromEnd === 1) return "Semis";
+    if (fromEnd === 2) return "Quarters";
+    return "Round " + round;
+  }
+  // A match's window date keys (reuses the contest window helper over the match's own window).
+  function contestMatchWindowDates(match) {
+    return contestWindowDates({ startAt: match.windowStart, endAt: match.windowEnd });
+  }
+  // A player's match score over the match window — honors the contest's metric (total points, or a
+  // single rule) exactly like contestMemberScore, so a non-'points' tournament scores correctly.
+  function contestMatchScore(community, userId, match, contest) {
+    if (!community || !userId) return 0;
+    const localId = (state.account && state.account.userId === userId) ? "me" : userId;
+    const dates = contestMatchWindowDates(match);
+    const metric = contest && contest.metric;
+    if (metric && metric !== "points") {
+      const rule = (community.system.rules || []).map(scoring.normalizeRule).find((r) => r.id === metric);
+      let amount = 0;
+      dates.forEach((dk) => { amount += numberOrDefault(communityValuesForMember(community.id, localId, dk)[metric], 0); });
+      return rule ? roundScore(scoring.calculateRule(rule, amount).totalPoints) : roundScore(amount);
+    }
+    let sum = 0;
+    dates.forEach((dk) => { sum += communityTotalForMember(community, localId, dk); });
+    return roundScore(sum);
+  }
+  // Display result for a match: persisted winner/scores, or computed live (and computed winner once
+  // the window ended). Used by the bracket view for everyone; the owner separately PERSISTS via advance.
+  function contestMatchResult(community, contest, match) {
+    const ended = match.windowEnd && Date.now() >= Date.parse(match.windowEnd);
+    let aScore = (match.aScore != null) ? match.aScore : (match.aUser ? contestMatchScore(community, match.aUser, match, contest) : null);
+    let bScore = (match.bScore != null) ? match.bScore : (match.bUser ? contestMatchScore(community, match.bUser, match, contest) : null);
+    let winner = match.winnerUser;
+    if (!winner && ended && match.aUser && match.bUser) winner = (numberOrDefault(aScore, 0) >= numberOrDefault(bScore, 0)) ? match.aUser : match.bUser;
+    return { aScore: aScore, bScore: bScore, winner: winner, ended: ended };
+  }
+  // The match I'm in right now (the earliest unresolved round that contains me).
+  function contestMyMatch(contest) {
+    const myId = state.account && state.account.userId;
+    const rounds = contestTotalRounds(contest);
+    for (let r = 1; r <= rounds; r++) {
+      const m = (contest.matches || []).find((x) => x.round === r && (x.aUser === myId || x.bUser === myId) && !x.winnerUser);
+      if (m) return m;
+    }
+    return null;
+  }
+
+  // ── Tournament create ──
+  function openContestTournamentSetup() {
+    const d = contestDraft; if (!d) return;
+    const community = (state.communities || []).find((c) => c.id === d.communityId); if (!community) return;
+    const eligible = contestEligibleMembers(community);
+    if (eligible.length < 3) { showToast("Need at least 3 players for a tournament"); return; }
+    d.format = "tournament";
+    renderContestTournamentSetup();
+  }
+  function renderContestTournamentSetup() {
+    const d = contestDraft; if (!d) return;
+    const community = (state.communities || []).find((c) => c.id === d.communityId); if (!community) return;
+    const n = contestEligibleMembers(community).length;
+    const B = nextPow2(n);
+    const rounds = Math.round(Math.log2(B));
+    const byes = B - n;
+    openChallengeOverlay("contest-tourney-setup", "Tournament", `
+      <div class="contest-picker-title">Tournament</div>
+      <p class="contest-picker-sub">${escapeHtml(String(n))} players · single elimination · ${escapeHtml(challengeDuration(d.window).label)} per round</p>
+      <div class="tourney-summary">
+        <div class="tourney-summary-row"><span>Bracket</span><strong>${escapeHtml(String(B))}-player (${escapeHtml(String(rounds))} rounds)</strong></div>
+        <div class="tourney-summary-row"><span>Byes</span><strong>${escapeHtml(String(byes))}</strong></div>
+        <div class="tourney-summary-row"><span>Each round</span><strong>most points over ${escapeHtml(challengeDuration(d.window).label)}</strong></div>
+      </div>
+      <p class="challenge-field-help">Players are seeded into a bracket. Win your match each round (most points before the round clock ends) to advance — last one standing takes it 🏆.</p>
+      <button type="button" class="primary-button contest-create-btn" data-contest-create-tourney>Seed the bracket</button>
+      <p class="challenge-send-note">Starts now · round 1 runs for ${escapeHtml(challengeDuration(d.window).label)}.</p>`);
+  }
+  async function createTournamentContest() {
+    const d = contestDraft; if (!d) return;
+    const community = (state.communities || []).find((c) => c.id === d.communityId); if (!community) return;
+    const myId = state.account && state.account.userId;
+    const entrants = contestShuffle(contestEligibleMembers(community).map((m) => m.userId));
+    const n = entrants.length;
+    if (n < 3) { showToast("Need at least 3 players for a tournament"); return; }
+    const B = nextPow2(n);
+    const totalRounds = Math.round(Math.log2(B));
+    const seedToUser = {}; entrants.forEach((uid, i) => { seedToUser[i + 1] = uid; });
+    const slotOrder = bracketSeedOrder(B);
+    const roundDays = challengeDuration(d.window).days;
+    const now = new Date();
+    const end = new Date(now.getTime() + totalRounds * roundDays * 86400000);
+    const roundStart = (r) => new Date(now.getTime() + (r - 1) * roundDays * 86400000).toISOString();
+    const roundEnd = (r) => new Date(now.getTime() + r * roundDays * 86400000).toISOString();
+
+    const btn = document.querySelector("[data-contest-create-tourney]");
+    if (btn) { btn.disabled = true; btn.textContent = "Seeding…"; }
+    const S = window.PointwellSignals;
+    const created = await Promise.resolve(S.createContest({
+      community_id: d.communityId, creator_user: myId, format: "tournament",
+      metric: d.metric || "points", scoring_mode: "total",
+      start_at: now.toISOString(), end_at: end.toISOString(), status: "active"
+    })).catch(() => ({ error: { message: "x" } }));
+    if (created.error || !created.contest) { if (btn) { btn.disabled = false; btn.textContent = "Seed the bracket"; } showToast((created.error && created.error.message) || "Couldn't start the tournament"); return; }
+    const contestId = created.contest.id;
+    const pRes = await Promise.resolve(S.addContestParticipants(contestId, entrants.map((uid, i) => ({ user_id: uid, seed: i + 1 })))).catch(() => ({ error: { message: "x" } }));
+    if (pRes.error) { await Promise.resolve(S.deleteContest(contestId)).catch(() => {}); if (btn) { btn.disabled = false; btn.textContent = "Seed the bracket"; } showToast("Couldn't seed the players — try again"); return; }
+
+    // Build all match shells in memory; round 1 paired by bracket order; byes auto-advance to round 2.
+    const matches = {};
+    for (let r = 1; r <= totalRounds; r++) {
+      const cnt = B / Math.pow(2, r);
+      for (let s = 0; s < cnt; s++) {
+        matches[r + ":" + s] = { round: r, slot: s, a_user: null, b_user: null, winner_user: null, a_score: null, b_score: null, window_start: roundStart(r), window_end: roundEnd(r), status: r === 1 ? "active" : "pending" };
+      }
+    }
+    for (let i = 0; i < B / 2; i++) {
+      const m = matches["1:" + i];
+      m.a_user = seedToUser[slotOrder[2 * i]] || null;
+      m.b_user = seedToUser[slotOrder[2 * i + 1]] || null;
+    }
+    for (let i = 0; i < B / 2; i++) {
+      const m = matches["1:" + i];
+      let adv = null;
+      if (m.a_user && !m.b_user) { adv = m.a_user; m.winner_user = m.a_user; m.status = "done"; }
+      else if (m.b_user && !m.a_user) { adv = m.b_user; m.winner_user = m.b_user; m.status = "done"; }
+      if (adv && totalRounds >= 2) { const nm = matches["2:" + Math.floor(i / 2)]; if (i % 2 === 0) nm.a_user = adv; else nm.b_user = adv; }
+    }
+    const mRes = await Promise.resolve(S.addContestMatches(contestId, Object.keys(matches).map((k) => matches[k]))).catch(() => ({ error: { message: "x" } }));
+    if (mRes.error) { await Promise.resolve(S.deleteContest(contestId)).catch(() => {}); if (btn) { btn.disabled = false; btn.textContent = "Seed the bracket"; } showToast("Couldn't build the bracket — try again"); return; }
+
+    contestDraft = null;
+    closeChallengeOverlay();
+    await loadContestsFromDb();
+    saveState();
+    render();
+    showToast("Tournament seeded — good luck 🏆");
+    const fresh = contestById(contestId);
+    if (fresh) openContestBracket(fresh.id);
+  }
+
+  // ── Advancement: when a round's window ends, the creator/owner persists scores + winner and advances
+  // the winner into the next round. Best-effort (RLS allows only manager writes); display is computed
+  // live for everyone via contestMatchResult, so the bracket is correct even before this persists.
+  async function contestAdvanceTournament(contest) {
+    const community = contestCommunity(contest);
+    const myId = state.account && state.account.userId;
+    const canManage = (myId && myId === contest.creatorUser) || (community && isCommunityAdmin(community));
+    if (!canManage || !window.PointwellSignals) return;
+    const totalRounds = contestTotalRounds(contest);
+    let changed = false;
+    for (let r = 1; r <= totalRounds; r++) {
+      const roundMatches = (contest.matches || []).filter((m) => m.round === r);
+      for (let k = 0; k < roundMatches.length; k++) {
+        const m = roundMatches[k];
+        if (m.winnerUser || !m.aUser || !m.bUser) continue;
+        if (!(m.windowEnd && Date.now() >= Date.parse(m.windowEnd))) continue;
+        const aScore = contestMatchScore(community, m.aUser, m, contest);
+        const bScore = contestMatchScore(community, m.bUser, m, contest);
+        const winner = aScore >= bScore ? m.aUser : m.bUser;
+        const res = await Promise.resolve(window.PointwellSignals.setContestMatch(m.id, { a_score: aScore, b_score: bScore, winner_user: winner, status: "done" })).catch(() => ({ error: true }));
+        if (res && !res.error) {
+          m.aScore = aScore; m.bScore = bScore; m.winnerUser = winner; m.status = "done"; changed = true;
+          if (r < totalRounds) {
+            const next = (contest.matches || []).find((x) => x.round === r + 1 && x.slot === Math.floor(m.slot / 2));
+            if (next) {
+              const patch = (m.slot % 2 === 0) ? { a_user: winner } : { b_user: winner };
+              await Promise.resolve(window.PointwellSignals.setContestMatch(next.id, patch)).catch(() => {});
+              if (m.slot % 2 === 0) next.aUser = winner; else next.bUser = winner;
+            }
+          } else {
+            await Promise.resolve(window.PointwellSignals.setContestStatus(contest.id, { status: "done" })).catch(() => {});
+            contest.status = "done";
+          }
+        }
+      }
+    }
+    if (changed) { await loadContestsFromDb(); saveState(); if (state.activeView === "community-detail") { try { renderCommunityDetail(); } catch (e) { /* ignore */ } } }
+  }
+
+  // ── Bracket view (render #3) ──
+  function openContestBracket(id) {
+    const contest = contestById(id); if (!contest) { showToast("That contest isn't available"); return; }
+    contestAdvanceTournament(contest); // owner/creator: persist any ended rounds in the background
+    renderContestBracket(contest);
+  }
+  function renderContestBracket(contest) {
+    const community = contestCommunity(contest);
+    const totalRounds = contestTotalRounds(contest);
+    const myId = state.account && state.account.userId;
+    const myMatch = contestMyMatch(contest);
+    // Champion = the final's winner (if resolved).
+    const finalMatch = (contest.matches || []).find((m) => m.round === totalRounds && m.slot === 0);
+    const champion = finalMatch ? contestMatchResult(community, contest, finalMatch).winner : "";
+    const cols = [];
+    for (let r = 1; r <= totalRounds; r++) {
+      const roundMatches = (contest.matches || []).filter((m) => m.round === r).sort((a, b) => a.slot - b.slot);
+      const cells = roundMatches.map((m) => {
+        const res = contestMatchResult(community, contest, m);
+        const isMine = myMatch && m.id === myMatch.id;
+        const side = (uid, score, isWinner) => {
+          const live = (score == null) ? "—" : String(score);
+          return `<div class="bk-side${isWinner ? " is-win" : ""}${uid === myId ? " is-me" : ""}"><span class="bk-name">${escapeHtml(uid ? contestMemberName(community, uid) : "—")}</span><span class="bk-score">${m.status === "pending" && !uid ? "" : escapeHtml(String(live))}</span></div>`;
+        };
+        const liveTag = (!res.winner && m.aUser && m.bUser && r === bracketActiveRound(contest)) ? `<span class="bk-live">live</span>` : "";
+        return `<button type="button" class="bk-match${isMine ? " is-mine" : ""}${res.winner ? " is-done" : ""}" data-contest-view="${escapeHtml(String(contest.id))}">
+            ${side(m.aUser, res.aScore, res.winner && res.winner === m.aUser)}
+            ${side(m.bUser, res.bScore, res.winner && res.winner === m.bUser)}
+            ${liveTag}
+          </button>`;
+      }).join("");
+      cols.push(`<div class="bk-col"><div class="bk-round-lbl">${escapeHtml(roundLabel(r, totalRounds))}</div>${cells}</div>`);
+    }
+    const champCol = `<div class="bk-col bk-col-champ"><div class="bk-round-lbl">Champion</div><div class="bk-champ">${champion ? `<span class="bk-champ-name">${escapeHtml(contestMemberName(community, champion))}</span>` : `<span class="bk-trophy" aria-hidden="true">🏆</span>`}</div></div>`;
+    const activeR = bracketActiveRound(contest);
+    const clock = contestIsEnded(contest) ? "ended" : contestCountdownText(contest);
+    const canManage = (myId && myId === contest.creatorUser) || (community && isCommunityAdmin(community));
+    openChallengeOverlay("contest-bracket", "Tournament", `
+      <div class="contest-team-head"><span class="contest-team-title">🏆 Tournament</span><span class="contest-team-clock${contestIsEnded(contest) ? " ended" : ""}">${escapeHtml(roundLabel(activeR, totalRounds))} · ${escapeHtml(clock)}</span></div>
+      <p class="contest-team-meta">${escapeHtml(String((contest.participants || []).length))} players · single elimination · most points each round</p>
+      <div class="bk-scroll"><div class="bk-grid">${cols.join("")}${champCol}</div></div>
+      <p class="challenge-field-help">${myMatch ? "Your match is highlighted — log points before the round clock ends to advance." : (champion ? "🏆 " + escapeHtml(contestMemberName(community, champion)) + " is the champion." : "You're out — but the bracket plays on.")}</p>
+      <button type="button" class="primary-button" data-challenge-log="${escapeHtml(String(contest.communityId))}">Log to win your match</button>
+      ${canManage ? `<button type="button" class="ghost-button contest-cancel-btn" data-contest-cancel="${escapeHtml(String(contest.id))}">Cancel tournament</button>` : ""}`);
+  }
+  // The lowest round that still has an unresolved match (the "current" round).
+  function bracketActiveRound(contest) {
+    const totalRounds = contestTotalRounds(contest);
+    for (let r = 1; r <= totalRounds; r++) {
+      if ((contest.matches || []).some((m) => m.round === r && !m.winnerUser && m.aUser && m.bUser)) return r;
+    }
+    return totalRounds;
+  }
+
+  // Hub card for a tournament.
+  function renderContestTournamentCard(contest) {
+    const community = contestCommunity(contest);
+    const totalRounds = contestTotalRounds(contest);
+    const activeR = bracketActiveRound(contest);
+    const myMatch = contestMyMatch(contest);
+    const ended = contestIsEnded(contest) || contest.status === "done";
+    const finalMatch = (contest.matches || []).find((m) => m.round === totalRounds && m.slot === 0);
+    const champion = finalMatch ? contestMatchResult(community, contest, finalMatch).winner : "";
+    let sub;
+    if (ended && champion) sub = `🏆 ${escapeHtml(contestMemberName(community, champion))} won · ${(contest.participants || []).length} players`;
+    else if (myMatch) { const opp = (myMatch.aUser === (state.account && state.account.userId)) ? myMatch.bUser : myMatch.aUser; sub = `your match: you vs ${escapeHtml(contestMemberName(community, opp) || "TBD")} · ${(contest.participants || []).length} players · ${ended ? "ended" : contestCountdownText(contest)}`; }
+    else sub = `${(contest.participants || []).length} players · ${ended ? "ended" : contestCountdownText(contest)}`;
+    return `<button type="button" class="compete-card compete-card-tourney" data-contest-view="${escapeHtml(String(contest.id))}">
+        <span class="compete-card-ic" aria-hidden="true">🏆</span>
+        <span class="compete-card-main">
+          <span class="compete-card-title"><strong>Tournament</strong> · ${escapeHtml(roundLabel(activeR, totalRounds))}</span>
+          <span class="compete-card-sub">${sub}</span>
+        </span>
+        <span class="compete-card-go">View ›</span>
+      </button>`;
   }
 
   function normalizeCommunityAnalytics(community) {
@@ -19708,6 +20485,7 @@
       state.selectedCommunityId = state.communities[0] ? state.communities[0].id : "";
     }
     await loadChallengesFromDb(); // head-to-head duels load alongside the community data they score from
+    await loadContestsFromDb();   // team battles (+ future tournaments) for the Compete hub
     await loadFollowedProfilePosts(); // profile posts from people I follow → the Friends feed
     saveState();
     render();
@@ -20245,6 +21023,7 @@
       quickEntries: Array.isArray(saved.quickEntries) ? saved.quickEntries : seed.quickEntries,
       communityEntries: Array.isArray(saved.communityEntries) ? saved.communityEntries : seed.communityEntries,
       challenges: Array.isArray(saved.challenges) ? saved.challenges : seed.challenges,
+      contests: Array.isArray(saved.contests) ? saved.contests : seed.contests,
       communities: Array.isArray(saved.communities) && saved.communities.length ? saved.communities : seed.communities
     });
   }

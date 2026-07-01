@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — team battle: pick myself + captains draft (design reference)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#040605; color:#eef2f0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; padding:26px 12px 60px; }
+  .head { max-width:820px; margin:0 auto 22px; }
+  .head h1 { font-size:22px; margin:0 0 6px; }
+  .head p { font-size:13px; color:#8aa39a; margin:0; line-height:1.55; }
+  .flow { display:flex; flex-wrap:wrap; gap:22px; justify-content:center; align-items:flex-start; }
+  .step { width:380px; }
+  .step .cap { font-size:12px; color:#7fc7b0; margin:0 0 9px; display:flex; align-items:center; gap:8px; }
+  .step .cap b { color:#eef2f0; font-weight:600; }
+  .step .num { width:22px; height:22px; border-radius:50%; background:#11201a; border:1px solid #2a5a45; color:#5cf3b8; font-size:12px; display:flex; align-items:center; justify-content:center; }
+  .note { max-width:820px; margin:26px auto 0; font-size:12px; color:#6f827a; line-height:1.6; border-top:1px solid #16201c; padding-top:16px; }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>Team battle — pick myself + captains draft</h1>
+    <p>Three ways to form teams: auto-draft (exists), pick myself (assign everyone), and captains draft (two captains take turns picking — live now, or scheduled for a set time). All reuse the existing contest model (contest_teams + contest_participants.team_id).</p>
+  </div>
+
+  <div class="flow">
+
+    <!-- 1 METHOD PICKER -->
+    <div class="step">
+      <p class="cap"><span class="num">1</span><b>Method picker</b> — in the create flow</p>
+      <div style="font-family:-apple-system,system-ui,sans-serif;background:#0f1514;border:1px solid #1c2a24;border-radius:22px;padding:16px 15px;">
+        <div style="font-size:16px;font-weight:600;color:#f3f6f4;margin-bottom:3px;">Team battle · 2×4</div>
+        <div style="font-size:11px;color:#7c8d87;margin-bottom:14px;">How should the teams be built?</div>
+        <div style="display:flex;align-items:center;gap:12px;background:#0e1714;border:1px solid #243029;border-radius:14px;padding:13px;margin-bottom:8px;"><span style="font-size:20px;">⚡</span><div style="flex:1;"><div style="font-size:14px;color:#eaf2ee;font-weight:600;">Auto-draft</div><div style="font-size:11px;color:#7c8d87;">Balanced split · starts now</div></div><span style="font-size:15px;color:#5f7268;">›</span></div>
+        <div style="display:flex;align-items:center;gap:12px;background:#0e1714;border:1px solid #243029;border-radius:14px;padding:13px;margin-bottom:8px;"><span style="font-size:20px;">✋</span><div style="flex:1;"><div style="font-size:14px;color:#eaf2ee;font-weight:600;">Pick myself</div><div style="font-size:11px;color:#7c8d87;">You assign everyone to teams</div></div><span style="font-size:15px;color:#5f7268;">›</span></div>
+        <div style="background:#11201a;border:1px solid #2a5a45;border-radius:14px;padding:13px;">
+          <div style="display:flex;align-items:center;gap:12px;"><span style="font-size:20px;">🎖️</span><div style="flex:1;"><div style="font-size:14px;color:#eaf2ee;font-weight:600;">Captains draft</div><div style="font-size:11px;color:#7fc7b0;">2 captains take turns picking players</div></div><span style="width:22px;height:22px;border-radius:50%;background:#1c4d3b;display:flex;align-items:center;justify-content:center;font-size:13px;color:#5cf3b8;">✓</span></div>
+          <div style="display:flex;gap:8px;margin-top:12px;"><span style="flex:1;text-align:center;font-size:12px;color:#9bf3cf;background:#16241f;border:1px solid #2c5a48;border-radius:10px;padding:9px 4px;">Draft now</span><span style="flex:1;text-align:center;font-size:12px;color:#cfd8d4;background:#0e1714;border:1px solid #243029;border-radius:10px;padding:9px 4px;">Schedule · Fri 7:00 PM ▾</span></div>
+        </div>
+        <button style="width:100%;margin-top:14px;background:#5cf3b8;border:none;border-radius:13px;color:#06281c;font-size:15px;font-weight:600;padding:14px;cursor:pointer;">Pick captains →</button>
+      </div>
+    </div>
+
+    <!-- 2 MANUAL BUILDER -->
+    <div class="step">
+      <p class="cap"><span class="num">2</span><b>Pick myself</b> — assign to teams</p>
+      <div style="font-family:-apple-system,system-ui,sans-serif;background:#0f1514;border:1px solid #1c2a24;border-radius:22px;padding:16px 15px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;"><span style="font-size:16px;font-weight:600;color:#f3f6f4;">Build the teams</span><span style="font-size:11px;color:#7fc7b0;">4 v 4 · balanced</span></div>
+        <div style="background:#0c1420;border:1px solid #244a6e;border-radius:13px;padding:11px 12px;margin-bottom:9px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;"><span style="font-size:13px;color:#8fb8e0;font-weight:600;">🟦 Blues</span><span style="font-size:11px;color:#7c8d87;">2 / 4</span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;"><span style="font-size:11.5px;color:#8fb8e0;background:#0c1420;border:1px solid #244a6e;border-radius:9px;padding:5px 9px;">You ×</span><span style="font-size:11.5px;color:#8fb8e0;background:#0c1420;border:1px solid #244a6e;border-radius:9px;padding:5px 9px;">Jacob ×</span><span style="font-size:11.5px;color:#5f7c96;border:1px dashed #244a6e;border-radius:9px;padding:5px 12px;">+</span></div>
+        </div>
+        <div style="background:#1f0e0c;border:1px solid #5a2a26;border-radius:13px;padding:11px 12px;margin-bottom:14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;"><span style="font-size:13px;color:#e88b85;font-weight:600;">🟥 Reds</span><span style="font-size:11px;color:#7c8d87;">2 / 4</span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;"><span style="font-size:11.5px;color:#e88b85;background:#1f0e0c;border:1px solid #5a2a26;border-radius:9px;padding:5px 9px;">Sri ×</span><span style="font-size:11.5px;color:#e88b85;background:#1f0e0c;border:1px solid #5a2a26;border-radius:9px;padding:5px 9px;">Ravram26 ×</span><span style="font-size:11.5px;color:#8a5450;border:1px dashed #5a2a26;border-radius:9px;padding:5px 12px;">+</span></div>
+        </div>
+        <div style="font-size:10px;letter-spacing:.5px;color:#5f8576;text-transform:uppercase;margin:0 2px 9px;">Unassigned · tap to place</div>
+        <div style="display:flex;flex-wrap:wrap;gap:7px;"><span style="font-size:12px;color:#cfd8d4;background:#0e1714;border:1px solid #243029;border-radius:20px;padding:8px 12px;">Robinavram</span><span style="font-size:12px;color:#cfd8d4;background:#0e1714;border:1px solid #243029;border-radius:20px;padding:8px 12px;">Ravram2003+Test20</span><span style="font-size:12px;color:#cfd8d4;background:#0e1714;border:1px solid #243029;border-radius:20px;padding:8px 12px;">Ravram2003+Test4</span><span style="font-size:12px;color:#cfd8d4;background:#0e1714;border:1px solid #243029;border-radius:20px;padding:8px 12px;">Sriyashsinghania</span></div>
+        <button style="width:100%;margin-top:15px;background:#5cf3b8;border:none;border-radius:13px;color:#06281c;font-size:15px;font-weight:600;padding:14px;cursor:pointer;">Start battle</button>
+      </div>
+    </div>
+
+    <!-- 3 LIVE DRAFT -->
+    <div class="step">
+      <p class="cap"><span class="num">3</span><b>Captains draft</b> — live snake draft</p>
+      <div style="font-family:-apple-system,system-ui,sans-serif;background:#0f1514;border:1px solid #1c2a24;border-radius:22px;padding:16px 15px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;"><span style="font-size:16px;font-weight:600;color:#f3f6f4;">🎖️ Draft</span><span style="font-size:11px;color:#7c8d87;">snake order · pick 3 of 4</span></div>
+        <div style="background:#0c1420;border:1px solid #3a6ea5;border-radius:13px;padding:11px 13px;margin-bottom:13px;display:flex;align-items:center;gap:10px;">
+          <span style="font-size:18px;">🟦</span><div style="flex:1;"><div style="font-size:13.5px;color:#8fb8e0;font-weight:600;">Blues' pick — You're on the clock</div><div style="font-size:10px;color:#7c8d87;">tap a player below to draft them</div></div><span style="font-size:16px;color:#f0c97a;font-weight:700;">0:22</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:14px;">
+          <div style="flex:1;background:#0c1420;border:1px solid #244a6e;border-radius:12px;padding:10px;"><div style="font-size:11px;color:#8fb8e0;font-weight:600;margin-bottom:8px;">🟦 Blues</div><div style="font-size:11px;color:#cfe0ef;margin-bottom:4px;">🅒 You</div><div style="font-size:11px;color:#cfe0ef;margin-bottom:4px;">Jacob</div><div style="font-size:11px;color:#5f7c96;">— picking —</div></div>
+          <div style="flex:1;background:#1f0e0c;border:1px solid #5a2a26;border-radius:12px;padding:10px;"><div style="font-size:11px;color:#e88b85;font-weight:600;margin-bottom:8px;">🟥 Reds</div><div style="font-size:11px;color:#f0cbc7;margin-bottom:4px;">🅒 Sri</div><div style="font-size:11px;color:#f0cbc7;margin-bottom:4px;">Ravram26</div><div style="font-size:11px;color:#8a5450;">waiting…</div></div>
+        </div>
+        <div style="font-size:10px;letter-spacing:.5px;color:#5f8576;text-transform:uppercase;margin:0 2px 9px;">Available · tap to draft</div>
+        <div style="display:flex;flex-direction:column;gap:7px;">
+          <div style="display:flex;align-items:center;gap:10px;background:#0e1714;border:1px solid #2a5a45;border-radius:12px;padding:10px 12px;"><div style="width:28px;height:28px;border-radius:50%;background:#7a5cc4;"></div><span style="flex:1;font-size:13px;color:#eaf2ee;">Robinavram</span><span style="font-size:12px;color:#9bf3cf;background:#16241f;border:1px solid #2c5a48;border-radius:8px;padding:5px 11px;">Draft</span></div>
+          <div style="display:flex;align-items:center;gap:10px;background:#0e1714;border:1px solid #2a5a45;border-radius:12px;padding:10px 12px;"><div style="width:28px;height:28px;border-radius:50%;background:#c98bb0;"></div><span style="flex:1;font-size:13px;color:#eaf2ee;">Ravram2003+Test20</span><span style="font-size:12px;color:#9bf3cf;background:#16241f;border:1px solid #2c5a48;border-radius:8px;padding:5px 11px;">Draft</span></div>
+        </div>
+        <div style="font-size:10.5px;color:#6f827a;margin:12px 2px 0;text-align:center;">Auto-picks the top available if the clock runs out · battle starts when both teams are full.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="note">
+    Data: reuse contest_teams + contest_participants.team_id. Manual pick = assign team_id at creation. Captains draft = a draft phase (contest status 'drafting'): 2 captains, snake order (store pick order via participants.seed), players get team_id as drafted, per-pick timer with auto-pick fallback; battle starts when teams are full. Scheduling (Phase 2) = a draft_starts_at + 'scheduled' status + a lobby that opens at that time (Realtime for live picks).
+  </div>
+</body>
+</html>

@@ -1198,7 +1198,9 @@
         end_at: payload.end_at || null,
         status: payload.status || "active"
       }).select("*").single();
-      if (res.error) return { error: { message: res.error.message || "Couldn't start the contest." } };
+      // Pass the full PostgREST error through (keeps `.code`, e.g. 42P01/PGRST205) so the app can
+      // tell a missing-table (run-the-migration) error apart from an RLS/network failure.
+      if (res.error) return { error: res.error };
       return { error: null, contest: res.data || null };
     } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
   }

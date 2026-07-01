@@ -20619,6 +20619,10 @@
     const cCreate = find("[data-contest-create]"); if (cCreate) { createTeamContest(); return; }
     const cCreateT = find("[data-contest-create-tourney]"); if (cCreateT) { createTournamentContest(); return; }
     const cView = find("[data-contest-view]"); if (cView) { event.preventDefault(); openContestBattle(cView.dataset.contestView); return; }
+    // Bracket overlay: round tabs, tap-to-expand a match (accordion), list ↔ full-tree toggle.
+    const cRound = find("[data-contest-round]"); if (cRound) { event.preventDefault(); if (bracketUi && bracketUi.contestId) { bracketUi.round = parseInt(cRound.dataset.contestRound, 10) || 1; bracketUi.tree = false; const c = contestById(bracketUi.contestId); if (c) renderContestBracket(c); } return; }
+    const cExpand = find("[data-contest-expand]"); if (cExpand) { event.preventDefault(); if (bracketUi && bracketUi.contestId) { const mid = cExpand.dataset.contestExpand; bracketUi.expandedId = (bracketUi.expandedId === mid) ? null : mid; const c = contestById(bracketUi.contestId); if (c) renderContestBracket(c); } return; }
+    const cTree = find("[data-contest-tree]"); if (cTree) { event.preventDefault(); if (bracketUi && bracketUi.contestId) { bracketUi.tree = cTree.dataset.contestTree === "1"; const c = contestById(bracketUi.contestId); if (c) renderContestBracket(c); } return; }
     const cCancel = find("[data-contest-cancel]"); if (cCancel) { cancelContest(cCancel.dataset.contestCancel, cCancel); return; }
     const neu = find("[data-challenge-new]"); if (neu) { const p = String(neu.dataset.challengeNew).split("|"); event.preventDefault(); openChallengeSetup(p[0], p[1] || ""); return; }
     const dur = find("[data-challenge-duration]"); if (dur) { if (challengeDraft) { challengeDraft.duration = dur.dataset.challengeDuration; renderChallengeSetup(); } return; }
@@ -20932,7 +20936,9 @@
       <p class="challenge-field-help">${d.scoringMode === "avg_active" ? "Each team scores the AVERAGE of members who logged — so a quiet member won't sink the team." : "Each team scores the SUM of its members' points over the window."}</p>
       ${captainsBlock}
       <button type="button" class="primary-button contest-create-btn" data-contest-create${ready ? "" : " disabled"}>${d.split === "captains" ? "Draft & start" : "Auto-draft " + teamCount + " teams"}</button>
-      <p class="challenge-send-note">Drafts ${escapeHtml(String(eligible.length))} members into ${teamCount} teams · starts now.</p>`);
+      <p class="challenge-send-note">${d.split === "captains"
+        ? "Your 2 captains each lead a team; the other " + escapeHtml(String(Math.max(0, eligible.length - 2))) + " members are split between them · starts now."
+        : "Drafts " + escapeHtml(String(eligible.length)) + " members into " + teamCount + " teams · starts now."}</p>`);
   }
 
   // Shuffle (Fisher–Yates) — order-only randomness, fine for drafting.
@@ -20940,6 +20946,17 @@
     const a = arr.slice();
     for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; }
     return a;
+  }
+  // A Supabase/PostgREST error that means the compete tables aren't in the DB yet (migration not run).
+  // Lets the create flows show a specific "run the migration" message instead of a cryptic DB string.
+  function isMissingContestTableError(err) {
+    if (!err) return false;
+    const code = String(err.code || "").toLowerCase();
+    const msg = String(err.message || err.msg || err.details || "").toLowerCase();
+    return code === "42p01" || code === "pgrst205" ||
+      msg.indexOf("does not exist") > -1 ||
+      msg.indexOf("could not find the table") > -1 ||
+      msg.indexOf("schema cache") > -1;
   }
   async function createTeamContest() {
     const d = contestDraft; if (!d) return;
@@ -20970,37 +20987,55 @@
     const now = new Date();
     const end = new Date(now.getTime() + days * 86400000);
 
+    // One source of truth for the button label — render() uses the same ternary, so any error-path
+    // restore puts back the RIGHT word ("Draft & start" in captains mode, never a stale "Auto-draft").
+    const createLabel = d.split === "captains" ? "Draft & start" : "Auto-draft " + teamCount + " teams";
     const btn = document.querySelector("[data-contest-create]");
     if (btn) { btn.disabled = true; btn.textContent = "Drafting…"; }
     const S = window.PointwellSignals;
-    const created = await Promise.resolve(S.createContest({
-      community_id: d.communityId, creator_user: myId, format: "team",
-      metric: d.metric || "points", scoring_mode: d.scoringMode || "total",
-      start_at: now.toISOString(), end_at: end.toISOString(), status: "active"
-    })).catch(() => ({ error: { message: "x" } }));
-    if (created.error || !created.contest) { if (btn) { btn.disabled = false; btn.textContent = "Auto-draft teams"; } showToast((created.error && created.error.message) || "Couldn't start the battle"); return; }
-    const contestId = created.contest.id;
-    const teamPayload = TEAM_PALETTE.slice(0, teamCount).map((t) => ({ name: t.name, color: t.color }));
-    const teamsRes = await Promise.resolve(S.addContestTeams(contestId, teamPayload)).catch(() => ({ error: { message: "x" } }));
-    if (teamsRes.error || !(teamsRes.teams || []).length) { showToast("Couldn't create teams — try again"); if (btn) { btn.disabled = false; btn.textContent = "Auto-draft teams"; } return; }
-    const teamIds = teamsRes.teams.map((t) => t.id);
-    const parts = order.map((uid) => ({ user_id: uid, team_id: teamIds[assign[uid]] || teamIds[0] }));
-    const pRes = await Promise.resolve(S.addContestParticipants(contestId, parts)).catch(() => ({ error: { message: "x" } }));
-    if (pRes.error) {
-      // Drafting failed → don't leave an empty contest+teams behind. Cancel it (cascade) and let them retry.
-      await Promise.resolve(S.deleteContest(contestId)).catch(() => {});
-      if (btn) { btn.disabled = false; btn.textContent = "Auto-draft teams"; }
-      showToast("Couldn't draft the teams — try again");
-      return;
+    // Any failure must be LOUD: log the real error, restore the button to its real label, and show a
+    // clear toast — a specific one if the compete tables aren't migrated yet. Never leave the user with
+    // no feedback (the old code swallowed the error and a half-pressed button).
+    const fail = (err, fallbackMsg) => {
+      console.error("[compete] team battle create failed:", err);
+      if (btn) { btn.disabled = false; btn.textContent = createLabel; }
+      showToast(isMissingContestTableError(err)
+        ? "Team battles aren't set up yet — run the compete migration."
+        : ((err && err.message) || fallbackMsg || "Couldn't start the battle — try again"));
+    };
+    try {
+      const created = await Promise.resolve(S.createContest({
+        community_id: d.communityId, creator_user: myId, format: "team",
+        metric: d.metric || "points", scoring_mode: d.scoringMode || "total",
+        start_at: now.toISOString(), end_at: end.toISOString(), status: "active"
+      }));
+      if (!created || created.error || !created.contest) { fail(created && created.error, "Couldn't start the battle"); return; }
+      const contestId = created.contest.id;
+      const teamPayload = TEAM_PALETTE.slice(0, teamCount).map((t) => ({ name: t.name, color: t.color }));
+      const teamsRes = await Promise.resolve(S.addContestTeams(contestId, teamPayload));
+      if (!teamsRes || teamsRes.error || !(teamsRes.teams || []).length) {
+        await Promise.resolve(S.deleteContest(contestId)).catch(() => {});
+        fail(teamsRes && teamsRes.error, "Couldn't create teams — try again"); return;
+      }
+      const teamIds = teamsRes.teams.map((t) => t.id);
+      const parts = order.map((uid) => ({ user_id: uid, team_id: teamIds[assign[uid]] || teamIds[0] }));
+      const pRes = await Promise.resolve(S.addContestParticipants(contestId, parts));
+      if (!pRes || pRes.error) {
+        // Drafting failed → don't leave an empty contest+teams behind. Cancel it (cascade) and let them retry.
+        await Promise.resolve(S.deleteContest(contestId)).catch(() => {});
+        fail(pRes && pRes.error, "Couldn't draft the teams — try again"); return;
+      }
+      contestDraft = null;
+      closeChallengeOverlay();
+      await loadContestsFromDb();
+      saveState();
+      render();
+      showToast("Team battle on — good luck 🟥🟦");
+      const fresh = contestById(contestId);
+      if (fresh) openContestBattle(fresh.id);
+    } catch (e) {
+      fail(e, "Couldn't start the battle — try again");
     }
-    contestDraft = null;
-    closeChallengeOverlay();
-    await loadContestsFromDb();
-    saveState();
-    render();
-    showToast("Team battle on — good luck 🟥🟦");
-    const fresh = contestById(contestId);
-    if (fresh) openContestBattle(fresh.id);
   }
 
   // ── Team battle view ──
@@ -21137,6 +21172,30 @@
     dates.forEach((dk) => { sum += communityTotalForMember(community, localId, dk); });
     return roundScore(sum);
   }
+  // Every day key in a match's window (start..end, UNCAPPED so days after today still show as a column),
+  // each flagged `future` when it's past today. Powers the tap-to-expand per-day grid.
+  function contestMatchDayGrid(match) {
+    const startKey = match.windowStart ? localDateKey(new Date(match.windowStart)) : getTodayKey();
+    const endKey = match.windowEnd ? localDateKey(new Date(match.windowEnd)) : startKey;
+    const today = getTodayKey();
+    const out = [];
+    const d = new Date(startKey + "T00:00:00");
+    let guard = 0;
+    while (localDateKey(d) <= endKey && guard < 60) { const k = localDateKey(d); out.push({ key: k, future: k > today }); d.setDate(d.getDate() + 1); guard += 1; }
+    return out.length ? out : [{ key: today, future: false }];
+  }
+  // One day's points for a player in a match — honors the contest metric (same rules as contestMatchScore).
+  function contestMatchDayScore(community, userId, contest, dateKey) {
+    if (!community || !userId) return 0;
+    const localId = (state.account && state.account.userId === userId) ? "me" : userId;
+    const metric = contest && contest.metric;
+    if (metric && metric !== "points") {
+      const rule = (community.system.rules || []).map(scoring.normalizeRule).find((r) => r.id === metric);
+      const amount = numberOrDefault(communityValuesForMember(community.id, localId, dateKey)[metric], 0);
+      return rule ? roundScore(scoring.calculateRule(rule, amount).totalPoints) : roundScore(amount);
+    }
+    return roundScore(communityTotalForMember(community, localId, dateKey));
+  }
   // Display result for a match: persisted winner/scores, or computed live (and computed winner once
   // the window ended). Used by the bracket view for everyone; the owner separately PERSISTS via advance.
   function contestMatchResult(community, contest, match) {
@@ -21206,47 +21265,60 @@
     const btn = document.querySelector("[data-contest-create-tourney]");
     if (btn) { btn.disabled = true; btn.textContent = "Seeding…"; }
     const S = window.PointwellSignals;
-    const created = await Promise.resolve(S.createContest({
-      community_id: d.communityId, creator_user: myId, format: "tournament",
-      metric: d.metric || "points", scoring_mode: "total",
-      start_at: now.toISOString(), end_at: end.toISOString(), status: "active"
-    })).catch(() => ({ error: { message: "x" } }));
-    if (created.error || !created.contest) { if (btn) { btn.disabled = false; btn.textContent = "Seed the bracket"; } showToast((created.error && created.error.message) || "Couldn't start the tournament"); return; }
-    const contestId = created.contest.id;
-    const pRes = await Promise.resolve(S.addContestParticipants(contestId, entrants.map((uid, i) => ({ user_id: uid, seed: i + 1 })))).catch(() => ({ error: { message: "x" } }));
-    if (pRes.error) { await Promise.resolve(S.deleteContest(contestId)).catch(() => {}); if (btn) { btn.disabled = false; btn.textContent = "Seed the bracket"; } showToast("Couldn't seed the players — try again"); return; }
+    // Loud failure: log the real error, restore the button, and show a clear toast (specific message
+    // when the compete tables aren't migrated yet). Never silent.
+    const fail = (err, fallbackMsg) => {
+      console.error("[compete] tournament create failed:", err);
+      if (btn) { btn.disabled = false; btn.textContent = "Seed the bracket"; }
+      showToast(isMissingContestTableError(err)
+        ? "Tournaments aren't set up yet — run the compete migration."
+        : ((err && err.message) || fallbackMsg || "Couldn't start the tournament — try again"));
+    };
+    try {
+      const created = await Promise.resolve(S.createContest({
+        community_id: d.communityId, creator_user: myId, format: "tournament",
+        metric: d.metric || "points", scoring_mode: "total",
+        start_at: now.toISOString(), end_at: end.toISOString(), status: "active"
+      }));
+      if (!created || created.error || !created.contest) { fail(created && created.error, "Couldn't start the tournament"); return; }
+      const contestId = created.contest.id;
+      const pRes = await Promise.resolve(S.addContestParticipants(contestId, entrants.map((uid, i) => ({ user_id: uid, seed: i + 1 }))));
+      if (!pRes || pRes.error) { await Promise.resolve(S.deleteContest(contestId)).catch(() => {}); fail(pRes && pRes.error, "Couldn't seed the players — try again"); return; }
 
-    // Build all match shells in memory; round 1 paired by bracket order; byes auto-advance to round 2.
-    const matches = {};
-    for (let r = 1; r <= totalRounds; r++) {
-      const cnt = B / Math.pow(2, r);
-      for (let s = 0; s < cnt; s++) {
-        matches[r + ":" + s] = { round: r, slot: s, a_user: null, b_user: null, winner_user: null, a_score: null, b_score: null, window_start: roundStart(r), window_end: roundEnd(r), status: r === 1 ? "active" : "pending" };
+      // Build all match shells in memory; round 1 paired by bracket order; byes auto-advance to round 2.
+      const matches = {};
+      for (let r = 1; r <= totalRounds; r++) {
+        const cnt = B / Math.pow(2, r);
+        for (let s = 0; s < cnt; s++) {
+          matches[r + ":" + s] = { round: r, slot: s, a_user: null, b_user: null, winner_user: null, a_score: null, b_score: null, window_start: roundStart(r), window_end: roundEnd(r), status: r === 1 ? "active" : "pending" };
+        }
       }
-    }
-    for (let i = 0; i < B / 2; i++) {
-      const m = matches["1:" + i];
-      m.a_user = seedToUser[slotOrder[2 * i]] || null;
-      m.b_user = seedToUser[slotOrder[2 * i + 1]] || null;
-    }
-    for (let i = 0; i < B / 2; i++) {
-      const m = matches["1:" + i];
-      let adv = null;
-      if (m.a_user && !m.b_user) { adv = m.a_user; m.winner_user = m.a_user; m.status = "done"; }
-      else if (m.b_user && !m.a_user) { adv = m.b_user; m.winner_user = m.b_user; m.status = "done"; }
-      if (adv && totalRounds >= 2) { const nm = matches["2:" + Math.floor(i / 2)]; if (i % 2 === 0) nm.a_user = adv; else nm.b_user = adv; }
-    }
-    const mRes = await Promise.resolve(S.addContestMatches(contestId, Object.keys(matches).map((k) => matches[k]))).catch(() => ({ error: { message: "x" } }));
-    if (mRes.error) { await Promise.resolve(S.deleteContest(contestId)).catch(() => {}); if (btn) { btn.disabled = false; btn.textContent = "Seed the bracket"; } showToast("Couldn't build the bracket — try again"); return; }
+      for (let i = 0; i < B / 2; i++) {
+        const m = matches["1:" + i];
+        m.a_user = seedToUser[slotOrder[2 * i]] || null;
+        m.b_user = seedToUser[slotOrder[2 * i + 1]] || null;
+      }
+      for (let i = 0; i < B / 2; i++) {
+        const m = matches["1:" + i];
+        let adv = null;
+        if (m.a_user && !m.b_user) { adv = m.a_user; m.winner_user = m.a_user; m.status = "done"; }
+        else if (m.b_user && !m.a_user) { adv = m.b_user; m.winner_user = m.b_user; m.status = "done"; }
+        if (adv && totalRounds >= 2) { const nm = matches["2:" + Math.floor(i / 2)]; if (i % 2 === 0) nm.a_user = adv; else nm.b_user = adv; }
+      }
+      const mRes = await Promise.resolve(S.addContestMatches(contestId, Object.keys(matches).map((k) => matches[k])));
+      if (!mRes || mRes.error) { await Promise.resolve(S.deleteContest(contestId)).catch(() => {}); fail(mRes && mRes.error, "Couldn't build the bracket — try again"); return; }
 
-    contestDraft = null;
-    closeChallengeOverlay();
-    await loadContestsFromDb();
-    saveState();
-    render();
-    showToast("Tournament seeded — good luck 🏆");
-    const fresh = contestById(contestId);
-    if (fresh) openContestBracket(fresh.id);
+      contestDraft = null;
+      closeChallengeOverlay();
+      await loadContestsFromDb();
+      saveState();
+      render();
+      showToast("Tournament seeded — good luck 🏆");
+      const fresh = contestById(contestId);
+      if (fresh) openContestBracket(fresh.id);
+    } catch (e) {
+      fail(e, "Couldn't start the tournament — try again");
+    }
   }
 
   // ── Advancement: when a round's window ends, the creator/owner persists scores + winner and advances
@@ -21289,19 +21361,26 @@
   }
 
   // ── Bracket view (render #3) ──
+  // Transient view state for the bracket overlay: which round tab is shown, which match is expanded
+  // (accordion — one at a time), and list vs full-tree. Re-seeded each time the bracket is opened fresh.
+  let bracketUi = { contestId: null, round: 0, expandedId: null, tree: false };
   function openContestBracket(id) {
     const contest = contestById(id); if (!contest) { showToast("That contest isn't available"); return; }
     contestAdvanceTournament(contest); // owner/creator: persist any ended rounds in the background
+    const myMatch = contestMyMatch(contest);
+    // Default to the round with my current match (so it's front-and-center + auto-expanded); the live
+    // round if I'm eliminated.
+    bracketUi = {
+      contestId: contest.id,
+      round: myMatch ? myMatch.round : bracketActiveRound(contest),
+      expandedId: myMatch ? myMatch.id : null,
+      tree: false
+    };
     renderContestBracket(contest);
   }
-  function renderContestBracket(contest) {
-    const community = contestCommunity(contest);
-    const totalRounds = contestTotalRounds(contest);
+  // The old horizontal mini-tree — kept for the optional "Full bracket" zoom-out toggle. Reuses .bk-* CSS.
+  function renderBracketTree(contest, community, totalRounds, myMatch, champion) {
     const myId = state.account && state.account.userId;
-    const myMatch = contestMyMatch(contest);
-    // Champion = the final's winner (if resolved).
-    const finalMatch = (contest.matches || []).find((m) => m.round === totalRounds && m.slot === 0);
-    const champion = finalMatch ? contestMatchResult(community, contest, finalMatch).winner : "";
     const cols = [];
     for (let r = 1; r <= totalRounds; r++) {
       const roundMatches = (contest.matches || []).filter((m) => m.round === r).sort((a, b) => a.slot - b.slot);
@@ -21313,7 +21392,7 @@
           return `<div class="bk-side${isWinner ? " is-win" : ""}${uid === myId ? " is-me" : ""}"><span class="bk-name">${escapeHtml(uid ? contestMemberName(community, uid) : "—")}</span><span class="bk-score">${m.status === "pending" && !uid ? "" : escapeHtml(String(live))}</span></div>`;
         };
         const liveTag = (!res.winner && m.aUser && m.bUser && r === bracketActiveRound(contest)) ? `<span class="bk-live">live</span>` : "";
-        return `<button type="button" class="bk-match${isMine ? " is-mine" : ""}${res.winner ? " is-done" : ""}" data-contest-view="${escapeHtml(String(contest.id))}">
+        return `<button type="button" class="bk-match${isMine ? " is-mine" : ""}${res.winner ? " is-done" : ""}" data-contest-round="${r}">
             ${side(m.aUser, res.aScore, res.winner && res.winner === m.aUser)}
             ${side(m.bUser, res.bScore, res.winner && res.winner === m.bUser)}
             ${liveTag}
@@ -21322,15 +21401,123 @@
       cols.push(`<div class="bk-col"><div class="bk-round-lbl">${escapeHtml(roundLabel(r, totalRounds))}</div>${cells}</div>`);
     }
     const champCol = `<div class="bk-col bk-col-champ"><div class="bk-round-lbl">Champion</div><div class="bk-champ">${champion ? `<span class="bk-champ-name">${escapeHtml(contestMemberName(community, champion))}</span>` : `<span class="bk-trophy" aria-hidden="true">🏆</span>`}</div></div>`;
+    return `<div class="bk-scroll"><div class="bk-grid">${cols.join("")}${champCol}</div></div>`;
+  }
+  function renderContestBracket(contest) {
+    const community = contestCommunity(contest);
+    const totalRounds = contestTotalRounds(contest);
+    const myId = state.account && state.account.userId;
+    const myMatch = contestMyMatch(contest);
     const activeR = bracketActiveRound(contest);
+    if (!bracketUi || bracketUi.contestId !== contest.id) bracketUi = { contestId: contest.id, round: activeR, expandedId: myMatch ? myMatch.id : null, tree: false };
+    if (bracketUi.round < 1 || bracketUi.round > totalRounds) bracketUi.round = activeR;
+    const finalMatch = (contest.matches || []).find((m) => m.round === totalRounds && m.slot === 0);
+    const champion = finalMatch ? contestMatchResult(community, contest, finalMatch).winner : "";
     const clock = contestIsEnded(contest) ? "ended" : contestCountdownText(contest);
     const canManage = (myId && myId === contest.creatorUser) || (community && isCommunityAdmin(community));
+
+    // One player row inside a collapsed card.
+    const playerRow = (m, uid, score, opts) => {
+      const nm = uid ? contestMemberName(community, uid) : "TBD";
+      const mem = uid ? challengeMemberByUser(community, uid) : null;
+      const av = renderAvatar({ name: nm, color: mem && mem.color, avatarUrl: mem && mem.avatarUrl, useNameColor: true, className: "bkt-av" });
+      const scoreTxt = (score == null) ? (uid ? "0" : "") : String(score);
+      return `<div class="bkt-prow${opts.win ? " is-win" : ""}${opts.lead ? " is-lead" : ""}${opts.loser ? " is-loser" : ""}${uid === myId ? " is-me" : ""}${opts.first ? " is-first" : ""}">
+          ${av}
+          <span class="bkt-pname">${escapeHtml(nm)}${opts.win ? " ✓" : ""}</span>
+          ${opts.tag || ""}
+          <span class="bkt-pscore">${escapeHtml(scoreTxt)}</span>
+          ${opts.chevron ? `<span class="bkt-chev" aria-hidden="true">${opts.open ? "⌃" : "⌄"}</span>` : ""}
+        </div>`;
+    };
+
+    const cardHtml = (m) => {
+      const res = contestMatchResult(community, contest, m);
+      const isMyCurrent = myMatch && m.id === myMatch.id;
+      const open = bracketUi.expandedId === m.id;
+      const isLive = !res.winner && m.aUser && m.bUser && m.round === activeR;
+      const aWin = !!(res.winner && res.winner === m.aUser);
+      const bWin = !!(res.winner && res.winner === m.bUser);
+      const aLead = isLive && numberOrDefault(res.aScore, 0) > numberOrDefault(res.bScore, 0);
+      const bLead = isLive && numberOrDefault(res.bScore, 0) > numberOrDefault(res.aScore, 0);
+      const liveTag = isLive ? `<span class="bkt-tag is-live">live · ${escapeHtml(clock)}</span>` : "";
+      const leadTag = (isLead) => isLead ? `<span class="bkt-tag is-lead">leading</span>` : "";
+
+      if (!open) {
+        return `<button type="button" class="bkt-card${isMyCurrent ? " is-mine" : ""}${res.winner ? " is-done" : ""}${isLive ? " is-live" : ""}" data-contest-expand="${escapeHtml(String(m.id))}">
+            ${playerRow(m, m.aUser, res.aScore, { win: aWin, lead: aLead, loser: res.winner && !aWin, tag: leadTag(aLead), first: true })}
+            ${playerRow(m, m.bUser, res.bScore, { win: bWin, lead: bLead, loser: res.winner && !bWin, tag: liveTag || leadTag(bLead), chevron: true, open: open })}
+          </button>`;
+      }
+
+      // Expanded: day-by-day grid. Cells + Total come from the SAME per-day values, so the row always
+      // adds up (invariant: Total === sum of the played cells). For the default 'points' metric this
+      // equals contestMatchScore exactly; for a capped rule metric the per-day breakdown caps each day
+      // (the headline score caps the window sum), so the expanded total can differ slightly — but the
+      // grid stays internally consistent, which is what the reader checks.
+      const days = contestMatchDayGrid(m);
+      const cellVals = (uid) => days.map((d) => (d.future || !uid) ? null : contestMatchDayScore(community, uid, contest, d.key));
+      const aVals = cellVals(m.aUser);
+      const bVals = cellVals(m.bUser);
+      const sumVals = (vals) => roundScore(vals.reduce((s, v) => s + numberOrDefault(v, 0), 0));
+      const aTotal = m.aUser ? sumVals(aVals) : 0;
+      const bTotal = m.bUser ? sumVals(bVals) : 0;
+      const headCells = days.map((d, i) => `<span class="bkt-gc bkt-ghc">D${i + 1}</span>`).join("");
+      const gridRow = (uid, vals, otherVals, total, isWin) => {
+        const nm = uid ? contestMemberName(community, uid) : "TBD";
+        const mem = uid ? challengeMemberByUser(community, uid) : null;
+        const av = renderAvatar({ name: nm, color: mem && mem.color, avatarUrl: mem && mem.avatarUrl, useNameColor: true, className: "bkt-gav" });
+        const cells = vals.map((v, i) => {
+          if (v == null) return `<span class="bkt-gc bkt-gcell is-future">—</span>`;
+          const dayLead = v > numberOrDefault(otherVals[i], 0); // won this day — works for 0 / negative (penalty) scores too
+          return `<span class="bkt-gc bkt-gcell${dayLead ? " is-daylead" : ""}">${escapeHtml(String(v))}</span>`;
+        }).join("");
+        return `<div class="bkt-grow${uid === myId ? " is-me" : ""}${isWin ? " is-win" : ""}">
+            <span class="bkt-gplayer">${av}<span class="bkt-gname">${escapeHtml(nm)}${isWin ? " ✓" : ""}</span></span>
+            ${cells}
+            <span class="bkt-gc bkt-gtotal">${escapeHtml(String(uid ? total : "—"))}</span>
+          </div>`;
+      };
+      let upLine = "";
+      if (m.aUser && m.bUser) {
+        if (m.aUser === myId || m.bUser === myId) {
+          const meScore = (m.aUser === myId) ? aTotal : bTotal;
+          const oppScore = (m.aUser === myId) ? bTotal : aTotal;
+          const diff = roundScore(meScore - oppScore);
+          upLine = diff > 0 ? `You're up by <b>${escapeHtml(String(diff))}</b> 🔥` : (diff < 0 ? `You're down by <b>${escapeHtml(String(-diff))}</b>` : `All square`);
+        } else {
+          const hi = Math.max(aTotal, bTotal), lo = Math.min(aTotal, bTotal);
+          upLine = hi === lo ? `All square` : `${escapeHtml(contestMemberName(community, aTotal >= bTotal ? m.aUser : m.bUser))} up by <b>${escapeHtml(String(roundScore(hi - lo)))}</b>`;
+        }
+      }
+      const logBtn = (isMyCurrent && !res.ended) ? `<button type="button" class="primary-button bkt-logbtn" data-challenge-log="${escapeHtml(String(contest.communityId))}">Log to win your match</button>` : "";
+      return `<div class="bkt-card is-open${isMyCurrent ? " is-mine" : ""}${isLive ? " is-live" : ""}">
+          <button type="button" class="bkt-exp-head" data-contest-expand="${escapeHtml(String(m.id))}">
+            <span class="bkt-exp-tag${isMyCurrent ? " is-mine" : ""}">${isMyCurrent ? "your match" : escapeHtml(roundLabel(m.round, totalRounds))}</span>
+            <span class="bkt-exp-clock">⏱ ${escapeHtml(clock)} · collapse ⌃</span>
+          </button>
+          <div class="bkt-ghead"><span class="bkt-gplayer bkt-ghead-lbl">Player</span>${headCells}<span class="bkt-gc bkt-gtotal">Total</span></div>
+          ${gridRow(m.aUser, aVals, bVals, aTotal, aWin)}
+          ${gridRow(m.bUser, bVals, aVals, bTotal, bWin)}
+          ${upLine ? `<div class="bkt-upby">${upLine} · highest points when the round clock ends advances</div>` : ""}
+          ${logBtn}
+        </div>`;
+    };
+
+    const roundMatches = (contest.matches || []).filter((m) => m.round === bracketUi.round).sort((a, b) => a.slot - b.slot);
+    const tabs = [];
+    for (let r = 1; r <= totalRounds; r++) tabs.push(`<button type="button" class="bkt-tab${r === bracketUi.round ? " on" : ""}" data-contest-round="${r}">${escapeHtml(roundLabel(r, totalRounds))}</button>`);
+    const isFinalTab = bracketUi.round === totalRounds;
+    const champSlot = isFinalTab ? `<div class="bkt-champ-slot${champion ? " is-crowned" : ""}"><span class="bkt-champ-lbl">Champion</span><span class="bkt-champ-nm">${champion ? "🏆 " + escapeHtml(contestMemberName(community, champion)) : "🏆 TBD"}</span></div>` : "";
+    const listBody = `<div class="bkt-tabs">${tabs.join("")}</div><div class="bkt-list">${roundMatches.map(cardHtml).join("") || `<p class="bkt-empty">No matches in this round yet.</p>`}${champSlot}</div>`;
+    const body = bracketUi.tree ? renderBracketTree(contest, community, totalRounds, myMatch, champion) : listBody;
+    const treeToggle = `<button type="button" class="bkt-tree-toggle" data-contest-tree="${bracketUi.tree ? "0" : "1"}">${bracketUi.tree ? "▤ Round list" : "⤢ Full bracket"}</button>`;
+
     openChallengeOverlay("contest-bracket", "Tournament", `
       <div class="contest-team-head"><span class="contest-team-title">🏆 Tournament</span><span class="contest-team-clock${contestIsEnded(contest) ? " ended" : ""}">${escapeHtml(roundLabel(activeR, totalRounds))} · ${escapeHtml(clock)}</span></div>
       <p class="contest-team-meta">${escapeHtml(String((contest.participants || []).length))} players · single elimination · most points each round</p>
-      <div class="bk-scroll"><div class="bk-grid">${cols.join("")}${champCol}</div></div>
-      <p class="challenge-field-help">${myMatch ? "Your match is highlighted — log points before the round clock ends to advance." : (champion ? "🏆 " + escapeHtml(contestMemberName(community, champion)) + " is the champion." : "You're out — but the bracket plays on.")}</p>
-      <button type="button" class="primary-button" data-challenge-log="${escapeHtml(String(contest.communityId))}">Log to win your match</button>
+      ${body}
+      <div class="bkt-foot"><span class="bkt-foot-hint">${myMatch ? "Tap any match for its day-by-day scores." : (champion ? "🏆 " + escapeHtml(contestMemberName(community, champion)) + " is the champion." : "You're out — but the bracket plays on.")}</span>${treeToggle}</div>
       ${canManage ? `<button type="button" class="ghost-button contest-cancel-btn" data-contest-cancel="${escapeHtml(String(contest.id))}">Cancel tournament</button>` : ""}`);
   }
   // The lowest round that still has an unresolved match (the "current" round).

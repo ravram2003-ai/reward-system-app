@@ -112,7 +112,7 @@ you know what's live in production.
   opt-OUT is preserved (client reads `allow_device_autosync !== false`; Settings can set it false).
   Idempotent. *(after #21 community-device-autosync — alters the same column)*. **Run this so THE
   BOYS' Steps (and every synced community rule) auto-fills instead of showing 0 with a manual + Log.**
-- [ ] **26. post-first-feed.sql** — "one post, many feeds" (post-first composer, Phase 1: schema+RLS):
+- [x] **26. post-first-feed.sql** — "one post, many feeds" (post-first composer, Phase 1: schema+RLS):
   `posts` (caption/photo/`activity` jsonb/`is_shared`) + `post_targets` (target_type profile|community,
   target_id, per-target points) + `post_likes`/`post_comments` (engagement on the POST → shared thread
   across every feed it appears in) + a nullable `community_entries.post_id` (links the per-rule scoring
@@ -124,6 +124,9 @@ you know what's live in production.
   `get_posts_social` / `get_post_comments`. *(after #6 communities, #13 profile-view, #24 profile-posts
   — reuses is_community_member / can_view_profile / profile_is_public)*. Post photos reuse the existing
   **entry-photo** bucket. **Phases 2–4 (composer, read paths, delete) are app-only — no further SQL.**
+  Applied to the live project (ref `ejoccpqbozgzixrejlhd`) on 2026-06-30; verified 4 tables +
+  `community_entries.post_id` column + 17 policies + the 4 helper/read functions present, anon read
+  limited to public-profile posts, advisor clean (no RLS gaps).
 - [x] **27. compete-contests.sql** — Compete: generalized **contests** (Phase 2 = TEAM battles; Phase 3
   adds tournaments). Three tables — `contests` (community_id, creator_user, format team|tournament, metric,
   scoring_mode total|avg_active, start_at/end_at, status pending/active/done), `contest_teams`

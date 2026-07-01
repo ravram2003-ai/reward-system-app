@@ -4561,14 +4561,22 @@
       } catch (e) { showToast("Couldn't upload the photo — posting without it."); }
     }
 
-    var created = await Promise.resolve(window.PointwellSignals.createPost(uid, caption, photoPath, activityPayload, isShared)).catch(function () { return { error: { message: "post failed" } }; });
-    if (created.error || !created.post || !created.post.id) {
-      postComposerPublishing = false; renderPostComposer();
-      showToast((created.error && created.error.message) || "Couldn't publish — try again.");
-      return;
+    // A quiet log (Share OFF) is COUNTS-ONLY — it never creates a posts row, so logging keeps working
+    // even if the posts tables aren't migrated. Only a real post (Share ON) creates the post + targets.
+    // The entry writes below pass postId="" for a quiet log, so post_id is omitted (never touches the column).
+    var postId = "";
+    if (isShared) {
+      var created = await Promise.resolve(window.PointwellSignals.createPost(uid, caption, photoPath, activityPayload, isShared)).catch(function (e) { return { error: (e && e.code) ? e : { message: "post failed" } }; });
+      if (!postComposer) { postComposerPublishing = false; return; } // closed mid-publish
+      if (!created || created.error || !created.post || !created.post.id) {
+        postComposerPublishing = false; renderPostComposer();
+        var perr = created && created.error;
+        console.error("[post-first] createPost failed:", perr);
+        showToast(isMissingTableError(perr) ? "Posting isn't set up yet — run the post-first migration." : ((perr && perr.message) || "Couldn't publish — try again."));
+        return;
+      }
+      postId = created.post.id;
     }
-    if (!postComposer) { postComposerPublishing = false; return; } // closed mid-publish
-    var postId = created.post.id;
 
     // Only ON targets that are actually VISIBLE get written — mirrors the render filter so a
     // world that was toggled on then made non-matching by an activity edit (now hidden) can't be
@@ -4645,7 +4653,11 @@
 
     saveState();
     Promise.all(dbWork).then(function (results) {
-      if (results.some(function (r) { return r && r.error; })) showToast((isShared && anyFeed ? "Posted" : "Logged") + " — but part of it didn't sync.");
+      var errs = (results || []).filter(function (r) { return r && r.error; }).map(function (r) { return r.error; });
+      if (errs.length) {
+        console.error("[post-first] some writes didn't sync:", errs);
+        showToast(isMissingTableError(errs[0]) ? "Saved on this device — run the post-first migration to sync." : ((isShared && anyFeed ? "Posted" : "Logged") + " — but part of it didn't sync."));
+      }
     }).catch(function () {});
 
     postComposerPublishing = false;
@@ -20947,9 +20959,10 @@
     for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; }
     return a;
   }
-  // A Supabase/PostgREST error that means the compete tables aren't in the DB yet (migration not run).
-  // Lets the create flows show a specific "run the migration" message instead of a cryptic DB string.
-  function isMissingContestTableError(err) {
+  // A Supabase/PostgREST error that means a table/column isn't in the DB yet (a migration wasn't run).
+  // Lets a flow show a specific "run the migration" message instead of a cryptic DB string. Generic —
+  // used by the Compete create flows and the post-first composer.
+  function isMissingTableError(err) {
     if (!err) return false;
     const code = String(err.code || "").toLowerCase();
     const msg = String(err.message || err.msg || err.details || "").toLowerCase();
@@ -20999,7 +21012,7 @@
     const fail = (err, fallbackMsg) => {
       console.error("[compete] team battle create failed:", err);
       if (btn) { btn.disabled = false; btn.textContent = createLabel; }
-      showToast(isMissingContestTableError(err)
+      showToast(isMissingTableError(err)
         ? "Team battles aren't set up yet — run the compete migration."
         : ((err && err.message) || fallbackMsg || "Couldn't start the battle — try again"));
     };
@@ -21270,7 +21283,7 @@
     const fail = (err, fallbackMsg) => {
       console.error("[compete] tournament create failed:", err);
       if (btn) { btn.disabled = false; btn.textContent = "Seed the bracket"; }
-      showToast(isMissingContestTableError(err)
+      showToast(isMissingTableError(err)
         ? "Tournaments aren't set up yet — run the compete migration."
         : ((err && err.message) || fallbackMsg || "Couldn't start the tournament — try again"));
     };

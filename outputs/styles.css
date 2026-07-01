@@ -10715,3 +10715,56 @@ img.bkt-av, img.bkt-gav { object-fit: cover; }
   .post-composer { border-radius: 18px; padding: 14px 13px 16px; }
   .pc-photo { width: 84px; height: 84px; }
 }
+
+/* ── Team battle: build-method picker (Auto-draft / Pick myself / Captains draft) ─────────────── */
+.contest-method-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+.contest-method { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: #0e1714; border: 1px solid #243029; border-radius: 14px; padding: 13px; cursor: pointer; color: inherit; }
+.contest-method.on { background: #11201a; border-color: #2a5a45; }
+.contest-method-ic { font-size: 1.25rem; flex: 0 0 auto; }
+.contest-method-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.contest-method-title { font-size: 0.88rem; font-weight: 600; color: #eaf2ee; }
+.contest-method-sub { font-size: 0.7rem; color: #7c8d87; }
+.contest-method.on .contest-method-sub { color: #7fc7b0; }
+.contest-method-go { flex: 0 0 auto; font-size: 0.9rem; color: #5f7268; }
+.contest-method.on .contest-method-go { width: 22px; height: 22px; border-radius: 50%; background: #1c4d3b; color: #5cf3b8; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; }
+.contest-when-row { display: flex; gap: 8px; margin: 10px 0 4px; }
+.contest-when { flex: 1; text-align: center; font-size: 0.75rem; border-radius: 10px; padding: 9px 4px; border: 1px solid #2c5a48; background: #16241f; color: #9bf3cf; }
+.contest-when.is-soon { border-color: #243029; background: #0e1714; color: #5f7268; }
+
+/* ── Pick myself (manual builder) ─────────────────────────────────────────────────────────────── */
+.manual-balance { font-size: 0.7rem; color: #cfa39f; }
+.manual-balance.is-ok { color: #7fe9c0; }
+.manual-team { background: color-mix(in srgb, var(--tc) 12%, #0b100e); border: 1px solid color-mix(in srgb, var(--tc) 45%, #1c2a24); border-radius: 13px; padding: 11px 12px; margin-bottom: 9px; }
+.manual-team-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+.manual-team-name { font-size: 0.82rem; font-weight: 600; color: var(--tc); }
+.manual-team-count { font-size: 0.7rem; color: #7c8d87; }
+.manual-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.manual-chip { font-size: 0.75rem; color: #cfd8d4; background: #0e1714; border: 1px solid #243029; border-radius: 20px; padding: 7px 12px; cursor: pointer; }
+.manual-chip.is-on { color: var(--tc); background: color-mix(in srgb, var(--tc) 14%, #0b100e); border-color: color-mix(in srgb, var(--tc) 50%, #1c2a24); border-radius: 9px; }
+.manual-chip-x { margin-left: 5px; opacity: 0.6; }
+.manual-empty { font-size: 0.72rem; color: #5f7268; padding: 3px 2px; }
+.manual-pool { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 4px; }
+
+/* ── Captains live draft ──────────────────────────────────────────────────────────────────────── */
+.draft-banner { display: flex; align-items: center; gap: 10px; background: color-mix(in srgb, var(--tc) 12%, #0b100e); border: 1px solid color-mix(in srgb, var(--tc) 55%, #1c2a24); border-radius: 13px; padding: 11px 13px; margin: 4px 0 13px; }
+.draft-banner-dot { flex: 0 0 auto; width: 14px; height: 14px; border-radius: 50%; }
+.draft-banner-main { flex: 1 1 auto; min-width: 0; }
+.draft-banner-title { font-size: 0.84rem; font-weight: 600; color: var(--tc); }
+.draft-banner-sub { font-size: 0.66rem; color: #7c8d87; }
+.draft-clock { flex: 0 0 auto; font-size: 1rem; font-weight: 700; color: #f0c97a; font-variant-numeric: tabular-nums; }
+.draft-teams { display: flex; gap: 8px; margin-bottom: 12px; }
+.draft-team { flex: 1 1 0; min-width: 0; background: color-mix(in srgb, var(--tc) 10%, #0b100e); border: 1px solid color-mix(in srgb, var(--tc) 45%, #1c2a24); border-radius: 12px; padding: 10px; }
+.draft-team-head { font-size: 0.72rem; font-weight: 600; color: var(--tc); margin-bottom: 8px; }
+.draft-team-row { display: flex; align-items: center; gap: 5px; font-size: 0.74rem; color: #cfe0d9; margin-bottom: 4px; overflow: hidden; }
+.draft-team-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.draft-cap { flex: 0 0 auto; font-size: 0.7rem; }
+.draft-team-status { font-size: 0.68rem; color: #5f7268; margin-top: 2px; }
+.draft-team-status.is-picking { color: #5cf3b8; }
+.draft-avail { display: flex; flex-direction: column; gap: 7px; }
+.draft-avail-row { display: flex; align-items: center; gap: 10px; background: #0e1714; border: 1px solid #2a5a45; border-radius: 12px; padding: 9px 12px; }
+.draft-av { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.62rem; color: #eaf2ee; overflow: hidden; }
+img.draft-av { object-fit: cover; }
+.draft-avail-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.82rem; color: #eaf2ee; }
+.draft-pick-btn { flex: 0 0 auto; font-size: 0.75rem; color: #9bf3cf; background: #16241f; border: 1px solid #2c5a48; border-radius: 8px; padding: 6px 13px; cursor: pointer; }
+.draft-pick-btn:disabled { opacity: 0.5; }
+.draft-avail-wait { flex: 0 0 auto; font-size: 0.68rem; color: #6f827a; }

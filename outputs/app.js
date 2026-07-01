@@ -20277,6 +20277,9 @@
     const back = document.querySelector("[data-challenge-overlay]");
     if (back) back.remove();
     document.removeEventListener("keydown", onChallengeOverlayKey);
+    // Any overlay open/close stops the live-draft poll — EXCEPT the draft re-rendering itself (which
+    // opens a fresh sheet each tick). Deterministic cleanup so timers never outlive the draft view.
+    if (!draftRerendering && typeof stopDraftPolling === "function") stopDraftPolling();
   }
   function onChallengeOverlayKey(e) { if (e.key === "Escape") closeChallengeOverlay(); }
   function openChallengeOverlay(extraClass, ariaLabel, bodyHtml) {
@@ -20561,8 +20564,9 @@
       endAt: row.end_at || "",
       status: row.status || "active",
       createdAt: row.created_at || "",
+      draftDeadline: row.draft_deadline || "",
       teams: (row.contest_teams || []).map((t) => ({ id: t.id, name: t.name || "Team", color: t.color || "" })),
-      participants: (row.contest_participants || []).map((p) => ({ id: p.id, userId: p.user_id, teamId: p.team_id || "", seed: p.seed, eliminated: !!p.eliminated })),
+      participants: (row.contest_participants || []).map((p) => ({ id: p.id, userId: p.user_id, teamId: p.team_id || "", seed: p.seed, eliminated: !!p.eliminated, isCaptain: !!p.is_captain })),
       matches: (row.contest_matches || []).map((m) => ({
         id: m.id, round: m.round, slot: m.slot, aUser: m.a_user || "", bUser: m.b_user || "",
         aScore: m.a_score, bScore: m.b_score, winnerUser: m.winner_user || "",
@@ -20615,7 +20619,8 @@
       openChallengeSetup(cOpp.dataset.contestOpponent, d.communityId, { duration: d.window, metric: d.metric });
       return;
     }
-    const cSplit = find("[data-contest-split]"); if (cSplit) { if (contestDraft) { contestDraft.split = cSplit.dataset.contestSplit; contestDraft.captains = []; renderContestTeamSetup(); } return; }
+    const cMethod = find("[data-contest-method]"); if (cMethod) { if (contestDraft) { contestDraft.method = cMethod.dataset.contestMethod; contestDraft.manualAssign = {}; renderContestTeamSetup(); } return; }
+    const cSplit = find("[data-contest-split]"); if (cSplit) { if (contestDraft) { contestDraft.split = cSplit.dataset.contestSplit; contestDraft.manualAssign = {}; renderContestTeamSetup(); } return; }
     const cMode = find("[data-contest-scoremode]"); if (cMode) { if (contestDraft) { contestDraft.scoringMode = cMode.dataset.contestScoremode; renderContestTeamSetup(); } return; }
     const cCap = find("[data-contest-captain]"); if (cCap) {
       if (contestDraft) {
@@ -20629,6 +20634,11 @@
       return;
     }
     const cCreate = find("[data-contest-create]"); if (cCreate) { createTeamContest(); return; }
+    const cBuildManual = find("[data-contest-build-manual]"); if (cBuildManual) { event.preventDefault(); openContestManualBuilder(); return; }
+    const cStartDraft = find("[data-contest-start-draft]"); if (cStartDraft) { createCaptainsDraftContest(); return; }
+    const cManualCycle = find("[data-contest-manual-cycle]"); if (cManualCycle) { event.preventDefault(); contestManualCycle(cManualCycle.dataset.contestManualCycle); return; }
+    const cManualStart = find("[data-contest-manual-start]"); if (cManualStart) { createTeamContest(); return; }
+    const cDraftPick = find("[data-contest-draft-pick]"); if (cDraftPick) { event.preventDefault(); contestDraftPickPlayer(cDraftPick.dataset.contestDraftPick); return; }
     const cCreateT = find("[data-contest-create-tourney]"); if (cCreateT) { createTournamentContest(); return; }
     const cView = find("[data-contest-view]"); if (cView) { event.preventDefault(); openContestBattle(cView.dataset.contestView); return; }
     // Bracket overlay: round tabs, tap-to-expand a match (accordion), list ↔ full-tree toggle.
@@ -20894,12 +20904,12 @@
       return uid && isDbEntryId(uid);
     }).map((m) => ({ userId: (m.id === "me") ? myId : m.userId, name: m.name, color: m.color, avatarUrl: m.avatarUrl, isMe: m.id === "me" }));
   }
-  // Split options adapted to the roster: a split is offered only when each team can hold ≥2.
+  // Team-count options adapted to the roster (each team holds ≥2). "Captains" is no longer a split —
+  // it's a build METHOD now (see the method picker); the split only sets how many teams.
   function contestSplitOptions(n) {
     const opts = [];
     if (n >= 4) opts.push({ id: "2", teams: 2, label: "2 × " + Math.floor(n / 2) });
     if (n >= 8) opts.push({ id: "4", teams: 4, label: "4 × " + Math.floor(n / 4) });
-    if (n >= 4) opts.push({ id: "captains", teams: 2, label: "Captains" });
     return opts;
   }
 
@@ -20911,9 +20921,11 @@
     const opts = contestSplitOptions(eligible.length);
     if (!opts.length) { showToast("Need at least 4 members for a team battle"); return; }
     d.format = "team";
+    d.method = d.method || "auto";        // auto | manual | captains
     d.scoringMode = d.scoringMode || "total";
     d.split = opts.some((o) => o.id === d.split) ? d.split : opts[0].id;
-    d.captains = [];
+    d.captains = d.captains || [];
+    d.manualAssign = d.manualAssign || {}; // userId -> team index (Pick myself)
     renderContestTeamSetup();
   }
   function renderContestTeamSetup() {
@@ -20921,36 +20933,74 @@
     const community = (state.communities || []).find((c) => c.id === d.communityId); if (!community) return;
     const eligible = contestEligibleMembers(community);
     const opts = contestSplitOptions(eligible.length);
-    const split = opts.find((o) => o.id === d.split) || opts[0];
-    const segs = opts.map((o) => `<button type="button" class="challenge-seg${o.id === d.split ? " on" : ""}" data-contest-split="${o.id}">${escapeHtml(o.label)}</button>`).join("");
+    if (!opts.some((o) => o.id === d.split)) d.split = opts[0] ? opts[0].id : "2";
+    const splitObj = opts.find((o) => o.id === d.split) || opts[0] || { teams: 2 };
+    // Captains draft is always 2 teams; auto/manual honour the chosen split.
+    const teamCount = d.method === "captains" ? 2 : splitObj.teams;
+    const teamSize = Math.floor(eligible.length / teamCount);
+
+    const METHODS = [
+      { id: "auto", icon: "⚡", title: "Auto-draft", sub: "Balanced split · starts now" },
+      { id: "manual", icon: "✋", title: "Pick myself", sub: "You assign everyone to teams" },
+      { id: "captains", icon: "🎖️", title: "Captains draft", sub: "2 captains take turns picking players" }
+    ];
+    const methodCards = METHODS.map((m) => `<button type="button" class="contest-method${d.method === m.id ? " on" : ""}" data-contest-method="${m.id}">
+        <span class="contest-method-ic" aria-hidden="true">${m.icon}</span>
+        <span class="contest-method-main"><span class="contest-method-title">${escapeHtml(m.title)}</span><span class="contest-method-sub">${escapeHtml(m.sub)}</span></span>
+        <span class="contest-method-go" aria-hidden="true">${d.method === m.id ? "✓" : "›"}</span>
+      </button>`).join("");
+
+    // Team-count segs (only for auto/manual — captains is fixed at 2 teams).
+    const splitSeg = (d.method !== "captains" && opts.length > 1)
+      ? `<p class="contest-shared-lbl">Teams</p><div class="challenge-seg-row">${opts.map((o) => `<button type="button" class="challenge-seg${o.id === d.split ? " on" : ""}" data-contest-split="${o.id}">${escapeHtml(o.label)}</button>`).join("")}</div>`
+      : "";
     const scoreSeg = [["total", "Total"], ["avg_active", "Avg per active"]].map(([id, lbl]) =>
       `<button type="button" class="challenge-seg${d.scoringMode === id ? " on" : ""}" data-contest-scoremode="${id}">${escapeHtml(lbl)}</button>`).join("");
+
+    // Captains method: draft-now / schedule (soon) + inline 2-captain picker.
     let captainsBlock = "";
-    if (d.split === "captains") {
+    if (d.method === "captains") {
       const picked = d.captains || [];
-      captainsBlock = `<p class="contest-shared-lbl">Pick 2 captains (${picked.length}/2)</p>
+      captainsBlock = `<div class="contest-when-row">
+          <button type="button" class="contest-when on" disabled>Draft now</button>
+          <button type="button" class="contest-when is-soon" disabled title="Scheduled drafts arrive in a later update">Schedule · soon</button>
+        </div>
+        <p class="contest-shared-lbl">Pick 2 captains (${picked.length}/2)</p>
         <div class="contest-cap-list">${eligible.map((m) => `<button type="button" class="contest-cap-row${picked.indexOf(m.userId) > -1 ? " is-picked" : ""}" data-contest-captain="${escapeHtml(m.userId)}">
           ${renderAvatar({ name: m.name, color: m.color, avatarUrl: m.avatarUrl, className: "contest-opp-av" })}
           <span class="contest-opp-name">${escapeHtml(m.isMe ? "You" : (m.name || "Member"))}</span>
           <span class="contest-cap-check" aria-hidden="true">${picked.indexOf(m.userId) > -1 ? "✓" : ""}</span>
         </button>`).join("")}</div>`;
     }
-    const teamCount = split.teams;
-    const ready = d.split !== "captains" || (d.captains || []).length === 2;
+
+    // Primary CTA per method.
+    let btnLabel, btnAttr = "", note, dataAttr;
+    if (d.method === "auto") {
+      btnLabel = "Auto-draft " + teamCount + " teams"; dataAttr = "data-contest-create";
+      note = "Drafts " + eligible.length + " members into " + teamCount + " balanced teams · starts now.";
+    } else if (d.method === "manual") {
+      btnLabel = "Build teams →"; dataAttr = "data-contest-build-manual";
+      note = "You place all " + eligible.length + " members into " + teamCount + " teams yourself.";
+    } else {
+      const ready = (d.captains || []).length === 2;
+      btnLabel = ready ? "Start draft →" : "Pick 2 captains"; btnAttr = ready ? "" : " disabled";
+      dataAttr = "data-contest-start-draft";
+      note = "Your 2 captains take turns drafting the other " + Math.max(0, eligible.length - 2) + " players · snake order, live now.";
+    }
+
     const winLabel = challengeDuration(d.window).label;
     openChallengeOverlay("contest-team-setup", "Team battle", `
-      <div class="contest-picker-title">Team battle</div>
+      <div class="contest-picker-title">Team battle · ${teamCount}×${escapeHtml(String(teamSize))}</div>
       <p class="contest-picker-sub">${escapeHtml(String(eligible.length))} members · ${escapeHtml(winLabel)} · ${d.metric === "points" ? "total points" : "a rule"}</p>
-      <p class="contest-shared-lbl">Split</p>
-      <div class="challenge-seg-row">${segs}</div>
+      <p class="contest-shared-lbl">How to build the teams</p>
+      <div class="contest-method-list">${methodCards}</div>
+      ${captainsBlock}
+      ${splitSeg}
       <p class="contest-shared-lbl">Scoring</p>
       <div class="challenge-seg-row">${scoreSeg}</div>
       <p class="challenge-field-help">${d.scoringMode === "avg_active" ? "Each team scores the AVERAGE of members who logged — so a quiet member won't sink the team." : "Each team scores the SUM of its members' points over the window."}</p>
-      ${captainsBlock}
-      <button type="button" class="primary-button contest-create-btn" data-contest-create${ready ? "" : " disabled"}>${d.split === "captains" ? "Draft & start" : "Auto-draft " + teamCount + " teams"}</button>
-      <p class="challenge-send-note">${d.split === "captains"
-        ? "Your 2 captains each lead a team; the other " + escapeHtml(String(Math.max(0, eligible.length - 2))) + " members are split between them · starts now."
-        : "Drafts " + escapeHtml(String(eligible.length)) + " members into " + teamCount + " teams · starts now."}</p>`);
+      <button type="button" class="primary-button contest-create-btn" ${dataAttr}${btnAttr}>${escapeHtml(btnLabel)}</button>
+      <p class="challenge-send-note">${escapeHtml(note)}</p>`);
   }
 
   // Shuffle (Fisher–Yates) — order-only randomness, fine for drafting.
@@ -20958,6 +21008,44 @@
     const a = arr.slice();
     for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; }
     return a;
+  }
+
+  // ── Captains draft model (mirrors compete-team-draft.sql so the client shows the same turn/order) ──
+  // The 2 captains, ordered by seed → captain of team[0], team[1].
+  function contestCaptains(contest) {
+    return (contest.participants || []).filter((p) => p.isCaptain && p.teamId)
+      .sort((a, b) => numberOrDefault(a.seed, 0) - numberOrDefault(b.seed, 0));
+  }
+  // The two captain team ids in draft order.
+  function contestDraftTeamsOrdered(contest) { return contestCaptains(contest).map((c) => c.teamId); }
+  // Pool players still to be drafted (no team yet).
+  function contestDraftPool(contest) { return (contest.participants || []).filter((p) => !p.isCaptain && !p.teamId); }
+  // How many non-captain players are already on a team = the next snake pick index.
+  function contestDraftAssignedCount(contest) { return (contest.participants || []).filter((p) => !p.isCaptain && p.teamId).length; }
+  // Snake team index for a pick: 0,1,1,0,0,1,… (2 teams). Matches the SQL contest_on_clock_team.
+  function draftSnakeTeamIndex(assigned) {
+    const round = Math.floor(assigned / 2), pos = assigned % 2;
+    return (round % 2 === 0) ? pos : (1 - pos);
+  }
+  // The team id "on the clock" (or "" when the pool is empty / not a valid captains draft).
+  function contestDraftOnClockTeam(contest) {
+    const teams = contestDraftTeamsOrdered(contest);
+    if (teams.length !== 2 || !contestDraftPool(contest).length) return "";
+    return teams[draftSnakeTeamIndex(contestDraftAssignedCount(contest))] || "";
+  }
+  // The captain user whose turn it is (or "").
+  function contestDraftOnClockCaptain(contest) {
+    const team = contestDraftOnClockTeam(contest);
+    const cap = contestCaptains(contest).find((c) => c.teamId === team);
+    return cap ? cap.userId : "";
+  }
+  function contestIsMyDraftTurn(contest) {
+    const myId = state.account && state.account.userId;
+    return !!myId && contestDraftOnClockCaptain(contest) === myId;
+  }
+  function contestIAmCaptain(contest) {
+    const myId = state.account && state.account.userId;
+    return !!myId && contestCaptains(contest).some((c) => c.userId === myId);
   }
   // A Supabase/PostgREST error that means a table/column isn't in the DB yet (a migration wasn't run).
   // Lets a flow show a specific "run the migration" message instead of a cryptic DB string. Generic —
@@ -20979,32 +21067,30 @@
     const opts = contestSplitOptions(eligible.length);
     const split = opts.find((o) => o.id === d.split) || opts[0];
     const teamCount = split.teams;
-    // Build the draft order. Captains: the 2 picked lead; the rest snake between them.
-    let order;
-    if (d.split === "captains") {
-      if ((d.captains || []).length !== 2) { showToast("Pick 2 captains first"); return; }
-      const caps = d.captains.slice();
-      const rest = contestShuffle(eligible.filter((m) => caps.indexOf(m.userId) < 0).map((m) => m.userId));
-      order = caps.concat(rest);
-    } else {
-      order = contestShuffle(eligible.map((m) => m.userId));
-    }
-    // Round-robin (snake) assignment → balanced teams.
+    // team index per member. Manual → the creator's chosen assignment (validated); Auto → shuffle + snake.
+    let order = eligible.map((m) => m.userId);
     const assign = {}; // userId -> teamIndex (0..teamCount-1)
-    order.forEach((uid, i) => {
-      const cycle = Math.floor(i / teamCount);
-      const pos = i % teamCount;
-      assign[uid] = (cycle % 2 === 0) ? pos : (teamCount - 1 - pos); // snake for fairness
-    });
+    if (d.method === "manual") {
+      // Validate against the count the BUILDER used (d.manualTeamCount), not a freshly-derived one.
+      const chk = contestManualValidity(eligible, d.manualAssign || {}, d.manualTeamCount || teamCount);
+      if (!chk.ok) { showToast(chk.msg); return; }
+      order.forEach((uid) => { assign[uid] = d.manualAssign[uid]; });
+    } else {
+      order = contestShuffle(order);
+      order.forEach((uid, i) => {
+        const cycle = Math.floor(i / teamCount);
+        const pos = i % teamCount;
+        assign[uid] = (cycle % 2 === 0) ? pos : (teamCount - 1 - pos); // snake for fairness
+      });
+    }
     const days = challengeDuration(d.window).days;
     const now = new Date();
     const end = new Date(now.getTime() + days * 86400000);
 
-    // One source of truth for the button label — render() uses the same ternary, so any error-path
-    // restore puts back the RIGHT word ("Draft & start" in captains mode, never a stale "Auto-draft").
-    const createLabel = d.split === "captains" ? "Draft & start" : "Auto-draft " + teamCount + " teams";
-    const btn = document.querySelector("[data-contest-create]");
-    if (btn) { btn.disabled = true; btn.textContent = "Drafting…"; }
+    // One source of truth for the button label so any error-path restore puts back the right word.
+    const createLabel = d.method === "manual" ? "Start battle" : "Auto-draft " + teamCount + " teams";
+    const btn = document.querySelector("[data-contest-manual-start],[data-contest-create]");
+    if (btn) { btn.disabled = true; btn.textContent = d.method === "manual" ? "Starting…" : "Drafting…"; }
     const S = window.PointwellSignals;
     // Any failure must be LOUD: log the real error, restore the button to its real label, and show a
     // clear toast — a specific one if the compete tables aren't migrated yet. Never leave the user with
@@ -21051,9 +21137,243 @@
     }
   }
 
+  // ── Pick myself (manual team builder) ───────────────────────────────────────
+  const TEAM_DOTS = ["🟥", "🟦", "🟩", "🟨"];
+  // Validity of a manual assignment: everyone placed, no empty team, sizes within ±1.
+  function contestManualValidity(eligible, manualAssign, teamCount) {
+    const counts = new Array(teamCount).fill(0);
+    let unassigned = 0;
+    eligible.forEach((m) => {
+      const t = manualAssign[m.userId];
+      if (typeof t === "number" && t >= 0 && t < teamCount) counts[t]++; else unassigned++;
+    });
+    if (unassigned > 0) return { ok: false, msg: "Place everyone — " + unassigned + " still unassigned", counts, unassigned };
+    const min = Math.min.apply(null, counts), max = Math.max.apply(null, counts);
+    if (min === 0) return { ok: false, msg: "Every team needs at least one player", counts, unassigned };
+    if (max - min > 1) return { ok: false, msg: "Teams are uneven — keep them within 1 player", counts, unassigned };
+    return { ok: true, msg: "", counts, unassigned };
+  }
+  function openContestManualBuilder() {
+    const d = contestDraft; if (!d) return;
+    const community = (state.communities || []).find((c) => c.id === d.communityId); if (!community) return;
+    const eligible = contestEligibleMembers(community);
+    const opts = contestSplitOptions(eligible.length);
+    const split = opts.find((o) => o.id === d.split) || opts[0] || { teams: 2 };
+    d.method = "manual";
+    d.manualTeamCount = split.teams;
+    d.manualAssign = d.manualAssign || {};
+    renderContestManualBuilder();
+  }
+  // Tap-cycle a member: unassigned → team 0 → team 1 → … → team K-1 → unassigned.
+  function contestManualCycle(uid) {
+    const d = contestDraft; if (!d) return;
+    const community = (state.communities || []).find((c) => c.id === d.communityId); if (!community) return;
+    if (!contestEligibleMembers(community).some((m) => m.userId === uid)) return;
+    const teamCount = d.manualTeamCount || 2;
+    d.manualAssign = d.manualAssign || {};
+    const cur = d.manualAssign[uid];
+    if (typeof cur !== "number") d.manualAssign[uid] = 0;
+    else if (cur + 1 < teamCount) d.manualAssign[uid] = cur + 1;
+    else delete d.manualAssign[uid];
+    renderContestManualBuilder();
+  }
+  function renderContestManualBuilder() {
+    const d = contestDraft; if (!d) return;
+    const community = (state.communities || []).find((c) => c.id === d.communityId); if (!community) return;
+    const eligible = contestEligibleMembers(community);
+    const teamCount = d.manualTeamCount || 2;
+    const palette = TEAM_PALETTE.slice(0, teamCount);
+    const assign = d.manualAssign || {};
+    const chk = contestManualValidity(eligible, assign, teamCount);
+    const cap = Math.ceil(eligible.length / teamCount);
+    const nameOf = (m) => escapeHtml(m.isMe ? "You" : (m.name || "Member"));
+    const teamsHtml = palette.map((t, ti) => {
+      const members = eligible.filter((m) => assign[m.userId] === ti);
+      const chips = members.map((m) => `<button type="button" class="manual-chip is-on" style="--tc:${escapeHtml(t.color)}" data-contest-manual-cycle="${escapeHtml(m.userId)}">${nameOf(m)}<span class="manual-chip-x" aria-hidden="true">×</span></button>`).join("");
+      return `<div class="manual-team" style="--tc:${escapeHtml(t.color)}">
+          <div class="manual-team-head"><span class="manual-team-name">${TEAM_DOTS[ti] || "⬤"} ${escapeHtml(t.name)}</span><span class="manual-team-count">${members.length} / ${cap}</span></div>
+          <div class="manual-chips">${chips || `<span class="manual-empty">Tap a player below to add</span>`}</div>
+        </div>`;
+    }).join("");
+    const pool = eligible.filter((m) => typeof assign[m.userId] !== "number");
+    const poolHtml = pool.map((m) => `<button type="button" class="manual-chip" data-contest-manual-cycle="${escapeHtml(m.userId)}">${nameOf(m)}</button>`).join("");
+    const balance = chk.counts.join(" v ") + (chk.ok ? " · balanced" : (chk.unassigned ? " · " + chk.unassigned + " left" : " · uneven"));
+    openChallengeOverlay("contest-manual", "Build the teams", `
+      <div class="contest-team-head"><span class="contest-team-title">Build the teams</span><span class="manual-balance${chk.ok ? " is-ok" : ""}">${escapeHtml(balance)}</span></div>
+      ${teamsHtml}
+      <p class="contest-shared-lbl">Unassigned · tap to place</p>
+      <div class="manual-pool">${poolHtml || `<span class="manual-empty">Everyone's placed 🎉</span>`}</div>
+      <button type="button" class="primary-button" data-contest-manual-start${chk.ok ? "" : " disabled"}>Start battle</button>
+      <p class="challenge-send-note">Tap a player to move them between teams · tap again to unassign.</p>`);
+  }
+
+  // ── Captains draft (live) ────────────────────────────────────────────────────
+  async function createCaptainsDraftContest() {
+    const d = contestDraft; if (!d) return;
+    const community = (state.communities || []).find((c) => c.id === d.communityId); if (!community) return;
+    const myId = state.account && state.account.userId;
+    const eligible = contestEligibleMembers(community);
+    const caps = (d.captains || []).slice();
+    if (caps.length !== 2) { showToast("Pick 2 captains first"); return; }
+    const days = challengeDuration(d.window).days;
+    const now = new Date();
+    const end = new Date(now.getTime() + days * 86400000);
+    const btn = document.querySelector("[data-contest-start-draft]");
+    if (btn) { btn.disabled = true; btn.textContent = "Starting…"; }
+    const S = window.PointwellSignals;
+    const fail = (err, msg) => {
+      console.error("[compete] start captains draft failed:", err);
+      if (btn) { btn.disabled = false; btn.textContent = "Start draft →"; }
+      showToast(isMissingTableError(err) ? "Captains draft isn't set up yet — run the compete team-draft migration." : ((err && err.message) || msg || "Couldn't start the draft — try again"));
+    };
+    try {
+      const created = await Promise.resolve(S.createContest({
+        community_id: d.communityId, creator_user: myId, format: "team",
+        metric: d.metric || "points", scoring_mode: d.scoringMode || "total",
+        start_at: now.toISOString(), end_at: end.toISOString(), status: "drafting"
+      }));
+      if (!created || created.error || !created.contest) { fail(created && created.error, "Couldn't start the draft"); return; }
+      const contestId = created.contest.id;
+      const teamsRes = await Promise.resolve(S.addContestTeams(contestId, TEAM_PALETTE.slice(0, 2).map((t) => ({ name: t.name, color: t.color }))));
+      if (!teamsRes || teamsRes.error || !(teamsRes.teams || []).length) { await Promise.resolve(S.deleteContest(contestId)).catch(() => {}); fail(teamsRes && teamsRes.error, "Couldn't create teams — try again"); return; }
+      const teamIds = teamsRes.teams.map((t) => t.id);
+      // captains seed their own team (seed 0 / 1, is_captain); everyone else is the draft pool (team_id null).
+      const parts = [];
+      caps.forEach((uid, i) => parts.push({ user_id: uid, team_id: teamIds[i], seed: i, is_captain: true }));
+      eligible.filter((m) => caps.indexOf(m.userId) < 0).forEach((m) => parts.push({ user_id: m.userId, team_id: null, seed: null, is_captain: false }));
+      const pRes = await Promise.resolve(S.addContestParticipants(contestId, parts));
+      if (!pRes || pRes.error) { await Promise.resolve(S.deleteContest(contestId)).catch(() => {}); fail(pRes && pRes.error, "Couldn't seed the draft — try again"); return; }
+      // start the first pick's clock so a timeout auto-pick can flush even on pick 1.
+      await Promise.resolve(S.setContestStatus(contestId, { draft_deadline: new Date(Date.now() + 45000).toISOString() })).catch(() => {});
+      contestDraft = null;
+      closeChallengeOverlay();
+      await loadContestsFromDb();
+      saveState();
+      render();
+      showToast("Draft on — captains, pick your players 🎖️");
+      const fresh = contestById(contestId);
+      if (fresh) openContestDraft(fresh.id);
+    } catch (e) { fail(e, "Couldn't start the draft — try again"); }
+  }
+
+  // Live draft screen — polls the server (both captains see picks) + drives the per-pick clock + auto-pick.
+  let draftPollTimer = null, draftTickTimer = null, draftAutoInFlight = false, activeDraftId = "", draftRerendering = false;
+  function draftOverlayOpen() { return !!document.querySelector('[data-challenge-overlay] .contest-draft'); }
+  function draftClockMs(contest) { return contest && contest.draftDeadline ? Date.parse(contest.draftDeadline) : 0; }
+  function draftClockText(contest) {
+    const dl = draftClockMs(contest); if (!dl) return "—";
+    const left = Math.max(0, Math.round((dl - Date.now()) / 1000));
+    return Math.floor(left / 60) + ":" + String(left % 60).padStart(2, "0");
+  }
+  function openContestDraft(id) {
+    const contest = contestById(id); if (!contest) { showToast("That draft isn't available"); return; }
+    activeDraftId = id;
+    renderContestDraft(contest);
+    stopDraftPolling();
+    draftPollTimer = setInterval(() => refreshDraft(id), 4000);   // pull picks from the other captain
+    draftTickTimer = setInterval(() => tickDraft(id), 1000);      // countdown + timeout auto-pick
+  }
+  function stopDraftPolling() {
+    if (draftPollTimer) { clearInterval(draftPollTimer); draftPollTimer = null; }
+    if (draftTickTimer) { clearInterval(draftTickTimer); draftTickTimer = null; }
+  }
+  async function refreshDraft(id) {
+    if (activeDraftId !== id) return;                       // stale callback from an OLD draft — never touch the current timers
+    if (!draftOverlayOpen()) { stopDraftPolling(); return; }
+    await loadContestsFromDb();
+    if (activeDraftId !== id) return;                       // switched drafts during the await
+    if (!draftOverlayOpen()) { stopDraftPolling(); return; }
+    const c = contestById(id);
+    if (!c) { stopDraftPolling(); closeChallengeOverlay(); return; }
+    if (c.status !== "drafting") { stopDraftPolling(); activeDraftId = ""; openContestBattle(c.id); return; }
+    renderContestDraft(c);
+  }
+  function tickDraft(id) {
+    if (activeDraftId !== id) return;                       // stale interval — ignore
+    if (!draftOverlayOpen()) { stopDraftPolling(); return; }
+    const c = contestById(id); if (!c || c.status !== "drafting") return;
+    const el = document.querySelector('[data-challenge-overlay] .draft-clock');
+    if (el) el.textContent = draftClockText(c);
+    const dl = draftClockMs(c);
+    if (dl && Date.now() >= dl && !draftAutoInFlight) {
+      draftAutoInFlight = true;
+      Promise.resolve(window.PointwellSignals.draftAutopick(c.id)).catch(() => ({})).then(() => { draftAutoInFlight = false; refreshDraft(id); });
+    }
+  }
+  async function contestDraftPickPlayer(playerId) {
+    const c = activeDraftId ? contestById(activeDraftId) : null;
+    if (!c || c.status !== "drafting") return;
+    if (!contestIsMyDraftTurn(c)) { showToast("Hold on — it's the other captain's pick"); return; }
+    document.querySelectorAll('[data-contest-draft-pick]').forEach((b) => { b.disabled = true; });
+    const res = await Promise.resolve(window.PointwellSignals.draftPick(c.id, playerId)).catch((e) => ({ error: e || { message: "x" } }));
+    if (res && res.error) {
+      showToast(isMissingTableError(res.error) ? "Captains draft isn't set up yet — run the compete team-draft migration." : ((res.error.message || "").indexOf("not your turn") > -1 ? "It's the other captain's pick" : ((res.error.message || "").indexOf("not available") > -1 ? "Already drafted — pick another" : "Couldn't draft — try again")));
+    }
+    await refreshDraft(c.id);
+  }
+  function renderContestDraft(contest) {
+    const community = contestCommunity(contest);
+    const myId = state.account && state.account.userId;
+    const teams = contestDraftTeamsOrdered(contest);
+    const caps = contestCaptains(contest);
+    const pool = contestDraftPool(contest);
+    const assigned = contestDraftAssignedCount(contest);
+    const total = pool.length + assigned;
+    const onClock = contestDraftOnClockTeam(contest);
+    const onClockCap = contestDraftOnClockCaptain(contest);
+    const myTurn = contestIsMyDraftTurn(contest);
+    const iAmCap = contestIAmCaptain(contest);
+    const canManage = (myId && myId === contest.creatorUser) || (community && isCommunityAdmin(community));
+    const teamObj = (tid) => (contest.teams || []).find((t) => t.id === tid) || { name: "Team", color: "#3a6ea5" };
+    const nameOf = (uid) => escapeHtml(uid === myId ? "You" : contestMemberName(community, uid));
+    const avOf = (uid) => { const m = challengeMemberByUser(community, uid); return renderAvatar({ name: contestMemberName(community, uid), color: m && m.color, avatarUrl: m && m.avatarUrl, useNameColor: true, className: "draft-av" }); };
+
+    // on-clock banner
+    const bColor = teamObj(onClock).color || "#3a6ea5";
+    const bannerMain = myTurn ? (escapeHtml(teamObj(onClock).name) + "'s pick — you're on the clock")
+      : (escapeHtml(teamObj(onClock).name) + "'s pick — " + (onClockCap ? nameOf(onClockCap) : "captain") + " is choosing");
+    const banner = `<div class="draft-banner" style="--tc:${escapeHtml(bColor)}">
+        <span class="draft-banner-dot" style="background:${escapeHtml(bColor)}"></span>
+        <div class="draft-banner-main"><div class="draft-banner-title">${bannerMain}</div><div class="draft-banner-sub">${myTurn ? "tap a player below to draft them" : "snake order · you'll be up soon"}</div></div>
+        <span class="draft-clock">${draftClockText(contest)}</span>
+      </div>`;
+
+    // team columns (captain first, then drafted by seed)
+    const teamCols = teams.map((tid, ti) => {
+      const mem = (contest.participants || []).filter((p) => p.teamId === tid).sort((a, b) => numberOrDefault(a.seed, 0) - numberOrDefault(b.seed, 0));
+      const rows = mem.map((p) => `<div class="draft-team-row">${p.isCaptain ? `<span class="draft-cap" aria-hidden="true">🅒</span>` : ""}<span class="draft-team-name">${nameOf(p.userId)}</span></div>`).join("");
+      const status = (onClock === tid) ? `<div class="draft-team-status is-picking">— picking —</div>` : `<div class="draft-team-status">waiting…</div>`;
+      return `<div class="draft-team" style="--tc:${escapeHtml(teamObj(tid).color)}">
+          <div class="draft-team-head">${TEAM_DOTS[ti] || "⬤"} ${escapeHtml(teamObj(tid).name)}</div>
+          ${rows}${status}
+        </div>`;
+    }).join("");
+
+    // available pool
+    const poolRows = pool.map((p) => `<div class="draft-avail-row">
+        ${avOf(p.userId)}
+        <span class="draft-avail-name">${nameOf(p.userId)}</span>
+        ${myTurn ? `<button type="button" class="draft-pick-btn" data-contest-draft-pick="${escapeHtml(p.userId)}">Draft</button>` : `<span class="draft-avail-wait">waiting</span>`}
+      </div>`).join("");
+
+    // Re-render opens a fresh sheet; flag it so closeChallengeOverlay (called inside openChallengeOverlay)
+    // doesn't stop the poll that's driving this very re-render.
+    draftRerendering = true;
+    openChallengeOverlay("contest-draft", "Captains draft", `
+      <div class="contest-team-head"><span class="contest-team-title">🎖️ Draft</span><span class="contest-team-meta">snake order · pick ${Math.min(assigned + 1, total)} of ${total}</span></div>
+      ${banner}
+      <div class="draft-teams">${teamCols}</div>
+      <p class="contest-shared-lbl">Available · ${myTurn ? "tap to draft" : "your pick is coming"}</p>
+      <div class="draft-avail">${poolRows || `<span class="manual-empty">All drafted — starting…</span>`}</div>
+      <p class="challenge-send-note">${iAmCap ? "Auto-picks the top available if your clock runs out · " : ""}battle starts when both teams are full.</p>
+      ${canManage ? `<button type="button" class="ghost-button contest-cancel-btn" data-contest-cancel="${escapeHtml(String(contest.id))}">Cancel draft</button>` : ""}`);
+    draftRerendering = false;
+  }
+
   // ── Team battle view ──
   function openContestBattle(id) {
     const contest = contestById(id); if (!contest) { showToast("That contest isn't available"); return; }
+    if (contest.status === "drafting") { openContestDraft(contest.id); return; }
     if (contest.format === "tournament") openContestBracket(contest.id);
     else renderContestTeamBattle(contest);
   }
@@ -21102,6 +21422,22 @@
   // Hub card for a team contest (shown in the Compete hub's Live now / Past).
   function renderContestTeamCard(contest) {
     const community = contestCommunity(contest);
+    // Captains draft in progress → a "resume the draft" card instead of a score bar.
+    if (contest.status === "drafting") {
+      const pool = contestDraftPool(contest);
+      const total = pool.length + contestDraftAssignedCount(contest);
+      const mine = contestIsMyDraftTurn(contest) ? "your pick — you're on the clock" : (contestIAmCaptain(contest) ? "waiting on the other captain" : "draft in progress");
+      return `<button type="button" class="compete-card compete-card-team" data-contest-view="${escapeHtml(String(contest.id))}">
+          <div class="compete-team-top">
+            <span class="compete-card-ic" aria-hidden="true">🎖️</span>
+            <span class="compete-card-main">
+              <span class="compete-card-title"><strong>Captains draft</strong>${contestIsMyDraftTurn(contest) ? " · your pick 🔴" : ""}</span>
+              <span class="compete-card-sub">${escapeHtml(mine)} · pick ${Math.min(contestDraftAssignedCount(contest) + 1, total)} of ${total}</span>
+            </span>
+            <span class="compete-card-go">Open ›</span>
+          </div>
+        </button>`;
+    }
     const scores = (contest.teams || []).map((t) => contestTeamScore(contest, t, community)).sort((a, b) => b.value - a.value);
     const myTeam = contestMyTeam(contest);
     const ended = contestIsEnded(contest);

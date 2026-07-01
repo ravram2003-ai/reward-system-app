@@ -150,6 +150,19 @@ you know what's live in production.
   tournaments can't be created/read.**
   Applied to the live project (ref `ejoccpqbozgzixrejlhd`) on 2026-06-30; verified `contest_matches` table +
   4 policies (1 each) present, anon denied.
+- [x] **29. compete-team-draft.sql** — Compete: **captains draft** (a third way to form team-battle teams,
+  alongside auto-draft and pick-myself, which need no SQL). Additive: adds `'drafting'` to the
+  `contests.status` CHECK, `contest_participants.is_captain` (boolean), and `contests.draft_deadline`
+  (timestamptz per-pick clock). Server-validated picks via SECURITY DEFINER functions — `contest_on_clock_team`
+  (snake order over the 2 captain teams), `draft_pick(contest, player)` (the ON-CLOCK captain assigns an
+  available pool player to their team; validates drafting status + member + captain + turn + player-available;
+  seeds pick order; empties pool → status `active`), and `draft_autopick(contest)` (any member may flush a
+  TIMEOUT pick once `draft_deadline` passes, so an idle captain can't stall). Both lock the contest row to
+  serialize concurrent picks; anon (null auth.uid()) denied by every function. *(after #27 compete-contests —
+  needs `contests` / `contest_participants` / `is_community_member`)*. **Until this runs, captains draft can't
+  start (auto-draft + pick-myself still work).**
+  Applied to the live project (ref `ejoccpqbozgzixrejlhd`) on 2026-06-30; verified the CHECK includes
+  `'drafting'`, `is_captain` + `draft_deadline` columns present, 3 functions present, snake order test passed.
 
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).

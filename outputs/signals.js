@@ -1238,11 +1238,36 @@
     if (!sb || !UUID_RE.test(String(contestId)) || !Array.isArray(parts) || !parts.length) return { error: { message: "Couldn't add players." } };
     try {
       var rows = parts.filter(function (p) { return p && UUID_RE.test(String(p.user_id)); }).map(function (p) {
-        return { contest_id: contestId, user_id: p.user_id, team_id: p.team_id || null, seed: (typeof p.seed === "number" ? p.seed : null) };
+        return { contest_id: contestId, user_id: p.user_id, team_id: p.team_id || null, seed: (typeof p.seed === "number" ? p.seed : null), is_captain: !!p.is_captain };
       });
       if (!rows.length) return { error: { message: "No valid players." } };
       var res = await sb.from("contest_participants").insert(rows);
       return { error: res.error || null };
+    } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
+  }
+
+  // Captains draft (compete-team-draft.sql). The ON-CLOCK captain drafts an available pool player to
+  // their team — validated entirely server-side by the SECURITY DEFINER draft_pick(). Returns { error,
+  // status } where status is 'drafting' or 'active' (draft complete).
+  async function draftPick(contestId, playerId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(contestId)) || !UUID_RE.test(String(playerId))) return { error: { message: "Couldn't draft that player." } };
+    try {
+      var res = await sb.rpc("draft_pick", { p_contest: contestId, p_player: playerId });
+      if (res.error) return { error: res.error };
+      return { error: null, status: res.data || "drafting" };
+    } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
+  }
+
+  // Flush a TIMEOUT pick once the per-pick clock has passed — any member may call it (server no-ops if
+  // the deadline hasn't passed). Keeps a live draft moving when the on-clock captain is idle.
+  async function draftAutopick(contestId) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(contestId))) return { error: { message: "Couldn't advance the draft." } };
+    try {
+      var res = await sb.rpc("draft_autopick", { p_contest: contestId });
+      if (res.error) return { error: res.error };
+      return { error: null, status: res.data || "drafting" };
     } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
   }
 
@@ -1902,6 +1927,8 @@
     fetchMyContests: fetchMyContests,
     addContestTeams: addContestTeams,
     addContestParticipants: addContestParticipants,
+    draftPick: draftPick,
+    draftAutopick: draftAutopick,
     setContestStatus: setContestStatus,
     deleteContest: deleteContest,
     addContestMatches: addContestMatches,

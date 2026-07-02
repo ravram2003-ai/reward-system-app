@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260630-teamdraft">
+    <link rel="stylesheet" href="styles.css?v=20260702-refresh">
 
   </head>
   <body>
@@ -47,6 +47,10 @@
           <div class="brand-mark" aria-hidden="true">P</div>
           <h1 class="brand-title" id="headerTitle">Today</h1>
           <div class="header-cluster">
+            <button class="header-icon-btn coach-launcher" id="coachLauncher" type="button" aria-label="Coach" aria-expanded="false" aria-haspopup="dialog">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.6 4.2L18 8.8l-4.4 1.6L12 14.6l-1.6-4.2L6 8.8l4.4-1.6L12 3z"/><path d="M18.5 14l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7.7-1.9z"/></svg>
+              <span class="notif-bell-badge coach-launcher-badge" id="coachLauncherBadge" hidden>0</span>
+            </button>
             <button class="header-icon-btn" type="button" id="headerSearchButton" aria-label="Search">
               <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
             </button>
@@ -66,15 +70,15 @@
 
         <nav class="nav-tabs" aria-label="Primary views">
           <button class="nav-tab active" type="button" data-view="dashboard" aria-label="Today">
-            <span class="tab-icon" aria-hidden="true">⌂</span>
+            <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1z"/></svg></span>
             <span>Today</span>
           </button>
           <button class="nav-tab" type="button" data-view="feed" aria-label="Feed">
-            <span class="tab-icon" aria-hidden="true">☰</span>
+            <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span>
             <span>Feed</span>
           </button>
           <button class="nav-tab" type="button" data-view="systems" aria-label="Build and Edit">
-            <span class="tab-icon" aria-hidden="true">◎</span>
+            <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg></span>
             <span>Build</span>
           </button>
           <button class="nav-tab nav-tab-profile" type="button" data-view="profile-page" aria-label="Profile">
@@ -82,6 +86,7 @@
             <span>Profile</span>
           </button>
         </nav>
+        <div class="sidebar-modules" id="sidebarModules" hidden></div>
 
         <div class="sidebar-footer">
           <span id="todayLabel"></span>
@@ -102,7 +107,7 @@
               <button class="ghost-button" type="button" id="openCommunityButton" hidden>Open Community</button>
               <button class="ghost-button" type="button" id="editSystemButton" hidden>Edit System</button>
               <button class="primary-button" type="button" id="saveEntryButton">
-                <span aria-hidden="true">✓</span>
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
                 <span>Save day</span>
               </button>
             </div>
@@ -114,7 +119,8 @@
 
           <!-- Bubble-tile home: one tile per world (community / personal system). -->
           <div class="world-grid" id="worldGrid" aria-label="Your worlds"></div>
-          <p class="world-grid-hint" id="worldGridHint" hidden>tap = open · hold = move &amp; resize</p>
+          <div class="kbd-hint" aria-hidden="true"><span><kbd>N</kbd> new entry</span><span><kbd>⌘K</kbd> quick log</span><span><kbd>1</kbd>–<kbd>4</kbd> switch tabs</span></div>
+          <div class="edit-layout-row" id="worldGridHint" hidden><button class="edit-layout-pill" type="button" id="editLayoutPill"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Edit layout</button></div>
 
           <!-- Per-system detail (score hero + analytics). Hidden on the tile home; still
                rendered for data + reused by the Add Entry view. -->
@@ -144,12 +150,12 @@
 
           <button class="analytics-toggle" type="button" id="analyticsToggle" aria-expanded="false" aria-controls="dashboardAnalytics">
             <span>See full breakdown &amp; charts</span>
-            <span class="analytics-toggle-caret" aria-hidden="true">›</span>
+            <span class="analytics-toggle-caret" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span>
           </button>
 
           <div class="dashboard-analytics" id="dashboardAnalytics" hidden>
             <section class="tool-panel daily-insight-card" id="dailyInsightCard" aria-labelledby="dailyInsightTitle">
-              <span class="daily-insight-icon" aria-hidden="true">◗</span>
+              <span class="daily-insight-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l1.8 5.6H19l-4.4 3.2 1.7 5.4L12 12.9l-4.3 3.3 1.7-5.4L5 7.6h5.2z"/></svg></span>
               <div class="daily-insight-main">
                 <span class="eyebrow" id="dailyInsightTitle">Daily Insight</span>
                 <p class="daily-insight-text" id="dailyInsightText">Log your first entry to see today's insight.</p>
@@ -224,7 +230,7 @@
               <button type="button" class="primary-button" id="quickLogSubmit">Log it</button>
             </div>
             <div class="quick-log-secondary">
-              <button type="button" class="ghost-button small" id="quickLogSnapButton"><span aria-hidden="true">📷</span> Snap a photo</button>
+              <button type="button" class="ghost-button small" id="quickLogSnapButton"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Snap a photo</button>
               <span class="quick-log-hint" id="quickLogHint"></span>
             </div>
             <input type="file" accept="image/*" id="quickLogMealInput" hidden>
@@ -330,21 +336,21 @@
               <h2 class="build-intent-title">What do you want to build?</h2>
               <p class="build-intent-lead">Tell us a goal in your own words. We'll spin up a reward system, find a public one that fits, or start you from scratch.</p>
               <form class="build-intent-box" id="buildIntentForm">
-                <span class="build-intent-spark" aria-hidden="true">✦</span>
+                <span class="build-intent-spark" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l1.8 5.6H19l-4.4 3.2 1.7 5.4L12 12.9l-4.3 3.3 1.7-5.4L5 7.6h5.2z"/></svg></span>
                 <input id="buildIntentInput" type="text" autocomplete="off" aria-label="Describe your goal" placeholder="e.g. Run 3 times a week with the boys…">
-                <button class="primary-button build-intent-go" type="submit" id="buildIntentSubmit">Build it <span aria-hidden="true">→</span></button>
+                <button class="primary-button build-intent-go" type="submit" id="buildIntentSubmit">Build it <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>
               </form>
               <div class="build-intent-chips" id="buildIntentChips">
-                <button class="build-intent-chip" type="button" data-intent="Run 3 times a week">🏃 Run 3x a week</button>
-                <button class="build-intent-chip" type="button" data-intent="Study for finals">📚 Study for finals</button>
-                <button class="build-intent-chip" type="button" data-intent="Sleep before midnight">😴 Sleep before midnight</button>
-                <button class="build-intent-chip" type="button" data-intent="10,000 steps daily">👟 10k steps daily</button>
-                <button class="build-intent-chip" type="button" data-intent="Gym 4 times a week">💪 Gym 4x a week</button>
+                <button class="build-intent-chip" type="button" data-intent="Run 3 times a week">Run 3x a week</button>
+                <button class="build-intent-chip" type="button" data-intent="Study for finals">Study for finals</button>
+                <button class="build-intent-chip" type="button" data-intent="Sleep before midnight">Sleep before midnight</button>
+                <button class="build-intent-chip" type="button" data-intent="10,000 steps daily">10k steps daily</button>
+                <button class="build-intent-chip" type="button" data-intent="Gym 4 times a week">Gym 4x a week</button>
               </div>
               <div class="build-intent-routes" id="buildIntentLinks">
-                <button class="build-intent-route" type="button" data-intent-route="ai"><span aria-hidden="true">✦</span> AI builds it for you</button>
-                <button class="build-intent-route" type="button" data-intent-route="search"><span aria-hidden="true">⌕</span> Find a public template</button>
-                <button class="build-intent-route" type="button" data-intent-route="scratch"><span aria-hidden="true">＋</span> Or start from scratch</button>
+                <button class="build-intent-route" type="button" data-intent-route="ai"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l1.8 5.6H19l-4.4 3.2 1.7 5.4L12 12.9l-4.3 3.3 1.7-5.4L5 7.6h5.2z"/></svg> AI builds it for you</button>
+                <button class="build-intent-route" type="button" data-intent-route="search"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg> Find a public template</button>
+                <button class="build-intent-route" type="button" data-intent-route="scratch"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg> Or start from scratch</button>
               </div>
             </div>
             <div class="build-intent-divider"></div>
@@ -493,14 +499,14 @@
                     <span class="world-media-label">Cover photo</span>
                     <button type="button" class="world-media-thumb world-media-cover" id="systemCoverThumb" aria-label="Change cover photo">
                       <img id="systemCoverImg" alt="" hidden>
-                      <span class="world-media-thumb-hint" aria-hidden="true">＋ Cover</span>
+                      <span class="world-media-thumb-hint" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg> Cover</span>
                     </button>
                   </div>
                   <div class="world-media-field">
                     <span class="world-media-label">App icon</span>
                     <button type="button" class="world-media-thumb world-media-icon" id="systemIconThumb" aria-label="Change app icon">
                       <img id="systemIconImg" alt="" hidden>
-                      <span class="world-media-thumb-hint" aria-hidden="true">＋</span>
+                      <span class="world-media-thumb-hint" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span>
                     </button>
                   </div>
                 </div>
@@ -712,7 +718,7 @@
                 </details>
 
                 <button class="secondary-button add-rule-button wide-field" type="submit">
-                  <span aria-hidden="true">＋</span>
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                   <span id="ruleSubmitLabel">Add rule</span>
                 </button>
               </form>
@@ -760,7 +766,7 @@
                   </label>
                   <div class="calc-input-list" id="calcTotalInputList"></div>
                   <button class="secondary-button" type="submit">
-                    <span aria-hidden="true">＋</span>
+                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                     <span>Add calculated total</span>
                   </button>
                 </form>
@@ -830,7 +836,7 @@
           </div>
           <form class="community-search-bar" id="headerSearchForm" role="search">
             <div class="community-search-field">
-              <span class="community-search-icon" aria-hidden="true">⌕</span>
+              <span class="community-search-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>
               <input id="headerSearchInput" type="search" autocomplete="off" placeholder="Search communities, people, and systems…" aria-label="Search communities, people, and reward systems">
             </div>
           </form>
@@ -847,7 +853,7 @@
 
           <form class="community-search-bar" id="communitySearchForm" role="search">
             <div class="community-search-field">
-              <span class="community-search-icon" aria-hidden="true">⌕</span>
+              <span class="community-search-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>
               <input id="communitySearchInput" type="search" autocomplete="off" placeholder="Search communities by name…" aria-label="Search communities by name">
             </div>
           </form>
@@ -1039,7 +1045,7 @@
                 </section>
 
                 <button class="secondary-button add-rule-button wide-field" type="submit">
-                  <span aria-hidden="true">＋</span>
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                   <span id="ccRuleSubmitLabel">Add rule</span>
                 </button>
               </form>
@@ -1050,7 +1056,7 @@
                   <span id="ccRuleAddedText">Rule added — nice work!</span>
                 </div>
                 <button class="primary-button add-another-rule-button wide-field" type="button" id="ccAddAnotherRuleButton">
-                  <span aria-hidden="true">＋</span>
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                   <span>Add another rule</span>
                 </button>
                 <p class="cc-rule-done-hint">All set? Tap <strong>Next: Review</strong> below to finish.</p>
@@ -1078,8 +1084,8 @@
           <!-- Cover banner (cover_url or default gradient). Back overlaid; owner cover controls. -->
           <div class="world-banner" id="worldBanner">
             <img class="world-banner-img" id="worldBannerImg" alt="" hidden>
-            <button class="world-banner-pill world-banner-back" type="button" id="backToCommunitiesButton" aria-label="Back"><span aria-hidden="true">‹</span> Back</button>
-            <button class="world-banner-pill world-cover-edit" type="button" id="worldCoverEdit" hidden><span aria-hidden="true">✎</span> Cover</button>
+            <button class="world-banner-pill world-banner-back" type="button" id="backToCommunitiesButton" aria-label="Back"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg> Back</button>
+            <button class="world-banner-pill world-cover-edit" type="button" id="worldCoverEdit" hidden><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg> Cover</button>
           </div>
 
           <div class="world-detail-body">
@@ -1087,7 +1093,7 @@
               <div class="world-icon" id="worldIcon">
                 <img class="world-icon-img" id="worldIconImg" alt="" hidden>
                 <span class="world-icon-fallback" id="worldIconFallback" aria-hidden="true">W</span>
-                <button class="world-icon-edit" type="button" id="worldIconEdit" aria-label="Change app icon" hidden><span aria-hidden="true">📷</span></button>
+                <button class="world-icon-edit" type="button" id="worldIconEdit" aria-label="Change app icon" hidden><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>
               </div>
               <div class="world-head-main">
                 <strong class="world-name" id="worldName">World</strong>
@@ -1201,14 +1207,14 @@
                   <span class="world-media-label">Cover photo</span>
                   <button type="button" class="world-media-thumb world-media-cover" id="communityCoverThumb" aria-label="Change cover photo">
                     <img id="communityCoverImg" alt="" hidden>
-                    <span class="world-media-thumb-hint" aria-hidden="true">＋ Cover</span>
+                    <span class="world-media-thumb-hint" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg> Cover</span>
                   </button>
                 </div>
                 <div class="world-media-field">
                   <span class="world-media-label">App icon</span>
                   <button type="button" class="world-media-thumb world-media-icon" id="communityIconThumb" aria-label="Change app icon">
                     <img id="communityIconImg" alt="" hidden>
-                    <span class="world-media-thumb-hint" aria-hidden="true">＋</span>
+                    <span class="world-media-thumb-hint" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span>
                   </button>
                 </div>
               </div>
@@ -1293,7 +1299,7 @@
               </div>
               <div class="input-stack" id="communityInputList"></div>
               <button class="primary-button" type="button" id="saveCommunityEntryButton">
-                <span aria-hidden="true">✓</span>
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
                 <span>Save community day</span>
               </button>
             </section>
@@ -1330,7 +1336,7 @@
 
           <div class="friends-toolbar">
             <button class="secondary-button small" type="button" id="friendsAddButton">
-              <span aria-hidden="true">＋</span><span>Add friend</span>
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg><span>Add friend</span>
               <span class="toolbar-badge" id="friendsAddBadge" hidden>0</span>
             </button>
           </div>
@@ -1377,7 +1383,7 @@
               <span aria-hidden="true">✉</span><span>New message</span>
             </button>
             <button class="secondary-button small" type="button" id="chatsAddFriendButton">
-              <span aria-hidden="true">＋</span><span>Add friend</span>
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg><span>Add friend</span>
               <span class="toolbar-badge" id="chatsFriendReqBadge" hidden>0</span>
             </button>
           </div>
@@ -1422,7 +1428,7 @@
               <h2 id="profileTitle">Profile and privacy</h2>
             </div>
             <button class="primary-button" type="button" id="saveProfileButton">
-              <span aria-hidden="true">✓</span>
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
               <span>Save profile</span>
             </button>
           </div>
@@ -1431,7 +1437,7 @@
             <div class="profile-avatar-attach">
               <div class="large-avatar" id="largeAvatar" aria-hidden="true">AR</div>
               <button class="profile-avatar-edit" type="button" id="profileAvatarEditButton" aria-haspopup="true" aria-expanded="false" aria-label="Change profile picture">
-                <span aria-hidden="true">📷</span>
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
               </button>
               <div class="profile-avatar-menu" id="profileAvatarMenu" role="menu" hidden>
                 <button type="button" role="menuitem" data-avatar-pick="camera">Take photo</button>
@@ -1459,7 +1465,7 @@
                 <span>Cover photo</span>
                 <button type="button" class="profile-cover-thumb is-empty" id="profileCoverThumb" aria-label="Change cover photo">
                   <span class="profile-cover-scrim" aria-hidden="true"></span>
-                  <span class="profile-cover-btn"><span id="profileCoverBtnLabel">📷 Add cover photo</span></span>
+                  <span class="profile-cover-btn"><span id="profileCoverBtnLabel"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Add cover photo</span></span>
                 </button>
                 <span class="profile-bio-help">Shows as the banner at the top of your profile.</span>
                 <input type="file" accept="image/*" id="profileCoverLibraryInput" hidden>
@@ -1480,6 +1486,10 @@
                 <span>Auto-count my connected-device data (Fitbit/Whoop) on login</span>
               </label>
             </form>
+          <div class="profile-savebar" id="profileSavebar" hidden>
+            <button class="ghost-button profile-savebar-cancel" type="button" id="profileSavebarCancel">Cancel</button>
+            <button class="primary-button profile-savebar-save" type="button" id="profileSavebarSave">Save profile</button>
+          </div>
           </section>
 
           <section class="section-band integrations-panel" aria-labelledby="integrationsTitle">
@@ -1517,10 +1527,6 @@
       </button>
 
       <!-- Coach: floating bottom-left launcher + proactive peek bubble + pop-out chat panel -->
-      <button class="coach-launcher" id="coachLauncher" type="button" aria-label="Coach" aria-expanded="false" aria-haspopup="dialog">
-        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.6 4.2L18 8.8l-4.4 1.6L12 14.6l-1.6-4.2L6 8.8l4.4-1.6L12 3z"/><path d="M18.5 14l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7.7-1.9z"/></svg>
-        <span class="coach-launcher-badge" id="coachLauncherBadge" hidden>0</span>
-      </button>
       <div class="coach-peek" id="coachPeek" role="status" aria-live="polite" hidden></div>
 
       <div class="coach-panel" id="coachPanel" role="dialog" aria-label="Coach" hidden>
@@ -1532,7 +1538,7 @@
           <button class="coach-proactive-toggle" id="coachProactiveToggle" type="button" aria-pressed="true" title="Proactive nudges on — tap to turn off">
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
           </button>
-          <button class="coach-panel-close" id="coachPanelClose" type="button" aria-label="Close Coach">✕</button>
+          <button class="coach-panel-close" id="coachPanelClose" type="button" aria-label="Close Coach"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
         </div>
         <div class="coach-thread" id="coachThread" aria-live="polite"></div>
         <form class="coach-input-row" id="coachForm">
@@ -1556,13 +1562,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260630-teamdraft"></script>
-    <script src="auth-helpers.js?v=20260630-teamdraft"></script>
-    <script src="scoring.js?v=20260630-teamdraft"></script>
-    <script src="insight.js?v=20260630-teamdraft"></script>
-    <script src="signals.js?v=20260630-teamdraft"></script>
-    <script src="wearables.js?v=20260630-teamdraft"></script>
-    <script type="module" src="auth.js?v=20260630-teamdraft"></script>
-    <script src="app.js?v=20260630-teamdraft"></script>
+    <script src="supabase-config.js?v=20260702-refresh"></script>
+    <script src="auth-helpers.js?v=20260702-refresh"></script>
+    <script src="scoring.js?v=20260702-refresh"></script>
+    <script src="insight.js?v=20260702-refresh"></script>
+    <script src="signals.js?v=20260702-refresh"></script>
+    <script src="wearables.js?v=20260702-refresh"></script>
+    <script type="module" src="auth.js?v=20260702-refresh"></script>
+    <script src="app.js?v=20260702-refresh"></script>
   </body>
 </html>

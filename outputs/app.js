@@ -774,7 +774,7 @@
         <div class="onboard-avatar-row">
           <div class="profile-avatar-attach onboard-avatar-attach">
             <div class="large-avatar onboard-avatar-square" id="onboardAvatarPreview" aria-hidden="true">${avatarInner}</div>
-            <button class="profile-avatar-edit" type="button" data-onboard="avatar-pick" aria-label="Add a photo"><span aria-hidden="true">📷</span></button>
+            <button class="profile-avatar-edit" type="button" data-onboard="avatar-pick" aria-label="Add a photo">${svgIcon("camera", "icon-xs")}</button>
             <input type="file" accept="image/*" data-onboard-field="avatar" hidden>
           </div>
           <div class="onboard-avatar-text">
@@ -1055,7 +1055,7 @@
     const ruleChips = (draft.rules || []).slice(0, 6).map((rule) => {
       const pts = numberOrDefault(draftPrimaryPoints(rule), 0);
       const ptsLabel = (pts < 0 ? "−" : "+") + formatPoints(Math.abs(pts));
-      return `<span class="onboard-rule-chip">${draftRuleIcon(rule)} ${escapeHtml(rule.label || "Rule")} <span class="onboard-rule-chip-pts">${escapeHtml(ptsLabel)}</span></span>`;
+      return `<span class="onboard-rule-chip">${ruleIconSvg(rule, "icon-xs")} ${escapeHtml(rule.label || "Rule")} <span class="onboard-rule-chip-pts">${escapeHtml(ptsLabel)}</span></span>`;
     }).join("");
     return `
       <div class="onboard-feat onboard-system-feat">
@@ -1095,11 +1095,11 @@
     const joined = onboardingJoinedIds.includes(id) || isCommunityJoined(row.id);
     const count = Number(row.member_count) || 0;
     const name = row.name || "Community";
-    // Deterministic green/purple avatar tint so the list has the demo's varied look.
-    const purple = (name.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 2) === 1;
+    // Deterministic alternating avatar tint so the list has the demo varied look.
+    const alt = (name.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 2) === 1;
     return `
       <article class="find-community-card onboard-community-card">
-        <div class="onboard-result-av${purple ? " onboard-result-av-purple" : ""}" aria-hidden="true">${escapeHtml(getInitials(name))}</div>
+        <div class="onboard-result-av${alt ? " onboard-result-av-alt" : ""}" aria-hidden="true">${escapeHtml(getInitials(name))}</div>
         <div class="find-community-main">
           <div class="onboard-result-head">
             <strong>${escapeHtml(name)}</strong>
@@ -3571,6 +3571,73 @@
     });
   }
 
+  // ── Desktop keyboard shortcuts: 1–4 tabs · n new entry · / or ⌘K AI quick-log ──
+  (function bindEditLayoutPill() {
+    const pill = document.getElementById("editLayoutPill");
+    if (pill) pill.addEventListener("click", () => { showToast("Hold a tile, then drag to move it — corners resize"); });
+  })();
+  (function bindProfileSavebar() {
+    const save = document.getElementById("profileSavebarSave");
+    const cancel = document.getElementById("profileSavebarCancel");
+    if (save) save.addEventListener("click", () => { const b = document.getElementById("saveProfileButton"); if (b) b.click(); });
+    if (cancel) cancel.addEventListener("click", () => { const b = document.getElementById("backFromProfileEditButton"); if (b) b.click(); else { state.activeView = "profile-page"; saveState(); render(); } });
+  })();
+  document.addEventListener("keydown", (e) => {
+    const t = e.target;
+    const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+    if ((e.metaKey || e.ctrlKey) && String(e.key).toLowerCase() === "k") {
+      e.preventDefault(); openAddEntryPage(); return;
+    }
+    if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === "/") { e.preventDefault(); openAddEntryPage(); return; }
+    if (e.key === "n") { e.preventDefault(); openPostComposer(); return; }
+    if (/^[1-4]$/.test(e.key)) {
+      const tabs = document.querySelectorAll(".nav-tab");
+      const tab = tabs[Number(e.key) - 1];
+      if (tab) { e.preventDefault(); tab.click(); }
+    }
+  });
+
+  // ── Desktop sidebar modules: streak · today's schedule mini-checklist · this-week leaderboard ──
+  function renderSidebarModules() {
+    const mount = document.getElementById("sidebarModules");
+    if (!mount) return;
+    try {
+      const ctx = streakActiveContext();
+      const probe = ctx ? streakContextProbe(ctx) : null;
+      const streak = ctx ? coachContextStreak(ctx) : 0;
+      const ms = streakMilestoneInfo(streak);
+      const streakHtml = ctx ? `<div class="sb-module"><h4>Streak</h4><div class="sb-streak">${svgIcon("flame", "icon-sm")}<div><strong class="num">${escapeHtml(String(streak))}-day streak</strong><span>${ms.next ? escapeHtml(String(ms.daysTo)) + " days to milestone" : "100-day legend"}</span></div></div></div>` : "";
+      // Today's schedule: the primary world's rules with done state.
+      const world = (state.communities || [])[0] || null;
+      let schedHtml = "";
+      if (world && world.system && Array.isArray(world.system.rules) && world.system.rules.length) {
+        const vals = communityValuesForMember(world.id, "me", getTodayKey());
+        const rows = world.system.rules.slice(0, 4).map((raw) => {
+          const rule = scoring.normalizeRule(raw);
+          const cur = numberOrDefault(vals[rule.id], 0);
+          const goal = numberOrDefault(rule.goal || rule.target || rule.threshold, 0);
+          const done = goal > 0 ? cur >= goal : cur > 0;
+          const detail = goal > 0 ? ` · <span class="num">${formatCount(cur)} / ${formatCount(goal)}</span>` : "";
+          return `<div class="sb-check${done ? " done" : ""}"><span class="cbox">${done ? svgIcon("check", "icon-xs") : ""}</span><span>${escapeHtml(rule.label || "Rule")}${detail}</span></div>`;
+        }).join("");
+        schedHtml = `<div class="sb-module"><h4>Today's schedule</h4>${rows}</div>`;
+      }
+      // Mini leaderboard: this week's top members of the primary community.
+      let lbHtml = "";
+      if (world && Array.isArray(world.members) && world.members.length > 1) {
+        const rows = world.members.slice(0, 5).map((m) => ({
+          m, pts: roundScore(communityTotalAcrossDates(world, m.id === "me" ? "me" : (m.userId || m.id)))
+        })).sort((a, b) => b.pts - a.pts).slice(0, 3).map(({ m, pts }) =>
+          `<div class="lb-row">${renderAvatar({ name: m.name, color: m.color, avatarUrl: m.avatarUrl, useNameColor: true, className: "lb-avatar" })}<span>${escapeHtml(m.id === "me" ? "You" : (m.name || "Member"))}</span><b class="num">${escapeHtml(String(pts))}</b></div>`).join("");
+        lbHtml = rows ? `<div class="sb-module"><h4>This week</h4>${rows}</div>` : "";
+      }
+      const html = streakHtml + schedHtml + lbHtml;
+      mount.innerHTML = html;
+      mount.hidden = !html;
+    } catch (e) { mount.hidden = true; }
+  }
+
   function render() {
     // An open post overlay floats over the current screen; a navigation that changed the view dismisses it
     // (background re-renders that keep the same view leave it intact). Tap-out/X/swipe/Esc close it directly.
@@ -4255,7 +4322,7 @@
     // Photo attach only exists in post mode (a quiet log has no photo).
     var photoSlot = pc.previewUrl
       ? `<div class="pc-photo has-photo"><img src="${escapeHtml(pc.previewUrl)}" alt="Post photo preview"><button type="button" class="pc-photo-remove" data-pc-photo-remove aria-label="Remove photo">×</button></div>`
-      : `<button type="button" class="pc-photo pc-photo-add" data-pc-photo aria-label="Add a photo"><span class="pc-photo-cam" aria-hidden="true">📷</span><span class="pc-photo-text">Photo</span></button>`;
+      : `<button type="button" class="pc-photo pc-photo-add" data-pc-photo aria-label="Add a photo"><span class="pc-photo-cam" aria-hidden="true">${svgIcon("camera")}</span><span class="pc-photo-text">Photo</span></button>`;
 
     var activityChips = (pc.activity || []).map(renderPostComposerActivityChip).join("");
     var parsingChip = postComposerParsing ? `<span class="pc-chip pc-chip-loading"><span class="pc-spinner" aria-hidden="true"></span>Reading…</span>` : "";
@@ -4327,21 +4394,21 @@
         <label class="pc-caption-wrap">
           <textarea data-pc-caption class="pc-caption" rows="${sharing ? 3 : 2}" maxlength="${POST_CAPTION_MAX}" placeholder="${sharing ? "Write a caption…" : "What did you do? e.g. leg day with the boys, 8000 steps"}">${escapeHtml(pc.caption || "")}</textarea>
           <div class="pc-caption-bar">
-            <button type="button" class="pc-cap-btn pc-cap-cam" data-pc-snap aria-label="Snap a meal or workout for the AI to estimate"><span aria-hidden="true">📷</span></button>
-            <span class="pc-caption-foot"><span aria-hidden="true">✨</span> ${sharing ? "Caption · AI reads it for activity" : "Type, or snap a photo"}${postComposerParsing ? " · reading…" : ""}</span>
+            <button type="button" class="pc-cap-btn pc-cap-cam" data-pc-snap aria-label="Snap a meal or workout for the AI to estimate">${svgIcon("camera", "icon-xs")}</button>
+            <span class="pc-caption-foot">${svgIcon("sparkle", "icon-xs")} ${sharing ? "Caption · AI reads it for activity" : "Type, or snap a photo"}${postComposerParsing ? " · reading…" : ""}</span>
             <button type="button" class="pc-cap-btn pc-caption-submit" data-pc-caption-submit aria-label="Log activity"><span aria-hidden="true">↑</span></button>
           </div>
         </label>
       </div>
 
-      <div class="pc-section-label">Attached from your log</div>
-      <div class="pc-activity">${activityChips}${parsingChip}</div>
+      ${(activityChips || parsingChip) ? `<div class="pc-section-label">Attached from your log</div>
+      <div class="pc-activity">${activityChips}${parsingChip}</div>` : ""}
       <div class="pc-add-manual-row">${addManualLink}</div>
       ${addPicker}
       ${activityHint}
 
-      <div class="pc-section-label pc-dests-label">${sharing ? "Posts to" : "Counts toward"}</div>
-      <div class="pc-dests">${destRows}</div>
+      ${destRows ? `<div class="pc-section-label pc-dests-label">${sharing ? "Posts to" : "Counts toward"}</div>
+      <div class="pc-dests">${destRows}</div>` : ""}
       ${altBtn}
       ${altPicker}
       ${destHint}
@@ -4364,7 +4431,7 @@
     var unit = act.unit && !act.isYesNo ? `<span class="pc-chip-unit">${escapeHtml(act.unit)}</span>` : "";
     return `
       <span class="pc-chip pc-chip-activity" data-pc-chip="${escapeHtml(act._id)}">
-        <span class="pc-chip-emoji" aria-hidden="true">${escapeHtml(act.emoji || "◆")}</span>
+        <span class="pc-chip-emoji" aria-hidden="true">${ruleIconSvg(act.label, "icon-xs")}</span>
         <span class="pc-chip-label">${escapeHtml(act.label)}</span>
         ${amountHtml}${unit}
         <button type="button" class="pc-chip-x" data-pc-chip-remove="${escapeHtml(act._id)}" aria-label="Remove ${escapeHtml(act.label)}">×</button>
@@ -4397,7 +4464,7 @@
     }
     var icon = t.type === "profile"
       ? `<span class="pc-dest-icon pc-dest-icon-profile" aria-hidden="true">👤</span>`
-      : `<span class="pc-dest-icon" aria-hidden="true">${escapeHtml(t.emoji || "🌐")}</span>`;
+      : `<span class="pc-dest-icon" aria-hidden="true">${t.emoji ? ruleIconSvg(t.emojiLabel || t.name || "", "icon-xs") : svgIcon("globe", "icon-xs")}</span>`;
     return `
       <button type="button" class="pc-dest-row${t.on ? " is-on" : ""}" data-pc-target="${escapeHtml(t.key)}" role="switch" aria-checked="${t.on ? "true" : "false"}">
         ${icon}
@@ -4723,7 +4790,7 @@
     }
     els.friendsList.innerHTML = friendsDetailed.length
       ? friendsDetailed.map(renderFriendListRow).join("")
-      : emptyState("No friends yet. Tap “Add friend” to send a request.");
+      : emptyState("Friends make streaks stick.", { label: "Find friends", action: "find-friends", icon: "users" });
   }
 
   function renderFriendListRow(f) {
@@ -5374,7 +5441,7 @@
   }
 
   // The SAME circular progress ring on every tile/size: a donut with "X/Y" centered inside.
-  // Per-type colour comes from CSS (.tile-community / .tile-personal stroke the fill green/purple).
+  // Per-type colour comes from CSS (.tile-community / .tile-personal — both stroke teal now).
   function renderWorldRing(t, size) {
     const target = numberOrDefault(t.target, 0);
     const pct = Math.min(Math.max(numberOrDefault(t.percent, 0), 0), 100);
@@ -5427,7 +5494,7 @@
     const hasCover = !!t.coverPath;
     const initials = escapeHtml((getInitials(t.name) || "W").slice(0, 2));
     // LARGE + MEDIUM: render the cover banner ONLY when the world has a real cover photo. With no
-    // cover we keep the original compact tile (ring + name inline on the solid green/purple
+    // cover we keep the original compact tile (ring + name inline on the solid teal
     // gradient, then sections) — see work/home-widget-demo.html — so the tile stays its old size.
     // An uploaded icon may still show inline next to the ring; icon-less worlds match the demo 1:1.
     const inlineIcon = (!hasCover && t.iconPath)
@@ -5468,7 +5535,7 @@
     // bottom. Cover/icon paint async (signed URLs) via paintWorldTilesMedia; gradient + initials
     // fallback. Owner of a no-cover world sees a subtle "Add a cover ＋" nudge instead of the bar.
     const pct = Math.min(Math.max(numberOrDefault(t.percent, 0), 0), 100);
-    const fillColor = t.type === "community" ? "#3ddc97" : "#9a7fe0";
+    const fillColor = "#3ddc97"; // teal is the only progress color (personal + community alike)
     const metaLine = (!t.coverPath && t.ownerIsMe)
       ? `<span class="world-tile-stat world-tile-add-cover">Add a cover ＋</span>`
       : `<span class="world-tile-stat">${renderWorldStat(t, false)}</span><div class="world-tile-bar"><i style="width:${pct}%;background:${fillColor}"></i></div>`;
@@ -5612,7 +5679,7 @@
       .slice()
       .sort((a, b) => String(b.timestamp || b.dateKey || b.date || "").localeCompare(String(a.timestamp || a.dateKey || a.date || "")))
       .slice(0, limit || 3);
-    if (!posts.length) return `<p class="world-section-empty">No posts yet — log a day to start the feed.</p>`;
+    if (!posts.length) return emptyState("Check-ins with a note or photo show up here.", { label: "Log with a photo", action: "log-photo", icon: "camera" });
     const rules = (community.system && community.system.rules || []).map(scoring.normalizeRule);
     return posts.map((e) => {
       const member = (community.members || []).find((m) => m.id === e.userId) || { name: "Member" };
@@ -5937,7 +6004,7 @@
       els.scoreBreakdown.innerHTML = "";
       els.weeklyChartCount.textContent = "0 charts";
       els.weeklyChartList.innerHTML = emptyState("Create a reward system to see weekly progress.");
-      els.liveScore.textContent = "0/0";
+      els.liveScore.textContent = "0 / 0";
       if (els.scoreRingFill) els.scoreRingFill.style.strokeDashoffset = "100";
       if (els.scoreHeroBarFill) els.scoreHeroBarFill.style.width = "0%";
       if (els.scoreHeroContext) els.scoreHeroContext.textContent = "Today";
@@ -6471,7 +6538,7 @@
   }
 
   // Build-row icon tile: a category glyph on a tinted gradient (public → green, study-ish →
-  // purple, else green-blue). Presentational only — mirrors work/your-builds-redesign.html.
+  // study = teal-blue, else green-blue). Presentational only — mirrors work/your-builds-redesign.html.
   function buildIconStyle(category, isPublic) {
     const c = String(category || "").toLowerCase();
     let glyph = "🎯";
@@ -6483,10 +6550,10 @@
     else if (/run|cardio|walk|step|mile/.test(c)) glyph = "🏃";
     else if (/money|financ|budget|spend|save|cash/.test(c)) glyph = "💰";
     else if (/work|product|focus|deep|career/.test(c)) glyph = "💻";
-    const purple = /study|academ|school|learn|read|book|class/.test(c);
+    const study = /study|academ|school|learn|read|book|class/.test(c);
     const bg = isPublic
       ? "linear-gradient(135deg, #2f7a5c, #244a6e)"
-      : (purple ? "linear-gradient(135deg, #2a2342, #243a52)" : "linear-gradient(135deg, #1e3a30, #243a52)");
+      : (study ? "linear-gradient(135deg, #123128, #243a52)" : "linear-gradient(135deg, #1e3a30, #243a52)");
     return { glyph, bg };
   }
 
@@ -6623,19 +6690,70 @@
     if (!u) return n;
     return /^(g|kg|lb|lbs)$/i.test(u) ? n + u : n + " " + u;
   }
+  // ── One SVG icon set (Lucide-style: 1.8 stroke, round caps — matches the header icons). ──
+  // Emoji render inconsistently across platforms, so every ICON is an inline SVG; emoji survive
+  // only as user CONTENT (captions, stored activity payloads).
+  const ICONS = {
+    home: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1z"/>',
+    feed: '<path d="M4 6h16M4 12h16M4 18h10"/>',
+    build: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    x: '<path d="M18 6 6 18M6 6l12 12"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    "chevron-left": '<path d="M15 18l-6-6 6-6"/>',
+    "chevron-right": '<path d="M9 18l6-6-6-6"/>',
+    "chevron-down": '<path d="m6 9 6 6 6-6"/>',
+    "arrow-right": '<path d="M5 12h14M12 5l7 7-7 7"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
+    camera: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
+    flame: '<path d="M12 22c4.4 0 7-2.8 7-6.5 0-3.2-2-5-3.5-6.5C14 7.5 13.5 5.5 14 3c-3 1.5-4.5 3.5-5 6-.3-.8-.5-1.8-.4-3C6.5 7.6 5 10 5 13.5 5 19.2 7.6 22 12 22z"/>',
+    sparkle: '<path d="M12 2l1.8 5.6H19l-4.4 3.2 1.7 5.4L12 12.9l-4.3 3.3 1.7-5.4L5 7.6h5.2z"/>',
+    edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/>',
+    trophy: '<path d="M8 21h8M12 17v4M7 4h10v6a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3"/>',
+    award: '<circle cx="12" cy="8" r="6"/><path d="M15.5 13.9 17 22l-5-3-5 3 1.5-8.1"/>',
+    users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+    run: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+    steps: '<path d="M13 4v16M6 4v16"/><path d="M13 7c3 0 5 1 5 4s-2 4-5 4"/>',
+    barbell: '<path d="M6.5 6.5v11M17.5 6.5v11M3 9v6M21 9v6M6.5 12h11"/>',
+    moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>',
+    book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/>',
+    food: '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2M7 2v20M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zM21 15v7"/>',
+    droplet: '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/>',
+    bike: '<circle cx="5.5" cy="17.5" r="3.5"/><circle cx="18.5" cy="17.5" r="3.5"/><path d="M15 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM12 17.5V14l-3-3 4-3 2 3h2"/>',
+    leaf: '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
+    coins: '<circle cx="12" cy="12" r="9"/><path d="M16 9.5c-.7-.9-2.2-1.5-4-1.5-2.2 0-4 .9-4 2s1.8 2 4 2 4 .9 4 2-1.8 2-4 2c-1.8 0-3.3-.6-4-1.5M12 6v2m0 8v2"/>',
+    target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="1"/>'
+  };
+  // Inline stroke SVG for an icon key. cls appends sizing classes (icon-sm / icon-xs).
+  function svgIcon(name, cls) {
+    return `<svg class="ic${cls ? " " + cls : ""}" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ICONS.target}</svg>`;
+  }
+  // Rule/activity → icon KEY (shared by the emoji data payloads and the SVG display path).
+  function ruleIconKey(labelish) {
+    var s = String(labelish || "").toLowerCase();
+    if (/run|jog|marathon/.test(s)) return "run";
+    if (/step|walk/.test(s)) return "steps";
+    if (/gym|lift|workout|strength|muscle/.test(s)) return "barbell";
+    if (/sleep|bed|rest/.test(s)) return "moon";
+    if (/study|read|learn|class|exam|focus/.test(s)) return "book";
+    if (/protein|eat|meal|cal|food|diet/.test(s)) return "food";
+    if (/water|hydrat|drink/.test(s)) return "droplet";
+    if (/cycle|bike|ride/.test(s)) return "bike";
+    if (/meditat|mindful|calm/.test(s)) return "leaf";
+    if (/money|budget|save|spend/.test(s)) return "coins";
+    return "target";
+  }
+  // DOM path: a rule's icon as an SVG (never emoji — consistent across platforms).
+  function ruleIconSvg(rule, cls) {
+    var labelish = typeof rule === "string" ? rule : ((rule && rule.label ? rule.label : "") + " " + (rule && rule.category ? rule.category : ""));
+    return svgIcon(ruleIconKey(labelish), cls || "icon-sm");
+  }
+  // DATA path: post/activity payloads still carry a small emoji (stored in the DB, readable in
+  // captions/other clients) — display surfaces use ruleIconSvg instead.
+  const RULE_KEY_EMOJI = { run: "🏃", steps: "👟", barbell: "💪", moon: "😴", book: "📚", food: "🍗", droplet: "💧", bike: "🚴", leaf: "🧘", coins: "💰", target: "◆" };
   function draftRuleIcon(rule) {
-    var s = ((rule.label || "") + " " + (rule.category || "")).toLowerCase();
-    if (/run|jog|marathon/.test(s)) return "🏃";
-    if (/step|walk/.test(s)) return "👟";
-    if (/gym|lift|workout|strength|muscle/.test(s)) return "💪";
-    if (/sleep|bed|rest/.test(s)) return "😴";
-    if (/study|read|learn|class|exam|focus/.test(s)) return "📚";
-    if (/protein|eat|meal|cal|food|diet/.test(s)) return "🍗";
-    if (/water|hydrat|drink/.test(s)) return "💧";
-    if (/cycle|bike|ride/.test(s)) return "🚴";
-    if (/meditat|mindful|calm/.test(s)) return "🧘";
-    if (/money|budget|save|spend/.test(s)) return "💰";
-    return "◆";
+    return RULE_KEY_EMOJI[ruleIconKey(((rule.label || "") + " " + (rule.category || "")))] || "◆";
   }
   function dialPillHtml(kind, ruleIndex, field, value, opts) {
     opts = opts || {};
@@ -6672,7 +6790,7 @@
       body = verb + " " + ptsPill + " when I hit " + goalPill;
     }
     return '<div class="bde-card' + (isPenalty ? " is-penalty" : "") + '" data-rule-index="' + index + '">'
-      + '<div class="bde-card-head"><span class="bde-card-icon" aria-hidden="true">' + draftRuleIcon(rule) + "</span>"
+      + '<div class="bde-card-head"><span class="bde-card-icon" aria-hidden="true">' + ruleIconSvg(rule) + "</span>"
       + '<strong class="bde-card-label">' + escapeHtml(rule.label) + "</strong>"
       + '<button class="bde-remove" type="button" data-remove-rule="' + index + '" aria-label="Remove ' + escapeHtml(rule.label) + '">✕</button></div>'
       + '<p class="bde-sentence">' + body + "</p>"
@@ -8428,7 +8546,7 @@
     els.communityFeed.hidden = false;
     els.communityFeed.innerHTML = feedItems.length
       ? `<div class="community-feed-list">${feedItems.map(renderFeedPost).join("")}</div>`
-      : emptyState("No similar public posts yet — try following people or making your profile public.");
+      : emptyState("No similar public posts yet.", { label: "Find friends", action: "find-friends", icon: "users" });
     bindEntryPhotos(els.communityFeed);
     bindFeedDelegation();
     restoreFeedDrafts(els.communityFeed, drafts);
@@ -8474,7 +8592,7 @@
     els.communityFeed.hidden = false;
     els.communityFeed.innerHTML = feedItems.length
       ? `<div class="community-feed-list">${feedItems.map(renderFeedPost).join("")}</div>`
-      : emptyState("No check-ins yet — log a community day and it'll show up here.");
+      : emptyState("Your friends' progress will land here.", { label: "Find friends", action: "find-friends", icon: "users" });
     bindEntryPhotos(els.communityFeed);
     bindFeedDelegation();
     restoreFeedDrafts(els.communityFeed, drafts);
@@ -8598,9 +8716,9 @@
     const postActs = (entry.kind === "post" && Array.isArray(entry.activity)) ? entry.activity : [];
     let tagHtml = "";
     if (item.rule) {
-      tagHtml = `<span class="ig-tag">${draftRuleIcon(item.rule)} ${escapeHtml(item.rule.label)} ${escapeHtml(formatSigned(points))}</span>`;
+      tagHtml = `<span class="ig-tag">${ruleIconSvg(item.rule, "icon-xs")} ${escapeHtml(item.rule.label)} ${escapeHtml(formatSigned(points))}</span>`;
     } else if (postActs.length || (entry.kind === "post" && points)) {
-      const glyphs = postActs.slice(0, 3).map(function (a) { return escapeHtml(a.emoji || "◆"); }).join(" ");
+      const glyphs = postActs.slice(0, 3).map(function (a) { return ruleIconSvg(a.label || "", "icon-xs"); }).join(" ");
       const ptsLabel = points ? " " + escapeHtml(formatSigned(points)) : "";
       tagHtml = `<span class="ig-tag">${glyphs}${ptsLabel}</span>`;
     }
@@ -9258,7 +9376,7 @@
   const COMMUNITY_FEED_SORTS = [
     { id: "new", label: "🆕 New" },
     { id: "hot", label: "🔥 Hot" },
-    { id: "top", label: "🏆 Top" }
+    { id: "top", label: "Top" }
   ];
 
   // Transient composer state (a draft share — not persisted, cleared on post/cancel).
@@ -9348,7 +9466,7 @@
         `<button class="community-composer-bar" type="button" data-composer-open>
           ${renderAvatar({ name: state.profile.name, avatarUrl: state.profile.avatarUrl, color: state.profile.accent || "#355d91", className: "community-composer-av" })}
           <span class="community-composer-placeholder">Share your progress…</span>
-          <span class="community-composer-cam" aria-hidden="true">📷</span>
+          <span class="community-composer-cam" aria-hidden="true">${svgIcon("camera", "icon-xs")}</span>
         </button>`;
       const open = els.communityComposer.querySelector("[data-composer-open]");
       if (open) open.addEventListener("click", () => { communityComposerOpen = true; renderCommunityDetail(); });
@@ -9374,7 +9492,7 @@
         ${preview}
         ${renderComposerAiBox(community)}
         <div class="community-composer-footer">
-          <button type="button" class="community-composer-photo-btn" data-composer-photo aria-label="Add photo"><span aria-hidden="true">📷</span></button>
+          <button type="button" class="community-composer-photo-btn" data-composer-photo aria-label="Add photo">${svgIcon("camera", "icon-xs")}</button>
           <button type="button" class="community-composer-post${postReady ? " is-ready" : ""}" data-composer-post${postDisabled ? " disabled" : ""}>${escapeHtml(postLabel)}</button>
         </div>
       </div>`;
@@ -9386,7 +9504,7 @@
     const stage = communityComposerStage;
     if (stage === "edit" || !community) return "";
     if (stage === "thinking") {
-      return `<div class="community-composer-ai"><div class="community-composer-ai-head"><span aria-hidden="true">✨</span> Reading your log…</div></div>`;
+      return `<div class="community-composer-ai"><div class="community-composer-ai-head">${svgIcon("sparkle", "icon-xs")} Reading your log…</div></div>`;
     }
     if (stage === "ready") {
       const r = communityComposerPick && resolveQuickLogRule("community", community.id, communityComposerPick.ruleId);
@@ -9403,7 +9521,7 @@
       }).join("");
       const amt = communityComposerPick ? communityComposerPick.amount : 1;
       return `<div class="community-composer-ai">
-          <div class="community-composer-ai-head"><span aria-hidden="true">✨</span> Pick what to log</div>
+          <div class="community-composer-ai-head">${svgIcon("sparkle", "icon-xs")} Pick what to log</div>
           <div class="community-composer-change-row">
             <select class="community-composer-rulesel" data-composer-rule aria-label="Rule to log">
               ${opts}
@@ -9419,7 +9537,7 @@
     if (!r) return "";
     const pts = scoring.calculateRule(r.rule, communityComposerPick.amount).totalPoints;
     return `<div class="community-composer-ai">
-        <div class="community-composer-ai-head"><span aria-hidden="true">✨</span> Log this with your post?</div>
+        <div class="community-composer-ai-head">${svgIcon("sparkle", "icon-xs")} Log this with your post?</div>
         <div class="community-composer-ai-row">
           <span class="community-composer-ai-lbl"><strong>✅ ${escapeHtml(r.rule.label)}</strong> <span class="community-composer-ai-pts">${escapeHtml(formatSigned(pts))}</span></span>
           <button type="button" class="community-composer-change" data-composer-change>Change</button>
@@ -9734,7 +9852,7 @@
   function renderCommunityAboutRule(rule) {
     const primaryPoints = rule.simpleStyle === "yesNo" ? rule.yesNoPoints : (rule.goalPoints || rule.everyPoints || 0);
     return `<div class="community-rule-row">
-        <span class="community-rule-icon" aria-hidden="true">${draftRuleIcon(rule)}</span>
+        <span class="community-rule-icon" aria-hidden="true">${ruleIconSvg(rule)}</span>
         <span class="community-rule-label">${escapeHtml(rule.label || "Rule")}</span>
         <span class="community-rule-points">${escapeHtml(formatSigned(primaryPoints))} pts</span>
       </div>`;
@@ -9824,7 +9942,7 @@
     const me = m.id === "me";
     const periodPoints = m.periodPoints != null ? m.periodPoints : m.today;
     const value = metric === "completion" ? `${m.completion || 0}%` : formatPoints(periodPoints);
-    const rank = index === 0 ? "🥇" : String(index + 1);
+    const rank = index === 0 ? svgIcon("award", "icon-xs") : String(index + 1);
     return `<button class="world-lb-detail-row${me ? " is-me" : ""}" type="button" data-community-member-id="${escapeHtml(m.id)}">
         <span class="world-lb-detail-rank${index === 0 ? " is-leader" : ""}">${rank}</span>
         ${renderAvatar({ className: "member-avatar world-lb-detail-av", name: m.name, color: m.color, avatarUrl: m.avatarUrl })}
@@ -9988,7 +10106,7 @@
             : (inlineActive ? renderInlineLogControl(rule) : `<button class="world-rule-log" type="button" data-inline-open="${ruleId}">+ Log</button>`)));
       return `<div class="world-rule-row${logged ? " is-logged" : ""}${inlineActive ? " is-logging" : ""}${rule.id === justLogged ? " is-just-logged" : ""}">
           <button class="world-rule-open" type="button" data-open-entry-rule="${ruleId}" aria-label="Edit ${escapeHtml(rule.label || "rule")} entry">
-            <span class="world-rule-icon" aria-hidden="true">${draftRuleIcon(rule)}</span>
+            <span class="world-rule-icon" aria-hidden="true">${ruleIconSvg(rule)}</span>
             <div class="world-rule-main">
               <p class="world-rule-name">${nameHtml}</p>
               <div class="world-rule-track" aria-hidden="true"><div class="world-rule-fill" style="width:${pct}%"></div></div>
@@ -10042,7 +10160,7 @@
             : (inlineActive ? renderInlineLogControl(rule) : `<button class="world-rule-log" type="button" data-inline-open="${ruleId}">+ Log</button>`)));
       return `<div class="world-rule-row${logged ? " is-logged" : ""}${inlineActive ? " is-logging" : ""}${rule.id === justLogged ? " is-just-logged" : ""}">
           <button class="world-rule-open" type="button" data-cc-open-rule="${ruleId}" aria-label="Edit ${escapeHtml(rule.label || "rule")} entry">
-            <span class="world-rule-icon" aria-hidden="true">${draftRuleIcon(rule)}</span>
+            <span class="world-rule-icon" aria-hidden="true">${ruleIconSvg(rule)}</span>
             <div class="world-rule-main">
               <p class="world-rule-name">${nameHtml}</p>
               <div class="world-rule-track" aria-hidden="true"><div class="world-rule-fill" style="width:${pct}%"></div></div>
@@ -10121,7 +10239,7 @@
         .filter((e) => e.communityId === world.id && !e.postId)
         .map(buildFeedItemForEntry).filter(Boolean);
       const shown = sortCommunityFeed(postItems.concat(legacyItems)).slice(0, 12);
-      if (!shown.length) { els.worldPosts.innerHTML = emptyState("No posts yet — share your progress and it'll show up here."); return; }
+      if (!shown.length) { els.worldPosts.innerHTML = emptyState("No posts yet — share your progress and it'll show up here.", { label: "Log with a photo", action: "log-photo", icon: "camera" }); return; }
       feedItems = shown; // so the shared feed handlers (like/comment/cheer) resolve each card by id
       els.worldPosts.innerHTML = `<div class="community-feed-list">${shown.map(renderFeedPost).join("")}</div>`;
       bindWorldFeedDelegation();
@@ -10373,7 +10491,7 @@
         const tone = isLeader ? " is-leader" : (zero ? " is-zero" : "");
         return `
           <div class="cc-mc-row">
-            <span class="cc-mc-medal" aria-hidden="true">${isLeader ? "🥇" : ""}</span>
+            <span class="cc-mc-medal" aria-hidden="true">${isLeader ? svgIcon("award", "icon-xs") : ""}</span>
             ${renderAvatar({ className: "cc-mc-av", name: m.name, color: m.color, avatarUrl: m.avatarUrl })}
             <span class="cc-mc-name${tone}">${escapeHtml(String(m.name || "Member").split(" ")[0])}</span>
             <div class="cc-mc-track" aria-hidden="true">${zero ? "" : `<div class="cc-mc-fill ${isLeader ? "leader" : "norm"}" style="width:${width}%"></div>`}</div>
@@ -10809,11 +10927,11 @@
     if (url) {
       thumb.style.backgroundImage = "url('" + cssUrlSafe(url) + "')";
       thumb.classList.remove("is-empty");
-      if (els.profileCoverBtnLabel) els.profileCoverBtnLabel.textContent = "📷 Change cover";
+      if (els.profileCoverBtnLabel) els.profileCoverBtnLabel.innerHTML = svgIcon("camera", "icon-xs") + " Change cover";
     } else {
       thumb.style.backgroundImage = "";
       thumb.classList.add("is-empty");
-      if (els.profileCoverBtnLabel) els.profileCoverBtnLabel.textContent = "📷 Add cover photo";
+      if (els.profileCoverBtnLabel) els.profileCoverBtnLabel.innerHTML = svgIcon("camera", "icon-xs") + " Add cover photo";
     }
   }
 
@@ -11102,13 +11220,13 @@
     const bannerOwnerAttr = isOwnProfile ? ` data-profile-cover-edit` : "";
     const coverEditHtml = isOwnProfile
       ? (coverUrl
-          ? `<button class="profile-banner-edit" type="button" data-profile-cover-edit aria-label="Change cover photo"><span aria-hidden="true">📷</span></button>`
+          ? `<button class="profile-banner-edit" type="button" data-profile-cover-edit aria-label="Change cover photo">${svgIcon("camera", "icon-xs")}</button>`
           : `<button class="profile-banner-add" type="button" data-profile-cover-edit><span aria-hidden="true">＋</span> Add cover photo</button>`)
       : "";
     const bannerGearHtml = isOwnProfile
       ? `<button class="profile-banner-btn profile-banner-gear" type="button" data-profile-settings aria-label="Edit profile and privacy settings"><span aria-hidden="true">⚙</span></button>` : "";
     const avatarCamHtml = isOwnProfile
-      ? `<button class="profile-avatar-cam" type="button" data-profile-avatar-edit aria-label="Change profile photo"><span aria-hidden="true">📷</span></button>` : "";
+      ? `<button class="profile-avatar-cam" type="button" data-profile-avatar-edit aria-label="Change profile photo">${svgIcon("camera", "icon-xs")}</button>` : "";
     let html = `
       <section class="profile-hero profile-hero-card">
         <div class="profile-banner${coverUrl ? " has-cover" : ""}"${bannerStyle}${bannerOwnerAttr}>
@@ -12798,7 +12916,7 @@
     mount.innerHTML = `
       <div class="ai-draft-card quick-log-draft-card">
         <div class="quick-log-draft-head">
-          <span class="quick-log-draft-title"><span aria-hidden="true">✨</span> Here's what I'll log${quickLogEditing ? "" : " — tap to confirm"}</span>
+          <span class="quick-log-draft-title">${svgIcon("sparkle", "icon-xs")} Here's what I'll log${quickLogEditing ? "" : " — tap to confirm"}</span>
           <button type="button" class="quick-log-discard-x" data-quick-log-discard aria-label="Discard">✕</button>
         </div>
         ${rows ? `<div class="quick-log-rows">${rows}</div>` : ""}
@@ -12833,7 +12951,7 @@
         : escapeHtml(formatMetricPhrase(entry.amount, unit, ""));
       return `
         <div class="quick-log-row-item is-compact" data-quick-log-id="${escapeHtml(entry._id)}">
-          <span class="quick-log-row-icon" aria-hidden="true">${draftRuleIcon(rule)}</span>
+          <span class="quick-log-row-icon" aria-hidden="true">${ruleIconSvg(rule)}</span>
           <div class="quick-log-row-summary"><strong>${label}</strong> · ${summary}${estimateTag}${fitbitTag}</div>
           ${conf}
           <span class="quick-log-row-check is-${checkLevel}" aria-hidden="true">✓</span>
@@ -13499,7 +13617,7 @@
          <button type="button" class="primary-button small" data-coach-recappost>Post recap</button>`;
     coachSay(`
       <div class="coach-card coach-recap-card coach-nudge-card is-active" data-coach-recap-card>
-        <div class="coach-recap-eyebrow"><span aria-hidden="true">✨</span> Yesterday, recapped</div>
+        <div class="coach-recap-eyebrow">${svgIcon("sparkle", "icon-xs")} Yesterday, recapped</div>
         <p class="coach-recap-text">${bodyHtml}</p>
         <div class="coach-card-actions">${actions}</div>
       </div>`);
@@ -13788,28 +13906,33 @@
     maybeCelebrateMilestone(ctx, streak);
     const key = ctx.type + ":" + ctx.id;
     const celebrating = streakCelebrateKey === key; if (celebrating) streakCelebrateKey = "";
-    // Slim inline dot strip (no day labels): hit = filled, miss = faint, today = outlined (or filled if hit).
-    const dots = streakWeekDots(ctx, probe).map((d) => {
-      const cls = d.isToday ? (d.hit ? "hit" : "today") : (d.hit ? "hit" : "miss");
-      return `<span class="streak-idot ${cls}"></span>`;
+    // Labeled 7-day dot strip: day initials over dots; hit = teal-filled, today = teal-outlined.
+    const dots = streakWeekDots(ctx, probe).map((d, i, arr) => {
+      const cls = d.isToday ? (d.hit ? "hit today" : "today") : (d.hit ? "hit" : "miss");
+      const day = new Date(); day.setDate(day.getDate() - (arr.length - 1 - i));
+      const letter = ["S", "M", "T", "W", "T", "F", "S"][day.getDay()];
+      return `<span class="streak-dotcol"><i>${letter}</i><span class="streak-idot ${cls}"></span></span>`;
     }).join("");
     const ms = streakMilestoneInfo(streak);
     const loggedToday = probe.getPts(getTodayKey()) > 0;
-    // Tiny subline: confirm today's log once logged, else nudge one; plus the milestone as a small note.
-    const milestoneNote = ms.next ? ms.daysTo + "d to 🏅 " + ms.next : "🏅 100-day legend";
+    // "5 days to your 7-day milestone" — plain words, unit named once.
+    const milestoneNote = ms.next
+      ? ms.daysTo + (ms.daysTo === 1 ? " day" : " days") + " to your " + ms.next + "-day milestone"
+      : "100-day legend";
     let sub;
     if (streak <= 0) sub = "Log today to start";
-    else if (loggedToday) sub = "Logged today ✓ · " + milestoneNote;
-    else sub = "Keep it going · " + milestoneNote;
+    else if (loggedToday) sub = "Logged today · " + milestoneNote;
+    else sub = milestoneNote;
     els.streakCard.innerHTML = `
       <div class="streak-bar${streak <= 0 ? " is-zero" : ""}${celebrating ? " is-celebrating" : ""}">
-        <span class="streak-flame" aria-hidden="true">🔥</span>
+        <span class="streak-flame" aria-hidden="true">${svgIcon("flame")}</span>
         <div class="streak-headline">
           <strong class="streak-count">${escapeHtml(String(streak))}-day streak</strong>
           <p class="streak-sub">${escapeHtml(sub)}</p>
         </div>
         <div class="streak-week-inline" aria-hidden="true">${dots}</div>
       </div>`;
+    try { renderSidebarModules(); } catch (e) { /* sidebar modules are desktop sugar */ }
   }
 
   // ── Streak at-risk nudge: the return driver. When a streak is ALIVE but today isn't logged yet,
@@ -13953,7 +14076,7 @@
     coachSay(`
       <div class="coach-card coach-streakrisk-card coach-nudge-card is-active" data-coach-streakrisk-card>
         <div class="coach-streakrisk-row">
-          <span class="coach-streakrisk-flame" aria-hidden="true">🔥</span>
+          <span class="coach-streakrisk-flame" aria-hidden="true">${svgIcon("flame")}</span>
           <div class="coach-streakrisk-main">
             <strong>Your ${escapeHtml(String(streak))}-day streak ends tonight</strong>
             <p>Log anything today to keep it alive.</p>
@@ -15691,7 +15814,7 @@
     // system/community it belongs to). Multiple rules keep the picker select.
     const ruleHeader = isSingleRule
       ? `<div class="add-entry-rule-label">
-          <span class="add-entry-rule-icon" aria-hidden="true">${draftRuleIcon(selectedRule)}</span>
+          <span class="add-entry-rule-icon" aria-hidden="true">${ruleIconSvg(selectedRule)}</span>
           <strong>${escapeHtml(selectedRule.label)}</strong>
           ${context.label ? `<span class="add-entry-rule-context">${escapeHtml(context.label)}</span>` : ""}
         </div>`
@@ -15705,7 +15828,7 @@
       : "";
     return `
       <div class="add-entry-card" data-add-entry-card>
-        ${aiPrefilledComposer ? `<p class="add-entry-ai-note"><span aria-hidden="true">✨</span> AI filled this in — review, add a photo/caption, and post.</p>` : viaNote}
+        ${aiPrefilledComposer ? `<p class="add-entry-ai-note">${svgIcon("sparkle", "icon-xs")} AI filled this in — review, add a photo/caption, and post.</p>` : viaNote}
         ${ruleHeader}
         ${renderAddEntrySourceNotice(selectedRule)}
         <div class="add-entry-progress-grid">
@@ -16652,12 +16775,13 @@
   }
 
   function renderWeeklyChartBar(date, value, max, metric) {
+    const isPeak = max > 0 && Math.abs(value) >= max * 0.999; // brightest bar gets the glow
     const height = Math.max(Math.abs(value) / max * 100, value === 0 ? 3 : 8);
     const tone = value >= 0 ? "positive" : "negative";
     return `
       <div class="chart-day">
         <div class="chart-bar-wrap">
-          <div class="chart-bar ${tone}" style="height:${height}%"></div>
+          <div class="chart-bar ${tone}${isPeak ? " is-peak" : ""}" style="height:${height}%"></div>
         </div>
         <strong>${escapeHtml(formatMetricValue(value, metric, { compact: true }))}</strong>
         <span>${escapeHtml(formatWeekday(date))}</span>
@@ -16825,7 +16949,7 @@
   }
 
   function renderPointsDonut(breakdown, calculatedTotals) {
-    const colorPalette = ["#266b5e", "#355d91", "#bb6a2f", "#7a4b86", "#a73c36", "#5f7f48", "#2f6f88"];
+    const colorPalette = ["#266b5e", "#355d91", "#bb6a2f", "#4a7a96", "#a73c36", "#5f7f48", "#2f6f88"];
     const items = [
       ...breakdown.map((item) => ({
         label: item.rule.label,
@@ -17440,7 +17564,7 @@
     const remaining = Math.max(target - total, 0);
     // Compact strip: ring center shows points/target ("1/3"); the SVG arc fills by
     // percent; the status line reads "1 of 3 points · 2 to go".
-    els.liveScore.textContent = `${formatPoints(total)}/${formatPoints(target)}`;
+    els.liveScore.textContent = `${formatPoints(total)} / ${formatPoints(target)}`;
     const clampedPercent = Math.min(Math.max(percent, 0), 100);
     if (els.scoreRingFill) els.scoreRingFill.style.strokeDashoffset = String(100 - clampedPercent);
     if (els.scoreHeroBarFill) els.scoreHeroBarFill.style.width = `${clampedPercent}%`;
@@ -17975,7 +18099,7 @@
   // local time; color = which rule). Durations aren't tracked, so each entry is
   // a fixed-size marker; entries logged close together split into side-by-side
   // columns like a calendar day view. Ported from the standings day-view mockup.
-  var DAY_SCHEDULE_PALETTE = ["#fa4d56", "#ff832b", "#a56eff", "#4589ff", "#ee5396", "#08bdba", "#33b1ff", "#d2a106", "#3ddbd9", "#6fdc8c", "#ff7eb6", "#82cfff"];
+  var DAY_SCHEDULE_PALETTE = ["#fa4d56", "#ff832b", "#3ac8d6", "#4589ff", "#ee5396", "#08bdba", "#33b1ff", "#d2a106", "#3ddbd9", "#6fdc8c", "#ff7eb6", "#82cfff"];
   function dayScheduleColor(key) {
     var s = String(key || ""), h = 0;
     for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
@@ -21749,7 +21873,7 @@
       }).join("");
       cols.push(`<div class="bk-col"><div class="bk-round-lbl">${escapeHtml(roundLabel(r, totalRounds))}</div>${cells}</div>`);
     }
-    const champCol = `<div class="bk-col bk-col-champ"><div class="bk-round-lbl">Champion</div><div class="bk-champ">${champion ? `<span class="bk-champ-name">${escapeHtml(contestMemberName(community, champion))}</span>` : `<span class="bk-trophy" aria-hidden="true">🏆</span>`}</div></div>`;
+    const champCol = `<div class="bk-col bk-col-champ"><div class="bk-round-lbl">Champion</div><div class="bk-champ">${champion ? `<span class="bk-champ-name">${escapeHtml(contestMemberName(community, champion))}</span>` : `<span class="bk-trophy" aria-hidden="true">${svgIcon("trophy")}</span>`}</div></div>`;
     return `<div class="bk-scroll"><div class="bk-grid">${cols.join("")}${champCol}</div></div>`;
   }
   function renderContestBracket(contest) {
@@ -21892,7 +22016,7 @@
     else if (myMatch) { const opp = (myMatch.aUser === (state.account && state.account.userId)) ? myMatch.bUser : myMatch.aUser; sub = `your match: you vs ${escapeHtml(contestMemberName(community, opp) || "TBD")} · ${(contest.participants || []).length} players · ${ended ? "ended" : contestCountdownText(contest)}`; }
     else sub = `${(contest.participants || []).length} players · ${ended ? "ended" : contestCountdownText(contest)}`;
     return `<button type="button" class="compete-card compete-card-tourney" data-contest-view="${escapeHtml(String(contest.id))}">
-        <span class="compete-card-ic" aria-hidden="true">🏆</span>
+        <span class="compete-card-ic" aria-hidden="true">${svgIcon("trophy", "icon-sm")}</span>
         <span class="compete-card-main">
           <span class="compete-card-title"><strong>Tournament</strong> · ${escapeHtml(roundLabel(activeR, totalRounds))}</span>
           <span class="compete-card-sub">${sub}</span>
@@ -21973,7 +22097,7 @@
   }
 
   function memberColorFor(id) {
-    const palette = ["#266b5e", "#bb6a2f", "#7a4b86", "#355d91", "#2f7d6b", "#a4562f"];
+    const palette = ["#266b5e", "#bb6a2f", "#4a7a96", "#355d91", "#2f7d6b", "#a4562f"];
     const key = String(id || "");
     let sum = 0;
     for (let i = 0; i < key.length; i++) sum += key.charCodeAt(i);
@@ -22742,9 +22866,20 @@
     localStorage.setItem(storageKey, JSON.stringify(state));
   }
 
-  function emptyState(message) {
-    return `<div class="empty-state">${escapeHtml(message)}</div>`;
+  function emptyState(message, cta) {
+    // One line of copy + one CTA button (no bare dashed boxes). cta = { label, action, icon }.
+    const btn = cta ? `<button type="button" class="empty-cta" data-empty-cta="${escapeHtml(cta.action)}">${cta.icon ? svgIcon(cta.icon, "icon-xs") : ""}${escapeHtml(cta.label)}</button>` : "";
+    return `<div class="empty-state${cta ? " has-cta" : ""}"><p>${escapeHtml(message)}</p>${btn}</div>`;
   }
+  // Delegated CTA actions for empty states (find friends / log with a photo).
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest("[data-empty-cta]");
+    if (!b) return;
+    const a = b.dataset.emptyCta;
+    if (a === "find-friends") { try { openAddFriendFromFriends(); } catch (err) { state.activeView = "chats"; saveState(); render(); } }
+    else if (a === "log-photo") { try { openPostComposer(); setTimeout(() => { const ph = document.querySelector("[data-pc-photo]"); if (ph) ph.click(); }, 80); } catch (err) { /* ignore */ } }
+    else if (a === "new-entry") { try { openPostComposer(); } catch (err) { /* ignore */ } }
+  });
 
   function showToast(message) {
     clearTimeout(toastTimer);
@@ -22993,7 +23128,7 @@
   }
 
   function avatarColor(name) {
-    const palette = ["#355d91", "#266b5e", "#bb6a2f", "#7a4b86", "#8a4d43"];
+    const palette = ["#355d91", "#266b5e", "#bb6a2f", "#4a7a96", "#8a4d43"];
     const index = String(name).split("").reduce((sum, char) => sum + char.charCodeAt(0), 0) % palette.length;
     return palette[index];
   }

@@ -5144,7 +5144,7 @@
     back.setAttribute("data-postdel-backdrop", "");
     back.innerHTML = `
       <div class="post-confirm-card" role="dialog" aria-modal="true" aria-labelledby="postdel-title">
-        <div class="post-confirm-ico" aria-hidden="true">🗑</div>
+        <div class="post-confirm-ico" aria-hidden="true">${svgIcon("trash", "icon-sm")}</div>
         <strong id="postdel-title">Delete this post?</strong>
         <p>This removes the post and the points it logged. This can't be undone.</p>
         <div class="post-confirm-btns">
@@ -5469,7 +5469,7 @@
       return escapeHtml(bits.join(" · ") || "community");
     }
     const toGo = numberOrDefault(t.toGo, 0);
-    return toGo > 0 ? escapeHtml(formatPoints(toGo) + (full ? " to go today" : " to go")) : "Goal hit today 🎉";
+    return toGo > 0 ? escapeHtml(formatPoints(toGo) + (full ? " to go today" : " to go")) : `Goal hit today ${svgIcon("check", "icon-xs")}`;
   }
 
   // Slim cover strip (cover_url or the per-type gradient fallback) with the world's icon
@@ -5488,7 +5488,7 @@
 
   function renderWorldTile(t, size) {
     const key = worldTileKey(t);
-    const typeClass = t.type === "community" ? "tile-community" : "tile-personal";
+    const typeClass = (t.type === "community" ? "tile-community" : "tile-personal") + (numberOrDefault(t.percent, 0) >= 100 ? " is-complete" : "");
     const attrs = `data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(key)}" data-world-size="${size}"`;
     const sizeBtn = `<button type="button" class="world-size-btn" data-world-size-cycle aria-label="Resize ${escapeHtml(t.name)} (small, medium, large)" title="Resize"><span aria-hidden="true">⤢</span></button>`;
     const open = `role="button" tabindex="0" aria-label="Open ${escapeHtml(t.name)}"`;
@@ -5536,7 +5536,7 @@
     // bottom. Cover/icon paint async (signed URLs) via paintWorldTilesMedia; gradient + initials
     // fallback. Owner of a no-cover world sees a subtle "Add a cover ＋" nudge instead of the bar.
     const pct = Math.min(Math.max(numberOrDefault(t.percent, 0), 0), 100);
-    const fillColor = "#3ddc97"; // teal is the only progress color (personal + community alike)
+    const fillColor = "#3ad6a6"; // teal is the only progress color (personal + community alike)
     const metaLine = (!t.coverPath && t.ownerIsMe)
       ? `<span class="world-tile-stat world-tile-add-cover">Add a cover ＋</span>`
       : `<span class="world-tile-stat">${renderWorldStat(t, false)}</span><div class="world-tile-bar"><i style="width:${pct}%;background:${fillColor}"></i></div>`;
@@ -6589,8 +6589,8 @@
       meta: `${system.category || "No category yet"} · ${plural(system.rules.length, "rule")}`,
       editAttr: `data-edit-system-id="${id}"`,
       menuItems: `
-        <button class="ybuild-menu-item" type="button" role="menuitem" data-turn-community-id="${id}"><span aria-hidden="true">👥</span> Invite people</button>
-        <button class="ybuild-menu-item ybuild-menu-del" type="button" role="menuitem" data-delete-system-id="${id}"><span aria-hidden="true">🗑</span> Delete</button>`
+        <button class="ybuild-menu-item" type="button" role="menuitem" data-turn-community-id="${id}"><span aria-hidden="true">${svgIcon("users", "icon-xs")}</span> Invite people</button>
+        <button class="ybuild-menu-item ybuild-menu-del" type="button" role="menuitem" data-delete-system-id="${id}"><span aria-hidden="true">${svgIcon("trash", "icon-xs")}</span> Delete</button>`
     });
   }
 
@@ -6696,6 +6696,7 @@
   // only as user CONTENT (captions, stored activity payloads).
   const ICONS = {
     home: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1z"/>',
+    trash: '<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6"/>',
     feed: '<path d="M4 6h16M4 12h16M4 18h10"/>',
     build: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
@@ -8701,7 +8702,7 @@
     // ⋯ menu: your OWN post → Delete (author-only; DB-enforced via RLS). Someone else's → Message.
     // Discover posts (never yours) keep no menu. Delete shows for own posts whether DB-backed or local.
     const menuInner = isMe
-      ? `<button type="button" class="ig-menu-del" data-feed-delete="${escapeHtml(entryId)}">🗑 Delete post</button>`
+      ? `<button type="button" class="ig-menu-del" data-feed-delete="${escapeHtml(entryId)}">${svgIcon("trash", "icon-xs")} Delete post</button>`
       : `<button type="button" data-feed-menu-msg>Message ${escapeHtml(memberFirstName(item.member))}</button>`;
     const menuHtml = isDiscover ? "" : `
         <div class="ig-menu-wrap" data-feed-menu-wrap>
@@ -17838,7 +17839,7 @@
         <span class="community-meta">${plural(getCommunityMemberCount(community), "member")} · ${escapeHtml(category)}</span>
         <div class="community-card-social">
           ${renderCommunityAvatarCluster(community)}
-          <span class="community-card-activity${activeToday > 0 ? " is-live" : ""}">${activeToday > 0 ? `● ${activeToday} active today` : "No activity today"}</span>
+          <span class="community-card-activity${activeToday > 0 ? " is-live" : ""}">${activeToday > 0 ? `${activeToday} active today` : "No activity today"}</span>
         </div>
         <span class="community-score-line">Your score today: ${escapeHtml(formatPoints(myScore))}</span>
       </button>

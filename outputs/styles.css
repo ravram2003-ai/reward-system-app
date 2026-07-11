@@ -10857,11 +10857,14 @@ img.draft-av { object-fit: cover; }
 @media (min-width: 1051px) {
   .workspace { padding-bottom: 96px; }
 }
-.coach-launcher.header-icon-btn { position: static; width: 38px; height: 38px; border-radius: var(--r-full); box-shadow: none; background: none; border: none; color: var(--muted); }
-.coach-launcher.header-icon-btn:hover { color: var(--accent); background: rgba(58, 214, 166, 0.08); }
-.coach-launcher.header-icon-btn .coach-launcher-badge { position: absolute; top: 2px; right: 2px; }
-.coach-peek { left: auto; right: 14px; top: calc(var(--mobile-header-h, 122px) + 8px); bottom: auto; }
-@media (min-width: 1051px) { .coach-peek { top: 74px; right: 24px; } }
+.coach-launcher.coach-fab { left: auto; right: 20px; background: linear-gradient(135deg, var(--accent), #2bb392); color: var(--accent-ink); border: 0; box-shadow: 0 10px 26px rgba(58, 214, 166, 0.34); transition: transform 140ms ease, box-shadow 140ms ease; }
+.coach-launcher.coach-fab:hover { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(58, 214, 166, 0.42); }
+.coach-launcher.coach-fab.has-nudges { background: linear-gradient(135deg, #4ee3b3, var(--accent)); }
+.fab-add-header { color: var(--accent); }
+.fab-add-header:hover { background: rgba(58, 214, 166, 0.12); }
+body.auth-locked .fab-add-header, body.onboarding-locked .fab-add-header { display: none; }
+.coach-peek { left: auto; right: 14px; top: auto; bottom: calc(160px + env(safe-area-inset-bottom, 0px)); }
+@media (min-width: 1051px) { .coach-peek { bottom: 92px; right: 24px; } }
 
 /* One page-header pattern: title left, actions right */
 .view-header h2, .feed-header h2 { font-size: var(--t-lg); letter-spacing: -0.01em; }

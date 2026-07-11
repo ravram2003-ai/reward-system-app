@@ -1829,6 +1829,7 @@
     if (els.notifBellButton) els.notifBellButton.setAttribute("aria-expanded", notifPanelOpen ? "true" : "false");
     if (els.notifPanel) els.notifPanel.hidden = !notifPanelOpen;
     if (notifPanelOpen) {
+      if (typeof closeCoachPanel === "function") closeCoachPanel(); // only one header panel open at a time
       renderNotifPanel();
       markBellNotificationsRead(); // opening the bell clears its unread badge (DMs untouched)
       document.addEventListener("click", handleNotifOutsideClick, true);
@@ -13663,12 +13664,16 @@
   // ── Floating launcher (bottom-left) + pop-out panel ─────────────────────────
   function openCoachPanel() {
     if (!els.coachPanel) return;
+    if (typeof closeNotifPanel === "function") closeNotifPanel(); // only one header panel open at a time
     coach.panelOpen = true;
     coach.recapPending = false; // opening the panel surfaces the recap card → clear its badge
     els.coachPanel.hidden = false;
     els.coachPanel.classList.add("is-open");
     if (els.coachLauncher) els.coachLauncher.setAttribute("aria-expanded", "true");
     coachHidePeek();
+    // Click anywhere outside the panel (incl. a nav tab) or press Escape → close it.
+    document.addEventListener("click", handleCoachOutsideClick, true);
+    document.addEventListener("keydown", handleCoachEscape);
     coachProfileFresh();   // refresh the behavioral profile (streaks/trends/usual times) for tailored answers
     renderCoachProactiveToggle();
     const greetedBefore = coach.greeted;
@@ -13684,8 +13689,21 @@
     coach.panelOpen = false;
     if (els.coachPanel) { els.coachPanel.classList.remove("is-open"); els.coachPanel.hidden = true; }
     if (els.coachLauncher) els.coachLauncher.setAttribute("aria-expanded", "false");
+    document.removeEventListener("click", handleCoachOutsideClick, true);
+    document.removeEventListener("keydown", handleCoachEscape);
     renderCoachLauncher();
   }
+
+  // Dismiss the coach panel on a click outside it — but not on the launcher (its own toggle handles that)
+  // or the proactive peek bubble. Runs in capture so a nav-tab click closes the panel AND still navigates.
+  function handleCoachOutsideClick(event) {
+    if (!coach.panelOpen || !els.coachPanel) return;
+    if (els.coachPanel.contains(event.target)) return;
+    if (els.coachLauncher && els.coachLauncher.contains(event.target)) return;
+    if (els.coachPeek && els.coachPeek.contains(event.target)) return;
+    closeCoachPanel();
+  }
+  function handleCoachEscape(event) { if (event.key === "Escape") closeCoachPanel(); }
 
   function toggleCoachPanel() { if (coach.panelOpen) closeCoachPanel(); else openCoachPanel(); }
 

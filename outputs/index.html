@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260711-r2">
+    <link rel="stylesheet" href="styles.css?v=20260711-centerplus2">
 
   </head>
   <body>
@@ -44,12 +44,8 @@
     <div class="app-shell">
       <aside class="sidebar" aria-label="Workspace">
         <div class="brand-block">
-          <div class="brand-mark" aria-hidden="true">P</div>
-          <h1 class="brand-title" id="headerTitle">Today</h1>
+          <h1 class="brand-title" id="headerTitle">Feed</h1>
           <div class="header-cluster">
-            <button class="header-icon-btn fab-add-header" id="createFab" type="button" aria-label="Log an entry">
-              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-            </button>
             <button class="header-icon-btn" type="button" id="headerSearchButton" aria-label="Search">
               <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
             </button>
@@ -68,13 +64,17 @@
         </div>
 
         <nav class="nav-tabs" aria-label="Primary views">
-          <button class="nav-tab active" type="button" data-view="dashboard" aria-label="Today">
-            <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1z"/></svg></span>
-            <span>Today</span>
-          </button>
-          <button class="nav-tab" type="button" data-view="feed" aria-label="Feed">
+          <button class="nav-tab active" type="button" data-view="feed" aria-label="Feed">
             <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span>
             <span>Feed</span>
+          </button>
+          <button class="nav-tab" type="button" data-view="dashboard" aria-label="Worlds">
+            <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1z"/></svg></span>
+            <span>Worlds</span>
+          </button>
+          <button class="nav-tab nav-tab-create" type="button" id="createFab" aria-label="Log an entry">
+            <span class="nav-create-fab" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span>
+            <span class="nav-create-label">Log entry</span>
           </button>
           <button class="nav-tab" type="button" data-view="systems" aria-label="Build and Edit">
             <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg></span>
@@ -96,7 +96,7 @@
       </aside>
 
       <main class="workspace">
-        <section class="view" id="dashboardView" aria-label="Today">
+        <section class="view" id="dashboardView" aria-label="Worlds">
           <div class="view-header score-header dashboard-header">
             <!-- "Your worlds" heading removed: Today now opens with the slim streak bar, then the tiles. -->
             <div class="header-actions" hidden>
@@ -1562,13 +1562,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260711-r2"></script>
-    <script src="auth-helpers.js?v=20260711-r2"></script>
-    <script src="scoring.js?v=20260711-r2"></script>
-    <script src="insight.js?v=20260711-r2"></script>
-    <script src="signals.js?v=20260711-r2"></script>
-    <script src="wearables.js?v=20260711-r2"></script>
-    <script type="module" src="auth.js?v=20260711-r2"></script>
-    <script src="app.js?v=20260711-r2"></script>
+    <script src="supabase-config.js?v=20260711-centerplus2"></script>
+    <script src="auth-helpers.js?v=20260711-centerplus2"></script>
+    <script src="scoring.js?v=20260711-centerplus2"></script>
+    <script src="insight.js?v=20260711-centerplus2"></script>
+    <script src="signals.js?v=20260711-centerplus2"></script>
+    <script src="wearables.js?v=20260711-centerplus2"></script>
+    <script type="module" src="auth.js?v=20260711-centerplus2"></script>
+    <script src="app.js?v=20260711-centerplus2"></script>
   </body>
 </html>

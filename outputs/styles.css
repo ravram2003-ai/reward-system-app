@@ -11988,3 +11988,55 @@ input:not([type="range"]):not([type="checkbox"]).world-rule-amt-input {
 /* --r-xs gets its consumer: keyboard hint keycaps */
 .kbd-hint kbd { border-radius: var(--r-xs); }
 /* ── end R2 cascade fixes ──────────────────────────────────────── */
+
+/* ═══ Center "+" bottom nav + tightened top (feat/center-plus-nav) ═══ */
+
+/* Desktop sidebar (>1050px): the create button is a normal prominent nav item —
+   accent-gradient "+" chip + "Log entry" label. */
+.nav-tab-create { align-items: center; }
+.nav-create-fab {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #5cf3b8, #2f9d6f);
+  color: #06281c;
+}
+.nav-create-fab svg { width: 20px; height: 20px; }
+.nav-create-label { color: var(--accent-strong); font-weight: 800; }
+.nav-tab-create:hover { background: rgba(58, 214, 166, 0.08); }
+.nav-tab-create:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Mobile bottom bar (≤1050px): raised circular "+" between Worlds and Build.
+   Appended last so it wins over the earlier bottom-nav rules. */
+@media (max-width: 1050px) {
+  .nav-tabs { overflow: visible; } /* don't clip the button that lifts above the bar */
+  .nav-tab-create {
+    flex: 0 0 68px;   /* fixed center slot — NOT auto, or the base .nav-tab width:100% makes it eat the whole bar */
+    width: 68px;
+    min-height: 0;
+    padding: 0;
+    background: none !important;
+    border: none;
+  }
+  .nav-tabs .nav-tab-create .nav-create-label { display: none; } /* raised "+" needs no label (beats .nav-tab span:last-child) */
+  .nav-tab-create .nav-create-fab {
+    width: 54px;
+    height: 54px;
+    margin-top: -26px; /* lift above the bar, Instagram-style */
+    border: 3px solid var(--soft); /* ring separates it from the bar + content behind */
+    box-shadow: 0 8px 22px rgba(92, 243, 184, 0.4);
+    transition: transform 120ms ease;
+  }
+  .nav-tab-create .nav-create-fab svg { width: 28px; height: 28px; }
+  .nav-tab-create:active .nav-create-fab { transform: scale(0.93); }
+}
+
+/* Tightened top: with the logo + top "+" gone, the header row is shorter and content
+   starts higher. Trim the mobile header + workspace top padding a touch more. */
+@media (max-width: 1050px) {
+  .sidebar { padding: calc(8px + env(safe-area-inset-top, 0px)) 14px 8px; }
+  .workspace { padding-top: calc(var(--mobile-header-h, 96px) + 8px); }
+}

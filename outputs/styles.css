@@ -12034,9 +12034,14 @@ input:not([type="range"]):not([type="checkbox"]).world-rule-amt-input {
   .nav-tab-create:active .nav-create-fab { transform: scale(0.93); }
 }
 
-/* Tightened top: with the logo + top "+" gone, the header row is shorter and content
-   starts higher. Trim the mobile header + workspace top padding a touch more. */
+/* Tightened top: with the logo, top "+" AND the header title all gone, the header is just a
+   single utility-icon row — content starts much higher. --mobile-header-h is JS-synced to the
+   real (now shorter) header; the fallback covers the pre-sync frame. */
 @media (max-width: 1050px) {
-  .sidebar { padding: calc(8px + env(safe-area-inset-top, 0px)) 14px 8px; }
-  .workspace { padding-top: calc(var(--mobile-header-h, 96px) + 8px); }
+  .sidebar { padding: calc(6px + env(safe-area-inset-top, 0px)) 14px 6px; }
+  .workspace { padding-top: calc(var(--mobile-header-h, 58px) + 6px); }
 }
+/* The now-empty left side of the header shouldn't reserve title height: keep the icon row compact. */
+.brand-block { min-height: 0; align-items: center; }
+/* Dashboard heading matches the Feed heading treatment (single in-page title, no top-bar dup). */
+#dashboardView .dashboard-header .feed-title-row { margin: 0; }

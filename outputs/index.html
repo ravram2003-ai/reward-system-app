@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260711-centerplus2">
+    <link rel="stylesheet" href="styles.css?v=20260711-notitle">
 
   </head>
   <body>
@@ -44,7 +44,6 @@
     <div class="app-shell">
       <aside class="sidebar" aria-label="Workspace">
         <div class="brand-block">
-          <h1 class="brand-title" id="headerTitle">Feed</h1>
           <div class="header-cluster">
             <button class="header-icon-btn" type="button" id="headerSearchButton" aria-label="Search">
               <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
@@ -98,7 +97,7 @@
       <main class="workspace">
         <section class="view" id="dashboardView" aria-label="Worlds">
           <div class="view-header score-header dashboard-header">
-            <!-- "Your worlds" heading removed: Today now opens with the slim streak bar, then the tiles. -->
+            <div class="feed-title-row"><h2 id="dashboardTitle">Worlds</h2></div>
             <div class="header-actions" hidden>
               <div class="score-context-pill">
                 <select id="scoreContextSelect" aria-label="Score context"></select>
@@ -1562,13 +1561,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260711-centerplus2"></script>
-    <script src="auth-helpers.js?v=20260711-centerplus2"></script>
-    <script src="scoring.js?v=20260711-centerplus2"></script>
-    <script src="insight.js?v=20260711-centerplus2"></script>
-    <script src="signals.js?v=20260711-centerplus2"></script>
-    <script src="wearables.js?v=20260711-centerplus2"></script>
-    <script type="module" src="auth.js?v=20260711-centerplus2"></script>
-    <script src="app.js?v=20260711-centerplus2"></script>
+    <script src="supabase-config.js?v=20260711-notitle"></script>
+    <script src="auth-helpers.js?v=20260711-notitle"></script>
+    <script src="scoring.js?v=20260711-notitle"></script>
+    <script src="insight.js?v=20260711-notitle"></script>
+    <script src="signals.js?v=20260711-notitle"></script>
+    <script src="wearables.js?v=20260711-notitle"></script>
+    <script type="module" src="auth.js?v=20260711-notitle"></script>
+    <script src="app.js?v=20260711-notitle"></script>
   </body>
 </html>

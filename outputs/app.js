@@ -3123,7 +3123,6 @@
       "chatsAddFriendResults",
       "chatsFriendRequests",
       "chatsMessageRequests",
-      "headerTitle",
       "headerChatsButton",
       "headerChatsBadge",
       "friendsView",
@@ -3691,23 +3690,8 @@
     paintAvatarNode(els.profileAvatar, state.profile.name, myAvatar);
     paintAvatarNode(els.largeAvatar, state.profile.name, myAvatar);
     if (els.headerChatsButton) els.headerChatsButton.classList.toggle("is-active", state.activeView === "chats");
-    if (els.headerTitle) els.headerTitle.textContent = headerTitleForView(state.activeView);
+    // Top-bar #headerTitle removed — each view shows its own in-page heading (no duplicate title).
     els.todayLabel.textContent = formatDate(todayIso);
-  }
-
-  // Contextual header title — reflects the active view (mirrors the bottom-tab wayfinding).
-  // Sub-views map to their parent tab (e.g. Add Entry / a world detail → "Today").
-  function headerTitleForView(view) {
-    switch (view) {
-      case "feed": return "Feed";
-      case "systems": return "Build";
-      case "profile": case "profile-page": return "Profile";
-      case "chats": return "Chats";
-      case "friends": case "friend-activity": return "Friends";
-      case "search": return "Search";
-      case "communities": case "find-communities": return "Communities";
-      default: return "Worlds"; // dashboard (+ its sub-views: add-entry, customize-*, community-detail/settings) live under the Worlds tab
-    }
   }
 
   function renderActiveView() {

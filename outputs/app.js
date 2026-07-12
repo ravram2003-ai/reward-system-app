@@ -153,7 +153,7 @@
     // Authenticated account (Supabase). null = local mode / not signed in.
     // The local current-user id stays "me"; account.userId is its real identity.
     account: null,
-    activeView: "dashboard",
+    activeView: "feed", // Feed is the landing tab; returning users keep their last-used view (mergeState spreads saved over seed)
     selectedSystemId: "life-core",
     trackerSystemId: "life-core",
     selectedCommunityId: "",
@@ -3670,7 +3670,7 @@
   }
 
   function renderChrome() {
-    if (!els.views[state.activeView]) state.activeView = "dashboard";
+    if (!els.views[state.activeView]) state.activeView = "feed"; // invalid restored view → land on the default (Feed)
     const ownProfileActive = state.activeView === "profile"
       || (state.activeView === "profile-page" && !!(state.account && String(state.profileUserId) === String(state.account.userId)));
     els.tabs.forEach((tab) => {
@@ -3706,7 +3706,7 @@
       case "friends": case "friend-activity": return "Friends";
       case "search": return "Search";
       case "communities": case "find-communities": return "Communities";
-      default: return "Today"; // dashboard, add-entry, customize-*, community-detail/settings, …
+      default: return "Worlds"; // dashboard (+ its sub-views: add-entry, customize-*, community-detail/settings) live under the Worlds tab
     }
   }
 

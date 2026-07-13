@@ -3218,7 +3218,13 @@
     // The "+" FAB is the single entry point for logging (creating systems/communities
     // lives in Build). The post-first composer ("logging IS posting") is now that entry
     // point; openPostComposer guards the no-world case with a toast.
-    if (els.createFab) els.createFab.addEventListener("click", openPostComposer);
+    // Center create button is a TOGGLE: open the composer, or close it (same path as the back arrow)
+    // when it's already open. The "+" ↔ "×" rotation stays in sync via renderChrome (is-composer-open),
+    // so closing by ANY path (this button, the back arrow, or after a Log/Post) returns it to "+".
+    if (els.createFab) els.createFab.addEventListener("click", () => {
+      if (state.activeView === "post-composer") closePostComposer();
+      else openPostComposer();
+    });
     bindPostComposerEvents();
     // Bubble-tile home: tap a tile to open it; long-press (touch) / click-drag (desktop)
     // to reorder. Top two of the new order become the featured/large tiles (drag up to

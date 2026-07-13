@@ -325,6 +325,13 @@
   let communityDraftJustAddedId = "";        // id of the rule just added (flash + banner)
   let authConfigured = false;
   const els = {};
+  let lastAnimatedNavView = null;
+  const navIconAnimationClasses = [
+    "nav-animate-feed",
+    "nav-animate-worlds",
+    "nav-animate-build",
+    "nav-animate-profile"
+  ];
   let toastTimer = null;
   let dayRolloverTimer = null;
   // Positive signals (kudos / motivation) — in-app notifications state.
@@ -447,16 +454,20 @@
 
   let headerHeightRaf = 0;
   function startHeaderHeightWatcher() {
+    const measureChrome = () => {
+      syncHeaderHeight();
+      syncNavHighlightPosition(true);
+    };
     const schedule = () => {
       if (headerHeightRaf) cancelAnimationFrame(headerHeightRaf);
-      headerHeightRaf = requestAnimationFrame(() => { headerHeightRaf = 0; syncHeaderHeight(); });
+      headerHeightRaf = requestAnimationFrame(() => { headerHeightRaf = 0; measureChrome(); });
     };
-    syncHeaderHeight();
+    measureChrome();
     window.addEventListener("resize", schedule);
     window.addEventListener("orientationchange", schedule);
-    window.addEventListener("load", syncHeaderHeight);
+    window.addEventListener("load", measureChrome);
     // Web-font swap can change the wrapped header's height after first paint.
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncHeaderHeight).catch(() => {});
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(measureChrome).catch(() => {});
   }
 
   // An invite link is <app-url>?join=CODE. Capture the code, then strip it from the
@@ -3157,6 +3168,7 @@
       els[id] = document.getElementById(id);
     });
     els.tabs = Array.from(document.querySelectorAll("[data-view]"));
+    els.navHighlight = document.querySelector(".nav-active-highlight");
     els.views = {
       dashboard: els.dashboardView,
       "add-entry": els.addEntryView,
@@ -3682,6 +3694,12 @@
       tab.classList.toggle("active", isActive);
       tab.setAttribute("aria-current", isActive ? "page" : "false");
     });
+    const composerOpen = state.activeView === "post-composer";
+    if (els.createFab) {
+      els.createFab.classList.toggle("is-composer-open", composerOpen);
+      els.createFab.setAttribute("aria-expanded", composerOpen ? "true" : "false");
+    }
+    syncAnimatedNav();
     Object.entries(els.views).forEach(([name, view]) => {
       view.classList.toggle("is-visible", name === state.activeView);
     });
@@ -3692,6 +3710,74 @@
     if (els.headerChatsButton) els.headerChatsButton.classList.toggle("is-active", state.activeView === "chats");
     // Top-bar #headerTitle removed — each view shows its own in-page heading (no duplicate title).
     els.todayLabel.textContent = formatDate(todayIso);
+  }
+
+  function activePrimaryNavTab() {
+    return els.tabs.find((tab) => tab.classList.contains("active")) || null;
+  }
+
+  // The bottom bar owns one shared active surface. Its width is set immediately while
+  // movement uses only transform, so tab changes stay GPU-friendly and the resize path
+  // can snap to the newly measured geometry without replaying an icon animation.
+  function syncNavHighlightPosition(snap) {
+    const highlight = els.navHighlight;
+    if (!highlight) return;
+    const activeTab = activePrimaryNavTab();
+    if (!activeTab) {
+      highlight.classList.remove("is-visible");
+      return;
+    }
+    if (snap) highlight.classList.remove("is-ready");
+    highlight.style.width = activeTab.offsetWidth + "px";
+    highlight.style.setProperty("--nav-highlight-x", activeTab.offsetLeft + "px");
+    highlight.classList.add("is-visible");
+    if (!highlight.classList.contains("is-ready")) {
+      requestAnimationFrame(() => highlight.classList.add("is-ready"));
+    }
+  }
+
+  function clearNavIconAnimations() {
+    els.tabs.forEach((tab) => {
+      const icon = tab.querySelector(".tab-icon, .tab-avatar");
+      if (!icon) return;
+      navIconAnimationClasses.forEach((className) => icon.classList.remove(className));
+      icon.style.animation = "";
+    });
+  }
+
+  function restartActiveNavIconAnimation(tab) {
+    clearNavIconAnimations();
+    if (!tab || !window.matchMedia("(max-width: 1050px)").matches
+      || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const icon = tab.querySelector(".tab-icon, .tab-avatar");
+    const className = {
+      feed: "nav-animate-feed",
+      dashboard: "nav-animate-worlds",
+      systems: "nav-animate-build",
+      "profile-page": "nav-animate-profile"
+    }[tab.dataset.view];
+    if (!icon || !className) return;
+
+    // Reset the computed animation before re-applying its class so revisiting a tab
+    // always produces one clean, one-shot response.
+    icon.style.animation = "none";
+    void icon.offsetWidth;
+    icon.style.animation = "";
+    icon.classList.add(className);
+    icon.addEventListener("animationend", () => icon.classList.remove(className), { once: true });
+  }
+
+  function syncAnimatedNav() {
+    const activeTab = activePrimaryNavTab();
+    syncNavHighlightPosition(false);
+    const activeView = activeTab ? activeTab.dataset.view : "";
+    if (lastAnimatedNavView === null) {
+      lastAnimatedNavView = activeView;
+      return; // initial load positions the highlight without playing an icon animation
+    }
+    if (activeView === lastAnimatedNavView) return;
+    lastAnimatedNavView = activeView;
+    restartActiveNavIconAnimation(activeTab);
   }
 
   function renderActiveView() {

@@ -12045,3 +12045,98 @@ input:not([type="range"]):not([type="checkbox"]).world-rule-amt-input {
 .brand-block { min-height: 0; align-items: center; }
 /* Dashboard heading matches the Feed heading treatment (single in-page title, no top-bar dup). */
 #dashboardView .dashboard-header .feed-title-row { margin: 0; }
+
+/* ═══ Animated primary nav (feat/animated-nav) ═══════════════════════════════ */
+
+/* The shared highlight belongs to the mobile bottom bar. Desktop keeps the
+   existing sidebar active rail and simple active background. */
+.nav-active-highlight { display: none; }
+
+/* Composer state is derived from activeView in renderChrome(), so every exit
+   path (Back, publish, or navigation) resets the plus consistently. */
+.nav-tab-create .nav-create-fab {
+  transform: rotate(0deg);
+  transition: transform 320ms cubic-bezier(.34, 1.45, .4, 1);
+}
+.nav-tab-create.is-composer-open .nav-create-fab { transform: rotate(135deg); }
+
+@media (max-width: 1050px) {
+  .nav-tabs > .nav-tab { z-index: 1; }
+  .nav-tabs > .nav-tab-create { z-index: 2; }
+
+  .nav-active-highlight {
+    --nav-highlight-x: 0px;
+    position: absolute;
+    top: 6px;
+    left: 0;
+    z-index: 0;
+    display: block;
+    height: 52px;
+    border: 1px solid rgba(92, 243, 184, 0.14);
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(58, 214, 166, 0.18), rgba(58, 214, 166, 0.1));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    opacity: 0;
+    pointer-events: none;
+    transform: translate3d(var(--nav-highlight-x), 0, 0);
+    will-change: transform;
+  }
+  .nav-active-highlight.is-visible { opacity: 1; }
+  .nav-active-highlight.is-ready {
+    transition: transform 420ms cubic-bezier(.34, 1.45, .4, 1), opacity 140ms ease;
+  }
+
+  /* The single sliding surface replaces the old per-icon pill/ring. */
+  .nav-tab.active .tab-icon { background: transparent; }
+  .nav-tab.active .tab-avatar { box-shadow: none; }
+
+  .nav-tab-create:not(.is-composer-open):active .nav-create-fab {
+    transform: scale(0.93);
+  }
+  .nav-tab-create.is-composer-open:active .nav-create-fab {
+    transform: rotate(135deg) scale(0.93);
+  }
+}
+
+@keyframes pointwell-nav-feed-pop {
+  0%, 100% { transform: scale(1); }
+  38% { transform: scale(1.22); }
+  68% { transform: scale(0.92); }
+  84% { transform: scale(1.06); }
+}
+@keyframes pointwell-nav-world-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes pointwell-nav-build-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  24% { transform: rotate(18deg); }
+  46% { transform: rotate(-14deg); }
+  66% { transform: rotate(10deg); }
+  84% { transform: rotate(-5deg); }
+}
+@keyframes pointwell-nav-profile-pulse {
+  0%, 100% { transform: scale(1); }
+  34% { transform: scale(1.2); }
+  62% { transform: scale(0.94); }
+  82% { transform: scale(1.06); }
+}
+
+.nav-animate-feed { animation: pointwell-nav-feed-pop 460ms cubic-bezier(.34, 1.45, .4, 1); }
+.nav-animate-worlds { animation: pointwell-nav-world-spin 520ms cubic-bezier(.34, 1.15, .4, 1); }
+.nav-animate-build { animation: pointwell-nav-build-wiggle 540ms ease-out; }
+.nav-animate-profile { animation: pointwell-nav-profile-pulse 460ms cubic-bezier(.34, 1.45, .4, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-active-highlight,
+  .nav-active-highlight.is-ready,
+  .nav-tab-create .nav-create-fab {
+    transition: none !important;
+  }
+  .nav-animate-feed,
+  .nav-animate-worlds,
+  .nav-animate-build,
+  .nav-animate-profile {
+    animation: none !important;
+  }
+}

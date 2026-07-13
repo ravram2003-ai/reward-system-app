@@ -44,6 +44,7 @@
       isConfigured: () => false,
       signUp: notConfigured,
       signIn: notConfigured,
+      signInWithOAuth: notConfigured,
       signOut: async () => {},
       getCurrentUser: async () => null,
       getClient: () => null
@@ -60,6 +61,7 @@
       isConfigured: () => true,
       signUp: async () => ({ error: { message: "Auth library failed to load." } }),
       signIn: async () => ({ error: { message: "Auth library failed to load." } }),
+      signInWithOAuth: async () => ({ error: { message: "Auth library failed to load." } }),
       signOut: async () => {},
       getCurrentUser: async () => null,
       getClient: () => null
@@ -111,6 +113,31 @@
       const { error } = await supabase.auth.signInWithPassword({ email: email, password: password });
       return { error: error };
     },
+    // Unified "Continue with Apple/Google": signs in an existing user OR creates an account
+    // for a new one — Supabase treats OAuth as a single upsert-on-first-login flow.
+    // skipBrowserRedirect lets us catch a synchronous { error } BEFORE navigating; on success
+    // we do the redirect ourselves. NOTE: supabase builds the /authorize URL client-side
+    // without validating the provider, so a provider that isn't enabled in the Supabase
+    // dashboard does NOT resolve with an { error } here — it redirects and GoTrue rejects it
+    // server-side. That rejection comes back as an ?error=/#error= fragment which the app
+    // surfaces via surfaceOAuthRedirectError() on reload (and the providers must still be
+    // enabled in the dashboard for the buttons to actually complete).
+    signInWithOAuth: async (provider) => {
+      try {
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider: provider,
+          options: {
+            redirectTo: window.location.origin + window.location.pathname,
+            skipBrowserRedirect: true
+          }
+        });
+        if (error) return { error: error };
+        if (data && data.url) { window.location.assign(data.url); }
+        return { data: data, error: null };
+      } catch (error) {
+        return { error: error || { message: "Sign-in failed." } };
+      }
+    },
     signOut: async () => { await supabase.auth.signOut(); },
     getCurrentUser: async () => {
       const { data } = await supabase.auth.getUser();
@@ -138,16 +165,55 @@
     const submit = document.getElementById("authSubmit");
     const heading = document.getElementById("authHeading");
     const signOutButton = document.getElementById("signOutButton");
+    const providers = document.getElementById("authProviders");
+    const emailButton = document.getElementById("authEmailButton");
+    const backButton = document.getElementById("authBackButton");
     let mode = "signin"; // or 'signup'
 
     function applyMode() {
       if (heading) heading.textContent = mode === "signup" ? "Create your account" : "Welcome back";
       if (submit) submit.textContent = mode === "signup" ? "Create account" : "Sign in";
-      if (toggle) toggle.textContent = mode === "signup" ? "Have an account? Sign in" : "New here? Create an account";
+      // innerHTML (static strings, no user input) so the "Create an account"/"Sign in" part
+      // keeps its accent styling from the hero's .auth-toggle-link span.
+      if (toggle) toggle.innerHTML = mode === "signup"
+        ? 'Have an account? <span>Sign in</span>'
+        : 'New here? <span>Create an account</span>';
       setAuthError("");
     }
 
+    // Sign-in-FIRST: the provider buttons lead; the email form is revealed on demand and
+    // defaults to sign-in. The toggle ("Create an account") is the ONLY path to sign-up.
+    function showEmailForm(signup) {
+      mode = signup ? "signup" : "signin";
+      if (providers) providers.hidden = true;
+      if (form) form.hidden = false;
+      applyMode();
+      if (emailInput) { try { emailInput.focus(); } catch (e) { /* focus is best-effort */ } }
+    }
+    function showProviders() {
+      mode = "signin";
+      if (form) form.hidden = true;
+      if (providers) providers.hidden = false;
+      applyMode();
+      // The back button lives inside the (now hidden) form, so focus would fall to <body>;
+      // move it to the first provider control instead.
+      if (emailButton) { try { emailButton.focus(); } catch (e) { /* focus is best-effort */ } }
+    }
+
+    if (emailButton) emailButton.addEventListener("click", function () { showEmailForm(false); });
+    if (backButton) backButton.addEventListener("click", function () { showProviders(); });
+
+    // Sign-out is same-tab (no reload), so reset the hero to its providers-lead, sign-in
+    // default — otherwise a returning/next user on a shared device would land on whatever
+    // sub-state (e.g. the sign-up form) the previous session left behind.
+    document.addEventListener("pointwell:auth", function (e) {
+      if (e && e.detail && e.detail.status === "signed-out") showProviders();
+    });
+
     if (toggle) toggle.addEventListener("click", function () {
+      // From the provider view (form hidden) the toggle opens the email form straight into
+      // sign-up; once the form is showing it just flips sign-in <-> sign-up.
+      if (form && form.hidden) { showEmailForm(true); return; }
       mode = mode === "signup" ? "signin" : "signup";
       applyMode();
     });

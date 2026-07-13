@@ -6,34 +6,72 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260713-toggle">
+    <link rel="stylesheet" href="styles.css?v=20260713-auth2">
 
   </head>
   <body>
     <div class="auth-screen" id="authScreen" hidden>
-      <div class="auth-card">
-        <div class="auth-brand">
-          <div class="brand-mark" aria-hidden="true">P</div>
-          <div>
-            <p class="eyebrow">Pointwell</p>
-            <strong>Reward systems</strong>
+      <div class="auth-hero">
+        <!-- Hero band: brand + social proof (streak + crew) + headline -->
+        <div class="auth-hero-band">
+          <div class="auth-hero-brand">
+            <span class="auth-hero-logo" aria-hidden="true">P</span>
+            <span class="auth-hero-brandname">Pointwell</span>
+          </div>
+          <div class="auth-hero-social">
+            <div class="auth-streak-chip">
+              <span class="auth-streak-flame" aria-hidden="true">🔥</span>
+              <span class="auth-streak-copy">
+                <span class="auth-streak-title">7-day streak</span>
+                <span class="auth-streak-sub">don't break it</span>
+              </span>
+            </div>
+            <div class="auth-crew" aria-hidden="true">
+              <span class="auth-crew-avatar" style="--crew:#9a4a2c"></span>
+              <span class="auth-crew-avatar" style="--crew:#2f7a5c"></span>
+              <span class="auth-crew-avatar" style="--crew:#7a5cc4"></span>
+              <span class="auth-crew-avatar auth-crew-more">+5</span>
+            </div>
+          </div>
+          <h1 class="auth-hero-headline">Build the habit.<br>Bring your crew.</h1>
+        </div>
+
+        <!-- Actions: providers lead (sign-in-first); the email form is revealed on demand -->
+        <div class="auth-hero-actions">
+          <div class="auth-providers" id="authProviders">
+            <button class="auth-provider-btn auth-provider-light" type="button" id="authAppleButton">
+              <svg class="auth-provider-glyph" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.365 1.43c0 1.14-.42 2.2-1.11 2.99-.79.9-2.08 1.6-3.14 1.52-.14-1.11.4-2.28 1.06-3.02.76-.84 2.14-1.47 3.19-1.49zM20.5 17.13c-.55 1.27-.81 1.84-1.52 2.96-.99 1.57-2.39 3.52-4.12 3.53-1.54.02-1.94-1-4.03-.99-2.09.01-2.53 1.01-4.07.99-1.73-.02-3.05-1.78-4.04-3.35C.03 16.8-.28 12.09 1.4 9.59c1.2-1.78 3.09-2.82 4.87-2.82 1.81 0 2.95 1 4.45 1 1.45 0 2.33-1 4.43-1 1.58 0 3.26.86 4.45 2.35-3.91 2.14-3.28 7.73.9 9.01z"/></svg>
+              Continue with Apple
+            </button>
+            <button class="auth-provider-btn auth-provider-light" type="button" id="authGoogleButton">
+              <svg class="auth-provider-glyph" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.52 12.27c0-.79-.07-1.54-.2-2.27H12v4.51h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.87c2.26-2.09 3.58-5.17 3.58-8.87z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.94-2.91l-3.87-3c-1.08.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.27v3.09A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.27 14.28a7.2 7.2 0 0 1 0-4.56V6.62H1.27a12 12 0 0 0 0 10.76z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.43-3.43C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.27 6.62l4 3.1C6.22 6.86 8.87 4.75 12 4.75z"/></svg>
+              Continue with Google
+            </button>
+            <button class="auth-provider-btn auth-provider-email" type="button" id="authEmailButton">
+              <svg class="auth-provider-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+              Continue with email
+            </button>
+          </div>
+
+          <form class="auth-form" id="authForm" hidden>
+            <h2 class="auth-form-heading" id="authHeading">Welcome back</h2>
+            <label>
+              <span>Email</span>
+              <input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com" required>
+            </label>
+            <label>
+              <span>Password</span>
+              <input id="authPassword" type="password" autocomplete="current-password" placeholder="At least 6 characters" minlength="6" required>
+            </label>
+            <p class="auth-error" id="authError" role="alert" hidden></p>
+            <button class="primary-button" id="authSubmit" type="submit">Sign in</button>
+            <button class="ghost-button small auth-back" id="authBackButton" type="button">← Other ways to sign in</button>
+          </form>
+
+          <div class="auth-secondary">
+            <button class="auth-toggle-link" id="authToggle" type="button">New here? <span>Create an account</span></button>
           </div>
         </div>
-        <h1 id="authHeading">Welcome back</h1>
-        <p class="auth-sub">Sign in to keep your identity and communities across devices.</p>
-        <form class="auth-form" id="authForm">
-          <label>
-            <span>Email</span>
-            <input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com" required>
-          </label>
-          <label>
-            <span>Password</span>
-            <input id="authPassword" type="password" autocomplete="current-password" placeholder="At least 6 characters" minlength="6" required>
-          </label>
-          <p class="auth-error" id="authError" role="alert" hidden></p>
-          <button class="primary-button" id="authSubmit" type="submit">Sign in</button>
-        </form>
-        <button class="ghost-button small auth-toggle" id="authToggle" type="button">New here? Create an account</button>
       </div>
     </div>
 
@@ -1562,13 +1600,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260713-toggle"></script>
-    <script src="auth-helpers.js?v=20260713-toggle"></script>
-    <script src="scoring.js?v=20260713-toggle"></script>
-    <script src="insight.js?v=20260713-toggle"></script>
-    <script src="signals.js?v=20260713-toggle"></script>
-    <script src="wearables.js?v=20260713-toggle"></script>
-    <script type="module" src="auth.js?v=20260713-toggle"></script>
-    <script src="app.js?v=20260713-toggle"></script>
+    <script src="supabase-config.js?v=20260713-auth2"></script>
+    <script src="auth-helpers.js?v=20260713-auth2"></script>
+    <script src="scoring.js?v=20260713-auth2"></script>
+    <script src="insight.js?v=20260713-auth2"></script>
+    <script src="signals.js?v=20260713-auth2"></script>
+    <script src="wearables.js?v=20260713-auth2"></script>
+    <script type="module" src="auth.js?v=20260713-auth2"></script>
+    <script src="app.js?v=20260713-auth2"></script>
   </body>
 </html>

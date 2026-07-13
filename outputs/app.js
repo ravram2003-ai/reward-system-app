@@ -429,6 +429,7 @@
     captureJoinCodeFromUrl();
     cacheElements();
     bindEvents();
+    surfaceOAuthRedirectError();
     render();
     startDateRolloverWatcher();
     startHeaderHeightWatcher();
@@ -569,6 +570,47 @@
   function hideAuthScreen() {
     if (els.authScreen) els.authScreen.hidden = true;
     document.body.classList.remove("auth-locked");
+  }
+
+  // Sign-in-first hero: "Continue with Apple/Google" are UNIFIED sign-in-or-create buttons.
+  // signInWithOAuth redirects the page to the provider; the { error } here only fires for a
+  // synchronous failure (Supabase unconfigured / auth library failed to load). A provider
+  // that's merely not enabled in the dashboard can't be detected pre-redirect — that comes
+  // back as an ?error=/#error= fragment handled by surfaceOAuthRedirectError() on reload.
+  // (The email path + the "Create an account" toggle are wired in auth.js, which owns mode.)
+  function startOAuthSignIn(provider, label) {
+    const auth = window.PointwellAuth;
+    if (!auth || typeof auth.signInWithOAuth !== "function") {
+      // authConfigured but PointwellAuth not ready yet → the supabase library is still
+      // importing (deferred module), not a misconfiguration. Say so instead of "not set up".
+      showToast(authConfigured ? "Sign-in is still loading — try again in a moment" : label + " sign-in isn't set up yet");
+      return;
+    }
+    Promise.resolve(auth.signInWithOAuth(provider))
+      .then((res) => { if (res && res.error) showToast(label + " sign-in isn't set up yet"); })
+      .catch(() => showToast(label + " sign-in isn't set up yet"));
+  }
+
+  // OAuth redirects back to the app with the outcome in the URL fragment/query. On failure
+  // (declined consent, a provider not enabled in Supabase, etc.) GoTrue returns ?error= /
+  // #error=&error_description=... — surface it as a toast and strip it so a reload doesn't
+  // re-toast. Error-ONLY: a SUCCESS return carries #access_token= (no error param), which we
+  // leave untouched for supabase-js's detectSessionInUrl to consume.
+  function surfaceOAuthRedirectError() {
+    try {
+      const raw = (window.location.hash || "").replace(/^#/, "") || (window.location.search || "").replace(/^\?/, "");
+      if (!raw) return;
+      const params = new URLSearchParams(raw);
+      const desc = params.get("error_description") || params.get("error");
+      if (!desc) return;
+      showToast("Couldn't sign in — " + decodeURIComponent(String(desc)).replace(/\+/g, " "));
+      try { window.history.replaceState(null, "", window.location.origin + window.location.pathname); } catch (e) { /* best-effort */ }
+    } catch (e) { /* best-effort — never let a malformed URL break boot */ }
+  }
+
+  function bindOAuthButtons() {
+    if (els.authAppleButton) els.authAppleButton.addEventListener("click", () => startOAuthSignIn("apple", "Apple"));
+    if (els.authGoogleButton) els.authGoogleButton.addEventListener("click", () => startOAuthSignIn("google", "Google"));
   }
 
   // ── First-run onboarding ───────────────────────────────────────────────────
@@ -2848,6 +2890,8 @@
       "visualBreakdownPanel",
       "weeklyProgressPanel",
       "authScreen",
+      "authAppleButton",
+      "authGoogleButton",
       "signOutButton",
       "profileSignOutButton",
       "syncSampleButton",
@@ -3225,6 +3269,7 @@
       if (state.activeView === "post-composer") closePostComposer();
       else openPostComposer();
     });
+    bindOAuthButtons();
     bindPostComposerEvents();
     // Bubble-tile home: tap a tile to open it; long-press (touch) / click-drag (desktop)
     // to reorder. Top two of the new order become the featured/large tiles (drag up to

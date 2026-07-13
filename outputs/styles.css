@@ -3153,6 +3153,9 @@ label small {
   left: 50%;
   bottom: 22px;
   transform: translate(-50%, 16px);
+  /* Above the auth overlay (z:60) + every other floating tier, so the OAuth-failure /
+     "isn't set up yet" fallback toast is visible even while the sign-in hero is up. */
+  z-index: 130;
   min-width: min(360px, calc(100vw - 32px));
   max-width: calc(100vw - 32px);
   padding: 12px 14px;
@@ -6004,70 +6007,116 @@ body.onboarding-locked {
 body.auth-locked {
   overflow: hidden;
 }
+/* Logged out → show ONLY the sign-in hero. Hiding the whole app-shell removes ALL chrome
+   (bottom nav .nav-tabs, header cluster search/bell/chat, the center "+"), including the
+   mobile fixed top/bottom bars that otherwise sit ABOVE the z:60 auth overlay and leak. */
+body.auth-locked .app-shell { display: none; }
 
+/* ── Sign-in hero (feat/auth-redesign) ──────────────────────────────────────────────────
+   Full-bleed on phones; a centered rounded card on wider screens. Hero band up top
+   (brand + streak/crew social proof + headline), auth actions anchored to the bottom. */
 .auth-screen {
   position: fixed;
   inset: 0;
   z-index: 60;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background:
-    radial-gradient(900px 480px at 80% -10%, rgba(58, 214, 166, 0.1), transparent 60%),
-    linear-gradient(165deg, #0e1413 0%, #0c0f0e 60%);
-}
-
-.auth-card {
-  width: min(380px, 100%);
-  display: grid;
-  gap: 14px;
-  padding: 26px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--panel);
-  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.5);
-}
-
-.auth-brand {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: stretch;
+  justify-content: center;
+  background: #040605;
+  overflow-y: auto;
 }
-
-.auth-brand strong {
-  color: var(--ink);
-  font-size: 1rem;
-}
-
-.auth-card h1 {
-  margin: 4px 0 0;
-  font-size: 1.5rem;
-  letter-spacing: -0.02em;
-}
-
-.auth-sub {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.9rem;
-  line-height: 1.45;
-}
-
-.auth-form {
-  display: grid;
-  gap: 12px;
-  margin-top: 4px;
-}
-
-.auth-form label {
-  display: grid;
-  gap: 6px;
-}
-
-.auth-form .primary-button {
+.auth-hero {
   width: 100%;
-  margin-top: 4px;
+  max-width: 440px;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #070b0a;
+  overflow: hidden;
+}
+@media (min-width: 560px) {
+  .auth-screen { align-items: center; padding: 24px; }
+  .auth-hero {
+    min-height: 640px;
+    border: 1px solid #16201c;
+    border-radius: 26px;
+    box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5);
+  }
 }
 
+/* Hero band */
+.auth-hero-band {
+  background: linear-gradient(160deg, #123a2c, #0c1f18 70%, #0a0f0d);
+  padding: calc(30px + env(safe-area-inset-top, 0px)) 22px 26px;
+}
+.auth-hero-brand { display: flex; align-items: center; gap: 9px; margin-bottom: 22px; }
+.auth-hero-logo {
+  width: 34px; height: 34px; border-radius: 10px;
+  background: linear-gradient(135deg, #5cf3b8, #2f9d6f);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 800; color: #06281c;
+}
+.auth-hero-brandname { font-size: 14px; font-weight: 600; color: #eafff5; }
+.auth-hero-social { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.auth-streak-chip {
+  display: flex; align-items: center; gap: 8px;
+  background: #0e1614; border: 1px solid #2a5a45; border-radius: 14px; padding: 11px 14px;
+}
+.auth-streak-flame { font-size: 20px; line-height: 1; }
+.auth-streak-copy { display: flex; flex-direction: column; }
+.auth-streak-title { font-size: 17px; font-weight: 700; color: #f5d99a; line-height: 1.1; }
+.auth-streak-sub { font-size: 10px; color: #8a7a55; }
+.auth-crew { display: flex; }
+.auth-crew-avatar {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--crew, #11201a); border: 2px solid #0c1f18;
+}
+.auth-crew-avatar + .auth-crew-avatar { margin-left: -10px; }
+.auth-crew-avatar:nth-child(1), .auth-crew-avatar:nth-child(2) { box-shadow: 0 0 10px rgba(92, 243, 184, 0.4); }
+.auth-crew-more {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; color: #7fc7b0; background: #11201a;
+}
+.auth-hero-headline {
+  margin: 0; font-size: 26px; font-weight: 700; color: #f3f6f4;
+  letter-spacing: -0.5px; line-height: 1.15;
+}
+
+/* Hero actions (bottom) */
+.auth-hero-actions {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: 24px 22px calc(24px + env(safe-area-inset-bottom, 0px));
+}
+.auth-providers { display: flex; flex-direction: column; gap: 10px; }
+.auth-provider-btn {
+  width: 100%;
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  border: none; border-radius: 14px; padding: 14px;
+  font-family: inherit; font-size: 15px; cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.auth-provider-glyph { width: 18px; height: 18px; flex: 0 0 auto; }
+.auth-provider-light { background: #f3f6f4; color: #0a0f0d; font-weight: 600; }
+.auth-provider-light:hover { background: #ffffff; }
+.auth-provider-email { background: #0e1417; border: 1px solid #243029; color: #eaf2ee; font-weight: 500; }
+.auth-provider-email:hover { border-color: #2f6f57; }
+.auth-secondary { text-align: center; }
+.auth-toggle-link {
+  background: none; border: none; cursor: pointer; font-family: inherit;
+  font-size: 13px; color: #8aa39a; padding: 6px;
+}
+.auth-toggle-link span { color: #5cf3b8; font-weight: 600; }
+
+/* Revealed email form */
+.auth-form { display: flex; flex-direction: column; gap: 12px; }
+.auth-form-heading { margin: 0 0 2px; font-size: 20px; font-weight: 700; color: #f3f6f4; letter-spacing: -0.02em; }
+.auth-form label { display: grid; gap: 6px; }
+.auth-form .primary-button { width: 100%; margin-top: 4px; }
+.auth-back { align-self: center; }
 .auth-error {
   margin: 0;
   padding: 9px 11px;
@@ -6077,10 +6126,6 @@ body.auth-locked {
   color: var(--danger);
   font-size: 0.84rem;
   font-weight: 760;
-}
-
-.auth-toggle {
-  justify-self: center;
 }
 
 .sidebar-footer-actions {

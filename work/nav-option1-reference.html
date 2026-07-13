@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — animated nav (Option 1) reference</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/dist/tabler-icons.min.css">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#040605; display:flex; flex-direction:column; align-items:center; padding:24px 12px 50px; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:#e7ece9; }
+  .note { max-width:384px; font-size:13px; color:#8aa39a; line-height:1.5; margin:0 0 18px; }
+  .note b { color:#eef2f0; }
+  .phone { width:384px; height:720px; display:flex; flex-direction:column; background:#070b0a; border:1px solid #1c2a24; border-radius:32px; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.6); }
+  .topbar { flex:0 0 auto; display:flex; align-items:center; gap:16px; padding:15px 17px 11px; }
+  .topbar .tt { font-size:20px; font-weight:700; color:#f3f6f4; letter-spacing:-.3px; flex:1; }
+  .topbar i { font-size:19px; color:#9fb0aa; }
+  .content { flex:1; overflow:auto; padding:2px 14px 8px; }
+  .view { display:none; } .view.on { display:block; }
+  .seg { display:flex; gap:6px; margin-bottom:12px; }
+  .seg span { flex:1; text-align:center; font-size:13px; padding:8px; border-radius:11px; color:#8aa39a; }
+  .seg span.on { color:#7fe9c0; background:#11201a; border:1px solid #2a5a45; font-weight:500; }
+  .card { background:#0b100e; border:1px solid #161f1c; border-radius:16px; padding:13px; margin-bottom:11px; }
+  .ph { display:flex; align-items:center; gap:9px; }
+  .av2 { width:36px; height:36px; border-radius:50%; background:#355d91; display:flex; align-items:center; justify-content:center; font-size:11px; color:#cfe0d9; }
+  .pill2 { font-size:11px; color:#7fc7b0; background:#11201a; border:1px solid #214034; border-radius:9px; padding:4px 9px; }
+  .wtile { background:#0b100e; border:1px solid #161f1c; border-radius:14px; padding:12px; }
+  .bar { height:6px; border-radius:4px; background:#152019; overflow:hidden; }
+  .bar > i { display:block; height:6px; border-radius:4px; background:linear-gradient(90deg,#2f9d6f,#5cf3b8); }
+  .navbar { flex:0 0 auto; padding:8px 12px 16px; background:#0a100d; }
+  .pill { position:relative; display:flex; align-items:center; justify-content:space-around; background:#17231d; border:1px solid #31564a; border-radius:24px; padding:10px; box-shadow:0 6px 16px rgba(0,0,0,.4); }
+  .nav-hl { position:absolute; top:6px; bottom:6px; left:0; width:0; border-radius:17px; background:rgba(92,243,184,.16); border:1px solid rgba(92,243,184,.4); z-index:0; transition:left .34s cubic-bezier(.34,1.45,.4,1), width .34s cubic-bezier(.34,1.45,.4,1); }
+  .tab { position:relative; z-index:1; flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; background:none; border:none; cursor:pointer; padding:6px 0; color:#9db0a8; }
+  .tab .ic { display:inline-flex; font-size:22px; transition:color .25s; }
+  .tab .lb { font-size:11px; transition:color .25s; }
+  .tab.active, .tab.active .ic, .tab.active .lb { color:#5cf3b8; }
+  .plus { flex:0 0 auto; width:54px; display:flex; justify-content:center; z-index:2; }
+  .plusbtn { width:50px; height:50px; border-radius:50%; background:linear-gradient(135deg,#5cf3b8,#2f9d6f); display:flex; align-items:center; justify-content:center; box-shadow:0 6px 16px rgba(92,243,184,.5); margin-top:-24px; border:3px solid #0a100d; cursor:pointer; transition:transform .4s cubic-bezier(.34,1.56,.5,1); }
+  .plusbtn.spin { transform:rotate(135deg) scale(1.06); }
+  .avn { width:23px; height:23px; border-radius:50%; background:#3a6ea5; display:inline-flex; align-items:center; justify-content:center; font-size:8px; color:#eaf2ee; }
+  @keyframes spin { to { transform:rotate(360deg) } }
+  @keyframes popy { 0%{transform:scale(1)} 35%{transform:scale(1.34) translateY(-2px)} 100%{transform:scale(1)} }
+  @keyframes wiggle { 0%,100%{transform:rotate(0)} 25%{transform:rotate(-18deg)} 75%{transform:rotate(18deg)} }
+  @keyframes pulsy { 0%{transform:scale(1)} 45%{transform:scale(1.3)} 100%{transform:scale(1)} }
+  @media (prefers-reduced-motion: reduce) { .nav-hl, .plusbtn { transition:none } .tab .ic { animation:none !important } }
+</style>
+</head>
+<body>
+  <p class="note"><b>Option 1 · animated nav.</b> Icons: Feed = news/cards, Worlds = globe, Build = tools, Profile = avatar. On select: Worlds spins, Feed pops, Build wiggles, Profile pulses; a spring highlight slides to the active tab; the center "+" rotates on tap. Tap the tabs to try it.</p>
+  <div class="phone">
+    <div class="topbar"><span class="tt" id="topTitle">Feed</span><i class="ti ti-search"></i><i class="ti ti-bell"></i><i class="ti ti-message-circle"></i></div>
+    <div class="content">
+      <div class="view on" id="feedView">
+        <div class="seg"><span class="on">Friends</span><span>Discover</span></div>
+        <div class="card"><div class="ph"><div class="av2">RA</div><div style="flex:1;"><div style="font-size:13.5px;color:#f3f6f4;"><b style="font-weight:600;">Robert A</b> <span style="color:#9fb0aa;">logged 200 g</span></div><div style="font-size:10.5px;color:#7c8d87;">THE BOYS · 17h ago</div></div><span class="pill2">🍴 Protein +2</span></div><div style="display:flex;gap:18px;border-top:1px solid #14201c;margin-top:10px;padding-top:9px;font-size:15px;color:#9fb0aa;"><span>♡</span><span>💬</span><span>➤</span></div></div>
+        <div class="card"><div class="ph" style="margin-bottom:10px;"><div class="av2">RA</div><div style="flex:1;"><div style="font-size:13.5px;color:#f3f6f4;font-weight:600;">Robert A</div><div style="font-size:10.5px;color:#7c8d87;">THE BOYS · 1w ago</div></div><span class="pill2">🏋️ Lifting +0</span></div><div style="height:150px;border-radius:12px;background:linear-gradient(135deg,#2a3038,#161a1f);"></div></div>
+      </div>
+      <div class="view" id="worldsView">
+        <div style="font-size:12px;color:#7c8d87;margin:4px 2px 8px;">4 of 9 done today · 3 worlds</div>
+        <div class="bar" style="margin-bottom:14px;"><i style="width:44%"></i></div>
+        <div style="display:flex;gap:10px;margin-bottom:11px;">
+          <div class="wtile" style="flex:1;"><div style="width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#2a1810,#0e1f16);display:flex;align-items:center;justify-content:center;font-size:15px;margin-bottom:8px;">💪</div><div style="font-size:13px;color:#eaf2ee;">THE BOYS</div><div style="font-size:10px;color:#7fc7b0;margin-bottom:7px;">2nd · 🔥1</div><div class="bar"><i style="width:30%"></i></div></div>
+          <div class="wtile" style="flex:1;"><div style="width:30px;height:30px;border-radius:9px;background:#1a2740;display:flex;align-items:center;justify-content:center;font-size:11px;color:#8fb8e0;margin-bottom:8px;">AS</div><div style="font-size:13px;color:#eaf2ee;">Academic</div><div style="font-size:10px;color:#7c8d87;margin-bottom:7px;">4 rules</div><div class="bar"><i style="width:12%"></i></div></div>
+        </div>
+        <div class="wtile"><div style="display:flex;align-items:center;gap:10px;"><span style="font-size:16px;">🏃</span><div style="flex:1;"><div style="font-size:13px;color:#eaf2ee;">Run build</div><div style="font-size:10px;color:#7c8d87;">4 rules · 0 / 4.75</div></div><span class="pill2" style="color:#9bf3cf;background:#16241f;border-color:#2c5a48;">+ Log</span></div></div>
+      </div>
+      <div class="view" id="buildView">
+        <div style="font-size:10px;letter-spacing:.5px;color:#5f8576;text-transform:uppercase;margin:6px 2px 10px;">Your systems</div>
+        <div class="card" style="display:flex;align-items:center;gap:12px;"><div style="width:40px;height:40px;border-radius:11px;background:#11201a;display:flex;align-items:center;justify-content:center;font-size:19px;">🏃</div><div style="flex:1;"><div style="font-size:14px;color:#f3f6f4;">Daily Movement</div><div style="font-size:11px;color:#7c8d87;">5 rules · personal</div></div><span style="color:#5f7268;">›</span></div>
+        <div class="card" style="display:flex;align-items:center;gap:12px;"><div style="width:40px;height:40px;border-radius:11px;background:#1a1430;display:flex;align-items:center;justify-content:center;font-size:19px;">🧠</div><div style="flex:1;"><div style="font-size:14px;color:#f3f6f4;">Deep Work</div><div style="font-size:11px;color:#7c8d87;">3 rules · personal</div></div><span style="color:#5f7268;">›</span></div>
+      </div>
+      <div class="view" id="profileView">
+        <div style="height:90px;border-radius:14px;background:linear-gradient(135deg,#2f7a5c,#244a6e 60%,#3a2a6b);margin-bottom:-26px;"></div>
+        <div style="width:64px;height:64px;border-radius:18px;background:#3a6ea5;border:3px solid #070b0a;display:flex;align-items:center;justify-content:center;font-size:18px;color:#eaf2ee;margin-left:8px;">RA</div>
+        <div style="font-size:18px;color:#f3f6f4;margin:8px 2px 0;">Robert A</div>
+        <div style="font-size:11px;color:#7c8d87;margin:2px 2px 12px;">@ravram · FOUNDER · 🌐 Public</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;"><div style="aspect-ratio:1;border-radius:8px;background:linear-gradient(135deg,#23436e,#0e1a2a);"></div><div style="aspect-ratio:1;border-radius:8px;background:linear-gradient(135deg,#1c3a2a,#0e1f16);"></div><div style="aspect-ratio:1;border-radius:8px;background:linear-gradient(135deg,#3a2416,#1a0f08);"></div></div>
+      </div>
+    </div>
+    <div class="navbar">
+      <div class="pill" id="pill">
+        <div class="nav-hl" id="hl"></div>
+        <button class="tab active" data-view="feed" data-anim="popy"><span class="ic"><i class="ti ti-news"></i></span><span class="lb">Feed</span></button>
+        <button class="tab" data-view="worlds" data-anim="spin"><span class="ic"><i class="ti ti-world"></i></span><span class="lb">Worlds</span></button>
+        <div class="plus"><div class="plusbtn" id="plus"><i class="ti ti-plus" style="font-size:25px;color:#06281c;"></i></div></div>
+        <button class="tab" data-view="build" data-anim="wiggle"><span class="ic"><i class="ti ti-tools"></i></span><span class="lb">Build</span></button>
+        <button class="tab" data-view="profile" data-anim="pulsy"><span class="ic"><span class="avn">RA</span></span><span class="lb">Profile</span></button>
+      </div>
+    </div>
+  </div>
+<script>
+(function(){
+  var pill=document.getElementById('pill'), hl=document.getElementById('hl');
+  var tabs=[].slice.call(pill.querySelectorAll('.tab'));
+  var title=document.getElementById('topTitle');
+  function move(t){ hl.style.left=t.offsetLeft+'px'; hl.style.width=t.offsetWidth+'px'; }
+  function showView(v){ ['feed','worlds','build','profile'].forEach(function(k){ var el=document.getElementById(k+'View'); if(el) el.classList.toggle('on', k===v); }); }
+  function activate(t){
+    tabs.forEach(function(x){ x.classList.remove('active'); });
+    t.classList.add('active'); move(t);
+    var ic=t.querySelector('.ic'), a=t.dataset.anim||'popy';
+    ic.style.animation='none'; void ic.offsetWidth; ic.style.animation=a+' .6s cubic-bezier(.34,1.5,.5,1)';
+    showView(t.dataset.view); title.textContent=t.querySelector('.lb').textContent;
+    document.querySelector('.content').scrollTop=0;
+  }
+  tabs.forEach(function(t){ t.addEventListener('click',function(){ activate(t); }); });
+  requestAnimationFrame(function(){ move(pill.querySelector('.tab.active')); });
+  var plus=document.getElementById('plus');
+  plus.addEventListener('click',function(){ plus.classList.toggle('spin'); });
+})();
+</script>
+</body>
+</html>

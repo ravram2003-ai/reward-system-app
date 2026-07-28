@@ -92,6 +92,46 @@ HARD RULES:
 - Keep it under ~240 characters. No emojis except an optional single 🔥 when a streak is mentioned. No hashtags, no markdown, no quotes.
 - Output ONLY the recap sentence(s) as plain text — nothing else.`;
 
+const CHECKIN_SYSTEM_PROMPT = `You write the copy for a "Quick check-in" card in Pointwell, which asks a user about the habits they have NOT logged yet today so they can log with one tap.
+
+You receive the world (group/system) name, the current hour (0-23), and a list of un-logged rules. Each rule has: id, label, unit, kind ("yesno" or "counter"), and usualHour (the hour they normally log it, or null).
+
+Write ONE short question per rule, in that rule's OWN language:
+- kind "yesno" → a yes/no question about doing it. e.g. label "Lifting" → "Did you lift today?"
+- kind "counter" → ask the amount. e.g. label "Protein", unit "g" → "How much protein?"; label "Steps" → "How many steps?"
+
+Also write an optional one-line "intro" ONLY if there is a genuinely useful observation (e.g. it is evening and they usually do one of these around now). If there is nothing meaningful to say, return an empty string for intro. Never invent a reason.
+
+HARD RULES:
+- Use ONLY the rules and facts given. Never invent habits, numbers, streaks, or amounts.
+- No health, medical, diet, or weight advice. No pressure, guilt, or shaming — neutral and friendly.
+- Each question under 60 characters. Intro under 70 characters. No emojis, no markdown, no quotes.
+- Output ONLY minified JSON, no prose and no code fences, exactly:
+{"intro":"...","q":{"<rule id>":"<question>"}}
+- Include every rule id you were given as a key in "q".`;
+
+// Build the user turn for the quick check-in: the un-logged rules → readable lines.
+function buildCheckinMessage(input: Record<string, unknown>): string {
+  const c = (input.checkin && typeof input.checkin === "object" ? input.checkin : {}) as Record<string, unknown>;
+  const s = (v: unknown) => String(v ?? "").trim().slice(0, 60);
+  const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+  const rules = Array.isArray(c.rules) ? (c.rules as any[]).slice(0, 6) : [];
+  const hour = num(c.hour);
+  const lines = [
+    `World: ${s(c.world) || "(unnamed)"}`,
+    `Current hour (0-23): ${hour === null ? "unknown" : hour}`,
+    "Un-logged rules:",
+  ];
+  rules.forEach((r) => {
+    const usual = num(r?.usualHour);
+    lines.push(
+      `- id=${s(r?.id)} | label=${s(r?.label)} | unit=${s(r?.unit) || "(none)"} | kind=${s(r?.kind) === "yesno" ? "yesno" : "counter"}` +
+      (usual === null ? "" : ` | usually logged around ${usual}:00`)
+    );
+  });
+  return lines.join("\n");
+}
+
 // Build the user turn for a recap: yesterday's structured summary → readable lines.
 function buildRecapMessage(input: Record<string, unknown>): string {
   const summary = (input.summary && typeof input.summary === "object" ? input.summary : {}) as Record<string, unknown>;
@@ -223,6 +263,51 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ recap: recap.slice(0, 400) }, 200);
     } catch (err: any) {
       console.error("recap failed:", err?.message);
+      return jsonResponse({ error: "Couldn't reach the AI service. Please try again." }, 502);
+    }
+  }
+
+  // Check-in mode — return the quick check-in COPY as JSON ({ intro, q }). Which rules to ask
+  // about is decided on the client; this only phrases them. Kept beside recap so the normal
+  // generate/refine path below is untouched.
+  if (String(input.mode ?? "") === "checkin") {
+    try {
+      const resp = await fetch(ANTHROPIC_URL, {
+        method: "POST",
+        headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: 400,
+          system: CHECKIN_SYSTEM_PROMPT,
+          messages: [{ role: "user", content: buildCheckinMessage(input) }],
+        }),
+      });
+      if (!resp.ok) {
+        const detail = await resp.text().catch(() => "");
+        console.error("Anthropic checkin error:", resp.status, detail.slice(0, 300));
+        return jsonResponse({ error: messageForStatus(resp.status) }, 502);
+      }
+      const data = await resp.json();
+      const text = (data?.content || []).filter((b: any) => b?.type === "text").map((b: any) => b.text).join("").trim();
+      // Tolerate a stray code fence around the JSON.
+      const cleaned = text.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+      let parsed: any = null;
+      try { parsed = JSON.parse(cleaned); } catch { parsed = null; }
+      if (!parsed || typeof parsed !== "object" || !parsed.q || typeof parsed.q !== "object") {
+        return jsonResponse({ error: "The AI returned an unexpected response." }, 502);
+      }
+      // Whitelist to the rule ids we asked about; clamp every string.
+      const asked = Array.isArray((input.checkin as any)?.rules) ? (input.checkin as any).rules : [];
+      const q: Record<string, string> = {};
+      asked.forEach((r: any) => {
+        const id = String(r?.id ?? "");
+        const v = parsed.q[id];
+        if (id && typeof v === "string" && v.trim()) q[id] = v.trim().slice(0, 90);
+      });
+      const intro = typeof parsed.intro === "string" ? parsed.intro.trim().slice(0, 100) : "";
+      return jsonResponse({ copy: { intro, q } }, 200);
+    } catch (err: any) {
+      console.error("checkin failed:", err?.message);
       return jsonResponse({ error: "Couldn't reach the AI service. Please try again." }, 502);
     }
   }

@@ -1726,6 +1726,31 @@
     }
   }
 
+  // Smart quick check-in copy — the SAME generate Edge Function ("bright-api") with
+  // mode:"checkin". Sends the un-logged rules (label/unit/kind/usual hour) and gets back
+  // { intro, q: { ruleId: question } } — natural phrasing in each rule's own language.
+  // Mirrors generateRecap: never throws, degrades to { error } so the client keeps its own
+  // composed questions. Copy ONLY — which rules to ask is decided locally.
+  async function generateCheckin(payload) {
+    var sb = getClient();
+    if (!sb || !sb.functions || typeof sb.functions.invoke !== "function") {
+      return { error: { message: "Check-in needs a connection." } };
+    }
+    try {
+      var res = await sb.functions.invoke("bright-api", { body: { mode: "checkin", checkin: payload || {} } });
+      if (res.error) return { error: res.error };
+      var data = res.data || {};
+      if (data.error) return { error: { message: String(data.error) } };
+      var copy = data.copy;
+      if (!copy || typeof copy !== "object" || typeof copy.q !== "object" || copy.q === null) {
+        return { error: { message: "The AI returned an unexpected response." } };
+      }
+      return { error: null, copy: { intro: typeof copy.intro === "string" ? copy.intro : "", q: copy.q } };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the AI service." } };
+    }
+  }
+
   // Natural-language "quick log": send the user's text + their loggable rule catalog
   // to the parse-log Edge Function; get back validated draft entries + clarifications.
   // Mirrors generateRules — sb.functions.invoke handles URL/apikey/JWT. Returns a
@@ -1877,6 +1902,7 @@
     getFriendsActiveToday: getFriendsActiveToday,
     generateRules: generateRules,
     generateRecap: generateRecap,
+    generateCheckin: generateCheckin,
     parseLog: parseLog,
     coachChat: coachChat,
     estimateFood: estimateFood,

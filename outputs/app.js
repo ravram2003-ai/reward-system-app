@@ -212,6 +212,8 @@
     lastRecapDay: "",       // YYYY-MM-DD the "Yesterday, recapped" daily AI card last showed (once/day)
     streakMilestones: {},   // { "<type>:<id>": highestMilestoneCelebrated } — celebrate each badge once
     streakRiskDay: "",      // YYYY-MM-DD the streak-at-risk nudge last showed (once/day, later in the day)
+    checkinSkips: {},       // { dateKey: { "<ctxId>:<ruleId>": 1 } } — quick check-in "No"/skip, today only
+    checkinCopy: {},        // { "<ctxId>:<dateKey>": { intro, q: { ruleId: text } } } — cached AI phrasing
     systems: [
       {
         id: "life-core",
@@ -3199,6 +3201,7 @@
       "allowAutoSyncInput",
       "ccAllowDeviceAutosync",
       "communityHubTabs",
+      "quickCheckinCard",
       "communityComposer",
       "communityComposerPhoto",
       "communityFeedSort",
@@ -5624,16 +5627,20 @@
       : "";
     if (size === "large") {
       const head = `<div class="world-tile-head world-large-head">${inlineIcon}${renderWorldRing(t, "large")}<div class="world-tile-main"><strong class="world-tile-name">${escapeHtml(t.name)}</strong><span class="world-tile-stat">${renderWorldStat(t, true)}</span></div></div>`;
+      // Quick check-in sits right under the name/rank line, above the sections (see
+      // work/smart-checkin-reference.html). "" when the world is fully logged/synced.
+      const checkin = checkinTileHtml(t);
       if (hasCover) {
         return `<div class="world-tile ${typeClass} size-large" ${attrs} ${open}>
             ${sizeBtn}
             ${renderTileCover(t, "large")}
-            <div class="world-tile-body">${head}${renderWorldSections(t)}</div>
+            <div class="world-tile-body">${head}${checkin}${renderWorldSections(t)}</div>
           </div>`;
       }
       return `<div class="world-tile ${typeClass} size-large" ${attrs} ${open}>
           ${sizeBtn}
           ${head}
+          ${checkin}
           ${renderWorldSections(t)}
         </div>`;
     }
@@ -5895,10 +5902,61 @@
     const rmSec = t.closest("[data-world-rm-sec]");
     if (rmSec) { const tile = rmSec.closest("[data-world-key]"); if (tile) removeWorldSection(tile.dataset.worldKey, rmSec.dataset.worldRmSec); return; }
     if (t.closest("[data-world-add]")) { openAddWorld(); return; }
+    // Quick check-in on a large tile — handled here (delegation) because tiles re-render as one
+    // HTML string. Every branch returns so the tap never falls through to "open this world".
+    if (t.closest(".quick-checkin-tile") && onCheckinTileClick(t)) return;
     const tile = t.closest("[data-world-id]");
     if (!tile) return;
     if (tile.dataset.worldType === "community") openWorldCommunity(tile.dataset.worldId);
     else openWorldPersonal(tile.dataset.worldId);
+  }
+
+  // Check-in actions inside a Worlds-grid tile. Returns true when the tap was consumed.
+  function onCheckinTileClick(target) {
+    const tileEl = target.closest("[data-world-id]");
+    if (!tileEl) return false;
+    const world = checkinWorldFromTile(
+      buildWorldTiles().find((t) => String(t.id) === tileEl.dataset.worldId && t.type === tileEl.dataset.worldType)
+    );
+    if (!world) return false;
+    const yes = target.closest("[data-qc-yes]");
+    if (yes) { checkinLog(world, yes.dataset.qcYes); return true; }
+    const amt = target.closest("[data-qc-amount]");
+    if (amt) { checkinLog(world, amt.dataset.qcAmount, numberOrDefault(amt.dataset.qcValue, 0)); return true; }
+    const skip = target.closest("[data-qc-skip]");
+    if (skip) { skipCheckinRule(world.id, skip.dataset.qcSkip); renderWorldGrid(); return true; }
+    const type = target.closest("[data-qc-type]");
+    if (type) { openCheckinTileTyping(target, world, type.dataset.qcType); return true; }
+    const go = target.closest("[data-qc-typed-go]");
+    if (go) { commitCheckinTileTyping(target, world, go.dataset.qcTypedGo); return true; }
+    return !!target.closest(".qc-typed"); // taps in the input stay inside the card
+  }
+
+  // ⌨ on a tile → swap the chip row for a typed amount, committing through the same quiet path.
+  function openCheckinTileTyping(target, world, ruleId) {
+    const row = target.closest(".qc-row");
+    const chips = row && row.querySelector(".qc-chips");
+    if (!chips || chips.querySelector(".qc-typed")) return;
+    const rule = checkinRuleById(world, ruleId);
+    chips.innerHTML = `<input class="qc-typed" type="number" inputmode="decimal" min="0" step="any"
+        placeholder="${escapeHtml(String(rule && rule.unit ? rule.unit : "amount"))}" aria-label="Amount">
+      <button class="qc-typed-go" type="button" data-qc-typed-go="${escapeHtml(String(ruleId))}">Log</button>`;
+    const input = chips.querySelector(".qc-typed");
+    if (input) {
+      try { input.focus(); } catch (e) { /* focus is best-effort */ }
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") { ev.preventDefault(); commitCheckinTileTyping(input, world, ruleId); }
+      });
+    }
+  }
+  function commitCheckinTileTyping(target, world, ruleId) {
+    const row = target.closest(".qc-row");
+    const input = row && row.querySelector(".qc-typed");
+    const rule = checkinRuleById(world, ruleId);
+    if (!input || !rule) return;
+    const amount = checkinTypedAmount(input.value, rule);
+    if (amount == null) return;
+    checkinLog(world, ruleId, amount);
   }
 
   // Keyboard: Enter/Space on a focused tile opens it (it's role="button"). Inner controls are
@@ -9368,6 +9426,7 @@
     if (!world) {
       if (els.worldName) els.worldName.textContent = "World";
       ["leaderboardList", "communityPeriodTabs", "communityAnalytics", "worldPosts", "personalRules", "worldChips"].forEach((k) => { if (els[k]) els[k].innerHTML = ""; });
+      if (els.quickCheckinCard) { els.quickCheckinCard.hidden = true; els.quickCheckinCard.innerHTML = ""; }
       return;
     }
     renderWorldChrome(world);
@@ -9425,6 +9484,8 @@
     if (els.worldCoverEdit) els.worldCoverEdit.hidden = !owner;
     if (els.worldIconEdit) els.worldIconEdit.hidden = !owner;
     renderWorldChips(world);
+    // Smart quick check-in — shared chrome so BOTH world types get it, above every panel.
+    renderQuickCheckin(world);
     paintWorldMedia(world);
   }
 
@@ -10085,6 +10146,7 @@
   // updates points + streak + leaderboard with no post prompt. Only one row edits at a time.
   let inlineLogRuleId = ""; // counter rule currently showing the inline stepper (world detail)
   let inlineLogValue = 0;   // its current amount
+  let checkinCopyPending = ""; // world:day key whose AI check-in phrasing is in flight (one at a time)
 
   function refreshDetailRules() {
     const world = currentDetailWorld();
@@ -10162,12 +10224,457 @@
     }
   }
 
+  /* ── Smart quick check-in ─────────────────────────────────────────────────────────────────
+     A card at the top of a world that ASKS about the rules you haven't logged yet, so logging
+     is one tap. It reuses everything: the same today-values readers, the same device-sync
+     detection (deviceTotalForRule), the same coach learning (byRule) for ordering, and the same
+     quiet log path (quickLogRule / quickLogCommunityRule → addDailyEntryFromDraft) — so a tap
+     here never opens the composer and never offers to post. The AI only writes the COPY
+     (renderCheckinCopy); selection/ordering/controls are computed locally so the card works
+     offline and never waits on a network call. ────────────────────────────────────────────── */
+
+  // Today's skips, auto-pruned to the current day (mirrors syncProgressToday).
+  function checkinSkipsToday() {
+    state.checkinSkips = state.checkinSkips || {};
+    const today = getTodayKey();
+    Object.keys(state.checkinSkips).forEach((k) => { if (k !== today) delete state.checkinSkips[k]; });
+    return (state.checkinSkips[today] = state.checkinSkips[today] || {});
+  }
+  function checkinSkipKey(contextId, ruleId) { return contextId + ":" + ruleId; }
+  // Check-in learning is namespaced. coachRuleSuppressed() reads byRule["<ctxId>:<ruleId>"], so
+  // writing check-in outcomes on that bare key would let a few "Skip"s here permanently mute the
+  // Coach's own reminders (and the catch-up card) for that habit. Skipping one card today must
+  // not silence a different surface.
+  function checkinLearnKey(contextId, ruleId) { return "checkin:" + contextId + ":" + ruleId; }
+  function isCheckinSkipped(contextId, ruleId) { return !!checkinSkipsToday()[checkinSkipKey(contextId, ruleId)]; }
+  function skipCheckinRule(contextId, ruleId) {
+    checkinSkipsToday()[checkinSkipKey(contextId, ruleId)] = 1;
+    coachLearnRule(checkinLearnKey(contextId, ruleId), "dismissed"); // own namespace
+    saveState();
+  }
+
+  // The 3 quick amounts for a counter rule, derived from what this user actually logs.
+  // Returns { amounts: [a,b,c], usual } — `usual` is the most-repeated recent value (mode),
+  // falling back to the goal / suggested amount when there's no history to learn from.
+  // Every amount is clamped to the SAME range the log path enforces (entrySliderSettings via
+  // normalizeAddEntryAmount) — otherwise a chip could offer 150 and quietly log the clamped 50.
+  function checkinAmountsForRule(rule, contextType, contextId) {
+    const vals = [];
+    const take = (n) => { const v = numberOrDefault(n, 0); if (v > 0) vals.push(v); };
+    if (contextType === "community") {
+      (state.communityEntries || []).forEach((e) => {
+        if (e.communityId === contextId && e.userId === "me" && e.ruleId === rule.id && !e.viaSource) take(e.amount);
+      });
+    } else {
+      (state.quickEntries || []).forEach((e) => {
+        if (e.systemId === contextId && e.ruleId === rule.id && !e.viaSource) take(e.amount);
+      });
+    }
+    const range = entrySliderSettings(rule);
+    // Snap to the rule's own step, not to whole numbers — a 0.25-step rule (e.g. Sleep in hours)
+    // must offer 7.25/7.5/7.75, and rounding those to integers would offer amounts the user
+    // never logs. Clamped to the same range the log path enforces.
+    const step = numberOrDefault(range.step, 1) || 1;
+    const decimals = (String(step).split(".")[1] || "").length;
+    const fit = (v) => {
+      const snapped = Math.round(numberOrDefault(v, 0) / step) * step;
+      return clampToRange(Number(snapped.toFixed(decimals)), range.min, range.max);
+    };
+    const recent = vals.slice(-30);
+    const goal = goalAmountForRule(rule) || 0;
+    if (!recent.length) {
+      // No history → offer the goal (or a sensible suggestion) with a light spread around it.
+      const base = fit(goal > 0 ? goal : numberOrDefault(suggestedEntryAmount(rule), 1) || 1);
+      const step = Math.max(1, Math.round(base * 0.25));
+      return { amounts: uniqueSortedAmounts([base - step, base, base + step].map(fit)), usual: base };
+    }
+    // Usual = most-repeated value; ties break toward the most recent.
+    const counts = {};
+    let usual = recent[recent.length - 1], bestN = 0;
+    recent.forEach((v) => { counts[v] = (counts[v] || 0) + 1; });
+    recent.slice().reverse().forEach((v) => { if (counts[v] > bestN) { bestN = counts[v]; usual = v; } });
+    // Prefer the user's OWN most-frequent values (their real habits) over the goal — three
+    // distinct amounts they actually log beats a spread invented around a target.
+    usual = fit(usual);
+    const distinct = Object.keys(counts).map(Number).sort((a, b) => (counts[b] - counts[a]) || (b - a));
+    let amounts = uniqueSortedAmounts(distinct.slice(0, 3).map(fit));
+    // Fewer than 3 distinct values logged → pad around `usual` so there's still a choice.
+    if (amounts.length < 3) {
+      const step = Math.max(1, Math.round(usual * 0.25));
+      amounts = uniqueSortedAmounts(amounts.concat([usual - step, usual + step, goal].map(fit)));
+      if (amounts.length > 3) {
+        const idx = amounts.indexOf(usual);
+        const start = Math.max(0, Math.min(idx - 1, amounts.length - 3));
+        amounts = amounts.slice(start, start + 3);
+      }
+    }
+    if (!amounts.includes(usual)) amounts[Math.min(1, Math.max(0, amounts.length - 1))] = usual;
+    return { amounts: uniqueSortedAmounts(amounts).slice(0, 3), usual };
+  }
+  function uniqueSortedAmounts(list) {
+    const seen = new Set();
+    return (list || [])
+      .map((v) => Math.round(numberOrDefault(v, 0)))
+      .filter((v) => v > 0 && !seen.has(v) && seen.add(v))
+      .sort((a, b) => a - b);
+  }
+
+  // How often this rule actually gets completed — drives ordering (most-completed first).
+  // Reuses the coach's per-rule learning plus the raw entry history; no new model.
+  function checkinRuleAffinity(rule, contextType, contextId) {
+    const learn = coachLearning().byRule[checkinLearnKey(contextId, rule.id)] || {};
+    const acted = numberOrDefault(learn.acted, 0);
+    const dismissed = numberOrDefault(learn.dismissed, 0);
+    // Distinct days logged in the last 14 (the same window ruleLoggedFrequently uses).
+    const days = new Set();
+    const within = {};
+    for (let i = 0; i <= 14; i++) within[offsetDate(-i)] = true;
+    const scan = (e, key) => { if (e.ruleId === rule.id && !e.viaSource && within[e.dateKey || e.date]) days.add(e.dateKey || e.date); };
+    if (contextType === "community") {
+      (state.communityEntries || []).forEach((e) => { if (e.communityId === contextId && e.userId === "me") scan(e); });
+    } else {
+      (state.quickEntries || []).forEach((e) => { if (e.systemId === contextId) scan(e); });
+    }
+    // Closeness to goal today nudges a partially-done rule up.
+    return days.size * 2 + acted * 3 - dismissed * 2;
+  }
+
+  // Build the card's rows for a world. Returns { ask: [...], handled: [...] } where `ask` are the
+  // un-logged, non-synced rules (ordered most-completed first) and `handled` are device-synced
+  // rules shown as already taken care of — never asked about.
+  function buildCheckinItems(world) {
+    if (!world) return { ask: [], handled: [] };
+    const isCommunity = world.type === "community";
+    const sys = normalizeSystem(isCommunity ? world.community.system : world.system);
+    const contextType = isCommunity ? "community" : "personal";
+    const contextId = world.id;
+    const values = isCommunity
+      ? communityValuesForMember(world.community.id, "me", getTodayKey())
+      : todayValuesForSystem(sys);
+    const ask = [];
+    const handled = [];
+    (sys.rules || []).map(scoring.normalizeRule).forEach((rule) => {
+      if (rule.simpleStyle === "penalty") return;                       // penalties are never "checked in"
+      if (isRuleSynced(rule) && rule.allowManualOverride === false) return; // manual logging is off
+      const total = numberOrDefault(values[rule.id], 0);
+      const goal = goalAmountForRule(rule) || 0;
+      const isYesNo = rule.simpleStyle === "yesNo";
+      // A device-synced rule that ACTUALLY counted today is never a question — show it as handled.
+      // Gate on the CREDITED value (`total`, which folds in syncedContribution), not the raw device
+      // reading: with auto-sync off (personal or community) the device can report 8,240 steps while
+      // 0 is credited, and claiming "auto-logged ✓" would hide the one rule that still needs a log.
+      const sources = ruleConnectedDeviceSources(rule);
+      if (sources.length && total > 0) {
+        handled.push({
+          rule: rule,
+          value: total,
+          provider: sources.length === 1 ? wearableShortLabel(sources[0]) : "Synced",
+        });
+        return;
+      }
+      // Ask only about rules with NO entry today. A partially-logged counter is deliberately NOT
+      // re-asked: the question ("How much protein?") is whole-day, so a tap would stack a second
+      // full amount on top of what's already logged.
+      if (total > 0) return;
+      if (isCheckinSkipped(contextId, rule.id)) return;      // skipped for today
+      ask.push({
+        rule: rule,
+        isYesNo: isYesNo,
+        total: total,
+        goal: goal,
+        affinity: checkinRuleAffinity(rule, contextType, contextId),
+        amounts: isYesNo ? null : checkinAmountsForRule(rule, contextType, contextId),
+      });
+    });
+    // Most-completed (and closest-to-done) first.
+    ask.sort((a, b) => (b.affinity - a.affinity) || (b.total - a.total) || String(a.rule.label).localeCompare(String(b.rule.label)));
+    return { ask: ask, handled: handled };
+  }
+
+  // Only surface the card when it's plausibly useful: later in the day, or as soon as this world
+  // has un-logged rules the user usually does by now. Never nag first thing in the morning for
+  // habits they always do at night (coachUsualHourForRule).
+  function checkinIsTimely(items) {
+    const hour = new Date().getHours();
+    if (hour >= 16) return true;                    // evening → always fair game
+    if (hour < 8) return false;                     // pre-dawn → never
+    // Mid-day: only ask about rules the user has usually already done by now.
+    return (items.ask || []).some((it) => {
+      const usual = coachUsualHourForRule(it.rule.id);
+      return usual == null ? hour >= 12 : hour >= usual;
+    });
+  }
+
+  // ── Check-in copy ───────────────────────────────────────────────────────────────────────
+  // The AI writes each question in the rule's own language ("Did you lift today?", "How much
+  // protein?") plus a short intro when there's a real reason to say one. Cached per world per
+  // day in state.checkinCopy; until it lands (or if the AI is unreachable) we render the
+  // client-composed phrasing below, so the card is never blank and never waits.
+  function checkinCopyKey(world) { return world.id + ":" + getTodayKey(); }
+  function checkinCopyFor(world) {
+    state.checkinCopy = state.checkinCopy || {};
+    const key = checkinCopyKey(world);
+    Object.keys(state.checkinCopy).forEach((k) => { if (!k.endsWith(":" + getTodayKey())) delete state.checkinCopy[k]; });
+    return state.checkinCopy[key] || null;
+  }
+  // Client fallback phrasing — used until the AI copy lands, and whenever it's unreachable, so it
+  // must stay grammatical for ANY rule label (labels are user-written nouns like "Assignment
+  // submitted", "Deep work block"). Phrasings that read cleanly with a bare noun phrase:
+  //   yes/no  → "Assignment submitted today?"  /  "Lifting today?"
+  //   counter → "How much protein?" (small measure units) · "How many blocks?" (label names the
+  //             unit) · "Reading — how many pages?" (unit adds information)
+  const CHECKIN_MEASURE_UNITS = ["g", "kg", "mg", "oz", "lb", "lbs", "ml", "l", "cup", "cups"];
+  function checkinFallbackQuestion(item) {
+    const label = String(item.rule.label || "this").trim();
+    if (item.isYesNo) return `${label} today?`;
+    const unit = String(item.rule.unit || "").trim();
+    if (!unit) return `How much ${label.toLowerCase()}?`;
+    if (CHECKIN_MEASURE_UNITS.includes(unit.toLowerCase())) return `How much ${label.toLowerCase()}?`;
+    // Label already names the unit ("Steps"/"steps", "Deep work block"/"blocks") → don't repeat it.
+    const stem = unit.toLowerCase().replace(/s$/, "");
+    if (stem && label.toLowerCase().includes(stem)) return `How many ${unit.toLowerCase()}?`;
+    return `${label} — how many ${unit.toLowerCase()}?`;
+  }
+  // A subtitle ONLY when there's something meaningful to say (omitted otherwise, per spec).
+  function checkinFallbackIntro(items) {
+    const hour = new Date().getHours();
+    const timeWord = hour >= 17 ? "Evening" : hour >= 12 ? "Afternoon" : "Morning";
+    const usualNow = (items.ask || []).find((it) => {
+      const usual = coachUsualHourForRule(it.rule.id);
+      return usual != null && Math.abs(usual - hour) <= 1;
+    });
+    // "you usually log reading around now" — "log" keeps it grammatical for any noun label.
+    if (usualNow) return `${timeWord} — you usually log ${String(usualNow.rule.label || "this").toLowerCase()} around now.`;
+    return "";
+  }
+
+  // Fetch the AI phrasing once per world per day, then re-render. Never blocks the card.
+  // Guarded on three axes so a render loop can't hammer the AI: one request in flight at a time,
+  // a per-day cache of SUCCESS, and a per-session cache of FAILURE (a world whose request errors
+  // keeps the client phrasing for the rest of the session instead of retrying on every render).
+  const checkinCopyFailed = {};
+  function maybeLoadCheckinCopy(world, items) {
+    const key = checkinCopyKey(world);
+    if (checkinCopyFor(world)) return;
+    if (checkinCopyFailed[key]) return;
+    if (checkinCopyPending) return;                 // one at a time, whichever world asked first
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.generateCheckin !== "function") return;
+    checkinCopyPending = key;
+    const payload = {
+      world: String(world.name || "").slice(0, 60),
+      hour: new Date().getHours(),
+      rules: (items.ask || []).slice(0, 6).map((it) => ({
+        id: String(it.rule.id),
+        label: String(it.rule.label || "").slice(0, 40),
+        unit: String(it.rule.unit || "").slice(0, 16),
+        kind: it.isYesNo ? "yesno" : "counter",
+        usualHour: coachUsualHourForRule(it.rule.id),
+      })),
+    };
+    Promise.resolve(window.PointwellSignals.generateCheckin(payload)).then((res) => {
+      checkinCopyPending = "";
+      if (!res || res.error || !res.copy) { checkinCopyFailed[key] = 1; return; }
+      state.checkinCopy = state.checkinCopy || {};
+      state.checkinCopy[key] = res.copy;
+      saveState();
+      refreshCheckinSurfaces(world); // repaint whichever surface is showing, with the AI wording
+    }).catch(() => { checkinCopyPending = ""; checkinCopyFailed[key] = 1; });
+  }
+
+  // The card lives on two surfaces (the world detail page and the large world tile). Repaint
+  // whichever is currently on screen — used after the AI copy lands and after a tile-side action.
+  function refreshCheckinSurfaces(world) {
+    // Never repaint out from under someone mid-typing — it would discard the amount they're
+    // entering. The AI copy simply lands on the next natural render instead.
+    const typing = document.querySelector(".qc-typed");
+    if (typing && (document.activeElement === typing || String(typing.value || "").length)) return;
+    if (state.activeView === "community-detail") {
+      const current = currentDetailWorld();
+      if (current && (!world || current.id === world.id)) renderQuickCheckin(current);
+      return;
+    }
+    if (els.worldGrid && els.worldGrid.children.length) renderWorldGrid();
+  }
+
+  // The card's inner HTML for a world — "" when there's nothing to ask (fully logged/synced, or
+  // not a timely moment). Shared by BOTH surfaces the card appears on: the world detail page
+  // (#quickCheckinCard) and the large world tile on the Worlds grid.
+  function checkinCardHtml(world) {
+    if (!world) return "";
+    const items = buildCheckinItems(world);
+    // Nothing to ask → the world is fully logged/synced; render nothing.
+    if (!items.ask.length) return "";
+    if (!checkinIsTimely(items)) return "";
+    maybeLoadCheckinCopy(world, items);
+    const copy = checkinCopyFor(world) || {};
+    const aiQ = (copy && copy.q) || {};
+    const intro = typeof copy.intro === "string" && copy.intro.trim()
+      ? copy.intro.trim()
+      : checkinFallbackIntro(items);
+    const rows = items.ask.map((it) => {
+      const ruleId = escapeHtml(it.rule.id);
+      // AI text is untrusted → escapeHtml before it ever reaches innerHTML.
+      const question = escapeHtml(String(aiQ[it.rule.id] || checkinFallbackQuestion(it)).slice(0, 90));
+      const icon = ruleIconSvg(it.rule, "icon-sm");
+      if (it.isYesNo) {
+        return `<div class="qc-row" data-qc-row="${ruleId}">
+            <span class="qc-icon" aria-hidden="true">${icon}</span>
+            <span class="qc-q">${question}</span>
+            <button class="qc-no" type="button" data-qc-skip="${ruleId}">No</button>
+            <button class="qc-yes" type="button" data-qc-yes="${ruleId}">Yes</button>
+          </div>`;
+      }
+      const amounts = (it.amounts && it.amounts.amounts) || [];
+      const usual = it.amounts && it.amounts.usual;
+      const unit = String(it.rule.unit || "").trim();
+      const usualNote = usual > 0 ? `usually ${escapeHtml(formatMetricPhrase(usual, unit, ""))}` : "";
+      // Three chips share one line, so the unit only fits when it's short ("150 g", "25 pages").
+      // For long units the question already names them ("…how many minutes?") → show the number.
+      const chipUnit = unit.length <= 5 ? unit : "";
+      const chips = amounts.map((amt) => {
+        const isUsual = amt === usual;
+        const text = chipUnit ? formatMetricPhrase(amt, chipUnit, "") : formatCount(amt);
+        return `<button class="qc-chip${isUsual ? " is-usual" : ""}" type="button" data-qc-amount="${ruleId}" data-qc-value="${amt}">${escapeHtml(text)}</button>`;
+      }).join("");
+      return `<div class="qc-row qc-row-counter" data-qc-row="${ruleId}">
+          <div class="qc-counter-head">
+            <span class="qc-icon" aria-hidden="true">${icon}</span>
+            <span class="qc-q">${question}</span>
+            ${usualNote ? `<span class="qc-usual">${usualNote}</span>` : ""}
+            <button class="qc-no" type="button" data-qc-skip="${ruleId}">Skip</button>
+          </div>
+          <div class="qc-chips">
+            ${chips}
+            <button class="qc-keyboard" type="button" data-qc-type="${ruleId}" aria-label="Type an amount for ${escapeHtml(it.rule.label || "rule")}">⌨</button>
+          </div>
+        </div>`;
+    }).join("");
+    const handledRows = items.handled.map((h) => `
+        <div class="qc-row qc-row-handled">
+          <span class="qc-icon" aria-hidden="true">${ruleIconSvg(h.rule, "icon-sm")}</span>
+          <div class="qc-handled-main">
+            <div class="qc-handled-name">${escapeHtml(h.rule.label || "Rule")}</div>
+            <div class="qc-handled-sub">⟳ ${escapeHtml(h.provider)} · ${escapeHtml(formatMetricPhrase(h.value, h.rule.unit || "", ""))} auto-logged</div>
+          </div>
+          <span class="qc-handled-check" aria-hidden="true">✓</span>
+        </div>`).join("");
+    return `
+      <div class="qc-head">
+        <span class="qc-spark" aria-hidden="true">${svgIcon("sparkle", "icon-sm")}</span>
+        <span class="qc-title">Quick check-in</span>
+        <span class="qc-left">${items.ask.length} left</span>
+      </div>
+      ${intro ? `<p class="qc-intro">${escapeHtml(intro)}</p>` : ""}
+      ${rows}
+      ${handledRows}
+      <p class="qc-foot">Skipped ones won't be asked again today.</p>`;
+  }
+
+  // Surface 1: the world DETAIL page (#quickCheckinCard, above the hub tabs).
+  function renderQuickCheckin(world) {
+    const host = els.quickCheckinCard;
+    if (!host) return;
+    const html = checkinCardHtml(world);
+    if (!html) { host.hidden = true; host.innerHTML = ""; return; }
+    host.hidden = false;
+    host.innerHTML = html;
+    wireQuickCheckin(host, world);
+  }
+
+  // Surface 2: the LARGE world tile on the Worlds grid (this is where the reference shows it —
+  // right under the tile's name/rank line, above the Leaderboard/Recent-posts sections).
+  // Tiles are re-rendered as one HTML string, so the tile card is wired by DELEGATION in
+  // onWorldGridClick instead of per-node listeners.
+  function checkinTileHtml(tile) {
+    const world = checkinWorldFromTile(tile);
+    const html = world ? checkinCardHtml(world) : "";
+    return html ? `<div class="quick-checkin quick-checkin-tile">${html}</div>` : "";
+  }
+  // A grid tile isn't shaped like a detail world: personal tiles carry only an id (no .system),
+  // so resolve the real system before the check-in helpers read it.
+  function checkinWorldFromTile(tile) {
+    if (!tile) return null;
+    if (tile.type === "community") {
+      return tile.community ? { type: "community", id: tile.id, name: tile.name, community: tile.community } : null;
+    }
+    const sys = (state.systems || []).find((s) => s.id === tile.id);
+    return sys ? { type: "personal", id: tile.id, name: tile.name, system: sys } : null;
+  }
+  // Shared by both surfaces' handlers: log through the EXISTING quiet path for this world.
+  function checkinLog(world, ruleId, amount) {
+    coachLearnRule(checkinLearnKey(world.id, ruleId), "acted"); // own namespace (see checkinLearnKey)
+    if (world.type === "community") quickLogCommunityRule(world.community, ruleId, amount);
+    else quickLogRule(ruleId, amount, world.system);
+  }
+
+  // All taps go through the EXISTING quiet log path (quickLogRule / quickLogCommunityRule →
+  // addDailyEntryFromDraft), so points/streak/leaderboard update and no composer/post prompt opens.
+  function wireQuickCheckin(host, world) {
+    const logIt = (ruleId, amount) => checkinLog(world, ruleId, amount);
+    Array.from(host.querySelectorAll("[data-qc-yes]")).forEach((b) =>
+      b.addEventListener("click", (e) => { e.stopPropagation(); logIt(b.dataset.qcYes); }));
+    Array.from(host.querySelectorAll("[data-qc-amount]")).forEach((b) =>
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        logIt(b.dataset.qcAmount, numberOrDefault(b.dataset.qcValue, 0));
+      }));
+    Array.from(host.querySelectorAll("[data-qc-skip]")).forEach((b) =>
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        skipCheckinRule(world.id, b.dataset.qcSkip);   // persists for today; logs nothing, no miss
+        renderQuickCheckin(world);
+      }));
+    // ⌨ → type any amount, reusing the same quiet commit path as the chips.
+    Array.from(host.querySelectorAll("[data-qc-type]")).forEach((b) =>
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const ruleId = b.dataset.qcType;
+        const row = host.querySelector(`[data-qc-row="${cssEscapeAttr(ruleId)}"] .qc-chips`);
+        if (!row || row.querySelector(".qc-typed")) return;
+        const rule = checkinRuleById(world, ruleId);
+        row.innerHTML = `<input class="qc-typed" type="number" inputmode="decimal" min="0" step="any"
+            placeholder="${escapeHtml(String(rule && rule.unit ? rule.unit : "amount"))}" aria-label="Amount">
+          <button class="qc-typed-go" type="button">Log</button>`;
+        const input = row.querySelector(".qc-typed");
+        const go = row.querySelector(".qc-typed-go");
+        const commit = () => {
+          const v = checkinTypedAmount(input.value, rule);
+          if (v == null) return;
+          logIt(ruleId, v);
+        };
+        if (input) { input.focus(); input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); commit(); } }); }
+        if (go) go.addEventListener("click", (ev) => { ev.stopPropagation(); commit(); });
+      }));
+  }
+  // Validate a typed amount against the SAME range the log path enforces, so the entry can never
+  // silently differ from what the user typed. Returns null (with a toast) when it can't be used.
+  function checkinTypedAmount(raw, rule) {
+    const value = numberOrDefault(raw, 0);
+    if (!(value > 0)) { showToast("Enter an amount"); return null; }
+    const range = entrySliderSettings(rule);
+    if (value > range.max) { showToast(`Max is ${formatValue(range.max)}${rule.unit ? " " + rule.unit : ""}`); return null; }
+    if (value < range.min) { showToast(`Min is ${formatValue(range.min)}${rule.unit ? " " + rule.unit : ""}`); return null; }
+    return value;
+  }
+
+  function checkinRuleById(world, ruleId) {
+    const sys = normalizeSystem(world.type === "community" ? world.community.system : world.system);
+    return (sys.rules || []).map(scoring.normalizeRule).find((r) => r.id === ruleId) || null;
+  }
+  // Rule ids are app-generated, but they land in a querySelector — escape defensively.
+  function cssEscapeAttr(value) { return String(value == null ? "" : value).replace(/["\\]/g, "\\$&"); }
+
   // Quiet log of a personal rule. Yes/no → one tap (amount 1). Counter → `amount` is the value the
   // user entered in the inline stepper; falls back to the suggested amount when none is given.
-  function quickLogRule(ruleId, amount) {
-    const world = currentDetailWorld();
-    if (!world || world.type !== "personal") return;
-    const system = world.system;
+  // `systemOverride` lets a caller outside the detail view (e.g. the check-in card on a Worlds
+  // grid tile) name the system explicitly instead of relying on currentDetailWorld().
+  function quickLogRule(ruleId, amount, systemOverride) {
+    let system = systemOverride;
+    if (!system) {
+      const world = currentDetailWorld();
+      if (!world || world.type !== "personal") return;
+      system = world.system;
+    }
     const rule = (system.rules || []).map(scoring.normalizeRule).find((r) => r.id === ruleId);
     if (!rule || rule.simpleStyle === "penalty") return;
     if (isRuleSynced(rule) && rule.allowManualOverride === false) { showToast("Manual logging is off for this rule"); return; }
@@ -22882,6 +23389,9 @@
       aiDraftSystem: saved.aiDraftSystem ? normalizeSystem(saved.aiDraftSystem) : null,
       topCardPreferences: saved.topCardPreferences && typeof saved.topCardPreferences === "object" ? saved.topCardPreferences : {},
       weeklyChartPreferences: saved.weeklyChartPreferences && typeof saved.weeklyChartPreferences === "object" ? saved.weeklyChartPreferences : {},
+      // Quick check-in: today's skips + cached AI phrasing (both self-prune to the current day).
+      checkinSkips: saved.checkinSkips && typeof saved.checkinSkips === "object" ? saved.checkinSkips : {},
+      checkinCopy: saved.checkinCopy && typeof saved.checkinCopy === "object" ? saved.checkinCopy : {},
       systems: Array.isArray(saved.systems) && saved.systems.length ? saved.systems : seed.systems,
       publicSystems: seed.publicSystems,
       publicCommunities: seed.publicCommunities,

@@ -12185,3 +12185,105 @@ input:not([type="range"]):not([type="checkbox"]).world-rule-amt-input {
     animation: none !important;
   }
 }
+
+
+/* ── Smart quick check-in (feat/smart-checkin) ────────────────────────────────────────────
+   Top-of-world card that asks about the rules you haven't logged yet. Always-dark, teal
+   identity; sits above the hub tabs so it shows on every tab. Mobile-first — the counter
+   chips wrap and never overflow ~390px. */
+.quick-checkin {
+  margin: 0 0 14px;
+  padding: 14px;
+  border: 1px solid #1f3a30;
+  border-radius: 16px;
+  background: linear-gradient(160deg, #0e1614, #0a0f0d);
+  animation: qcIn 260ms ease;
+}
+@keyframes qcIn { from { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .quick-checkin { animation: none; } }
+.qc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+.qc-spark { display: inline-flex; color: var(--accent); flex: 0 0 auto; }
+.qc-title { flex: 1; font-size: 0.9rem; font-weight: 600; color: var(--ink); }
+.qc-left { font-size: 0.66rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.qc-intro { margin: 0 0 12px; font-size: 0.7rem; color: #7c8d87; line-height: 1.4; }
+.qc-head + .qc-row { margin-top: 11px; }
+
+.qc-row { display: flex; align-items: center; gap: 11px; padding: 9px 0; border-bottom: 1px solid #14201c; }
+.qc-row:last-of-type { border-bottom: 0; }
+.qc-icon { display: inline-flex; flex: 0 0 auto; color: var(--accent); }
+.qc-q { flex: 1; min-width: 0; font-size: 0.86rem; color: #eaf2ee; }
+/* Quiet dismiss. Small type, but a comfortable ≥44px tap target (padding, not font size). */
+.qc-no {
+  flex: 0 0 auto; background: none; border: none; cursor: pointer;
+  font-family: inherit; font-size: 0.68rem; color: #6f827a;
+  min-height: 44px; padding: 6px 10px;
+}
+.qc-no:hover { color: var(--ink); }
+.qc-yes {
+  flex: 0 0 auto; border: none; cursor: pointer; font-family: inherit;
+  font-size: 0.75rem; font-weight: 600; color: #06281c;
+  background: linear-gradient(135deg, #5cf3b8, #2f9d6f);
+  border-radius: 9px; padding: 7px 15px;
+}
+.qc-yes:hover { filter: brightness(1.08); }
+
+/* counter row: question line + a wrapping row of history-derived amount chips */
+.qc-row-counter { display: block; padding: 11px 0; }
+.qc-counter-head { display: flex; align-items: center; gap: 11px; margin-bottom: 9px; }
+.qc-usual { flex: 0 0 auto; font-size: 0.65rem; color: #6f827a; white-space: nowrap; }
+/* One line: the 3 chips share the space and shrink; the ⌨ button never wraps below them. */
+.qc-chips { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+.qc-chip {
+  flex: 1 1 0; min-width: 0; text-align: center; cursor: pointer; font-family: inherit;
+  font-size: 0.76rem; color: #cfe9df; background: #11201a;
+  border: 1px solid #2a5a45; border-radius: 9px; padding: 8px 4px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.qc-chip:hover { filter: brightness(1.12); }
+.qc-chip.is-usual {
+  color: #06281c; font-weight: 600; border-color: transparent;
+  background: linear-gradient(135deg, #5cf3b8, #2f9d6f);
+}
+.qc-keyboard {
+  flex: 0 0 auto; width: 38px; text-align: center; cursor: pointer; font-family: inherit;
+  font-size: 0.78rem; color: #9fb0aa; background: #0e1417;
+  border: 1px solid #243029; border-radius: 9px; padding: 8px 0;
+}
+.qc-keyboard:hover { color: var(--ink); border-color: #2f6f57; }
+/* Matches the R2 selector shape (see the .world-rule-amt-input precedent): R2's
+   `input:not([type="range"]):not([type="checkbox"])` is specificity (0,2,1) and would otherwise
+   win over a plain `.qc-typed` no matter where this block sits. */
+input:not([type="range"]):not([type="checkbox"]).qc-typed {
+  flex: 1 1 auto; min-width: 0; height: 34px; border-radius: 9px;
+  background-color: var(--inset);
+  border: 1px solid #2a5a45; color: var(--ink); font: inherit; font-size: 0.85rem;
+  text-align: center; font-variant-numeric: tabular-nums;
+  box-shadow: none;
+}
+.qc-typed-go {
+  flex: 0 0 auto; height: 34px; cursor: pointer; font-family: inherit;
+  font-size: 0.76rem; font-weight: 600; color: #06281c; border: none; border-radius: 9px;
+  padding: 0 16px; background: linear-gradient(135deg, #5cf3b8, #2f9d6f);
+}
+
+/* device-synced rule: never a question — shown as already handled */
+.qc-row-handled { padding: 10px 0; }
+.qc-handled-main { flex: 1; min-width: 0; }
+.qc-handled-name { font-size: 0.84rem; color: #9fb0aa; }
+.qc-handled-sub { font-size: 0.64rem; color: #7fb6ff; margin-top: 1px; }
+.qc-row-handled .qc-icon { opacity: 0.6; }
+.qc-handled-check { flex: 0 0 auto; font-size: 0.9rem; color: var(--accent); }
+
+.qc-foot { margin: 11px 0 0; font-size: 0.65rem; color: #6f827a; text-align: center; }
+
+/* Inside a Worlds-grid tile the card is nested in an already-padded surface, so it drops its
+   own outer chrome and just separates itself from the tile head. */
+.quick-checkin-tile { margin: 12px 0; border-radius: 14px; }
+.world-tile .quick-checkin-tile { cursor: default; }
+
+@media (max-width: 430px) {
+  .qc-q { font-size: 0.82rem; }
+  .qc-chip { min-width: 54px; font-size: 0.72rem; padding: 8px 4px; }
+  .qc-usual { display: none; }  /* the highlighted chip already says which is usual */
+}

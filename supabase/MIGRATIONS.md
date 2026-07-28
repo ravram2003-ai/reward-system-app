@@ -62,12 +62,18 @@ you know what's live in production.
   SECURITY DEFINER `profile_bio(target)` returning the bio when `can_view_profile` (public/self/
   approved-follower), else NULL. Granted anon + authenticated, read-only. Powers the redesigned
   profile header. *(after #18 — needs `profiles.bio`; and profile-view's `can_view_profile`)*.
-- [ ] **20. profile-cover.sql** — adds `profiles.cover_url` (text, nullable) for the profile cover
+- [x] **20. profile-cover.sql** — adds `profiles.cover_url` (text, nullable) for the profile cover
   banner. Own-profile field governed by the existing self-only `profiles` RLS (updateProfile path);
   intentionally NOT exposed via `get_profile_overview` (others see the default gradient). Storage
   REUSES the existing public **avatars** bucket + its path-based owner-only-write policies (from
   profile-pictures.sql) — no new bucket, no policy change. *(after #1 profile-pictures — reuses the
   avatars bucket)*.
+  Applied to the live project (ref `ejoccpqbozgzixrejlhd`) on 2026-07-28 — it had been MISSED, and
+  because `getMyFlags` selects every profile column in ONE query, the absent column failed that
+  whole select (42703). The error is swallowed → `flags` came back null → handle, visibility
+  (privacy!), avatar_url, bio and the motivation opt-in all silently fell back to local defaults on
+  every sign-in. Verified after applying: the column exists (text, nullable), the exact getMyFlags
+  select now succeeds, and `profiles` RLS (3 policies) covers the new column unchanged.
 - [x] **21. community-device-autosync.sql** — adds `communities.allow_device_autosync` (boolean,
   not null, default false). Owner opt-in to let members' connected-device totals auto-count toward
   the community leaderboard on login/sync. Owner-only write via the existing "communities update by
@@ -166,9 +172,15 @@ you know what's live in production.
 
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).
-  **Redeploy needed** for the "Yesterday, recapped" daily card: a new additive `mode:"recap"`
-  branch returns a short prose recap (`{recap}`). Until redeployed, the client composes the recap
-  locally (graceful fallback) — no errors, just no LLM phrasing. Deployed slug is `bright-api`.
+  Deployed slug is **`bright-api`** (NOT `generate-rules` — the slug and the folder differ).
+  One function serves four additive `mode` branches: *(default)* generate · `refine` ·
+  `recap` (Yesterday-recapped card) · `checkin` (Quick check-in card copy). Each has a client-side
+  fallback, so a stale deploy degrades to locally-composed text rather than erroring — which is
+  exactly how `recap` sat undeployed for weeks without anyone noticing.
+  **Deployed v12 on 2026-07-28** (was v11, June 23 — missing BOTH `recap` and `checkin`).
+  Verified live after deploying: `checkin` → `{"copy":{"intro":"It's around your usual protein
+  time.","q":{...}}}`; `recap` → a warm 1-sentence recap; and the original generate path still
+  returns a full system (no regression). `verify_jwt` left ON.
 - `supabase functions deploy wearables` — Fitbit/Whoop sync.
 - `supabase functions deploy parse-log` — natural-language quick log *(if/when added)*.
 - Each needs its LLM/provider secret set in Supabase project settings.

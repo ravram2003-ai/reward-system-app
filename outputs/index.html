@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260713-auth2">
+    <link rel="stylesheet" href="styles.css?v=20260728-checkin2">
 
   </head>
   <body>
@@ -1152,6 +1152,10 @@
 
             <div class="world-chips" id="worldChips"></div>
 
+            <!-- Smart quick check-in: asks about the rules you haven't logged yet (one tap to log).
+                 Above the hub tabs so it shows on every tab; hidden once the world is fully logged. -->
+            <div class="quick-checkin" id="quickCheckinCard" hidden></div>
+
             <!-- Community hub: segmented tab switcher (Feed · Leaderboard · Members · About). Community-only; hidden for personal worlds. -->
             <div class="segmented community-hub-tabs" id="communityHubTabs" role="tablist" aria-label="Community sections" hidden></div>
 
@@ -1600,13 +1604,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260713-auth2"></script>
-    <script src="auth-helpers.js?v=20260713-auth2"></script>
-    <script src="scoring.js?v=20260713-auth2"></script>
-    <script src="insight.js?v=20260713-auth2"></script>
-    <script src="signals.js?v=20260713-auth2"></script>
-    <script src="wearables.js?v=20260713-auth2"></script>
-    <script type="module" src="auth.js?v=20260713-auth2"></script>
-    <script src="app.js?v=20260713-auth2"></script>
+    <script src="supabase-config.js?v=20260728-checkin2"></script>
+    <script src="auth-helpers.js?v=20260728-checkin2"></script>
+    <script src="scoring.js?v=20260728-checkin2"></script>
+    <script src="insight.js?v=20260728-checkin2"></script>
+    <script src="signals.js?v=20260728-checkin2"></script>
+    <script src="wearables.js?v=20260728-checkin2"></script>
+    <script type="module" src="auth.js?v=20260728-checkin2"></script>
+    <script src="app.js?v=20260728-checkin2"></script>
   </body>
 </html>

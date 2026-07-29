@@ -170,6 +170,20 @@ you know what's live in production.
   Applied to the live project (ref `ejoccpqbozgzixrejlhd`) on 2026-06-30; verified the CHECK includes
   `'drafting'`, `is_captain` + `draft_deadline` columns present, 3 functions present, snake order test passed.
 
+- [x] **30. world-layout.sql** — adds `profiles.world_layout` (jsonb, nullable): the user's Worlds
+  pager arrangement — `{ entries: [{worldId, size, page, index}], archived: [worldId] }`. Own-profile
+  preference governed by the EXISTING self-only `profiles` RLS (no new policy, and deliberately NOT
+  exposed via `get_profile_overview`, so nobody else can read your layout). `archived` only hides a
+  world from the pager — the community/system, its rules and every entry are untouched, so removing
+  a tile is non-destructive and reversible. *(after #1 — needs the `profiles` table)*.
+  **Until this runs, the layout still works but stays LOCAL** (localStorage only): the client's
+  read/write degrade to null, so drag-order/size/archive won't follow you to another device.
+  Applied to the live project (ref `ejoccpqbozgzixrejlhd`) on 2026-07-29 via MCP. Verified after
+  applying: column present (jsonb / nullable), `profiles` RLS still enabled with its 3 existing
+  policies (no new policy added), the client's `select world_layout` read succeeds, the exact
+  written payload round-trips (entries + archived), and `get_profile_overview` does NOT reference
+  `world_layout` — so another viewer can never read your arrangement.
+
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).
   Deployed slug is **`bright-api`** (NOT `generate-rules` — the slug and the folder differ).

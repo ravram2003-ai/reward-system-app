@@ -256,6 +256,34 @@
     }
   }
 
+  // Worlds layout (order / page / size / archived) — a per-user PREFERENCE stored on the
+  // caller's own profile row, so their arrangement follows them across devices. Governed by
+  // the existing self-only "profiles" RLS; never exposed through get_profile_overview.
+  // Needs supabase/world-layout.sql. Returns null on any failure so the client just falls back
+  // to its local layout (an unapplied migration degrades, it doesn't break the Worlds view).
+  async function getWorldLayout(userId) {
+    var sb = getClient();
+    if (!sb || !userId) return null;
+    try {
+      var res = await sb.from("profiles").select("world_layout").eq("id", userId).maybeSingle();
+      if (res.error || !res.data) return null;
+      var v = res.data.world_layout;
+      return v && typeof v === "object" ? v : null;
+    } catch (e) {
+      return null;
+    }
+  }
+  async function saveWorldLayout(userId, layout) {
+    var sb = getClient();
+    if (!sb || !userId) return { error: { message: "Not signed in." } };
+    try {
+      var res = await sb.from("profiles").update({ world_layout: layout || null }).eq("id", userId);
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't save your layout." } };
+    }
+  }
+
   // Persist the editable profile basics to the DB (self-update is allowed by the
   // existing "profiles self update" RLS policy). This is what makes a user
   // findable by their chosen name/handle and applies their visibility choice.
@@ -1875,6 +1903,8 @@
     setOptIn: setOptIn,
     updateBehind: updateBehind,
     getMyFlags: getMyFlags,
+    getWorldLayout: getWorldLayout,
+    saveWorldLayout: saveWorldLayout,
     updateProfile: updateProfile,
     setOnboardingCompleted: setOnboardingCompleted,
     searchProfiles: searchProfiles,

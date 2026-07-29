@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — Worlds pager: scroll-snap paging, medium/large sizes, edit mode with drag-between-pages</title>
+<style>
+  :root{color-scheme:dark}
+  body{margin:0;background:#040605;color:#e7ece9;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;padding:24px 12px 60px;display:flex;flex-direction:column;align-items:center}
+  .note{max-width:400px;font-size:13px;color:#8ba299;line-height:1.55;margin:0 0 18px}.note b{color:#eaf2ee}
+  .pw2{--mint:#7ee0a8;--line:#1e2b24;max-width:380px;width:380px;background:#0a0f0d;border:1px solid #1e2b24;border-radius:22px;overflow:hidden;position:relative;}
+  .pw2 .bar{display:flex;align-items:center;gap:9px;padding:11px 14px 8px;}
+  .pw2 .streak{font-size:11px;color:#8ba299;flex:1;} .pw2 .streak b{color:#7ee0a8;}
+  .pw2 .wd{width:6px;height:6px;border-radius:50%;background:#25352d;transition:.25s;cursor:pointer;border:none;padding:0;}
+  .pw2 .wd.on{background:#7ee0a8;width:19px;border-radius:4px;}
+  .pw2 .chev{background:#0f1613;border:1px solid #1e2b24;color:#8ba299;width:24px;height:24px;border-radius:8px;cursor:pointer;font-size:13px;display:grid;place-items:center;}
+  .pw2 .chev:focus-visible,.pw2 .wd:focus-visible,.tl:focus-visible{outline:2px solid #7ee0a8;outline-offset:2px;}
+  .pw2 .dots{display:flex;gap:5px;}
+  .pgr{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scroll-behavior:smooth;scrollbar-width:none;height:400px;}
+  .pgr::-webkit-scrollbar{display:none;}
+  .pg{min-width:100%;scroll-snap-align:start;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:min-content;gap:10px;padding:4px 14px 14px;align-content:start;}
+  .tl{background:linear-gradient(180deg,#0d1512,#0a100d);border:1px solid #1e2b24;border-radius:17px;padding:11px;position:relative;text-align:left;color:inherit;font:inherit;touch-action:manipulation;}
+  .tl[data-size="medium"]{grid-column:span 1;} .tl[data-size="large"]{grid-column:span 2;}
+  .tl[data-size="medium"] .more{display:none;}
+  .ring{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:700;color:#7ee0a8;flex:0 0 auto;
+    background:radial-gradient(closest-side,#0b100d 78%,transparent 79%),conic-gradient(#7ee0a8 var(--p,22%),#22302a 0);}
+  .nm{font-size:12.5px;font-weight:800;letter-spacing:.3px;color:#eaf2ee;} .st{font-size:9.5px;color:#8ba299;margin-top:2px;}
+  .chk{background:#0c1310;border:1px solid #17231d;border-radius:12px;padding:9px;margin-top:9px;}
+  .q{display:flex;align-items:center;justify-content:space-between;gap:6px;}
+  .ql{font-size:11.5px;font-weight:600;color:#eaf2ee;} .ql i{color:#7ee0a8;font-style:normal;}
+  .opt{padding:5px 9px;border-radius:7px;font-size:11px;font-weight:600;background:#173026;border:1px solid #1d3a2e;color:#bfeed3;}
+  .opt.sel{background:linear-gradient(180deg,#8ff0b8,#7ee0a8);color:#06231a;border-color:transparent;}
+  .lbr{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:8px;background:#173026;border:1px solid #1d3a2e;margin-top:8px;}
+  .bdg{position:absolute;top:-6px;left:-6px;width:19px;height:19px;border-radius:50%;background:#e0857f;color:#2a0f0d;font-size:12px;font-weight:700;display:none;place-items:center;border:2px solid #0a0f0d;}
+  .grp{position:absolute;bottom:5px;right:7px;font-size:10px;color:#5f7369;display:none;}
+  .pw2.ed .tl{animation:jg .32s infinite;cursor:grab;} .pw2.ed .bdg{display:grid;} .pw2.ed .grp{display:block;}
+  .pw2.ed .tl:nth-child(even){animation-delay:.16s}
+  @keyframes jg{0%,100%{transform:rotate(-.5deg)}50%{transform:rotate(.5deg)}}
+  .tl.drg{position:fixed;z-index:99;pointer-events:none;animation:none!important;opacity:.95;transform:scale(1.05);box-shadow:0 16px 40px rgba(0,0,0,.6);border-color:#7ee0a8;}
+  .ph{border:2px dashed #2c5a48;border-radius:17px;background:rgba(126,224,168,.06);}
+  .edge{position:absolute;top:52px;bottom:56px;width:52px;pointer-events:none;opacity:0;transition:.2s;z-index:50;}
+  .edge.l{left:0;background:linear-gradient(90deg,rgba(126,224,168,.28),transparent);}
+  .edge.r{right:0;background:linear-gradient(270deg,rgba(126,224,168,.28),transparent);}
+  .edge.on{opacity:1;}
+  .ft{display:flex;align-items:center;gap:9px;padding:0 14px 13px;}
+  .edb{background:#0f1613;border:1px solid #1e2b24;color:#eaf2ee;border-radius:20px;padding:8px 15px;font-size:12px;font-weight:600;cursor:pointer;}
+  .pw2.ed .edb{background:linear-gradient(180deg,#8ff0b8,#7ee0a8);color:#06231a;border-color:transparent;}
+  .tp{font-size:10.5px;color:#5f7369;flex:1;line-height:1.35;}
+  @media (prefers-reduced-motion: reduce){.pgr{scroll-behavior:auto}.pw2.ed .tl{animation:none}}
+</style>
+</head>
+<body>
+<p class="note"><b>Worlds pager reference.</b> Paging uses CSS scroll-snap (trackpad swipe, drag, arrow keys, chevrons, clickable dots). Two sizes only: <b>medium</b> (half width — header + one check-in prompt) and <b>large</b> (full width — check-in + leaderboard). Press <b>Edit layout</b> → tiles jiggle; drag a tile to reorder, hold near an edge to carry it to another page; tap a tile (without dragging) to toggle medium ↔ large.</p>
+
+<div class="pw2" id="pw2">
+  <div class="bar">
+    <span class="streak">Logged today · <b>5 days</b> to milestone</span>
+    <button class="chev" id="pv2">‹</button><div class="dots" id="dt2"></div><button class="chev" id="nx2">›</button>
+  </div>
+  <div class="edge l" id="egl"></div><div class="edge r" id="egr"></div>
+  <div class="pgr" id="pgr" tabindex="0">
+    <div class="pg">
+      <button class="tl" data-size="large"><span class="bdg">−</span><span class="grp">⤡</span>
+        <div style="display:flex;align-items:center;gap:9px;"><div class="ring" style="--p:22%">2/9</div><div><div class="nm">THE BOYS</div><div class="st">Rank #1 · 1 active</div></div></div>
+        <div class="chk"><div class="q" style="margin-bottom:7px;"><span class="ql"><i>◎</i> Cardio</span><span style="display:flex;gap:4px;"><span class="opt">20</span><span class="opt sel">30</span><span class="opt">40</span></span></div>
+        <div class="q"><span class="ql"><i>╫</i> Lift today?</span><span style="display:flex;gap:4px;"><span class="opt">No</span><span class="opt sel">Yes</span></span></div></div>
+        <div class="more"><div class="lbr"><span style="font-size:11px;color:#7ee0a8;font-weight:700;">1</span><div style="width:19px;height:19px;border-radius:50%;background:linear-gradient(135deg,#2b4a3c,#16241d);"></div><span style="flex:1;font-size:11.5px;color:#eaf2ee;">You</span><span style="font-size:11.5px;color:#7ee0a8;font-weight:700;">2</span></div></div>
+      </button>
+      <button class="tl" data-size="medium"><span class="bdg">−</span><span class="grp">⤡</span>
+        <div style="display:flex;align-items:center;gap:8px;"><div class="ring" style="--p:50%">4/8</div><div><div class="nm">FAMILY</div><div class="st">Rank #2</div></div></div>
+        <div class="chk"><div class="q"><span class="ql"><i>💧</i> Water</span><span class="opt sel">6</span></div></div>
+      </button>
+      <button class="tl" data-size="medium"><span class="bdg">−</span><span class="grp">⤡</span>
+        <div style="display:flex;align-items:center;gap:8px;"><div class="ring" style="--p:70%">6/9</div><div><div class="nm">SQUASH</div><div class="st">Rank #1</div></div></div>
+        <div class="chk"><div class="q"><span class="ql"><i>🎾</i> Court</span><span class="opt sel">60</span></div></div>
+      </button>
+    </div>
+    <div class="pg">
+      <button class="tl" data-size="medium"><span class="bdg">−</span><span class="grp">⤡</span>
+        <div style="display:flex;align-items:center;gap:8px;"><div class="ring" style="--p:15%">1/7</div><div><div class="nm">SOLO</div><div class="st">Just you</div></div></div>
+        <div class="chk"><div class="q"><span class="ql"><i>📖</i> Read</span><span class="opt sel">15</span></div></div>
+      </button>
+      <button class="tl" data-size="medium"><span class="bdg">−</span><span class="grp">⤡</span>
+        <div style="display:flex;align-items:center;gap:8px;"><div class="ring" style="--p:38%">3/8</div><div><div class="nm">RUN CLUB</div><div class="st">Rank #4</div></div></div>
+      </button>
+      <button class="tl" data-size="large"><span class="bdg">−</span><span class="grp">⤡</span>
+        <div style="display:flex;align-items:center;gap:9px;"><div class="ring" style="--p:88%">7/8</div><div><div class="nm">DEEP WORK</div><div class="st">Rank #1 · 1 left</div></div></div>
+        <div class="chk"><div class="q"><span class="ql"><i>🧠</i> Focus</span><span style="display:flex;gap:4px;"><span class="opt">60</span><span class="opt sel">90</span></span></div></div>
+      </button>
+    </div>
+  </div>
+  <div class="ft"><button class="edb" id="edb">✎ Edit layout</button><span class="tp" id="tp">Swipe, drag, or use ← → · dots jump</span></div>
+</div>
+
+<script>
+(function(){
+  var pw=document.getElementById('pw2'),pgr=document.getElementById('pgr'),dt=document.getElementById('dt2'),tp=document.getElementById('tp');
+  var egl=document.getElementById('egl'),egr=document.getElementById('egr');
+  var n=pgr.querySelectorAll('.pg').length,cur=0,dots=[];
+  for(var k=0;k<n;k++){var b=document.createElement('button');b.className='wd'+(k?'':' on');b.setAttribute('aria-label','Page '+(k+1));(function(i){b.onclick=function(){go(i);};})(k);dt.appendChild(b);dots.push(b);}
+  function go(i){cur=Math.max(0,Math.min(n-1,i));pgr.scrollTo({left:cur*pgr.clientWidth,behavior:'smooth'});sync();}
+  function sync(){dots.forEach(function(d,k){d.classList.toggle('on',k===cur);});}
+  pgr.addEventListener('scroll',function(){if(drag)return;var i=Math.round(pgr.scrollLeft/pgr.clientWidth);if(i!==cur){cur=i;sync();}});
+  document.getElementById('pv2').onclick=function(){go(cur-1);};document.getElementById('nx2').onclick=function(){go(cur+1);};
+  pgr.addEventListener('keydown',function(e){if(e.key==='ArrowRight'){e.preventDefault();go(cur+1);}if(e.key==='ArrowLeft'){e.preventDefault();go(cur-1);}});
+
+  var down=false,sx=0,sl=0;
+  pgr.addEventListener('pointerdown',function(e){if(pw.classList.contains('ed'))return;down=true;sx=e.clientX;sl=pgr.scrollLeft;pgr.style.scrollSnapType='none';pgr.style.scrollBehavior='auto';});
+  window.addEventListener('pointermove',function(e){if(down)pgr.scrollLeft=sl-(e.clientX-sx);});
+  window.addEventListener('pointerup',function(){if(!down)return;down=false;pgr.style.scrollSnapType='x mandatory';pgr.style.scrollBehavior='smooth';go(Math.round(pgr.scrollLeft/pgr.clientWidth));});
+
+  document.getElementById('edb').onclick=function(){
+    var on=pw.classList.toggle('ed');
+    this.textContent=on?'✓ Done':'✎ Edit layout';
+    tp.textContent=on?'Drag a tile to move it · hold at an edge to change page · tap to resize':'Swipe, drag, or use ← → · dots jump';
+  };
+
+  var drag=null,ph=null,ox=0,oy=0,moved=false,dwell=null,dir=0;
+  pgr.addEventListener('pointerdown',function(e){
+    if(!pw.classList.contains('ed'))return;
+    var t=e.target.closest('.tl'); if(!t)return;
+    e.preventDefault(); moved=false;
+    var r=t.getBoundingClientRect();
+    ph=document.createElement('div'); ph.className='ph'; ph.style.height=r.height+'px';
+    ph.style.gridColumn=(t.dataset.size==='large')?'span 2':'span 1';
+    t.parentNode.insertBefore(ph,t);
+    drag=t; t.classList.add('drg'); t.style.width=r.width+'px'; t.style.height=r.height+'px';
+    ox=e.clientX-r.left; oy=e.clientY-r.top;
+    t.style.left=(e.clientX-ox)+'px'; t.style.top=(e.clientY-oy)+'px';
+  });
+  window.addEventListener('pointermove',function(e){
+    if(!drag)return; moved=true;
+    drag.style.left=(e.clientX-ox)+'px'; drag.style.top=(e.clientY-oy)+'px';
+    var pr=pgr.getBoundingClientRect();
+    var d=e.clientX<pr.left+54?-1:e.clientX>pr.right-54?1:0;
+    if(d!==dir){ clearTimeout(dwell); dir=d;
+      egl.classList.toggle('on',d===-1); egr.classList.toggle('on',d===1);
+      if(d) dwell=setTimeout(function(){ go(cur+d); dir=0; egl.classList.remove('on'); egr.classList.remove('on'); },500);
+    }
+    var el=document.elementFromPoint(e.clientX,e.clientY); if(!el)return;
+    var over=el.closest?el.closest('.tl:not(.drg)'):null;
+    if(over){ var rr=over.getBoundingClientRect();
+      over.parentNode.insertBefore(ph, e.clientX>rr.left+rr.width/2?over.nextSibling:over);
+    } else { var pg=el.closest?el.closest('.pg'):null; if(pg&&ph.parentNode!==pg) pg.appendChild(ph); }
+  });
+  window.addEventListener('pointerup',function(){
+    if(!drag)return; clearTimeout(dwell); dir=0; egl.classList.remove('on'); egr.classList.remove('on');
+    ph.parentNode.insertBefore(drag,ph); ph.remove(); ph=null;
+    drag.classList.remove('drg'); drag.style.cssText='';
+    if(!moved){ drag.dataset.size = drag.dataset.size==='medium'?'large':'medium'; }
+    drag=null;
+  });
+})();
+</script>
+</body>
+</html>

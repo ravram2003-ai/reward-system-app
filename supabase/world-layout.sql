@@ -1,0 +1,42 @@
+-- Pointwell — Worlds layout (per user, syncs across devices).
+--
+-- The Worlds pager lets a user arrange their world tiles: order, which page each sits on,
+-- each tile's size (medium | large), and which worlds they've removed from the layout.
+-- That arrangement is a PREFERENCE, so it belongs on the user's own profile row rather than
+-- on the worlds themselves (a community's layout is personal to each member).
+--
+-- Safe to re-run (idempotent): the column ALTER is "if not exists"; no functions, no bucket,
+-- no policy changes.
+--
+-- WHAT YOU MUST DO: run this whole file in the Supabase SQL editor (or via the CLI).
+--
+-- SECURITY: world_layout is an OWN-profile field. It is governed by the EXISTING self-only
+-- "profiles" RLS — a user reads/writes only their own row — so no new policy is needed and
+-- none is added here. It is intentionally NOT exposed through get_profile_overview(), so
+-- another viewer can never read how you arranged your worlds.
+--
+-- SHAPE (validated in the client, stored as jsonb):
+--   {
+--     "entries":  [ { "worldId": "community:<id>" | "personal:<id>",
+--                     "size":    "medium" | "large",
+--                     "page":    <int>,      -- which page the tile sits on
+--                     "index":   <int> } ],  -- position within that page
+--     "archived": [ "community:<id>", ... ]  -- removed from the layout, NOT deleted
+--   }
+-- "archived" only hides a world from the Worlds pager. The community/system row, its rules and
+-- every entry are untouched, so removing a tile never destroys data and is fully reversible.
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- The column. Nullable with no default → existing rows and the sign-up trigger
+-- are untouched (NULL = "no saved layout yet", and the client falls back to its
+-- default ordering, appending any world the layout hasn't seen).
+-- ───────────────────────────────────────────────────────────────────────────
+alter table public.profiles
+  add column if not exists world_layout jsonb;
+
+-- VERIFY (run after applying):
+--   -- column exists, jsonb, nullable:
+--   select column_name, data_type, is_nullable from information_schema.columns
+--     where table_schema = 'public' and table_name = 'profiles' and column_name = 'world_layout';
+--   -- self-only RLS still governs profiles (no new policy should have appeared):
+--   select policyname, cmd from pg_policies where schemaname = 'public' and tablename = 'profiles';

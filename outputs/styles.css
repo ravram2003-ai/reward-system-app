@@ -12368,3 +12368,177 @@ input:not([type="range"]):not([type="checkbox"]).qc-typed {
    margins). width:100% restores the intended "fill the column, cap at 500px, stay centred" —
    the calc(50% - 50vw) full-bleed maths still resolves to exactly edge-to-edge. */
 .community-feed-list { width: 100%; }
+
+/* ── Worlds pager (feat/worlds-pager) ─────────────────────────────────────────────────────
+   The Worlds view is a horizontal, iPhone-home-screen-style pager: two full world cards per
+   page, one below 760px. Tokens are scoped to the pager so the rest of the app's palette is
+   untouched. Appended last so these win over the earlier .world-tile / R2 rules.
+   See work/pointwell-two-worlds.html. */
+/* The pager owns the full column: #worldGrid is normally a tile GRID, which would squeeze
+   the viewport into a single track. */
+.world-grid.is-pager { display: block; grid-template-columns: none; gap: 0; }
+
+.worlds-viewport {
+  --panel-2: #0d1512;
+  --line: #1e2b24;
+  --mint: #7ee0a8;
+  --mint-bright: #8ff0b8;
+  --mint-deep: #173026;
+  --txt: #eaf2ee;
+  --txt-dim: #8ba299;
+  --txt-faint: #86a096;   /* lifted from #5f7369: that failed WCAG AA on the panel */
+  position: relative;
+  overflow: hidden;
+  /* Pages measure their CONTAINER, not the viewport. (A calc(50% - 50vw) full-bleed only works
+     for a centred container — the desktop sidebar offsets .workspace, so it overflowed right.) */
+  margin: 0;
+  padding: 0;
+}
+.worlds-track {
+  display: flex;
+  align-items: stretch;
+  transition: transform 0.4s cubic-bezier(0.4, 0.9, 0.3, 1);
+  will-change: transform;
+}
+.worlds-page {
+  min-width: 100%;
+  display: grid;
+  grid-template-columns: repeat(var(--worlds-cols, 2), minmax(0, 1fr));
+  gap: 14px;
+  padding: 4px 2px 10px;
+  align-items: start;
+}
+@media (max-width: 760px) {
+  .worlds-page { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* One world — scrolls INTERNALLY so a busy world never stretches the page */
+.world-tile.worlds-card {
+  display: block;
+  min-width: 0;
+  max-height: min(72vh, 620px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: linear-gradient(180deg, var(--panel-2), #0a100d);
+  box-shadow: none;
+}
+.world-tile.worlds-card::-webkit-scrollbar { display: none; }
+/* A card that clips its content gets a soft bottom fade so the cut-off is legible as
+   "there is more here", since the scrollbar is hidden. */
+.world-tile.worlds-card {
+  mask-image: linear-gradient(180deg, #000 calc(100% - 18px), transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 18px), transparent 100%);
+}
+.world-tile.worlds-card:hover { transform: none; }
+
+.worlds-card-head {
+  display: flex; align-items: center; gap: 11px;
+  margin-bottom: 12px; cursor: pointer;
+  background: none; border: 0; padding: 0; width: 100%; text-align: left;
+}
+.worlds-card-title { min-width: 0; }
+.worlds-card-title h3 {
+  margin: 0; font-size: 1.02rem; font-weight: 800; letter-spacing: 0.4px; color: var(--txt);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.worlds-card-title p { margin: 2px 0 0; font-size: 0.69rem; color: var(--txt-dim); }
+.worlds-card .world-ring { flex: 0 0 auto; }
+.worlds-card .score-ring-fill { stroke: var(--mint); }
+.worlds-card .score-ring-label { color: var(--mint); }
+
+/* Page dots — the active one stretches into a pill */
+.worlds-dots { display: flex; gap: 6px; justify-content: center; margin: 0 0 8px; }
+/* 6px dot, 44px hit area: the padding is transparent and clipped out by background-clip. */
+.worlds-dot {
+  box-sizing: content-box;   /* so the transparent padding ADDS to the 6px dot */
+  width: 6px; height: 6px; border-radius: 50%;
+  padding: 19px 9px; background-clip: content-box;
+  margin: -19px -9px;
+  background-color: #25352d; border: 0; cursor: pointer;
+  transition: width 0.25s ease, background-color 0.25s ease, border-radius 0.25s ease;
+}
+.worlds-dot.is-on { background-color: var(--mint, #7ee0a8); width: 20px; border-radius: 4px; }
+
+/* "swipe for more" tip — fades out after the first page turn */
+.worlds-tip {
+  position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+  margin: 0; padding: 5px 12px; border-radius: 20px;
+  font-size: 0.68rem; color: var(--txt-faint);
+  background: rgba(8, 12, 10, 0.75); backdrop-filter: blur(4px);
+  pointer-events: none; transition: opacity 0.4s ease;
+}
+.worlds-tip.is-gone { opacity: 0; }
+
+/* Add-a-world card */
+.world-tile.worlds-add {
+  display: grid; place-content: center; gap: 6px; text-align: center;
+  min-height: 160px; border-style: dashed; cursor: pointer;
+}
+.worlds-add .world-add-plus { font-size: 1.6rem; color: var(--mint); line-height: 1; }
+.worlds-add .world-add-label { font-size: 0.76rem; color: var(--txt-dim); }
+
+/* Modules inside a card sit tighter than on the old tiles */
+.worlds-card .world-sections { margin-top: 4px; }
+.worlds-card .world-cap { letter-spacing: 1.4px; font-size: 0.62rem; }
+
+/* Compact check-in: one tight row per prompt (icon + label left, hint + Skip right) */
+.worlds-card .quick-checkin-tile { margin: 0 0 11px; border-radius: 15px; }
+.worlds-card .quick-checkin { padding: 11px 11px 7px; background: #0c1310; border-color: #17231d; }
+.worlds-card .qc-head { margin-bottom: 2px; }
+.worlds-card .qc-title { font-size: 0.79rem; font-weight: 700; }
+.worlds-card .qc-left { font-size: 0.6rem; color: var(--txt-faint); }
+.worlds-card .qc-intro { font-size: 0.63rem; margin-bottom: 6px; }
+.worlds-card .qc-row { padding: 7px 0; border-bottom: 0; border-top: 1px solid #15201b; }
+.worlds-card .qc-row:first-of-type { border-top: 0; }
+.worlds-card .qc-counter-head { margin-bottom: 6px; gap: 6px; }
+.worlds-card .qc-q { font-size: 0.76rem; font-weight: 600; color: var(--txt); }
+.worlds-card .qc-icon { color: var(--mint); }
+.worlds-card .qc-usual { display: inline; font-size: 0.58rem; color: var(--txt-faint); }
+/* Small type, but keep a genuine 44px tap target (padding, not font-size). */
+.worlds-card .qc-no { min-height: 44px; padding: 4px 10px; font-size: 0.62rem; color: var(--txt-dim); font-weight: 600; }
+.worlds-card .qc-chips { gap: 5px; }
+.worlds-card .qc-chip {
+  padding: 7px 3px; border-radius: 9px; font-size: 0.74rem; font-weight: 600;
+  background: var(--mint-deep); border: 1px solid #1d3a2e; color: #bfeed3;
+}
+.worlds-card .qc-chip.is-usual {
+  background: linear-gradient(180deg, var(--mint-bright), var(--mint));
+  color: #06231a; border-color: transparent;
+}
+.worlds-card .qc-keyboard {
+  flex: 0 0 30px; width: 30px; padding: 7px 0; font-size: 0.58rem;
+  color: var(--txt-faint); background: transparent; border: 1px solid #1d3a2e;
+}
+.worlds-card .qc-yes {
+  padding: 7px 14px; border-radius: 9px; font-size: 0.74rem;
+  background: linear-gradient(180deg, var(--mint-bright), var(--mint)); color: #06231a;
+}
+/* Auto-logged (device) rows: slim, mint check, never a question */
+.worlds-card .qc-row-handled { padding: 5px 0; gap: 7px; }
+.worlds-card .qc-handled-name { font-size: 0.72rem; font-weight: 600; color: var(--txt); }
+.worlds-card .qc-handled-sub { font-size: 0.58rem; color: var(--txt-faint); }
+.worlds-card .qc-handled-check { color: var(--mint); }
+.worlds-card .qc-foot { font-size: 0.58rem; }
+
+/* Visible keyboard focus on every control in the pager */
+.worlds-viewport :is(button, [role="button"], [tabindex="0"]):focus-visible,
+.worlds-dot:focus-visible {
+  outline: 2px solid var(--mint, #7ee0a8);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .worlds-track { transition: none; }
+  .worlds-dot { transition: none; }
+  .worlds-tip { transition: none; }
+}
+
+@media (max-width: 430px) {
+  .world-tile.worlds-card { max-height: min(68vh, 560px); padding: 12px 12px 10px; border-radius: 18px; }
+  .worlds-card-title h3 { font-size: 0.95rem; }
+}

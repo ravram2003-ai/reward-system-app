@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pointwell — Worlds</title>
+<style>
+  :root{
+    --bg:#0a0f0d; --panel:#0f1613; --line:#1e2b24;
+    --mint:#7ee0a8; --mint-bright:#8ff0b8; --mint-deep:#173026;
+    --txt:#eaf2ee; --txt-dim:#8ba299; --txt-faint:#5f7369;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+    display:flex;flex-direction:column;height:100dvh;overflow:hidden;}
+  .topbar{padding:10px 20px 6px;display:flex;align-items:center;justify-content:space-between;flex:0 0 auto;}
+  .streak{font-size:12px;color:var(--txt-dim);} .streak b{color:var(--mint);}
+  .dots{display:flex;gap:6px;} .wd{width:6px;height:6px;border-radius:50%;background:#25352d;transition:.25s;}
+  .wd.on{background:var(--mint);width:20px;border-radius:4px;}
+  /* horizontal pager: each page holds TWO worlds */
+  .viewport{flex:1 1 auto;overflow:hidden;position:relative;}
+  .track{display:flex;height:100%;transition:transform .4s cubic-bezier(.4,.9,.3,1);will-change:transform;}
+  .page{min-width:100%;height:100%;display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:6px 16px 14px;}
+  @media(max-width:760px){.page{grid-template-columns:1fr;}} /* real phone: one world, still paged */
+  .world{
+    background:linear-gradient(180deg,#0d1512,#0a100d);
+    border:1px solid var(--line);border-radius:22px;
+    padding:14px 14px 10px;overflow-y:auto;scrollbar-width:none;
+  }
+  .world::-webkit-scrollbar{display:none;}
+  .whead{display:flex;align-items:center;gap:11px;margin-bottom:12px;}
+  .ring{width:44px;height:44px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--mint);
+    background:radial-gradient(closest-side,#0b100d 78%,transparent 79%),conic-gradient(var(--mint) var(--p,22%),#22302a 0);}
+  .wtitle h1{font-size:17px;letter-spacing:.4px;font-weight:800;}
+  .wtitle p{font-size:11px;color:var(--txt-dim);margin-top:2px;}
+  .ci{background:#0c1310;border:1px solid #17231d;border-radius:15px;padding:11px 11px 5px;margin-bottom:11px;}
+  .ci-top{display:flex;align-items:center;justify-content:space-between;}
+  .ci-top .t{display:flex;align-items:center;gap:6px;font-weight:700;font-size:13px;} .ci-top .star{color:var(--mint);}
+  .ci-top .left{font-size:10px;color:var(--txt-faint);}
+  .q{padding:7px 0;border-top:1px solid #15201b;} .q:first-of-type{border-top:none;}
+  .q-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:6px;}
+  .q-label{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;}
+  .q-ic{color:var(--mint);width:14px;text-align:center;font-size:11px;}
+  .q-meta{display:flex;align-items:center;gap:7px;} .hint{font-size:9.5px;color:var(--txt-faint);} .skip{font-size:10px;color:var(--txt-dim);font-weight:600;}
+  .opts{display:flex;gap:5px;}
+  .opt{flex:1;padding:7px 3px;border-radius:9px;text-align:center;font-size:12px;font-weight:600;
+    background:var(--mint-deep);border:1px solid #1d3a2e;color:#bfeed3;cursor:pointer;}
+  .opt.sel{background:linear-gradient(180deg,var(--mint-bright),var(--mint));color:#06231a;border-color:transparent;}
+  .opt.mini{flex:0 0 30px;font-size:9px;color:var(--txt-faint);display:grid;place-items:center;}
+  .yn{display:flex;gap:5px;} .yn .opt{flex:0 0 46px;}
+  .auto{display:flex;align-items:center;gap:7px;padding:5px 0;border-top:1px solid #15201b;}
+  .auto .nm{font-size:12px;font-weight:600;} .auto .src{font-size:9.5px;color:var(--txt-faint);}
+  .check{width:16px;height:16px;border-radius:5px;background:var(--mint-deep);border:1px solid #1d3a2e;display:grid;place-items:center;color:var(--mint);font-size:10px;flex:0 0 auto;}
+  .h{font-size:10px;letter-spacing:1.4px;color:var(--txt-faint);font-weight:700;margin:12px 2px 8px;display:flex;justify-content:space-between;}
+  .h .rm{color:var(--txt-faint);letter-spacing:0;font-size:9.5px;}
+  .lb{display:flex;align-items:center;gap:8px;padding:8px 9px;border-radius:10px;margin-bottom:5px;background:#0e1512;border:1px solid #14201b;}
+  .lb.me{background:var(--mint-deep);border-color:#1d3a2e;}
+  .rk{width:12px;font-size:12px;font-weight:700;color:var(--txt-dim);} .lb.me .rk{color:var(--mint);}
+  .av{width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,#2b4a3c,#16241d);flex:0 0 auto;}
+  .nm2{font-size:12.5px;font-weight:600;flex:1;} .pts{font-size:12.5px;font-weight:700;color:var(--mint);}
+  .sub{font-size:9.5px;color:var(--txt-faint);margin-top:1px;}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px;}
+  .chip{border:1px dashed #274236;color:var(--mint);background:transparent;font-size:11px;font-weight:600;padding:6px 11px;border-radius:18px;cursor:pointer;}
+  .nav{flex:0 0 auto;display:flex;align-items:center;justify-content:space-around;padding:11px 26px calc(11px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:#080c0a;}
+  .nav button{background:none;border:none;color:var(--txt-faint);font-size:19px;padding:6px;cursor:pointer;}
+  .nav .plus{width:50px;height:50px;border-radius:50%;background:linear-gradient(180deg,var(--mint-bright),var(--mint));color:#06231a;font-size:25px;display:grid;place-items:center;margin-top:-24px;box-shadow:0 8px 22px rgba(126,224,168,.35);}
+  .tip{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--txt-faint);background:rgba(8,12,10,.75);padding:5px 12px;border-radius:20px;pointer-events:none;transition:.4s;backdrop-filter:blur(4px);}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="streak">Logged today · <b>5 days</b> to milestone</div>
+    <div class="dots" id="dots"></div>
+  </div>
+  <div class="viewport">
+    <div class="track" id="track">
+      <!-- PAGE 1: two worlds side by side -->
+      <div class="page">
+        <!-- WORLD: The Boys -->
+        <section class="world">
+          <div class="whead"><div class="ring" style="--p:22%">2/9</div><div class="wtitle"><h1>THE BOYS</h1><p>Rank #1 · 1 active</p></div></div>
+          <div class="ci">
+            <div class="ci-top"><div class="t"><span class="star">★</span> Quick check-in</div><div class="left">3 left</div></div>
+            <div class="q"><div class="q-head"><div class="q-label"><span class="q-ic">◎</span> Cardio</div><div class="q-meta"><span class="hint">usually 30</span><span class="skip">Skip</span></div></div><div class="opts"><div class="opt">20</div><div class="opt sel">30</div><div class="opt">40</div><div class="opt mini">⌨</div></div></div>
+            <div class="q"><div class="q-head"><div class="q-label"><span class="q-ic">🌙</span> Sleep</div><div class="q-meta"><span class="hint">usually 7.5</span><span class="skip">Skip</span></div></div><div class="opts"><div class="opt">6</div><div class="opt sel">8</div><div class="opt">10</div><div class="opt mini">⌨</div></div></div>
+            <div class="q"><div class="q-head"><div class="q-label"><span class="q-ic">╫</span> Lift today?</div><div class="yn"><div class="opt">No</div><div class="opt sel">Yes</div></div></div></div>
+            <div class="auto"><div class="check">✓</div><div><div class="nm">Steps</div><div class="src">Fitbit · 3,110</div></div></div>
+            <div class="auto"><div class="check">✓</div><div><div class="nm">Sleep 7+ hrs</div><div class="src">Fitbit · 7.38 hrs</div></div></div>
+          </div>
+          <div class="h"><span>LEADERBOARD</span><span class="rm">remove</span></div>
+          <div class="lb me"><span class="rk">1</span><div class="av"></div><span class="nm2">You</span><span class="pts">2</span></div>
+          <div class="h"><span>RECENT POSTS</span><span class="rm">remove</span></div>
+          <div class="lb"><div class="av"></div><div><span class="nm2">You · Steps</span><div class="sub">22h ago</div></div></div>
+          <div class="chips"><button class="chip">+ Members</button><button class="chip">+ Trend</button></div>
+        </section>
+        <!-- WORLD: Family -->
+        <section class="world">
+          <div class="whead"><div class="ring" style="--p:50%">4/8</div><div class="wtitle"><h1>FAMILY</h1><p>Rank #2 · 3 active</p></div></div>
+          <div class="ci">
+            <div class="ci-top"><div class="t"><span class="star">★</span> Quick check-in</div><div class="left">2 left</div></div>
+            <div class="q"><div class="q-head"><div class="q-label"><span class="q-ic">🚶</span> Walk</div><div class="q-meta"><span class="hint">usually 45</span><span class="skip">Skip</span></div></div><div class="opts"><div class="opt sel">30</div><div class="opt">45</div><div class="opt">60</div><div class="opt mini">⌨</div></div></div>
+            <div class="q"><div class="q-head"><div class="q-label"><span class="q-ic">💧</span> Water</div><div class="q-meta"><span class="hint">usually 6</span><span class="skip">Skip</span></div></div><div class="opts"><div class="opt">4</div><div class="opt sel">6</div><div class="opt">8</div><div class="opt mini">⌨</div></div></div>
+            <div class="auto"><div class="check">✓</div><div><div class="nm">Steps</div><div class="src">Fitbit · 5,240</div></div></div>
+          </div>
+          <div class="h"><span>LEADERBOARD</span><span class="rm">remove</span></div>
+          <div class="lb"><span class="rk">1</span><div class="av"></div><span class="nm2">Mom</span><span class="pts">5</span></div>
+          <div class="lb me"><span class="rk">2</span><div class="av"></div><span class="nm2">You</span><span class="pts">4</span></div>
+          <div class="chips"><button class="chip">+ Members</button><button class="chip">+ Trend</button></div>
+        </section>
+      </div>
+      <!-- PAGE 2: next pair -->
+      <div class="page">
+        <section class="world">
+          <div class="whead"><div class="ring" style="--p:70%">6/9</div><div class="wtitle"><h1>SQUASH TEAM</h1><p>Rank #1 · 6 active</p></div></div>
+          <div class="ci">
+            <div class="ci-top"><div class="t"><span class="star">★</span> Quick check-in</div><div class="left">1 left</div></div>
+            <div class="q"><div class="q-head"><div class="q-label"><span class="q-ic">🎾</span> Court time</div><div class="q-meta"><span class="hint">usually 60</span><span class="skip">Skip</span></div></div><div class="opts"><div class="opt">30</div><div class="opt sel">60</div><div class="opt">90</div><div class="opt mini">⌨</div></div></div>
+            <div class="auto"><div class="check">✓</div><div><div class="nm">Active mins</div><div class="src">Fitbit · 72</div></div></div>
+          </div>
+          <div class="h"><span>LEADERBOARD</span><span class="rm">remove</span></div>
+          <div class="lb me"><span class="rk">1</span><div class="av"></div><span class="nm2">You</span><span class="pts">7</span></div>
+          <div class="chips"><button class="chip">+ Members</button></div>
+        </section>
+        <section class="world">
+          <div class="whead"><div class="ring" style="--p:15%">1/7</div><div class="wtitle"><h1>SOLO</h1><p>Just you</p></div></div>
+          <div class="ci">
+            <div class="ci-top"><div class="t"><span class="star">★</span> Quick check-in</div><div class="left">4 left</div></div>
+            <div class="q"><div class="q-head"><div class="q-label"><span class="q-ic">📖</span> Reading</div><div class="q-meta"><span class="hint">usually 20</span><span class="skip">Skip</span></div></div><div class="opts"><div class="opt sel">15</div><div class="opt">30</div><div class="opt">45</div><div class="opt mini">⌨</div></div></div>
+            <div class="auto"><div class="check">✓</div><div><div class="nm">Sleep 7+ hrs</div><div class="src">Fitbit · 7.4 hrs</div></div></div>
+          </div>
+          <div class="chips"><button class="chip">+ Trend</button><button class="chip">+ Today's schedule</button></div>
+        </section>
+      </div>
+    </div>
+    <div class="tip" id="tip">← swipe for more worlds →</div>
+  </div>
+  <div class="nav">
+    <button>▤</button><button style="color:var(--mint)">◉</button><div class="plus">+</div><button>⚔</button><button>◔</button>
+  </div>
+<script>
+  const track=document.getElementById('track'),dotsW=document.getElementById('dots'),tip=document.getElementById('tip');
+  const n=track.children.length;let i=0;
+  for(let k=0;k<n;k++){const d=document.createElement('div');d.className='wd'+(k?'':' on');dotsW.appendChild(d);}
+  const dots=[...dotsW.children];
+  function go(x){i=Math.max(0,Math.min(n-1,x));track.style.transform=`translateX(${-i*100}%)`;dots.forEach((d,k)=>d.classList.toggle('on',k===i));if(i>0)tip.style.opacity=0;}
+  let sx=0,dx=0,drag=false;const vp=document.querySelector('.viewport');
+  vp.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;drag=true;},{passive:true});
+  vp.addEventListener('touchmove',e=>{if(drag)dx=e.touches[0].clientX-sx;},{passive:true});
+  vp.addEventListener('touchend',()=>{if(Math.abs(dx)>50)go(i+(dx<0?1:-1));dx=0;drag=false;});
+  vp.addEventListener('mousedown',e=>{sx=e.clientX;drag=true;});
+  window.addEventListener('mousemove',e=>{if(drag)dx=e.clientX-sx;});
+  window.addEventListener('mouseup',()=>{if(Math.abs(dx)>50)go(i+(dx<0?1:-1));dx=0;drag=false;});
+  window.addEventListener('keydown',e=>{if(e.key==='ArrowRight')go(i+1);if(e.key==='ArrowLeft')go(i-1);});
+</script>
+</body>
+</html>

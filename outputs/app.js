@@ -212,6 +212,7 @@
     lastRecapDay: "",       // YYYY-MM-DD the "Yesterday, recapped" daily AI card last showed (once/day)
     streakMilestones: {},   // { "<type>:<id>": highestMilestoneCelebrated } — celebrate each badge once
     streakRiskDay: "",      // YYYY-MM-DD the streak-at-risk nudge last showed (once/day, later in the day)
+    worldLayout: null,      // { entries:[{worldId,size,page,index}], archived:[worldId] } — mirrors profiles.world_layout
     checkinSkips: {},       // { dateKey: { "<ctxId>:<ruleId>": 1 } } — quick check-in "No"/skip, today only
     checkinCopy: {},        // { "<ctxId>:<dateKey>": { intro, q: { ruleId: text } } } — cached AI phrasing
     systems: [
@@ -1534,6 +1535,14 @@
       // Existing accounts were backfilled onboarding_completed=true (search-onboarding.sql),
       // so they're never re-onboarded. A failed/null fetch is treated as completed.
       if (flags.onboarding_completed === false) maybeStartOnboarding();
+    }
+    // Worlds layout is server truth so the arrangement follows the user across devices.
+    // A null result (no saved layout yet, or the migration hasn't been run) keeps the local one.
+    if (window.PointwellSignals && typeof window.PointwellSignals.getWorldLayout === "function") {
+      try {
+        const layout = await window.PointwellSignals.getWorldLayout(uid);
+        if (layout && typeof layout === "object") { state.worldLayout = layout; saveState(); renderWorldGrid(); }
+      } catch (e) { /* keep the local layout */ }
     }
     await refreshInbox();
     pushMyBehindStatus();
@@ -3286,7 +3295,6 @@
       window.addEventListener("pointerup", onWorldGridPointerUp);
       window.addEventListener("pointercancel", onWorldGridPointerCancel);
       // Worlds pager: arrow-key paging + regroup when the 760px breakpoint is crossed.
-      window.addEventListener("keydown", onWorldsPagerKeydown);
       window.addEventListener("resize", onWorldsPagerResize);
     }
     bindQuickLogControls();
@@ -5553,207 +5561,450 @@
     return worldStandings(community).filter((m) => numberOrDefault(m.today, 0) > 0).length;
   }
 
-  /* ── Worlds pager ─────────────────────────────────────────────────────────────────────────
-     The Worlds view is an iPhone-home-screen-style horizontal pager: TWO full world cards per
-     page (one below 760px), paged by swipe, mouse drag or ArrowLeft/ArrowRight. It's a new
-     PRESENTATION of existing data — every card is built from buildWorldTiles() and composed
-     from parts that already exist: renderWorldRing + renderWorldStat (header),
-     checkinTileHtml (the quiet-log quick check-in) and renderWorldSections (leaderboard /
-     recent posts / the dashed add-module chips, with their own add+remove handlers).
-     It renders into the SAME #worldGrid mount, so the existing click/keydown delegation
-     (open a world, check-in taps, section add/remove) keeps working untouched.
-     See work/pointwell-two-worlds.html. ─────────────────────────────────────────────────── */
-  const WORLDS_PAGER_BREAKPOINT = 760;   // ≤ this → one world per page
-  const WORLDS_SWIPE_THRESHOLD = 50;     // px of travel that commits a page turn
+  /* ── Worlds pager v2 ──────────────────────────────────────────────────────────────────────
+     The Worlds view is a horizontal pager built on CSS SCROLL-SNAP (not a hand-rolled
+     transform): the page strip is a real overflow-x container with scroll-snap-align pages, so
+     trackpad two-finger swipe, touch momentum and snapping all come from the browser. On top of
+     that we add chevrons, clickable dots, arrow keys and a live pointer-drag.
+
+     Tiles come in two sizes on a 2-column grid — `medium` (1 col: header + one compact prompt)
+     and `large` (2 cols: header + full check-in + modules) — so sizes mix freely on a page.
+
+     Edit mode lifts a tile under the cursor with a dashed placeholder, reflows the others live,
+     and carries the tile across pages when you dwell at an edge. Layout (order / page / size)
+     persists to profiles.world_layout so it follows the user across devices.
+
+     Every tile is still built from buildWorldTiles() and composed from existing parts
+     (renderWorldRing + renderWorldStat, checkinTileHtml, renderWorldSections), and renders into
+     the SAME #worldGrid mount so the existing delegation keeps working.
+     See work/worlds-pager-edit-reference.html. ──────────────────────────────────────────── */
+  const WORLDS_TWO_COL_MIN = 520;        // pager width (px) at which tiles sit two-up
+  const WORLDS_EDGE_ZONE = 54;           // px from the pager edge that arms a page flip
+  const WORLDS_EDGE_DWELL = 500;         // ms of holding there before it flips
+  const WORLDS_TILES_PER_PAGE = 4;       // grid slots per page (a large tile takes 2)
   let worldsPageIndex = 0;
   let worldsPageCount = 1;
-  let worldsHintDone = false;            // the "swipe for more" tip hides after the first turn
-  const worldsSwipe = { dragging: false, startX: 0, startY: 0, dx: 0, axis: "", pointerId: null };
+  let worldsEditMode = false;
+  let worldsLastCols = 0;
 
-  function worldsPerPage() {
-    return (window.innerWidth || document.documentElement.clientWidth || 0) <= WORLDS_PAGER_BREAKPOINT ? 1 : 2;
+  // Two columns whenever the PAGER ITSELF is wide enough — not the window. On desktop the
+  // sidebar eats ~290px, so a 1000px window can leave a ~700px column; measuring the window
+  // made tiles stack full-width on perfectly roomy screens.
+  function worldsColumns() {
+    const host = els.worldGrid;
+    const w = (host && host.clientWidth) || window.innerWidth || document.documentElement.clientWidth || 0;
+    return w >= WORLDS_TWO_COL_MIN ? 2 : 1;
   }
-  function chunkWorldTiles(tiles, per) {
+  function worldsReducedMotion() {
+    return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }
+  function worldsPagerEl() { return document.getElementById("worldsPager"); }
+
+  /* ── Layout model ────────────────────────────────────────────────────────────────────────
+     state.worldLayout = { entries: [{ worldId, size, page, index }], archived: [worldId] }.
+     worldId is the tile key ("community:abc" / "personal:xyz") so the two id spaces can't
+     collide. It mirrors profiles.world_layout (see supabase/world-layout.sql) — local state is
+     the working copy; every change is pushed so another device sees the same layout. */
+  function worldLayoutState() {
+    const wl = state.worldLayout && typeof state.worldLayout === "object" ? state.worldLayout : {};
+    return {
+      entries: Array.isArray(wl.entries) ? wl.entries : [],
+      archived: Array.isArray(wl.archived) ? wl.archived : [],
+    };
+  }
+  function worldLayoutEntry(key) {
+    return worldLayoutState().entries.find((e) => e && String(e.worldId) === String(key)) || null;
+  }
+  function worldIsArchived(key) {
+    return worldLayoutState().archived.indexOf(String(key)) > -1;
+  }
+  function worldTileSizeFor(key) {
+    const e = worldLayoutEntry(key);
+    return e && e.size === "large" ? "large" : (e && e.size === "medium" ? "medium" : "");
+  }
+  // Persist + push. Kept in one place so every mutation syncs the same way.
+  function saveWorldLayout(next) {
+    state.worldLayout = {
+      entries: (next.entries || []).map((e, i) => ({
+        worldId: String(e.worldId), size: e.size === "large" ? "large" : "medium",
+        page: numberOrDefault(e.page, 0), index: numberOrDefault(e.index, i),
+      })),
+      archived: (next.archived || []).map(String),
+    };
+    saveState();
+    pushWorldLayout();
+  }
+  let worldLayoutPushTimer = null;
+  function pushWorldLayout() {
+    if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.saveWorldLayout !== "function") return;
+    clearTimeout(worldLayoutPushTimer);   // coalesce a burst of drags into one write
+    worldLayoutPushTimer = setTimeout(() => {
+      const uid = state.account && state.account.userId;
+      if (!uid) return;
+      Promise.resolve(window.PointwellSignals.saveWorldLayout(uid, state.worldLayout)).catch(() => {});
+    }, 400);
+  }
+
+  /* Build the ordered, paged tile list: saved layout first (honouring page + index), then any
+     world the layout hasn't seen yet appended with a default size. Archived worlds drop out. */
+  function buildWorldsPages() {
+    const cols = worldsColumns();
+    const slotsPerPage = cols === 1 ? 2 : WORLDS_TILES_PER_PAGE;
+    const tiles = buildWorldTiles().filter((t) => !worldIsArchived(worldTileKey(t)));
+    const placed = tiles.slice().map((t) => {
+      const key = worldTileKey(t);
+      const e = worldLayoutEntry(key);
+      return {
+        tile: t, key: key,
+        size: worldTileSizeFor(key) || "medium",   // side-by-side by default; large is opt-in
+        page: e ? numberOrDefault(e.page, 0) : Number.MAX_SAFE_INTEGER,
+        index: e ? numberOrDefault(e.index, 0) : Number.MAX_SAFE_INTEGER,
+      };
+    });
+    placed.sort((a, b) => (a.page - b.page) || (a.index - b.index));
+    // Flow into pages by grid span so a large tile never straddles a page boundary.
     const pages = [];
-    for (let i = 0; i < tiles.length; i += per) pages.push(tiles.slice(i, i + per));
-    return pages;
+    let page = [];
+    let used = 0;
+    placed.forEach((p) => {
+      const span = (p.size === "large" && cols > 1) ? 2 : 1;
+      if (used + span > slotsPerPage && page.length) { pages.push(page); page = []; used = 0; }
+      page.push(p); used += span;
+    });
+    if (page.length) pages.push(page);
+    return pages.length ? pages : [[]];
   }
 
-  // One world: header ring + name + status, the quick check-in, then its modules. Scrolls
-  // INTERNALLY (.worlds-card) so a busy world never stretches the page or shifts the grid.
-  function renderWorldsPagerCard(t) {
-    const key = worldTileKey(t);
+  // One tile. `medium` shows the header + a single compact prompt; `large` adds the modules.
+  function renderWorldsTile(p) {
+    const t = p.tile;
     const typeClass = t.type === "community" ? "tile-community" : "tile-personal";
-    return `<section class="world-tile worlds-card ${typeClass}"
-        data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(key)}"
-        aria-label="${escapeHtml(t.name)}">
-        <div class="worlds-card-head" role="button" tabindex="0" data-world-open aria-label="Open ${escapeHtml(t.name)}">
+    const body = p.size === "large"
+      ? `${checkinTileHtml(t, { compact: true })}${renderWorldSections(t)}`
+      : `${checkinTileHtml(t, { compact: true, maxPrompts: 1 })}`;
+    return `<div class="world-tile worlds-tile ${typeClass}" data-size="${p.size}"
+        data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(p.key)}">
+        <button class="worlds-tile-rm" type="button" data-world-archive="${escapeHtml(p.key)}" aria-label="Remove ${escapeHtml(t.name)} from your layout" tabindex="-1">−</button>
+        <button class="worlds-tile-grip" type="button" data-world-resize="${escapeHtml(p.key)}" aria-label="Toggle ${escapeHtml(t.name)} between medium and large" tabindex="-1">⤡</button>
+        <div class="worlds-tile-head" role="button" tabindex="0" data-world-open aria-label="Open ${escapeHtml(t.name)}">
           ${renderWorldRing(t, "large")}
-          <div class="worlds-card-title">
+          <div class="worlds-tile-title">
             <h3>${escapeHtml(t.name)}</h3>
             <p>${renderWorldStat(t, false)}</p>
           </div>
         </div>
-        ${checkinTileHtml(t, { compact: true })}
-        ${renderWorldSections(t)}
-      </section>`;
+        ${body}
+      </div>`;
   }
 
   function renderWorldGrid() {
     const mount = els.worldGrid;
     if (!mount) return;
-    if (worldDrag.started) return; // never rebuild mid-drag — it would drop the ghost/placeholder
+    if (worldsDrag.tile) return;   // never rebuild mid-drag — it would drop the lifted tile
     const tiles = buildWorldTiles();
     if (els.worldGridHint) els.worldGridHint.hidden = tiles.length < 1;
-    // Slim section header shows the world count as a small muted number ("Your worlds  5").
     if (els.worldCount) els.worldCount.textContent = tiles.length ? String(tiles.length) : "";
-    const addCard = `<div class="world-tile worlds-card worlds-add" role="button" tabindex="0" data-world-add aria-label="Add a world">
+    const pages = buildWorldsPages();
+    worldsPageCount = Math.max(1, pages.length);
+    worldsPageIndex = Math.max(0, Math.min(worldsPageIndex, worldsPageCount - 1));
+    worldsLastCols = worldsColumns();
+    const addCard = `<div class="world-tile worlds-tile worlds-add" data-size="medium" role="button" tabindex="0" data-world-add aria-label="Add a world">
         <span class="world-add-plus" aria-hidden="true">+</span>
         <span class="world-add-label">${tiles.length ? "New world" : "Create your first world"}</span>
       </div>`;
-    const per = worldsPerPage();
-    worldsLastPerPage = per; // seed the resize comparator here, or the FIRST resize is swallowed
-    // The add-card rides along as the last "world" so it always has a home on some page.
-    const cards = tiles.map(renderWorldsPagerCard).concat(addCard);
-    const pages = chunkWorldTiles(cards, per);
-    worldsPageCount = Math.max(1, pages.length);
-    worldsPageIndex = Math.max(0, Math.min(worldsPageIndex, worldsPageCount - 1));
     const dots = worldsPageCount > 1
-      // Plain buttons + aria-current: a real tablist would need tabpanels and roving focus,
-      // which this isn't — claiming the role would mislead screen readers.
-      ? `<div class="worlds-dots" role="group" aria-label="World pages">${
-          pages.map((_, i) => `<button class="worlds-dot${i === worldsPageIndex ? " is-on" : ""}" type="button"
-            aria-current="${i === worldsPageIndex ? "true" : "false"}" aria-label="Go to page ${i + 1} of ${worldsPageCount}" data-worlds-dot="${i}"></button>`).join("")
-        }</div>`
+      ? pages.map((_, i) => `<button class="worlds-dot${i === worldsPageIndex ? " is-on" : ""}" type="button"
+          aria-current="${i === worldsPageIndex ? "true" : "false"}" aria-label="Go to page ${i + 1} of ${worldsPageCount}" data-worlds-dot="${i}"></button>`).join("")
       : "";
-    const hint = (worldsPageCount > 1 && !worldsHintDone)
-      ? `<p class="worlds-tip" id="worldsTip" aria-hidden="true">← swipe for more worlds →</p>` : "";
-    // #worldGrid is a CSS grid (the old tile layout) — the pager owns the full width instead,
-    // so it must lay out as a block or the viewport gets squeezed into one grid column.
+    const nav = worldsPageCount > 1
+      ? `<div class="worlds-nav">
+          <button class="worlds-chev" type="button" data-worlds-prev aria-label="Previous page">‹</button>
+          <div class="worlds-dots" role="group" aria-label="World pages">${dots}</div>
+          <button class="worlds-chev" type="button" data-worlds-next aria-label="Next page">›</button>
+        </div>`
+      : "";
     mount.classList.add("is-pager");
+    mount.classList.toggle("is-editing", worldsEditMode);
     mount.innerHTML = `
-      ${dots}
-      <div class="worlds-viewport" id="worldsViewport">
-        <div class="worlds-track" id="worldsTrack" style="transform:translateX(${-worldsPageIndex * 100}%)">
-          ${pages.map((page) => `<div class="worlds-page"${per === 1 ? "" : ` style="--worlds-cols:${per}"`}>${page.join("")}</div>`).join("")}
+      ${nav}
+      <div class="worlds-shell">
+        <span class="worlds-edge worlds-edge-l" aria-hidden="true"></span>
+        <span class="worlds-edge worlds-edge-r" aria-hidden="true"></span>
+        <div class="worlds-pager" id="worldsPager" tabindex="0" role="group" aria-label="Worlds, ${worldsPageCount} pages">
+          ${pages.map((page, i) => `<div class="worlds-page" data-page="${i}">${
+              page.map(renderWorldsTile).join("") + (i === pages.length - 1 ? addCard : "")
+            }</div>`).join("")}
         </div>
-        ${hint}
+      </div>
+      <div class="worlds-foot">
+        <button class="worlds-editbtn" type="button" data-worlds-edit aria-pressed="${worldsEditMode ? "true" : "false"}">${worldsEditMode ? "✓ Done" : "✎ Edit layout"}</button>
+        <span class="worlds-tip">${worldsEditMode
+          ? "Drag a tile to move it · hold at an edge to change page · tap to resize"
+          : "Swipe, drag, or use ← → · dots jump"}</span>
       </div>`;
     paintWorldTilesMedia(tiles);
     bindWorldsPager();
-    syncWorldsPageInertness();
+    // Restore the scroll position for the active page without animating on a re-render.
+    const pgr = worldsPagerEl();
+    if (pgr) { pgr.scrollLeft = worldsPageIndex * pgr.clientWidth; }
+    syncWorldsDots();
   }
 
-  // Move to a page. `instant` (or prefers-reduced-motion) skips the slide.
-  function goWorldsPage(next, instant) {
-    const track = document.getElementById("worldsTrack");
-    if (!track) return;
-    const target = Math.max(0, Math.min(numberOrDefault(next, 0), worldsPageCount - 1));
-    const changed = target !== worldsPageIndex;
-    worldsPageIndex = target;
-    const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (instant || reduced) {
-      track.style.transition = "none";
-      track.style.transform = `translateX(${-target * 100}%)`;
-      // Restore the transition on the next frame so later swipes still animate.
-      requestAnimationFrame(() => { track.style.transition = ""; });
-    } else {
-      track.style.transform = `translateX(${-target * 100}%)`;
-    }
+  function syncWorldsDots() {
     Array.from(document.querySelectorAll("[data-worlds-dot]")).forEach((d, i) => {
-      d.classList.toggle("is-on", i === target);
-      d.setAttribute("aria-current", i === target ? "true" : "false");
+      d.classList.toggle("is-on", i === worldsPageIndex);
+      d.setAttribute("aria-current", i === worldsPageIndex ? "true" : "false");
     });
-    syncWorldsPageInertness();
-    if (changed) {
-      worldsHintDone = true;
-      const tip = document.getElementById("worldsTip");
-      if (tip) tip.classList.add("is-gone");
-    }
   }
+
+  // Go to a page. Scroll-snap does the easing; reduced motion jumps instantly.
+  function goWorldsPage(next, instant) {
+    const pgr = worldsPagerEl();
+    if (!pgr) return;
+    worldsPageIndex = Math.max(0, Math.min(numberOrDefault(next, 0), worldsPageCount - 1));
+    const left = worldsPageIndex * pgr.clientWidth;
+    if (instant || worldsReducedMotion()) {
+      const prev = pgr.style.scrollBehavior;
+      pgr.style.scrollBehavior = "auto";
+      pgr.scrollLeft = left;
+      requestAnimationFrame(() => { pgr.style.scrollBehavior = prev || ""; });
+    } else {
+      pgr.scrollTo({ left: left, behavior: "smooth" });
+    }
+    syncWorldsDots();
+  }
+
+  /* ── Pointer drag ────────────────────────────────────────────────────────────────────────
+     Two modes share one gesture: OUTSIDE edit mode a horizontal drag scrubs the pager
+     (snap off while dragging, restored + settled on release); INSIDE edit mode it lifts a tile.
+     A vertical drag is always left to the browser so tall tiles still scroll. */
+  const worldsDrag = {
+    // page scrub
+    scrub: false, startX: 0, startY: 0, startLeft: 0, axis: "", pointerId: null,
+    // tile drag
+    tile: null, ph: null, offX: 0, offY: 0, moved: false, dwell: null, dir: 0,
+  };
 
   function bindWorldsPager() {
-    const vp = document.getElementById("worldsViewport");
-    if (!vp || vp.dataset.pagerBound === "1") return;
-    vp.dataset.pagerBound = "1";
-    // Touch + mouse drag. Vertical intent is left alone so a tall card still scrolls internally.
-    // A swipe may start anywhere on a card — including on a chip — otherwise most of a
-    // phone-sized card (which is mostly buttons) would be a dead zone for paging. Only the
-    // dots opt out. A tap still logs, because a page turn needs >50px of travel.
-    vp.addEventListener("pointerdown", (e) => {
-      if (e.pointerType === "mouse" && e.button !== 0) return;
-      if (e.target.closest && e.target.closest("[data-worlds-dot]")) return;
-      worldsSwipe.dragging = true; worldsSwipe.startX = e.clientX; worldsSwipe.startY = e.clientY;
-      worldsSwipe.dx = 0; worldsSwipe.axis = ""; worldsSwipe.pointerId = e.pointerId;
+    const pgr = worldsPagerEl();
+    if (!pgr || pgr.dataset.pagerBound === "1") return;
+    pgr.dataset.pagerBound = "1";
+
+    // Keep the dots in step with native scrolling (trackpad, momentum, snap).
+    pgr.addEventListener("scroll", () => {
+      if (worldsDrag.scrub || worldsDrag.tile) return;
+      const i = Math.round(pgr.scrollLeft / Math.max(1, pgr.clientWidth));
+      if (i !== worldsPageIndex && i >= 0 && i < worldsPageCount) { worldsPageIndex = i; syncWorldsDots(); }
+    }, { passive: true });
+
+    pgr.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      goWorldsPage(worldsPageIndex + (e.key === "ArrowRight" ? 1 : -1));
     });
-    vp.addEventListener("pointermove", (e) => {
-      if (!worldsSwipe.dragging || e.pointerId !== worldsSwipe.pointerId) return;
-      const dx = e.clientX - worldsSwipe.startX;
-      const dy = e.clientY - worldsSwipe.startY;
-      // Direction lock: the first decisive movement claims the gesture, so scrolling a tall
-      // card vertically can never also turn the page (and vice versa).
-      if (!worldsSwipe.axis && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
-        worldsSwipe.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+
+    pgr.addEventListener("pointerdown", onWorldsPointerDown);
+    window.addEventListener("pointermove", onWorldsPointerMove, { passive: false });
+    window.addEventListener("pointerup", onWorldsPointerUp);
+    window.addEventListener("pointercancel", onWorldsPointerUp);
+  }
+
+  function onWorldsPointerDown(e) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const pgr = worldsPagerEl();
+    if (!pgr) return;
+    if (e.target.closest && e.target.closest("[data-worlds-dot],[data-worlds-prev],[data-worlds-next],[data-worlds-edit]")) return;
+    if (worldsEditMode) {
+      const tile = e.target.closest && e.target.closest(".worlds-tile:not(.worlds-add)");
+      if (!tile) return;
+      e.preventDefault();                       // no text selection, no native drag
+      const r = tile.getBoundingClientRect();
+      const ph = document.createElement("div");
+      ph.className = "worlds-ph";
+      ph.style.height = r.height + "px";
+      ph.style.gridColumn = tile.dataset.size === "large" ? "span 2" : "span 1";
+      tile.parentNode.insertBefore(ph, tile);
+      tile.classList.add("is-dragging");
+      tile.style.width = r.width + "px";
+      tile.style.height = r.height + "px";
+      worldsDrag.tile = tile; worldsDrag.ph = ph; worldsDrag.moved = false;
+      worldsDrag.offX = e.clientX - r.left; worldsDrag.offY = e.clientY - r.top;
+      worldsDrag.pointerId = e.pointerId;
+      tile.style.left = (e.clientX - worldsDrag.offX) + "px";
+      tile.style.top = (e.clientY - worldsDrag.offY) + "px";
+      return;
+    }
+    // Normal mode: arm a horizontal scrub. Interactive controls keep their own behaviour,
+    // but a drag that starts on one still pages (a tap needs no movement, so both work).
+    worldsDrag.scrub = true; worldsDrag.axis = "";
+    worldsDrag.startX = e.clientX; worldsDrag.startY = e.clientY;
+    worldsDrag.startLeft = pgr.scrollLeft; worldsDrag.pointerId = e.pointerId;
+  }
+
+  function onWorldsPointerMove(e) {
+    const pgr = worldsPagerEl();
+    if (!pgr) return;
+    if (worldsDrag.tile) {
+      if (e.pointerId !== worldsDrag.pointerId) return;
+      e.preventDefault();
+      worldsDrag.moved = true;
+      worldsDrag.tile.style.left = (e.clientX - worldsDrag.offX) + "px";
+      worldsDrag.tile.style.top = (e.clientY - worldsDrag.offY) + "px";
+      worldsDragEdgeCheck(e, pgr);
+      worldsDragReflow(e);
+      return;
+    }
+    if (!worldsDrag.scrub || e.pointerId !== worldsDrag.pointerId) return;
+    const dx = e.clientX - worldsDrag.startX;
+    const dy = e.clientY - worldsDrag.startY;
+    if (!worldsDrag.axis && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) {
+      worldsDrag.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      if (worldsDrag.axis === "x") {
+        // Take over the scroll: snapping/smoothing off so scrollLeft tracks the cursor 1:1.
+        pgr.style.scrollSnapType = "none";
+        pgr.style.scrollBehavior = "auto";
+        document.body.classList.add("worlds-noselect");
       }
-      worldsSwipe.dx = worldsSwipe.axis === "x" ? dx : 0;
+    }
+    if (worldsDrag.axis !== "x") return;   // vertical gesture → leave it to the browser
+    e.preventDefault();
+    pgr.scrollLeft = worldsDrag.startLeft - dx;
+  }
+
+  function onWorldsPointerUp() {
+    const pgr = worldsPagerEl();
+    if (worldsDrag.tile) return worldsDragDrop();
+    if (!worldsDrag.scrub) return;
+    const wasX = worldsDrag.axis === "x";
+    worldsDrag.scrub = false; worldsDrag.axis = ""; worldsDrag.pointerId = null;
+    document.body.classList.remove("worlds-noselect");
+    if (!pgr || !wasX) return;
+    pgr.style.scrollSnapType = "";
+    pgr.style.scrollBehavior = "";
+    // Settle on whichever page we ended up closest to.
+    goWorldsPage(Math.round(pgr.scrollLeft / Math.max(1, pgr.clientWidth)));
+    // A scrub must not also read as a tap (which would open a world / toggle a size).
+    worldDrag.suppressClick = true;
+    setTimeout(() => { worldDrag.suppressClick = false; }, 60);
+  }
+
+  // Holding near an edge for WORLDS_EDGE_DWELL flips the page, carrying the tile with you.
+  function worldsDragEdgeCheck(e, pgr) {
+    const r = pgr.getBoundingClientRect();
+    const dir = e.clientX < r.left + WORLDS_EDGE_ZONE ? -1
+      : e.clientX > r.right - WORLDS_EDGE_ZONE ? 1 : 0;
+    if (dir === worldsDrag.dir) return;
+    clearTimeout(worldsDrag.dwell);
+    worldsDrag.dir = dir;
+    const host = els.worldGrid;
+    if (host) {
+      const l = host.querySelector(".worlds-edge-l"), rt = host.querySelector(".worlds-edge-r");
+      if (l) l.classList.toggle("is-on", dir === -1);
+      if (rt) rt.classList.toggle("is-on", dir === 1);
+    }
+    if (!dir) return;
+    worldsDrag.dwell = setTimeout(() => {
+      goWorldsPage(worldsPageIndex + dir);
+      // Re-arm so holding at the edge keeps advancing page after page.
+      worldsDrag.dir = 0;
+      const ev = { clientX: e.clientX, clientY: e.clientY };
+      const p = worldsPagerEl();
+      if (p && worldsDrag.tile) worldsDragEdgeCheck(ev, p);
+    }, WORLDS_EDGE_DWELL);
+  }
+
+  // Move the placeholder to wherever the cursor is, so the other tiles reflow live.
+  function worldsDragReflow(e) {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el || !el.closest) return;
+    const over = el.closest(".worlds-tile:not(.is-dragging):not(.worlds-add)");
+    if (over && over.parentNode) {
+      const r = over.getBoundingClientRect();
+      const after = e.clientX > r.left + r.width / 2;
+      over.parentNode.insertBefore(worldsDrag.ph, after ? over.nextSibling : over);
+      return;
+    }
+    const page = el.closest(".worlds-page");
+    if (page && worldsDrag.ph.parentNode !== page) page.appendChild(worldsDrag.ph);
+  }
+
+  function worldsDragDrop() {
+    const tile = worldsDrag.tile, ph = worldsDrag.ph;
+    clearTimeout(worldsDrag.dwell);
+    worldsDrag.dwell = null; worldsDrag.dir = 0;
+    const host = els.worldGrid;
+    if (host) Array.from(host.querySelectorAll(".worlds-edge")).forEach((x) => x.classList.remove("is-on"));
+    if (!tile || !ph) { worldsDrag.tile = null; worldsDrag.ph = null; return; }
+    ph.parentNode.insertBefore(tile, ph);
+    ph.remove();
+    tile.classList.remove("is-dragging");
+    tile.style.width = ""; tile.style.height = ""; tile.style.left = ""; tile.style.top = "";
+    const moved = worldsDrag.moved;
+    worldsDrag.tile = null; worldsDrag.ph = null; worldsDrag.pointerId = null; worldsDrag.moved = false;
+    // A tap with no movement toggles the tile's size instead of moving it.
+    if (!moved) {
+      const key = tile.dataset.worldKey;
+      const next = tile.dataset.size === "large" ? "medium" : "large";
+      tile.dataset.size = next;
+      commitWorldsLayout({ [key]: next });
+      return;
+    }
+    commitWorldsLayout();
+  }
+
+  /* Read the CURRENT DOM order back into the layout model and persist it. sizeOverrides lets a
+     size toggle be applied in the same write. */
+  function commitWorldsLayout(sizeOverrides) {
+    const host = els.worldGrid;
+    if (!host) return;
+    const entries = [];
+    Array.from(host.querySelectorAll(".worlds-page")).forEach((page, pageIndex) => {
+      Array.from(page.querySelectorAll(".worlds-tile:not(.worlds-add)")).forEach((tile, i) => {
+        const key = tile.dataset.worldKey;
+        if (!key) return;
+        const override = sizeOverrides && sizeOverrides[key];
+        entries.push({ worldId: key, size: override || tile.dataset.size || "medium", page: pageIndex, index: i });
+      });
     });
-    const end = () => {
-      if (!worldsSwipe.dragging) return;
-      const dx = worldsSwipe.dx;
-      const axis = worldsSwipe.axis;
-      worldsSwipe.dragging = false; worldsSwipe.dx = 0; worldsSwipe.axis = ""; worldsSwipe.pointerId = null;
-      // A horizontal drag must never also read as a tap (which would open a world or log).
-      // Auto-clear on a timer like the tile-drag path does — pointercancel/pointerleave end
-      // the gesture without a click ever arriving to consume the flag, which would otherwise
-      // silently swallow the user's NEXT tap.
-      if (axis === "x" && Math.abs(dx) > 8) {
-        worldDrag.suppressClick = true;
-        setTimeout(() => { worldDrag.suppressClick = false; }, 60);
-      }
-      if (axis === "x" && Math.abs(dx) > WORLDS_SWIPE_THRESHOLD) goWorldsPage(worldsPageIndex + (dx < 0 ? 1 : -1));
-    };
-    vp.addEventListener("pointerup", end);
-    vp.addEventListener("pointercancel", end);
-    vp.addEventListener("pointerleave", end);
-    // NOTE: the dots live OUTSIDE this viewport (they're a sibling in #worldGrid), so their
-    // click is handled in onWorldGridClick — binding it here would never fire.
+    const cur = worldLayoutState();
+    saveWorldLayout({ entries: entries, archived: cur.archived });
+    renderWorldGrid();
   }
 
-  // Only the page in view may hold focus: an off-screen page left in the tab order lets Tab
-  // scroll the overflow:hidden viewport, which permanently desyncs it from the translateX.
-  function syncWorldsPageInertness() {
-    const track = document.getElementById("worldsTrack");
-    if (!track) return;
-    Array.from(track.children).forEach((page, i) => {
-      const off = i !== worldsPageIndex;
-      page.toggleAttribute("inert", off);       // removes it from tab order AND the a11y tree
-      page.setAttribute("aria-hidden", off ? "true" : "false");
-    });
-    const vp = document.getElementById("worldsViewport");
-    if (vp) vp.scrollLeft = 0;                  // undo any scroll a focus jump caused
+  // Flip one tile between medium (half width) and large (full width + modules). Shared by the
+  // ⤡ grip and by tap-to-resize in edit mode, so both routes write the layout the same way.
+  function toggleWorldTileSize(key) {
+    if (!key) return;
+    const tile = els.worldGrid && els.worldGrid.querySelector('.worlds-tile[data-world-key="' + cssEscapeAttr(key) + '"]');
+    const next = (tile && tile.dataset.size === "large") ? "medium" : (tile ? "large" : (worldTileSizeFor(key) === "large" ? "medium" : "large"));
+    if (tile) tile.dataset.size = next;
+    commitWorldsLayout({ [key]: next });
   }
 
-  // Arrow keys page the Worlds view (only while it's the active view, and never while typing).
-  function onWorldsPagerKeydown(event) {
-    if (state.activeView !== "dashboard") return;
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    if (worldsPageCount < 2) return;
-    const el = document.activeElement;
-    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
-    event.preventDefault();
-    goWorldsPage(worldsPageIndex + (event.key === "ArrowRight" ? 1 : -1));
+  function toggleWorldsEditMode(on) {
+    worldsEditMode = typeof on === "boolean" ? on : !worldsEditMode;
+    renderWorldGrid();
   }
 
-  // Crossing the 760px breakpoint changes worlds-per-page, so the pages must be rebuilt —
-  // keep the FIRST world currently on screen visible instead of snapping back to page 1.
-  let worldsLastPerPage = 0;
+  // The (−) badge ARCHIVES a world: it leaves the layout but the world, its rules and every
+  // entry stay exactly as they are (restorable from Build). Nothing is deleted.
+  function archiveWorldFromLayout(key) {
+    const cur = worldLayoutState();
+    if (cur.archived.indexOf(String(key)) > -1) return;
+    saveWorldLayout({ entries: cur.entries.filter((e) => String(e.worldId) !== String(key)), archived: cur.archived.concat([String(key)]) });
+    renderWorldGrid();
+    showToast("Removed from your layout — restore it from Build");
+  }
+
+  // Column count changes at 760px → the page flow changes, so rebuild and stay put.
   function onWorldsPagerResize() {
-    if (!els.worldGrid || !document.getElementById("worldsTrack")) return;
-    const per = worldsPerPage();
-    if (per === worldsLastPerPage) return;   // seeded by renderWorldGrid
-    const firstVisible = worldsPageIndex * worldsLastPerPage; // index of the leading card
-    worldsLastPerPage = per;
-    worldsPageIndex = Math.floor(firstVisible / per);
+    if (!els.worldGrid || !worldsPagerEl()) return;
+    const cols = worldsColumns();
+    if (cols === worldsLastCols) {
+      const pgr = worldsPagerEl();   // width changed → keep the active page aligned
+      if (pgr) pgr.scrollLeft = worldsPageIndex * pgr.clientWidth;
+      return;
+    }
     renderWorldGrid();
     goWorldsPage(worldsPageIndex, true);
   }
@@ -6068,12 +6319,23 @@
   // Editing controls (resize / add-section / remove-section) are handled FIRST and never
   // open the world. Everything else on a tile = open.
   function onWorldGridClick(event) {
-    // Page dots live in #worldGrid but OUTSIDE .worlds-viewport, so they're handled here.
-    // Checked before the suppressClick guard so a dot tap right after a swipe still lands.
-    const pagerDot = event.target.closest && event.target.closest("[data-worlds-dot]");
+    // Pager chrome (dots, chevrons, edit toggle, archive) lives in #worldGrid but outside the
+    // scroller, so it's handled here. Checked BEFORE the suppressClick guard so tapping a
+    // control right after a swipe still lands.
+    const q = (sel) => event.target.closest && event.target.closest(sel);
+    const pagerDot = q("[data-worlds-dot]");
     if (pagerDot) { goWorldsPage(parseInt(pagerDot.dataset.worldsDot, 10) || 0); return; }
+    if (q("[data-worlds-prev]")) { goWorldsPage(worldsPageIndex - 1); return; }
+    if (q("[data-worlds-next]")) { goWorldsPage(worldsPageIndex + 1); return; }
+    if (q("[data-worlds-edit]")) { toggleWorldsEditMode(); return; }
+    const archive = q("[data-world-archive]");
+    if (archive) { archiveWorldFromLayout(archive.dataset.worldArchive); return; }
+    const resize = q("[data-world-resize]");
+    if (resize) { toggleWorldTileSize(resize.dataset.worldResize); return; }
     // A click that follows a drag must not also open the tile.
     if (worldDrag.suppressClick) { worldDrag.suppressClick = false; return; }
+    // In edit mode a tap is a size toggle (handled on pointerup), never "open the world".
+    if (worldsEditMode && q(".worlds-tile")) return;
     const t = event.target;
     const sizeCycle = t.closest("[data-world-size-cycle]");
     if (sizeCycle) {
@@ -6106,7 +6368,7 @@
     if (!tile) return;
     // On a pager card only the HEADER opens the world — the body is full of its own controls
     // (check-in prompts, module add/remove), so a stray tap there must not navigate away.
-    if (tile.classList.contains("worlds-card") && !t.closest("[data-world-open]")) return;
+    if (tile.classList.contains("worlds-tile") && !t.closest("[data-world-open]")) return;
     if (tile.dataset.worldType === "community") openWorldCommunity(tile.dataset.worldId);
     else openWorldPersonal(tile.dataset.worldId);
   }
@@ -6172,7 +6434,7 @@
     if (t.closest("[data-worlds-dot]") || t.closest("button, input, select, textarea, a[href]")) return;
     const tile = t.closest(".world-tile");
     if (!tile) return;
-    if (tile.classList.contains("worlds-card") && !t.closest("[data-world-open]")) return;
+    if (tile.classList.contains("worlds-tile") && !t.closest("[data-world-open]")) return;
     event.preventDefault();
     if (tile.hasAttribute("data-world-add")) { openAddWorld(); return; }
     if (!tile.dataset.worldId) return;
@@ -6261,7 +6523,7 @@
     if (event.button != null && event.button !== 0) return; // primary / touch only
     // The Worlds view is a horizontal PAGER now — a sideways drag turns the page, so tile
     // drag-to-reorder is off there (order is still editable from the layout controls).
-    if (event.target.closest && event.target.closest(".worlds-viewport")) return;
+    if (event.target.closest && event.target.closest(".worlds-shell")) return;
     // Editing controls (resize / add / remove / swap) are taps, never drag handles.
     if (event.target.closest && event.target.closest("[data-world-size-cycle],[data-world-add-sec],[data-world-rm-sec],[data-world-slot-swap]")) return;
     const tile = event.target.closest && event.target.closest(".world-tile[data-world-key]");
@@ -10869,6 +11131,9 @@
   // question ("Lift today?"), which already reads as a label. See work/pointwell-two-worlds.html.
   function checkinCardHtml(world, opts) {
     const compact = !!(opts && opts.compact);
+    // maxPrompts caps how many questions render (a medium Worlds tile shows just one); the
+    // "N left" count still reflects the true total so nothing looks silently dropped.
+    const maxPrompts = numberOrDefault(opts && opts.maxPrompts, 0);
     if (!world) return "";
     const items = buildCheckinItems(world);
     // Nothing to ask → the world is fully logged/synced; render nothing.
@@ -10880,7 +11145,8 @@
     const intro = typeof copy.intro === "string" && copy.intro.trim()
       ? copy.intro.trim()
       : checkinFallbackIntro(items);
-    const rows = items.ask.map((it) => {
+    const askList = maxPrompts > 0 ? items.ask.slice(0, maxPrompts) : items.ask;
+    const rows = askList.map((it) => {
       const ruleId = escapeHtml(it.rule.id);
       // AI text is untrusted → escapeHtml before it ever reaches innerHTML.
       const question = (compact && !it.isYesNo)
@@ -23764,6 +24030,7 @@
       topCardPreferences: saved.topCardPreferences && typeof saved.topCardPreferences === "object" ? saved.topCardPreferences : {},
       weeklyChartPreferences: saved.weeklyChartPreferences && typeof saved.weeklyChartPreferences === "object" ? saved.weeklyChartPreferences : {},
       // Quick check-in: today's skips + cached AI phrasing (both self-prune to the current day).
+      worldLayout: saved.worldLayout && typeof saved.worldLayout === "object" ? saved.worldLayout : null,
       checkinSkips: saved.checkinSkips && typeof saved.checkinSkips === "object" ? saved.checkinSkips : {},
       checkinCopy: saved.checkinCopy && typeof saved.checkinCopy === "object" ? saved.checkinCopy : {},
       systems: Array.isArray(saved.systems) && saved.systems.length ? saved.systems : seed.systems,

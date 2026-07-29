@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — feed activity bundling (reference)</title>
+<style>
+  :root{color-scheme:dark}*{box-sizing:border-box}
+  body{margin:0;background:#040605;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#e7ece9;padding:26px 12px 60px;display:flex;flex-direction:column;align-items:center}
+  .note{max-width:380px;font-size:13px;color:#8aa39a;line-height:1.55;margin:0 0 18px}.note b{color:#eef2f0}
+  .col{width:380px}
+</style></head><body>
+<p class="note"><b>Feed clean-up.</b> One check-in session currently produces 5 near-identical full post cards (including the same steps twice, once per world). Fix: bare logs render as compact activity lines, same-session logs bundle into ONE card with "counted in N worlds", device-synced logs don't hit the feed, and real posts (photo/caption) keep the full card.</p>
+<div class="col">
+
+  <div style="font-size:11.5px;color:#e0857f;margin:0 2px 8px;">Now · 5 near-identical full cards from one session</div>
+  <div style="background:#0b100e;border:1px solid #2a1a1a;border-radius:14px;padding:10px;margin-bottom:20px;">
+    <div style="display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid #14201c;"><div style="width:26px;height:26px;border-radius:50%;background:#355d91;"></div><span style="flex:1;font-size:11.5px;color:#9fb0aa;">Robert A logged <b style="color:#eaf2ee;">Lifting session</b></span><span style="font-size:10px;color:#7fc7b0;">+2</span></div>
+    <div style="display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid #14201c;"><div style="width:26px;height:26px;border-radius:50%;background:#355d91;"></div><span style="flex:1;font-size:11.5px;color:#9fb0aa;">Robert A logged <b style="color:#eaf2ee;">20 minutes</b></span><span style="font-size:10px;color:#7fc7b0;">+0.5</span></div>
+    <div style="display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid #14201c;"><div style="width:26px;height:26px;border-radius:50%;background:#355d91;"></div><span style="flex:1;font-size:11.5px;color:#9fb0aa;">Robert A logged <b style="color:#eaf2ee;">110 grams</b></span><span style="font-size:10px;color:#7fc7b0;">+0</span></div>
+    <div style="display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid #14201c;"><div style="width:26px;height:26px;border-radius:50%;background:#355d91;"></div><span style="flex:1;font-size:11.5px;color:#9fb0aa;">Robert A logged <b style="color:#eaf2ee;">5,000 steps</b></span><span style="font-size:10px;color:#7fc7b0;">+0.5</span></div>
+    <div style="display:flex;align-items:center;gap:8px;padding:8px;"><div style="width:26px;height:26px;border-radius:50%;background:#355d91;"></div><span style="flex:1;font-size:11.5px;color:#9fb0aa;">Robert A logged <b style="color:#eaf2ee;">5,000 steps</b> <span style="color:#e0857f;">(again — other world)</span></span><span style="font-size:10px;color:#7fc7b0;">+0.5</span></div>
+  </div>
+
+  <div style="font-size:11.5px;color:#7fc7b0;margin:0 2px 8px;">A · Compact activity lines (bare logs aren't posts)</div>
+  <div style="margin-bottom:20px;">
+    <div style="display:flex;align-items:center;gap:9px;background:#0b100e;border:1px solid #161f1c;border-radius:12px;padding:9px 11px;margin-bottom:6px;"><div style="width:26px;height:26px;border-radius:50%;background:#355d91;flex-shrink:0;"></div><span style="flex:1;font-size:12.5px;color:#cfd8d4;"><b style="color:#f3f6f4;font-weight:600;">Robert A</b> · 💪 Lifting session</span><span style="font-size:10.5px;color:#7c8d87;">55m</span></div>
+    <div style="display:flex;align-items:center;gap:9px;background:#0b100e;border:1px solid #161f1c;border-radius:12px;padding:9px 11px;"><div style="width:26px;height:26px;border-radius:50%;background:#9a4a2c;flex-shrink:0;"></div><span style="flex:1;font-size:12.5px;color:#cfd8d4;"><b style="color:#f3f6f4;font-weight:600;">Jacob</b> · 🏃 Cardio 30m</span><span style="font-size:10.5px;color:#7c8d87;">2h</span></div>
+  </div>
+
+  <div style="font-size:11.5px;color:#7fc7b0;margin:0 2px 8px;">B · Bundled session (recommended)</div>
+  <div style="background:#0b100e;border:1px solid #1f3a30;border-radius:16px;padding:13px;margin-bottom:20px;">
+    <div style="display:flex;align-items:center;gap:9px;margin-bottom:11px;">
+      <div style="width:36px;height:36px;border-radius:50%;background:#355d91;"></div>
+      <div style="flex:1;"><div style="font-size:13.5px;color:#f3f6f4;"><b style="font-weight:600;">Robert A</b> <span style="color:#9fb0aa;">logged 4 things</span></div><div style="font-size:10.5px;color:#7c8d87;">THE BOYS · 55m ago</div></div>
+      <span style="font-size:11px;color:#7fc7b0;background:#11201a;border:1px solid #214034;border-radius:9px;padding:4px 9px;">+3 pts</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:11px;">
+      <span style="font-size:11.5px;color:#cfe9df;background:#11201a;border:1px solid #2a5a45;border-radius:8px;padding:5px 9px;">💪 Lifting</span>
+      <span style="font-size:11.5px;color:#cfe9df;background:#11201a;border:1px solid #2a5a45;border-radius:8px;padding:5px 9px;">🏃 Cardio 20m</span>
+      <span style="font-size:11.5px;color:#cfe9df;background:#11201a;border:1px solid #2a5a45;border-radius:8px;padding:5px 9px;">🍗 Protein 110g</span>
+      <span style="font-size:11.5px;color:#cfe9df;background:#11201a;border:1px solid #2a5a45;border-radius:8px;padding:5px 9px;">👟 5,000 steps</span>
+    </div>
+    <div style="display:flex;gap:18px;border-top:1px solid #14201c;padding-top:9px;font-size:14px;color:#9fb0aa;"><span>♡</span><span>💬</span><span style="margin-left:auto;font-size:10px;color:#6f827a;">counted in 2 worlds</span></div>
+  </div>
+
+  <div style="font-size:11.5px;color:#7fc7b0;margin:0 2px 8px;">C · A real post (photo/caption) keeps the full card</div>
+  <div style="background:#0b100e;border:1px solid #161f1c;border-radius:16px;padding:13px;">
+    <div style="display:flex;align-items:center;gap:9px;margin-bottom:10px;"><div style="width:36px;height:36px;border-radius:50%;background:#355d91;"></div><div style="flex:1;"><div style="font-size:13.5px;color:#f3f6f4;font-weight:600;">Robert A</div><div style="font-size:10.5px;color:#7c8d87;">THE BOYS · 1h ago</div></div></div>
+    <p style="font-size:13.5px;color:#eaf2ee;margin:0 0 10px;">Leg day with the boys 💪</p>
+    <div style="height:120px;border-radius:12px;background:linear-gradient(135deg,#23436e,#0e1a2a);margin-bottom:10px;"></div>
+    <div style="display:flex;gap:6px;margin-bottom:10px;"><span style="font-size:11px;color:#cfe9df;background:#11201a;border:1px solid #2a5a45;border-radius:8px;padding:4px 9px;">💪 Lifting ✓</span><span style="font-size:11px;color:#cfe9df;background:#11201a;border:1px solid #2a5a45;border-radius:8px;padding:4px 9px;">👟 5,000 steps</span></div>
+    <div style="display:flex;gap:18px;border-top:1px solid #14201c;padding-top:9px;font-size:15px;color:#9fb0aa;"><span>♡ 3</span><span>💬 1</span><span>➤</span></div>
+  </div>
+
+</div></body></html>

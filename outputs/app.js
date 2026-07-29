@@ -8533,6 +8533,121 @@
     return feedSocialCache.get(String(entryId)) || { like_count: 0, comment_count: 0, liked_by_me: false, last_comment_name: "", last_comment_body: "" };
   }
 
+  /* ── Feed activity bundling ───────────────────────────────────────────────────────────────
+     DISPLAY LAYER ONLY — nothing here changes what gets logged, what gets stored, or what
+     scores. It only decides how already-created entries are PRESENTED.
+
+     CLAUDE.md: "a bare log (no photo, no caption) is activity — a compact activity line, not a
+     full post." One check-in session used to emit five near-identical post cards (once per rule,
+     and again per world for a shared action). bundleFeedItems collapses that:
+       · a purely device-synced entry never reaches the feed (the user didn't choose to share it —
+         it still counts toward points/leaderboards exactly as before)
+       · the same action credited to several worlds becomes ONE item + "counted in N worlds"
+       · bare logs by one person in one world within an hour bundle into a single card
+       · a real post (photo OR caption) passes through untouched
+     See work/feed-bundling-reference.html. ────────────────────────────────────────────────── */
+  const FEED_BUNDLE_WINDOW_MS = 60 * 60 * 1000; // one "session"
+  const FEED_SAME_ACTION_MS = 3 * 60 * 1000;    // fan-out to N worlds happens within seconds
+
+  // A bare log = no photo and no caption (the same test renderFeedPost already uses).
+  function feedItemIsBareLog(item) {
+    const e = (item && item.entry) || {};
+    return !(e.photoPath || e.photo_path) && !(e.message && String(e.message).trim());
+  }
+  // Created by a wearable sync rather than a deliberate user action.
+  function feedItemIsDeviceSynced(item) {
+    const e = (item && item.entry) || {};
+    return REAL_WEARABLE_SOURCES.has(e.viaSource || "");
+  }
+  function feedItemTime(item) {
+    const t = Date.parse((item && item.when) || "");
+    return Number.isFinite(t) ? t : 0;
+  }
+  function feedItemWorldId(item) {
+    return String((item && item.community && item.community.id) || (item && item.entry && item.entry.communityId) || "");
+  }
+  // One row of a bundle: the icon + wording used both on a lone activity line and on a chip.
+  function feedActivityPart(item) {
+    const entry = item.entry || {};
+    const rule = item.rule || null;
+    return {
+      icon: ruleIconSvg(rule || entry.label || entry.ruleId || "target", "icon-xs"),
+      text: entryMetricText(entry, rule),
+      points: rule ? scoring.calculateRule(rule, entry.amount).totalPoints : numberOrDefault(item.points, 0),
+      entryId: String(entry.id || ""),
+    };
+  }
+
+  // The transform. Input: raw feed items (already built by the existing builders).
+  // Output: what the feed should SHOW, newest first.
+  function bundleFeedItems(items) {
+    const posts = [];   // real posts — untouched
+    const bare = [];    // bare logs — candidates for dedupe + bundling
+    (items || []).filter(Boolean).forEach((it) => {
+      if (!feedItemIsBareLog(it)) { posts.push(it); return; }   // a real post always stands
+      // A BARE row carrying a wearable tag is raw device data, not something the user chose to
+      // share — keep it out of the feed (it still scores). Note this is belt-and-braces: no code
+      // path creates a purely device-made community entry today (device totals live in
+      // syncProgress), and a value the user DELIBERATELY shares arrives with a caption/photo,
+      // so it took the `posts` branch above.
+      if (feedItemIsDeviceSynced(it)) return;
+      bare.push(it);
+    });
+    bare.sort((a, b) => feedItemTime(b) - feedItemTime(a));
+
+    // Pass 1 — the SAME action credited to several worlds collapses to one entry.
+    // Matched on (author, rule, amount) within a couple of minutes, across DIFFERENT worlds.
+    // A unified post already shares one postId, so that's the stronger key when present.
+    const actions = [];
+    bare.forEach((it) => {
+      const e = it.entry || {};
+      const hit = actions.find((a) => {
+        const ae = a.item.entry || {};
+        if (String(ae.userId || "") !== String(e.userId || "")) return false;
+        if (e.postId && ae.postId) return String(ae.postId) === String(e.postId) && String(ae.ruleId || "") === String(e.ruleId || "");
+        if (String(ae.ruleId || "") !== String(e.ruleId || "")) return false;
+        if (numberOrDefault(ae.amount, 0) !== numberOrDefault(e.amount, 0)) return false;
+        return Math.abs(feedItemTime(a.item) - feedItemTime(it)) <= FEED_SAME_ACTION_MS;
+      });
+      if (hit) { hit.worlds.add(feedItemWorldId(it)); return; }   // duplicate world credit — merge
+      actions.push({ item: it, worlds: new Set([feedItemWorldId(it)]) });
+    });
+
+    // Pass 2 — bundle one person's logs in one world within the session window.
+    const bundles = [];
+    actions.forEach((a) => {
+      const uid = String((a.item.entry || {}).userId || "");
+      const wid = feedItemWorldId(a.item);
+      const hit = bundles.find((b) =>
+        b.userId === uid && b.worldId === wid && Math.abs(b.newest - feedItemTime(a.item)) <= FEED_BUNDLE_WINDOW_MS);
+      if (hit) { hit.actions.push(a); hit.newest = Math.max(hit.newest, feedItemTime(a.item)); return; }
+      bundles.push({ userId: uid, worldId: wid, newest: feedItemTime(a.item), actions: [a] });
+    });
+
+    // Pass 3 — emit. A lone log stays a compact activity line; 2+ become one bundled card.
+    const out = posts.slice();
+    bundles.forEach((b) => {
+      const worlds = b.actions.reduce((n, a) => Math.max(n, a.worlds.size), 1);
+      if (b.actions.length === 1) {
+        const only = b.actions[0].item;
+        out.push(worlds > 1 ? Object.assign({}, only, { worldCount: worlds }) : only);
+        return;
+      }
+      // Newest action leads the bundle so its entry id (and social) is the stable representative.
+      const parts = b.actions.map((a) => feedActivityPart(a.item));
+      const lead = b.actions[0].item;
+      out.push(Object.assign({}, lead, {
+        bundle: {
+          parts: parts,
+          count: parts.length,
+          points: parts.reduce((sum, p) => sum + numberOrDefault(p.points, 0), 0),
+        },
+        worldCount: worlds,
+      }));
+    });
+    return out.sort((a, b) => feedItemTime(b) - feedItemTime(a));
+  }
+
   // Preserve any half-typed comment drafts (+ which one is focused) across a feed
   // rebuild so an unrelated re-render never wipes what someone is typing.
   function captureFeedDrafts(root) {
@@ -8721,7 +8836,9 @@
       els.communityFeed.innerHTML = `<p class="feed-discover-loading">Finding posts like yours…</p>`;
       return;
     }
-    feedItems = discoverFeedItems;
+    // Discover follows the same display rules (it's the same renderer + handlers). In practice
+    // these are public POSTS, so the transform is mostly a pass-through.
+    feedItems = bundleFeedItems(discoverFeedItems);
     setFeedCount(feedItems.length ? plural(feedItems.length, "post") : "");
     const drafts = captureFeedDrafts(els.communityFeed);
     els.communityFeed.hidden = false;
@@ -8749,16 +8866,17 @@
     const legacyCommunityItems = (state.communityEntries || []).filter((e) => !e.postId).map(buildFeedItemForEntry).filter(Boolean);
     const legacyProfileItems = (feedProfilePosts || []).map((p) => buildFeedItemForProfilePost(p, profilePostAuthors[p.user_id])).filter(Boolean);
     const seen = new Set();
-    feedItems = communityPostItems
+    const rawItems = communityPostItems
       .concat(followedPosts, legacyCommunityItems, legacyProfileItems)
       .filter((it) => {
         const k = (it.entry && (it.entry.postId || it.entry.id)) || "";
         if (!k) return true;
         if (seen.has(k)) return false;
         seen.add(k); return true;
-      })
-      .sort((a, b) => String(b.when).localeCompare(String(a.when)))
-      .slice(0, 20);
+      });
+    // Display layer: drop device-only syncs, collapse multi-world credit, bundle a session
+    // into one card. Runs BEFORE the slice so a bundle counts as the single item it renders as.
+    feedItems = bundleFeedItems(rawItems).slice(0, 20);
 
     // Hide entirely when there's nothing to show (no communities AND no followed posts);
     // show a friendly empty state when you have communities but no logs yet.
@@ -8837,7 +8955,67 @@
   const FEED_SHARE_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>`;
   const FEED_SAVE_SVG = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`;
 
+  // A bundled session: "{Name} logged N things" + a chip per activity + the session's total points.
+  // Represented by its newest entry, so data-feed-entry / social / delegation all keep working —
+  // like + comment attach to that entry exactly as they would on a lone card.
+  function renderFeedBundleCard(item) {
+    const entry = item.entry;
+    const entryId = String(entry.id);
+    const name = escapeHtml(item.member.name || "Member");
+    const bundle = item.bundle;
+    const rel = (window.PointwellSignals && typeof window.PointwellSignals.formatRelativeTime === "function")
+      ? (window.PointwellSignals.formatRelativeTime(item.when, Date.now()) || "") : "";
+    const relText = rel === "just now" || !rel ? (rel || "") : rel + " ago";
+    const sub = [item.community ? item.community.name : "", relText].filter(Boolean).map(escapeHtml).join(" · ");
+    const canSocial = signalsReady() && isDbEntryId(entry.id);
+    const social = feedSocialFor(entryId);
+    const isMe = entry.userId === "me";
+    const authorId = item.member && item.member.userId ? String(item.member.userId) : "";
+    const authorTap = !isMe && authorId && authorId !== "me";
+    const authorOpen = authorTap
+      ? `<button class="ig-author" type="button" data-feed-author="${escapeHtml(authorId)}" aria-label="View ${name}'s profile">`
+      : `<div class="ig-author ig-author-static">`;
+    const authorClose = authorTap ? `</button>` : `</div>`;
+    const pts = numberOrDefault(bundle.points, 0);
+    const ptsChip = pts ? `<span class="ig-bundle-pts">${escapeHtml(formatPoints(pts))} pts</span>` : "";
+    const chips = bundle.parts.map((p) =>
+      `<span class="ig-bundle-chip">${p.icon}${escapeHtml(p.text)}</span>`).join("");
+    const worldsNote = numberOrDefault(item.worldCount, 1) > 1
+      ? `<span class="ig-bundle-worlds">counted in ${numberOrDefault(item.worldCount, 1)} worlds</span>` : "";
+    const likeBtn = canSocial
+      ? `<button class="ig-action-btn${social.liked_by_me ? " is-liked" : ""}" type="button" data-feed-like="${escapeHtml(entryId)}" aria-pressed="${social.liked_by_me ? "true" : "false"}" aria-label="${social.liked_by_me ? "Unlike" : "Like"}">${FEED_HEART_SVG}</button>`
+      : "";
+    const expanded = feedCommentsOpen.has(entryId) || (canSocial && social.comment_count > 0);
+    const commentBtn = canSocial
+      ? (expanded
+          ? `<button class="ig-action-btn" type="button" data-feed-comment-focus="${escapeHtml(entryId)}" aria-label="Comment">${FEED_COMMENT_SVG}</button>`
+          : `<button class="ig-action-btn" type="button" data-feed-expand="${escapeHtml(entryId)}" aria-label="Comment">${FEED_COMMENT_SVG}</button>`)
+      : "";
+    return `
+      <article class="ig-card ig-bundle-card" data-feed-entry="${escapeHtml(entryId)}">
+        <div class="ig-card-header">
+          ${authorOpen}
+            ${renderAvatar({ className: "member-avatar", name: item.member.name, color: item.member.color || "#355d91", avatarUrl: item.member.avatarUrl })}
+            <div class="ig-head-main">
+              <p class="ig-bundle-line"><strong>${name}</strong> <span>logged ${bundle.count} things</span></p>
+              <span class="ig-head-sub">${sub}</span>
+            </div>
+          ${authorClose}
+          ${ptsChip}
+        </div>
+        <div class="ig-bundle-chips">${chips}</div>
+        <div class="ig-actions ig-bundle-actions">
+          ${likeBtn}
+          ${commentBtn}
+          ${worldsNote}
+        </div>
+        ${expanded ? renderFeedComments(item, canSocial, social) + (canSocial ? renderFeedCommentInput(entryId) : "") : ""}
+      </article>`;
+  }
+
   function renderFeedPost(item) {
+    // A bundled session renders as its own card (see bundleFeedItems).
+    if (item && item.bundle) return renderFeedBundleCard(item);
     const entry = item.entry;
     const entryId = String(entry.id);
     const isMe = entry.userId === "me";
@@ -8943,44 +9121,22 @@
     const authorOpen = authorTap ? `<button class="ig-author" type="button" data-feed-author="${escapeHtml(authorId)}" aria-label="View ${name}'s profile">` : `<div class="ig-author ig-author-static">`;
     const authorClose = authorTap ? `</button>` : `</div>`;
 
-    // Compact logged-progress card: a one-line "{name} logged {metric}" header + the progress tag
-    // + the like/comment row (no media block, no separate likes/time line — the time is in the
-    // sub). Keeps tap-to-open (author) + like/comment via the same reused buttons/handlers.
+    // A lone bare log is ACTIVITY, not a post (CLAUDE.md): one quiet line — avatar, who + what,
+    // and the relative time. No media block and deliberately NO like/comment/share/bookmark row;
+    // engagement belongs on real posts and on bundled sessions. See work/feed-bundling-reference.html.
     if (isLoggedOnly) {
-      const compactCount = (canSocial && social.like_count > 0)
-        ? `<span class="ig-compact-count">${escapeHtml(plural(social.like_count, "like"))}</span>` : "";
-      // Stays a tight one-line card until you engage: the composer (comments + input) appears only
-      // once you tap 💬 (which expands the thread) or there's already a conversation. So the comment
-      // button focuses the visible input when expanded, and otherwise reveals it.
-      const compactExpanded = feedCommentsOpen.has(entryId) || (canSocial && social.comment_count > 0);
-      const compactCommentBtn = canSocial
-        ? (compactExpanded
-            ? commentBtn
-            : `<button class="ig-action-btn" type="button" data-feed-expand="${escapeHtml(entryId)}" aria-label="Comment">${FEED_COMMENT_SVG}</button>`)
-        : "";
+      const part = feedActivityPart(item);
+      const worldsNote = numberOrDefault(item.worldCount, 1) > 1
+        ? `<span class="ig-activity-worlds">counted in ${numberOrDefault(item.worldCount, 1)} worlds</span>` : "";
       return `
-        <article class="ig-card ig-card-compact${milestone ? " is-milestone" : ""}" data-feed-entry="${escapeHtml(entryId)}">
-          <div class="ig-card-header ig-compact-header">
-            ${authorOpen}
-              ${renderAvatar({ className: "member-avatar ig-compact-avatar", name: item.member.name, color: item.member.color || "#355d91", avatarUrl: item.member.avatarUrl })}
-              <div class="ig-head-main">
-                <p class="ig-compact-line"><strong>${name}</strong> logged <strong class="ig-compact-metric">${escapeHtml(metricText)}</strong></p>
-                <span class="ig-head-sub">${sub}</span>
-              </div>
-            ${authorClose}
-            ${viaBadge}
-            ${isDiscover ? affinityHtml : tagHtml}
-            ${menuHtml}
-          </div>
-          <div class="ig-actions ig-compact-actions">
-            ${likeBtn}
-            ${compactCommentBtn}
-            ${shareBtn}
-            ${followBtn}
-            ${saveBtn}
-            ${compactCount}
-          </div>
-          ${compactExpanded ? commentsHtml + inputHtml : ""}
+        <article class="ig-card ig-card-compact ig-activity-row${milestone ? " is-milestone" : ""}" data-feed-entry="${escapeHtml(entryId)}">
+          ${authorOpen}
+            ${renderAvatar({ className: "member-avatar ig-compact-avatar", name: item.member.name, color: item.member.color || "#355d91", avatarUrl: item.member.avatarUrl })}
+            <span class="ig-activity-text"><strong>${name}</strong> · <span class="ig-activity-icon" aria-hidden="true">${part.icon}</span>${escapeHtml(part.text)}</span>
+          ${authorClose}
+          ${worldsNote}
+          ${viaBadge}
+          <span class="ig-activity-time">${escapeHtml(rel === "just now" ? rel : rel)}</span>
         </article>
       `;
     }
@@ -10868,7 +11024,9 @@
       const legacyItems = (state.communityEntries || [])
         .filter((e) => e.communityId === world.id && !e.postId)
         .map(buildFeedItemForEntry).filter(Boolean);
-      const shown = sortCommunityFeed(postItems.concat(legacyItems)).slice(0, 12);
+      // Same display rules as the main Feed: no device-only syncs, one card per session,
+      // multi-world credit collapsed. (Sorting still honours the Hot/New/Top switch.)
+      const shown = sortCommunityFeed(bundleFeedItems(postItems.concat(legacyItems))).slice(0, 12);
       if (!shown.length) { els.worldPosts.innerHTML = emptyState("No posts yet — share your progress and it'll show up here.", { label: "Log with a photo", action: "log-photo", icon: "camera" }); return; }
       feedItems = shown; // so the shared feed handlers (like/comment/cheer) resolve each card by id
       els.worldPosts.innerHTML = `<div class="community-feed-list">${shown.map(renderFeedPost).join("")}</div>`;
@@ -23508,7 +23666,17 @@
       date,
       dateKey: date,
       timestamp: entry.timestamp || entry.createdAt || new Date().toISOString(),
-      source: entry.source || "manual"
+      source: entry.source || "manual",
+      // These were being DROPPED on every load (migrateState runs this over every saved entry),
+      // so after a refresh a real post lost its caption/photo and rendered as a bare log, and —
+      // because the feed dedupes on postId — one action credited to several worlds came back as
+      // one card PER WORLD. All three are display-only; carrying them through changes no scoring.
+      // NOTE: viaSource is deliberately NOT restored here. communityValuesForMember SKIPS any
+      // entry with a viaSource (the synced value is supposed to come from syncProgress instead),
+      // so reviving it would change existing point totals — out of scope for a display change.
+      message: entry.message || "",
+      photoPath: entry.photoPath || entry.photo_path || "",
+      postId: entry.postId || entry.post_id || ""
     };
   }
 

@@ -12287,3 +12287,84 @@ input:not([type="range"]):not([type="checkbox"]).qc-typed {
   .qc-chip { min-width: 54px; font-size: 0.72rem; padding: 8px 4px; }
   .qc-usual { display: none; }  /* the highlighted chip already says which is usual */
 }
+
+/* ── Feed activity bundling (feat/feed-activity-bundling) ─────────────────────────────────
+   Display-layer only. A bare log is ACTIVITY: one quiet line, no engagement controls. A
+   session of logs bundles into ONE card with a chip per activity. Real posts are untouched.
+   Appended last so these win over the earlier .ig-card / R2 card rules.
+   See work/feed-bundling-reference.html. */
+
+/* A · lone bare log → a single quiet row */
+.ig-card.ig-activity-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 11px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: none;
+}
+.ig-card.ig-activity-row:hover { transform: none; box-shadow: none; border-color: var(--line-strong); }
+.ig-activity-row .ig-author,
+.ig-activity-row .ig-author-static {
+  display: flex; align-items: center; gap: 9px;
+  flex: 1; min-width: 0;
+  background: none; border: none; padding: 0; margin: 0;
+  font: inherit; text-align: left; color: inherit;
+  cursor: pointer;
+}
+.ig-activity-row .ig-author-static { cursor: default; }
+.ig-activity-row .member-avatar { flex: 0 0 auto; width: 26px; height: 26px; font-size: 0.62rem; }
+.ig-activity-text {
+  flex: 1; min-width: 0;
+  font-size: 0.79rem; color: var(--muted); line-height: 1.35;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ig-activity-text strong { color: var(--ink); font-weight: 600; }
+.ig-activity-icon { display: inline-flex; vertical-align: -2px; margin-right: 4px; color: var(--accent); }
+.ig-activity-icon svg { width: 13px; height: 13px; }
+.ig-activity-time { flex: 0 0 auto; font-size: 0.66rem; color: var(--muted); white-space: nowrap; }
+.ig-activity-worlds,
+.ig-bundle-worlds { flex: 0 0 auto; font-size: 0.62rem; color: #6f827a; white-space: nowrap; }
+.ig-bundle-worlds { margin-left: auto; }
+
+/* B · bundled session card */
+.ig-card.ig-bundle-card { padding: 13px; }
+.ig-bundle-card .ig-card-header { padding: 0; margin-bottom: 11px; }
+.ig-bundle-line { margin: 0; font-size: 0.84rem; color: var(--ink); line-height: 1.3; }
+.ig-bundle-line strong { font-weight: 600; }
+.ig-bundle-line span { color: var(--muted); }
+.ig-bundle-pts {
+  flex: 0 0 auto; align-self: flex-start;
+  font-size: 0.7rem; color: var(--accent-strong);
+  background: var(--accent-soft); border: 1px solid rgba(58, 214, 166, 0.28);
+  border-radius: 9px; padding: 4px 9px; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ig-bundle-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 11px; }
+.ig-bundle-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.72rem; color: #cfe9df;
+  background: #11201a; border: 1px solid #2a5a45;
+  border-radius: 8px; padding: 5px 9px;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ig-bundle-chip svg { width: 13px; height: 13px; flex: 0 0 auto; color: var(--accent); }
+.ig-bundle-card .ig-actions.ig-bundle-actions {
+  display: flex; align-items: center; gap: 14px;
+  margin: 0; padding: 9px 0 0;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 430px) {
+  .ig-activity-text { font-size: 0.76rem; }
+  .ig-bundle-chip { font-size: 0.68rem; padding: 5px 8px; }
+}
+
+/* .community-feed-list is a GRID ITEM with `margin-left/right: auto`, which makes a grid item
+   shrink to FIT-CONTENT. With bare logs now rendering as compact rows the column collapsed to
+   ~214px on a 375px phone (the full-bleed cards hid it, since they break out with negative
+   margins). width:100% restores the intended "fill the column, cap at 500px, stay centred" —
+   the calc(50% - 50vw) full-bleed maths still resolves to exactly edge-to-edge. */
+.community-feed-list { width: 100%; }

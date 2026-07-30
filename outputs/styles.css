@@ -12575,3 +12575,93 @@ body.worlds-noselect, body.worlds-noselect * { user-select: none !important; -we
   .worlds-tile-title h3 { font-size: 0.78rem; }
   .worlds-tip { display: none; }   /* the footer stays a single clean row on a phone */
 }
+
+/* ── Tappable people (feat/worlds-pager-v2) ───────────────────────────────────────────────
+   Member rows, post authors, members strips and compete rosters are real <button>s now, so
+   each needs the UA button look undone plus a pointer / hover / active / focus affordance.
+   Selectors are ELEMENT-QUALIFIED (button.x = 0,1,1) on purpose: existing state rules such as
+   .world-lb-row.is-me (0,2,0) and .world-slot .world-lb-row (0,2,0) must still win, so your own
+   highlighted row and the compact slot sizes survive the reset. Where a class already carries
+   its own background/border/type (.world-post-thumb, .team-chip) only the UA chrome is undone. */
+button.world-lb-row,
+button.world-post-av,
+button.world-member-av,
+button.challenge-duel-side,
+button.bkt-gplayer,
+button.world-post-thumb,
+button.team-chip {
+  font-family: inherit;              /* size stays with each class rule, which outranks the UA */
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+button.world-lb-row,
+button.world-post-av,
+button.world-member-av,
+button.challenge-duel-side,
+button.bkt-gplayer {
+  color: inherit;
+  background: none;
+  border: 0;
+}
+button.world-lb-row { width: 100%; text-align: left; }
+button.bkt-gplayer { text-align: left; }
+button.world-post-av,
+button.world-member-av,
+button.challenge-duel-side,
+button.bkt-gplayer { padding: 0; }
+button.world-post-thumb { border: 0; padding: 0; }
+
+/* Author and caption are separate targets, so the line is a flex row: the NAME never truncates,
+   the caption takes the rest and ellipses — same one-line look as before. */
+.world-post-line { display: flex; align-items: baseline; gap: 4px; }
+.world-post-name,
+.world-post-cap {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.world-post-name { flex: 0 1 auto; max-width: 55%; }
+button.world-post-name, button.world-post-cap { cursor: pointer; }
+.world-post-sep { flex: 0 0 auto; color: #7fc7b0; }
+.world-post-cap { flex: 1 1 auto; min-width: 0; }
+
+button.world-lb-row:hover { background: rgba(61, 220, 151, .12); }
+button.world-post-name:hover,
+button.world-post-cap:hover { text-decoration: underline; }
+button.world-post-av:hover .world-av,
+button.world-member-av:hover .world-av,
+button.world-post-thumb:hover,
+button.team-chip:hover,
+button.bkt-gplayer:hover,
+button.challenge-duel-side:hover { filter: brightness(1.22); }
+button.world-lb-row:active,
+button.world-post-name:active,
+button.world-post-cap:active,
+button.world-post-av:active,
+button.world-member-av:active,
+button.world-post-thumb:active,
+button.team-chip:active,
+button.bkt-gplayer:active,
+button.challenge-duel-side:active { opacity: .62; }
+
+button.world-lb-row:focus-visible,
+button.world-post-name:focus-visible,
+button.world-post-cap:focus-visible,
+button.world-post-av:focus-visible,
+button.world-member-av:focus-visible,
+button.world-post-thumb:focus-visible,
+button.team-chip:focus-visible,
+button.bkt-gplayer:focus-visible,
+button.challenge-duel-side:focus-visible {
+  outline: 2px solid #3ddc97;
+  outline-offset: 2px;
+}

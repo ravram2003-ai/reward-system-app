@@ -6234,17 +6234,30 @@
     return renderAvatar({ className: "world-av", name: member && member.name, avatarUrl: member && member.avatarUrl, color: avatarColor((member && member.name) || "Member") });
   }
 
+  // A member row/avatar inside a Worlds tile is a real button whenever we can resolve who it is
+  // — openMemberProfile needs an id it can find in community.members. When we can't (a personal
+  // tile has no members, a post can have an unknown author) the row stays an inert span rather
+  // than a button that goes nowhere. Returns the shared button attributes, or null.
+  function worldMemberTap(member) {
+    if (!member || !member.id) return null;
+    const label = member.id === "me"
+      ? "View your profile"
+      : `View ${escapeHtml(member.name || "Member")}'s profile`;
+    return ` type="button" data-world-member="${escapeHtml(String(member.id))}" aria-label="${label}"`;
+  }
+
   function worldLbBody(community, limit) {
     const standings = worldStandings(community).slice(0, limit || 3);
     if (!standings.length) return `<p class="world-section-empty">No standings yet.</p>`;
     return standings.map((m, i) => {
       const me = m.id === "me";
-      return `<div class="world-lb-row${me ? " is-me" : ""}">
-          <span class="world-lb-rank">${i + 1}</span>
+      const tap = worldMemberTap(m);
+      const inner = `<span class="world-lb-rank">${i + 1}</span>
           ${worldAvatarMarkup(m)}
           <span class="world-lb-name">${me ? "You" : escapeHtml(m.name || "Member")}</span>
-          <strong class="world-lb-pts">${escapeHtml(formatPoints(m.today))}</strong>
-        </div>`;
+          <strong class="world-lb-pts">${escapeHtml(formatPoints(m.today))}</strong>`;
+      const cls = `world-lb-row${me ? " is-me" : ""}${tap ? " is-tappable" : ""}`;
+      return tap ? `<button class="${cls}"${tap}>${inner}</button>` : `<div class="${cls}">${inner}</div>`;
     }).join("");
   }
 
@@ -6261,16 +6274,33 @@
       const rule = rules.find((r) => r.id === e.ruleId);
       const who = member.id === "me" ? "You" : (member.name || "Member");
       const cap = e.message ? e.message : (rule ? rule.label : "logged a day");
+      // Two separate targets on one row: the AUTHOR (avatar + name) opens their profile, the
+      // POST (thumbnail + caption) opens the post detail overlay in place. Never nested, so the
+      // buttons stay valid HTML and each tap is unambiguous.
+      const tap = worldMemberTap(member);
+      const postId = e.id ? String(e.id) : "";
+      const postTap = postId ? ` type="button" data-world-post="${escapeHtml(postId)}" aria-label="Open this post"` : "";
       // Photo posts lead with a small thumbnail (painted from the signed URL); text posts keep
-      // the round avatar. The caption is truncated to one line by .world-post-line (CSS).
+      // the round avatar. The caption is truncated to one line by .world-post-cap (CSS).
       const photoPath = e.photoPath || e.photo_path || "";
+      const thumb = `<img alt="" loading="lazy">`;
       const lead = photoPath
-        ? `<span class="world-post-thumb" data-world-thumb="${escapeHtml(photoPath)}"><img alt="" loading="lazy"></span>`
-        : worldAvatarMarkup(member);
+        ? (postTap
+            ? `<button class="world-post-thumb"${postTap} data-world-thumb="${escapeHtml(photoPath)}">${thumb}</button>`
+            : `<span class="world-post-thumb" data-world-thumb="${escapeHtml(photoPath)}">${thumb}</span>`)
+        : (tap
+            ? `<button class="world-post-av"${tap}>${worldAvatarMarkup(member)}</button>`
+            : worldAvatarMarkup(member));
+      const whoHtml = tap
+        ? `<button class="world-post-name"${tap}><strong>${escapeHtml(who)}</strong></button>`
+        : `<strong class="world-post-name is-static">${escapeHtml(who)}</strong>`;
+      const capHtml = postTap
+        ? `<button class="world-post-cap"${postTap}>${escapeHtml(cap)}</button>`
+        : `<span class="world-post-cap is-static">${escapeHtml(cap)}</span>`;
       return `<div class="world-post">
           ${lead}
           <div class="world-post-main">
-            <p class="world-post-line"><strong>${escapeHtml(who)}</strong> · ${escapeHtml(cap)}</p>
+            <p class="world-post-line">${whoHtml}<span class="world-post-sep" aria-hidden="true">·</span>${capHtml}</p>
             <p class="world-post-meta">${escapeHtml(worldAgo(e.timestamp || e.dateKey || e.date))}</p>
           </div>
         </div>`;
@@ -6280,7 +6310,12 @@
   function worldMembersBody(community) {
     const members = (community.members || []).slice(0, 6);
     if (!members.length) return `<p class="world-section-empty">Just you so far.</p>`;
-    const avs = members.map((m) => `<span class="world-member-av">${worldAvatarMarkup(m)}</span>`).join("");
+    const avs = members.map((m) => {
+      const tap = worldMemberTap(m);
+      return tap
+        ? `<button class="world-member-av"${tap}>${worldAvatarMarkup(m)}</button>`
+        : `<span class="world-member-av">${worldAvatarMarkup(m)}</span>`;
+    }).join("");
     const more = (community.members || []).length > 6 ? `<span class="world-member-more">+${community.members.length - 6}</span>` : "";
     return `<div class="world-members">${avs}${more}</div>`;
   }
@@ -6364,6 +6399,14 @@
     // Quick check-in on a large tile — handled here (delegation) because tiles re-render as one
     // HTML string. Every branch returns so the tap never falls through to "open this world".
     if (t.closest(".quick-checkin-tile") && onCheckinTileClick(t)) return;
+    // A member (leaderboard row, post author, members strip) → their profile in THIS world's
+    // context, the same drill-down the community detail leaderboard uses. A post (thumbnail or
+    // caption) → the post overlay in place. Both sit below the drag/edit-mode guards above, so
+    // a swipe or an edit-mode tap never navigates.
+    const memberTap = t.closest("[data-world-member]");
+    if (memberTap) { openWorldTileMember(memberTap); return; }
+    const postTap = t.closest("[data-world-post]");
+    if (postTap) { openEntryPost(postTap.dataset.worldPost); return; }
     const tile = t.closest("[data-world-id]");
     if (!tile) return;
     // On a pager card only the HEADER opens the world — the body is full of its own controls
@@ -6371,6 +6414,18 @@
     if (tile.classList.contains("worlds-tile") && !t.closest("[data-world-open]")) return;
     if (tile.dataset.worldType === "community") openWorldCommunity(tile.dataset.worldId);
     else openWorldPersonal(tile.dataset.worldId);
+  }
+
+  // Tapping a member inside a Worlds tile opens their profile scoped to that tile's community,
+  // so renderProfilePage shows the same "Today in <world>" section you get from inside the world.
+  // Reuses openMemberProfile — no second drill-down path to keep in sync.
+  function openWorldTileMember(button) {
+    const tileEl = button.closest("[data-world-id]");
+    if (!tileEl || tileEl.dataset.worldType !== "community") return; // personal tiles have no members
+    const community = (state.communities || []).find((c) => c.id === tileEl.dataset.worldId);
+    if (!community) return;
+    state.selectedCommunityId = community.id; // keep the community drill-down + back-nav in sync
+    openMemberProfile(community, button.dataset.worldMember);
   }
 
   // Check-in actions inside a Worlds-grid tile. Returns true when the tap was consumed.
@@ -21835,7 +21890,7 @@
         <div class="challenge-duel-scores">
           <div class="challenge-duel-side"><div class="challenge-duel-avwrap is-me">${challengeAvatarHtml(challenge, pair.meUser, "challenge-duel-av")}</div><p class="challenge-duel-name is-me">You</p><strong class="challenge-duel-num is-me">${pair.me}</strong></div>
           <span class="challenge-vs">VS</span>
-          <div class="challenge-duel-side"><div class="challenge-duel-avwrap">${challengeAvatarHtml(challenge, pair.oppUser, "challenge-duel-av")}</div><p class="challenge-duel-name">${escapeHtml(oppName)}</p><strong class="challenge-duel-num">${pair.opp}</strong></div>
+          <button type="button" class="challenge-duel-side is-tappable" data-compete-user="${escapeHtml(String(pair.oppUser || ""))}" data-compete-community="${escapeHtml(String(challenge.communityId || ""))}" aria-label="View ${escapeHtml(oppName)}'s profile"><div class="challenge-duel-avwrap">${challengeAvatarHtml(challenge, pair.oppUser, "challenge-duel-av")}</div><p class="challenge-duel-name">${escapeHtml(oppName)}</p><strong class="challenge-duel-num">${pair.opp}</strong></button>
         </div>
         <div class="challenge-tug"><div class="challenge-tug-me" style="width:${mePct}%"></div><div class="challenge-tug-opp" style="width:${100 - mePct}%"></div></div>
         <p class="challenge-lead-line">${leadLine}</p>
@@ -22038,6 +22093,15 @@
         else if (contestDraft.captains.length < 2) contestDraft.captains.push(uid);
         renderContestTeamSetup();
       }
+      return;
+    }
+    // Any person shown inside a compete overlay (duel opponent, team roster chip) opens their
+    // profile in that contest's community — the overlay closes first so it doesn't cover it.
+    const cUser = find("[data-compete-user]");
+    if (cUser && cUser.dataset.competeUser) {
+      event.preventDefault();
+      closeChallengeOverlay();
+      openUserProfile(cUser.dataset.competeUser, cUser.dataset.competeCommunity || undefined);
       return;
     }
     const cCreate = find("[data-contest-create]"); if (cCreate) { createTeamContest(); return; }
@@ -22797,7 +22861,11 @@
     const clock = ended ? "ended" : ("⏱ " + contestCountdownText(contest));
     const teamBlocks = scores.map((s) => {
       const isMine = myTeam && s.team.id === myTeam.id;
-      const chips = s.per.map((m) => `<span class="team-chip" style="--tc:${escapeHtml(s.team.color || "#3a6ea5")}">${escapeHtml(m.name)} ${m.score}</span>`).join("");
+      // Roster chips are people, so they open that player's profile in this contest's community
+      // (same destination as a leaderboard row) instead of being a dead end.
+      const chips = s.per.map((m) => (m.userId
+        ? `<button type="button" class="team-chip is-tappable" style="--tc:${escapeHtml(s.team.color || "#3a6ea5")}" data-compete-user="${escapeHtml(String(m.userId))}" data-compete-community="${escapeHtml(String(contest.communityId || ""))}" aria-label="View ${escapeHtml(m.name || "Member")}'s profile">${escapeHtml(m.name)} ${m.score}</button>`
+        : `<span class="team-chip" style="--tc:${escapeHtml(s.team.color || "#3a6ea5")}">${escapeHtml(m.name)} ${m.score}</span>`)).join("");
       const sub = contest.scoringMode === "avg_active" ? `avg of ${s.active}/${s.count}` : `${s.count} players`;
       return `<div class="team-block">
           <div class="team-block-head">
@@ -23228,8 +23296,13 @@
           const dayLead = v > numberOrDefault(otherVals[i], 0); // won this day — works for 0 / negative (penalty) scores too
           return `<span class="bkt-gc bkt-gcell${dayLead ? " is-daylead" : ""}">${escapeHtml(String(v))}</span>`;
         }).join("");
+        // The player cell opens that player's profile. Only in the EXPANDED grid — the collapsed
+        // match row lives inside the accordion button, where a tap must expand the match.
+        const player = uid
+          ? `<button type="button" class="bkt-gplayer is-tappable" data-compete-user="${escapeHtml(String(uid))}" data-compete-community="${escapeHtml(String(contest.communityId || ""))}" aria-label="View ${escapeHtml(nm)}'s profile">${av}<span class="bkt-gname">${escapeHtml(nm)}${isWin ? " ✓" : ""}</span></button>`
+          : `<span class="bkt-gplayer">${av}<span class="bkt-gname">${escapeHtml(nm)}${isWin ? " ✓" : ""}</span></span>`;
         return `<div class="bkt-grow${uid === myId ? " is-me" : ""}${isWin ? " is-win" : ""}">
-            <span class="bkt-gplayer">${av}<span class="bkt-gname">${escapeHtml(nm)}${isWin ? " ✓" : ""}</span></span>
+            ${player}
             ${cells}
             <span class="bkt-gc bkt-gtotal">${escapeHtml(String(uid ? total : "—"))}</span>
           </div>`;

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — per-world collapse (large ⇄ medium) reference</title>
+<style>
+  :root{color-scheme:dark}*{box-sizing:border-box}
+  body{margin:0;background:#040605;color:#e7ece9;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;padding:26px 12px 60px;display:flex;flex-direction:column;align-items:center}
+  .note{max-width:400px;font-size:13px;color:#8ba299;line-height:1.55;margin:0 0 18px}.note b{color:#eaf2ee}
+  .pc{--mint:#7ee0a8;width:380px;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+  .tl{background:linear-gradient(180deg,#0d1512,#0a100d);border:1px solid #1e2b24;border-radius:16px;padding:11px;position:relative;transition:.2s;}
+  .tl[data-s="lg"]{grid-column:span 2;} .tl[data-s="md"]{grid-column:span 1;}
+  .tl[data-s="md"] .lg-only{display:none;}
+  .sz{position:absolute;top:9px;right:9px;width:26px;height:26px;border-radius:9px;background:#0f1613;border:1px solid #2c3a33;color:#7ee0a8;font-size:12px;display:grid;place-items:center;cursor:pointer;z-index:2;}
+  .sz:hover{background:#173026;border-color:#2c5a48;} .sz:focus-visible{outline:2px solid #7ee0a8;outline-offset:2px;}
+  .hd{display:flex;align-items:center;gap:9px;margin-bottom:9px;padding-right:30px;}
+  .ring{border-radius:50%;display:grid;place-items:center;font-weight:700;color:#7ee0a8;flex:0 0 auto;
+    background:radial-gradient(closest-side,#0b100d 76%,transparent 77%),conic-gradient(#7ee0a8 var(--p,22%),#22302a 0);}
+  .tl[data-s="lg"] .ring{width:40px;height:40px;font-size:10px;} .tl[data-s="md"] .ring{width:32px;height:32px;font-size:9px;}
+  .tl[data-s="lg"] .nm{font-size:14px;} .tl[data-s="md"] .nm{font-size:11.5px;}
+  .nm{font-weight:800;color:#eaf2ee;letter-spacing:.2px;} .st{font-size:9.5px;color:#8ba299;margin-top:1px;}
+  .chk{background:#0c1310;border:1px solid #17231d;border-radius:12px;padding:10px;}
+  .ct{display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:#eaf2ee;margin-bottom:9px;}
+  .ct i{color:#7ee0a8;font-style:normal;} .ct em{font-style:normal;font-size:10px;color:#5f7369;font-weight:400;}
+  .qr{display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:600;color:#eaf2ee;margin-bottom:7px;}
+  .qr em{font-style:normal;font-size:10px;color:#5f7369;font-weight:400;}
+  .opts{display:flex;gap:5px;margin-bottom:10px;}
+  .opt{flex:1;padding:7px 0;border-radius:8px;text-align:center;font-size:11.5px;font-weight:600;background:#173026;border:1px solid #1d3a2e;color:#bfeed3;}
+  .opt.sel{background:linear-gradient(180deg,#8ff0b8,#7ee0a8);color:#06231a;border-color:transparent;}
+  .lb{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:8px;background:#173026;border:1px solid #1d3a2e;margin-top:8px;}
+  .av{width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,#2b4a3c,#16241d);}
+  .left{font-size:10px;font-weight:700;color:#06231a;background:linear-gradient(180deg,#8ff0b8,#7ee0a8);border-radius:11px;padding:4px 9px;display:inline-block;margin-top:8px;}
+  .tip{font-size:10.5px;color:#5f7369;text-align:center;margin-top:12px;}
+</style>
+</head>
+<body>
+<p class="note"><b>Per-world collapse.</b> Each tile has a small ⤡/⤢ button in its own top-right corner. One tap toggles just that world between <b>large</b> (full width — header + check-in + leaderboard) and <b>medium</b> (half width — header + "N left ›" chip; tap the tile to open the world full-screen). Sizes mix freely on a page. No edit mode required.</p>
+<div class="pc">
+  <div class="grid" id="g">
+    <div class="tl" data-s="lg">
+      <button class="sz" title="Collapse to medium" aria-label="Collapse THE BOYS">⤡</button>
+      <div class="hd"><div class="ring" style="--p:22%">2/9</div><div><div class="nm">THE BOYS</div><div class="st">Rank #1 · 1 active today</div></div></div>
+      <div class="lg-only chk">
+        <div class="ct"><span><i>★</i> Quick check-in</span><em>3 left</em></div>
+        <div class="qr"><span>◎ Cardio</span><em>usually 25 · Skip</em></div>
+        <div class="opts"><span class="opt">20</span><span class="opt sel">25</span><span class="opt">30</span><span class="opt" style="flex:0 0 32px;font-size:10px;">⌨</span></div>
+        <div class="qr" style="margin-bottom:0;"><span>╫ Did you lift?</span><span style="display:flex;gap:5px;"><span class="opt" style="flex:0 0 40px;">No</span><span class="opt sel" style="flex:0 0 40px;">Yes</span></span></div>
+      </div>
+      <div class="lg-only lb"><span style="font-size:11px;color:#7ee0a8;font-weight:700;">1</span><div class="av"></div><span style="flex:1;font-size:11.5px;color:#eaf2ee;">You</span><span style="font-size:11.5px;color:#7ee0a8;font-weight:700;">2</span></div>
+      <span class="left" style="display:none;">3 left ›</span>
+    </div>
+    <div class="tl" data-s="md">
+      <button class="sz" title="Expand to large" aria-label="Expand FAMILY">⤢</button>
+      <div class="hd"><div class="ring" style="--p:50%">4/8</div><div><div class="nm">FAMILY</div><div class="st">Rank #2</div></div></div>
+      <div class="lg-only chk"><div class="ct"><span><i>★</i> Quick check-in</span><em>2 left</em></div><div class="qr"><span>🚶 Walk</span><em>usually 45</em></div><div class="opts" style="margin-bottom:0;"><span class="opt sel">30</span><span class="opt">45</span><span class="opt">60</span></div></div>
+      <span class="left">2 left ›</span>
+    </div>
+    <div class="tl" data-s="md">
+      <button class="sz" title="Expand to large" aria-label="Expand SQUASH">⤢</button>
+      <div class="hd"><div class="ring" style="--p:70%">6/9</div><div><div class="nm">SQUASH</div><div class="st">Rank #1</div></div></div>
+      <div class="lg-only chk"><div class="ct"><span><i>★</i> Quick check-in</span><em>1 left</em></div><div class="qr"><span>🎾 Court</span><em>usually 60</em></div><div class="opts" style="margin-bottom:0;"><span class="opt">30</span><span class="opt sel">60</span><span class="opt">90</span></div></div>
+      <span class="left">1 left ›</span>
+    </div>
+    <div class="tl" data-s="md">
+      <button class="sz" title="Expand to large" aria-label="Expand DEEP WORK">⤢</button>
+      <div class="hd"><div class="ring" style="--p:88%">7/8</div><div><div class="nm">DEEP WORK</div><div class="st">Rank #1</div></div></div>
+      <div class="lg-only chk"><div class="ct"><span><i>★</i> Quick check-in</span><em>1 left</em></div><div class="qr"><span>🧠 Focus</span><em>usually 90</em></div><div class="opts" style="margin-bottom:0;"><span class="opt">60</span><span class="opt sel">90</span><span class="opt">120</span></div></div>
+      <span class="left">1 left ›</span>
+    </div>
+  </div>
+  <p class="tip">Tap ⤡ / ⤢ on any tile to collapse or expand just that world</p>
+</div>
+<script>
+(function(){
+  document.getElementById('g').addEventListener('click',function(e){
+    var b=e.target.closest('.sz'); if(!b)return;
+    var t=b.closest('.tl'); var md=t.dataset.s==='md';
+    t.dataset.s = md?'lg':'md';
+    b.textContent = md?'⤡':'⤢';
+    b.title = md?'Collapse to medium':'Expand to large';
+    var chip=t.querySelector('.left'); if(chip) chip.style.display = md?'none':'inline-block';
+  });
+})();
+</script>
+</body>
+</html>

@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260729-pagerv3">
+    <link rel="stylesheet" href="styles.css?v=20260729-pagerv6">
 
   </head>
   <body>
@@ -83,6 +83,9 @@
       <aside class="sidebar" aria-label="Workspace">
         <div class="brand-block">
           <div class="header-cluster">
+            <!-- Worlds layout editing lives HERE (top-right), not at the bottom of the pager.
+                 Shown only on the Worlds view; becomes a mint "✓ Done" while editing. -->
+            <button class="header-edit-pill" type="button" id="worldsEditPill" data-worlds-edit aria-pressed="false">✎ Edit</button>
             <button class="header-icon-btn" type="button" id="headerSearchButton" aria-label="Search">
               <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
             </button>
@@ -157,7 +160,6 @@
           <!-- Bubble-tile home: one tile per world (community / personal system). -->
           <div class="world-grid" id="worldGrid" aria-label="Your worlds"></div>
           <div class="kbd-hint" aria-hidden="true"><span><kbd>N</kbd> new entry</span><span><kbd>⌘K</kbd> quick log</span><span><kbd>1</kbd>–<kbd>4</kbd> switch tabs</span></div>
-          <div class="edit-layout-row" id="worldGridHint" hidden><button class="edit-layout-pill" type="button" id="editLayoutPill"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Edit layout</button></div>
 
           <!-- Per-system detail (score hero + analytics). Hidden on the tile home; still
                rendered for data + reused by the Add Entry view. -->
@@ -1604,13 +1606,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260729-pagerv3"></script>
-    <script src="auth-helpers.js?v=20260729-pagerv3"></script>
-    <script src="scoring.js?v=20260729-pagerv3"></script>
-    <script src="insight.js?v=20260729-pagerv3"></script>
-    <script src="signals.js?v=20260729-pagerv3"></script>
-    <script src="wearables.js?v=20260729-pagerv3"></script>
-    <script type="module" src="auth.js?v=20260729-pagerv3"></script>
-    <script src="app.js?v=20260729-pagerv3"></script>
+    <script src="supabase-config.js?v=20260729-pagerv6"></script>
+    <script src="auth-helpers.js?v=20260729-pagerv6"></script>
+    <script src="scoring.js?v=20260729-pagerv6"></script>
+    <script src="insight.js?v=20260729-pagerv6"></script>
+    <script src="signals.js?v=20260729-pagerv6"></script>
+    <script src="wearables.js?v=20260729-pagerv6"></script>
+    <script type="module" src="auth.js?v=20260729-pagerv6"></script>
+    <script src="app.js?v=20260729-pagerv6"></script>
   </body>
 </html>

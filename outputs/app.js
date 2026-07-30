@@ -2829,6 +2829,7 @@
       "feedTabs",
       "feedCount",
       "searchView",
+      "worldsEditPill",
       "headerSearchButton",
       "headerSearchForm",
       "headerSearchInput",
@@ -2888,7 +2889,6 @@
       "analyticsToggle",
       "dashboardAnalytics",
       "worldGrid",
-      "worldGridHint",
       "streakCard",
       "dashboardDetail",
       "notifBellButton",
@@ -3281,6 +3281,9 @@
       if (state.activeView === "post-composer") closePostComposer();
       else openPostComposer();
     });
+    // The Worlds "Edit" pill lives in the top-right header cluster, OUTSIDE #worldGrid, so the
+    // grid's click delegation can't reach it — bind it directly.
+    if (els.worldsEditPill) els.worldsEditPill.addEventListener("click", () => toggleWorldsEditMode());
     bindOAuthButtons();
     bindPostComposerEvents();
     // Bubble-tile home: tap a tile to open it; long-press (touch) / click-drag (desktop)
@@ -3294,7 +3297,7 @@
       window.addEventListener("pointermove", onWorldGridPointerMove, { passive: false });
       window.addEventListener("pointerup", onWorldGridPointerUp);
       window.addEventListener("pointercancel", onWorldGridPointerCancel);
-      // Worlds pager: arrow-key paging + regroup when the 760px breakpoint is crossed.
+      // Worlds pager: regroup when the column count changes.
       window.addEventListener("resize", onWorldsPagerResize);
     }
     bindQuickLogControls();
@@ -3649,12 +3652,6 @@
   }
 
   // ── Desktop keyboard shortcuts: 1–4 tabs · n new entry · / or ⌘K AI quick-log ──
-  (function bindEditLayoutPill() {
-    const pill = document.getElementById("editLayoutPill");
-    // Worlds is a PAGER now: hold-to-drag reorder and corner-resize are gone, so the old
-    // instructions would send people looking for gestures that no longer exist.
-    if (pill) pill.addEventListener("click", () => { showToast("Swipe or use ← → to move between worlds"); });
-  })();
   (function bindProfileSavebar() {
     const save = document.getElementById("profileSavebarSave");
     const cancel = document.getElementById("profileSavebarCancel");
@@ -3749,6 +3746,7 @@
 
   function renderChrome() {
     if (!els.views[state.activeView]) state.activeView = "feed"; // invalid restored view → land on the default (Feed)
+    syncWorldsEditPill();   // the top-right Edit pill only appears on Worlds
     const ownProfileActive = state.activeView === "profile"
       || (state.activeView === "profile-page" && !!(state.account && String(state.profileUserId) === String(state.account.userId)));
     els.tabs.forEach((tab) => {
@@ -5581,7 +5579,7 @@
   const WORLDS_TWO_COL_MIN = 520;        // pager width (px) at which tiles sit two-up
   const WORLDS_EDGE_ZONE = 54;           // px from the pager edge that arms a page flip
   const WORLDS_EDGE_DWELL = 500;         // ms of holding there before it flips
-  const WORLDS_TILES_PER_PAGE = 4;       // grid slots per page (a large tile takes 2)
+  const WORLDS_TILES_PER_PAGE = 2;       // exactly two half-width worlds per page (1 on phone)
   let worldsPageIndex = 0;
   let worldsPageCount = 1;
   let worldsEditMode = false;
@@ -5618,15 +5616,12 @@
   function worldIsArchived(key) {
     return worldLayoutState().archived.indexOf(String(key)) > -1;
   }
-  function worldTileSizeFor(key) {
-    const e = worldLayoutEntry(key);
-    return e && e.size === "large" ? "large" : (e && e.size === "medium" ? "medium" : "");
-  }
   // Persist + push. Kept in one place so every mutation syncs the same way.
   function saveWorldLayout(next) {
     state.worldLayout = {
+      // {worldId, page, index} — there are no tile sizes; every tile is half width.
       entries: (next.entries || []).map((e, i) => ({
-        worldId: String(e.worldId), size: e.size === "large" ? "large" : "medium",
+        worldId: String(e.worldId),
         page: numberOrDefault(e.page, 0), index: numberOrDefault(e.index, i),
       })),
       archived: (next.archived || []).map(String),
@@ -5648,52 +5643,43 @@
   /* Build the ordered, paged tile list: saved layout first (honouring page + index), then any
      world the layout hasn't seen yet appended with a default size. Archived worlds drop out. */
   function buildWorldsPages() {
-    const cols = worldsColumns();
-    const slotsPerPage = cols === 1 ? 2 : WORLDS_TILES_PER_PAGE;
+    const perPage = worldsColumns() === 1 ? 1 : WORLDS_TILES_PER_PAGE;
     const tiles = buildWorldTiles().filter((t) => !worldIsArchived(worldTileKey(t)));
     const placed = tiles.slice().map((t) => {
       const key = worldTileKey(t);
       const e = worldLayoutEntry(key);
       return {
         tile: t, key: key,
-        size: worldTileSizeFor(key) || "medium",   // side-by-side by default; large is opt-in
+        // Unplaced worlds sort to the end, so a newly joined world simply appends.
         page: e ? numberOrDefault(e.page, 0) : Number.MAX_SAFE_INTEGER,
         index: e ? numberOrDefault(e.index, 0) : Number.MAX_SAFE_INTEGER,
       };
     });
     placed.sort((a, b) => (a.page - b.page) || (a.index - b.index));
-    // Flow into pages by grid span so a large tile never straddles a page boundary.
     const pages = [];
-    let page = [];
-    let used = 0;
-    placed.forEach((p) => {
-      const span = (p.size === "large" && cols > 1) ? 2 : 1;
-      if (used + span > slotsPerPage && page.length) { pages.push(page); page = []; used = 0; }
-      page.push(p); used += span;
-    });
-    if (page.length) pages.push(page);
+    for (let i = 0; i < placed.length; i += perPage) pages.push(placed.slice(i, i + perPage));
     return pages.length ? pages : [[]];
   }
 
-  // One tile. `medium` shows the header + a single compact prompt; `large` adds the modules.
+  // One world tile. There are NO sizes — every tile is an equal half-width column and is FULLY
+  // featured: header (ring, name, "Rank #1 · N active"), the quick check-in, the leaderboard,
+  // recent posts and the dashed add-module chips. It scrolls internally when tall, so a busy
+  // world never breaks the grid or shifts the page.
   function renderWorldsTile(p) {
     const t = p.tile;
     const typeClass = t.type === "community" ? "tile-community" : "tile-personal";
-    const body = p.size === "large"
-      ? `${checkinTileHtml(t, { compact: true })}${renderWorldSections(t)}`
-      : `${checkinTileHtml(t, { compact: true, maxPrompts: 1 })}`;
-    return `<div class="world-tile worlds-tile ${typeClass}" data-size="${p.size}"
+    return `<div class="world-tile worlds-tile ${typeClass}"
         data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(p.key)}">
         <button class="worlds-tile-rm" type="button" data-world-archive="${escapeHtml(p.key)}" aria-label="Remove ${escapeHtml(t.name)} from your layout" tabindex="-1">−</button>
-        <button class="worlds-tile-grip" type="button" data-world-resize="${escapeHtml(p.key)}" aria-label="Toggle ${escapeHtml(t.name)} between medium and large" tabindex="-1">⤡</button>
         <div class="worlds-tile-head" role="button" tabindex="0" data-world-open aria-label="Open ${escapeHtml(t.name)}">
           ${renderWorldRing(t, "large")}
           <div class="worlds-tile-title">
             <h3>${escapeHtml(t.name)}</h3>
-            <p>${renderWorldStat(t, false)}</p>
+            <p>${renderWorldStat(t, true)}</p>
           </div>
         </div>
-        ${body}
+        ${checkinTileHtml(t, { compact: true })}
+        ${renderWorldSections(t)}
       </div>`;
   }
 
@@ -5702,13 +5688,17 @@
     if (!mount) return;
     if (worldsDrag.tile) return;   // never rebuild mid-drag — it would drop the lifted tile
     const tiles = buildWorldTiles();
-    if (els.worldGridHint) els.worldGridHint.hidden = tiles.length < 1;
     if (els.worldCount) els.worldCount.textContent = tiles.length ? String(tiles.length) : "";
     const pages = buildWorldsPages();
+    // The add-card takes a slot like any tile: if the last page is already full it starts a
+    // new page, so a page never renders more than the two cells the grid is built for.
+    const perPage = worldsColumns() === 1 ? 1 : WORLDS_TILES_PER_PAGE;
+    if (pages[pages.length - 1].length >= perPage) pages.push([]);
+    const addPageIndex = pages.length - 1;
     worldsPageCount = Math.max(1, pages.length);
     worldsPageIndex = Math.max(0, Math.min(worldsPageIndex, worldsPageCount - 1));
     worldsLastCols = worldsColumns();
-    const addCard = `<div class="world-tile worlds-tile worlds-add" data-size="medium" role="button" tabindex="0" data-world-add aria-label="Add a world">
+    const addCard = `<div class="world-tile worlds-tile worlds-add" role="button" tabindex="0" data-world-add aria-label="Add a world">
         <span class="world-add-plus" aria-hidden="true">+</span>
         <span class="world-add-label">${tiles.length ? "New world" : "Create your first world"}</span>
       </div>`;
@@ -5732,16 +5722,13 @@
         <span class="worlds-edge worlds-edge-r" aria-hidden="true"></span>
         <div class="worlds-pager" id="worldsPager" tabindex="0" role="group" aria-label="Worlds, ${worldsPageCount} pages">
           ${pages.map((page, i) => `<div class="worlds-page" data-page="${i}">${
-              page.map(renderWorldsTile).join("") + (i === pages.length - 1 ? addCard : "")
+              page.map(renderWorldsTile).join("") + (i === addPageIndex ? addCard : "")
             }</div>`).join("")}
         </div>
       </div>
-      <div class="worlds-foot">
-        <button class="worlds-editbtn" type="button" data-worlds-edit aria-pressed="${worldsEditMode ? "true" : "false"}">${worldsEditMode ? "✓ Done" : "✎ Edit layout"}</button>
-        <span class="worlds-tip">${worldsEditMode
-          ? "Drag a tile to move it · hold at an edge to change page · tap to resize"
-          : "Swipe, drag, or use ← → · dots jump"}</span>
-      </div>`;
+      ${worldsEditMode
+        ? `<p class="worlds-tip">Drag a tile to move it · hold at an edge to change page</p>`
+        : ""}`;
     paintWorldTilesMedia(tiles);
     bindWorldsPager();
     // Restore the scroll position for the active page without animating on a re-render.
@@ -5782,7 +5769,7 @@
     // page scrub
     scrub: false, startX: 0, startY: 0, startLeft: 0, axis: "", pointerId: null,
     // tile drag
-    tile: null, ph: null, offX: 0, offY: 0, moved: false, dwell: null, dir: 0,
+    tile: null, ph: null, offX: 0, offY: 0, moved: false, dwell: null, dir: 0, longPress: null,
   };
 
   function bindWorldsPager() {
@@ -5822,7 +5809,6 @@
       const ph = document.createElement("div");
       ph.className = "worlds-ph";
       ph.style.height = r.height + "px";
-      ph.style.gridColumn = tile.dataset.size === "large" ? "span 2" : "span 1";
       tile.parentNode.insertBefore(ph, tile);
       tile.classList.add("is-dragging");
       tile.style.width = r.width + "px";
@@ -5833,6 +5819,17 @@
       tile.style.left = (e.clientX - worldsDrag.offX) + "px";
       tile.style.top = (e.clientY - worldsDrag.offY) + "px";
       return;
+    }
+    // Long-press a tile to enter edit mode (iPhone-style). Cancelled by any movement or by
+    // lifting early, so it never fights a swipe or a tap on a check-in chip.
+    const pressTile = e.target.closest && e.target.closest(".worlds-tile:not(.worlds-add)");
+    clearTimeout(worldsDrag.longPress);
+    if (pressTile) {
+      worldsDrag.longPress = setTimeout(() => {
+        worldsDrag.longPress = null;
+        worldsDrag.scrub = false;            // the press became an edit-mode entry, not a swipe
+        toggleWorldsEditMode(true);
+      }, 550);
     }
     // Normal mode: arm a horizontal scrub. Interactive controls keep their own behaviour,
     // but a drag that starts on one still pages (a tap needs no movement, so both work).
@@ -5857,6 +5854,7 @@
     if (!worldsDrag.scrub || e.pointerId !== worldsDrag.pointerId) return;
     const dx = e.clientX - worldsDrag.startX;
     const dy = e.clientY - worldsDrag.startY;
+    if (Math.abs(dx) > 6 || Math.abs(dy) > 6) clearTimeout(worldsDrag.longPress);
     if (!worldsDrag.axis && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) {
       worldsDrag.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
       if (worldsDrag.axis === "x") {
@@ -5872,6 +5870,8 @@
   }
 
   function onWorldsPointerUp() {
+    clearTimeout(worldsDrag.longPress);
+    worldsDrag.longPress = null;
     const pgr = worldsPagerEl();
     if (worldsDrag.tile) return worldsDragDrop();
     if (!worldsDrag.scrub) return;
@@ -5941,20 +5941,14 @@
     tile.style.width = ""; tile.style.height = ""; tile.style.left = ""; tile.style.top = "";
     const moved = worldsDrag.moved;
     worldsDrag.tile = null; worldsDrag.ph = null; worldsDrag.pointerId = null; worldsDrag.moved = false;
-    // A tap with no movement toggles the tile's size instead of moving it.
-    if (!moved) {
-      const key = tile.dataset.worldKey;
-      const next = tile.dataset.size === "large" ? "medium" : "large";
-      tile.dataset.size = next;
-      commitWorldsLayout({ [key]: next });
-      return;
-    }
+    // A tap with no movement is a no-op in edit mode (there are no sizes to toggle) —
+    // the tile simply returns to its slot.
+    if (!moved) return;
     commitWorldsLayout();
   }
 
-  /* Read the CURRENT DOM order back into the layout model and persist it. sizeOverrides lets a
-     size toggle be applied in the same write. */
-  function commitWorldsLayout(sizeOverrides) {
+  /* Read the CURRENT DOM order back into the layout model and persist it. */
+  function commitWorldsLayout() {
     const host = els.worldGrid;
     if (!host) return;
     const entries = [];
@@ -5962,8 +5956,7 @@
       Array.from(page.querySelectorAll(".worlds-tile:not(.worlds-add)")).forEach((tile, i) => {
         const key = tile.dataset.worldKey;
         if (!key) return;
-        const override = sizeOverrides && sizeOverrides[key];
-        entries.push({ worldId: key, size: override || tile.dataset.size || "medium", page: pageIndex, index: i });
+        entries.push({ worldId: key, page: pageIndex, index: i });
       });
     });
     const cur = worldLayoutState();
@@ -5971,19 +5964,28 @@
     renderWorldGrid();
   }
 
-  // Flip one tile between medium (half width) and large (full width + modules). Shared by the
-  // ⤡ grip and by tap-to-resize in edit mode, so both routes write the layout the same way.
-  function toggleWorldTileSize(key) {
-    if (!key) return;
-    const tile = els.worldGrid && els.worldGrid.querySelector('.worlds-tile[data-world-key="' + cssEscapeAttr(key) + '"]');
-    const next = (tile && tile.dataset.size === "large") ? "medium" : (tile ? "large" : (worldTileSizeFor(key) === "large" ? "medium" : "large"));
-    if (tile) tile.dataset.size = next;
-    commitWorldsLayout({ [key]: next });
-  }
-
   function toggleWorldsEditMode(on) {
     worldsEditMode = typeof on === "boolean" ? on : !worldsEditMode;
     renderWorldGrid();
+    syncWorldsEditPill();
+  }
+
+  // The ONE edit control lives in the top-right header cluster. It only makes sense on the
+  // Worlds view, so it hides elsewhere; while editing it turns mint and the sibling icons dim.
+  function syncWorldsEditPill() {
+    // Resilient lookup: if cacheElements missed it for any reason, find it directly rather
+    // than silently leaving the only edit control invisible.
+    const pill = els.worldsEditPill || document.getElementById("worldsEditPill");
+    if (!pill) return;
+    els.worldsEditPill = pill;
+    const onWorlds = state.activeView === "dashboard";
+    pill.hidden = !onWorlds;
+    pill.textContent = worldsEditMode ? "✓ Done" : "✎ Edit";
+    pill.classList.toggle("is-editing", worldsEditMode);
+    pill.setAttribute("aria-pressed", worldsEditMode ? "true" : "false");
+    const cluster = pill.parentElement;
+    if (cluster) cluster.classList.toggle("is-worlds-editing", worldsEditMode && onWorlds);
+    if (!onWorlds && worldsEditMode) { worldsEditMode = false; }  // leaving Worlds exits edit mode
   }
 
   // The (−) badge ARCHIVES a world: it leaves the layout but the world, its rules and every
@@ -6330,8 +6332,6 @@
     if (q("[data-worlds-edit]")) { toggleWorldsEditMode(); return; }
     const archive = q("[data-world-archive]");
     if (archive) { archiveWorldFromLayout(archive.dataset.worldArchive); return; }
-    const resize = q("[data-world-resize]");
-    if (resize) { toggleWorldTileSize(resize.dataset.worldResize); return; }
     // A click that follows a drag must not also open the tile.
     if (worldDrag.suppressClick) { worldDrag.suppressClick = false; return; }
     // In edit mode a tap is a size toggle (handled on pointerup), never "open the world".
@@ -11131,9 +11131,6 @@
   // question ("Lift today?"), which already reads as a label. See work/pointwell-two-worlds.html.
   function checkinCardHtml(world, opts) {
     const compact = !!(opts && opts.compact);
-    // maxPrompts caps how many questions render (a medium Worlds tile shows just one); the
-    // "N left" count still reflects the true total so nothing looks silently dropped.
-    const maxPrompts = numberOrDefault(opts && opts.maxPrompts, 0);
     if (!world) return "";
     const items = buildCheckinItems(world);
     // Nothing to ask → the world is fully logged/synced; render nothing.
@@ -11145,8 +11142,7 @@
     const intro = typeof copy.intro === "string" && copy.intro.trim()
       ? copy.intro.trim()
       : checkinFallbackIntro(items);
-    const askList = maxPrompts > 0 ? items.ask.slice(0, maxPrompts) : items.ask;
-    const rows = askList.map((it) => {
+    const rows = items.ask.map((it) => {
       const ruleId = escapeHtml(it.rule.id);
       // AI text is untrusted → escapeHtml before it ever reaches innerHTML.
       const question = (compact && !it.isYesNo)

@@ -12410,6 +12410,10 @@ input:not([type="range"]):not([type="checkbox"]).qc-typed {
      places by coordinates and commits DOM order: there, what you see must be the order. */
   grid-auto-flow: row dense;
   align-content: start;
+  /* Each tile takes its own height. Without this, grid stretches every tile to its row's
+     tallest — so a world with nothing left to check in renders as a tall empty box next to a
+     busy one. */
+  align-items: start;
   gap: 10px;
   padding: 4px 2px 12px;
 }
@@ -12428,12 +12432,12 @@ input:not([type="range"]):not([type="checkbox"]).qc-typed {
   text-align: left;
   touch-action: pan-y;          /* vertical scroll stays native; horizontal is ours */
 }
-/* Per-world size (see worldTileSize): LARGE spans both columns and scrolls internally when
-   tall; MEDIUM is one column and is short by construction (header + "N left"), so it never
-   needs its own scroller. Attribute selectors (0,2,0) outrank the plain .worlds-tile base. */
+/* Per-world size (see worldTileSize): LARGE spans both columns, MEDIUM one. Both inherit the
+   base cap and scroll internally when tall, so a world with many rules never stretches its page.
+   Attribute selectors (0,2,0) outrank the plain .worlds-tile base. */
 .worlds-tile { grid-column: span 1; max-height: min(66vh, 620px); overflow-y: auto; scrollbar-width: none; }
 .worlds-tile[data-world-size="large"]  { grid-column: span 2; }
-.worlds-tile[data-world-size="medium"] { grid-column: span 1; max-height: none; overflow-y: visible; }
+.worlds-tile[data-world-size="medium"] { grid-column: span 1; }
 .worlds-tile::-webkit-scrollbar { display: none; }
 .world-tile.worlds-tile:hover { transform: none; }
 
@@ -12703,40 +12707,34 @@ button.challenge-duel-side:focus-visible {
 /* The header must clear the corner control at both sizes. */
 .worlds-tile .worlds-tile-head { padding-right: 30px; }
 
-/* MEDIUM — the whole card is one open target (it holds no controls of its own). */
-.worlds-tile-open {
-  display: block; width: 100%;
-  background: none; border: 0; padding: 0;
-  text-align: left; color: inherit; font: inherit;
-  cursor: pointer;
-}
-.worlds-tile-open:focus-visible { outline: 2px solid var(--mint, #7ee0a8); outline-offset: 3px; border-radius: 12px; }
+/* MEDIUM — a slim header over the FULL quick check-in. Only the identity line shrinks; the
+   logging controls stay full-size, because a collapsed world still has to be loggable. */
 .worlds-tile[data-world-size="medium"] .worlds-tile-title h3 { font-size: 0.72rem; }
 .worlds-tile[data-world-size="medium"] .worlds-tile-title p { font-size: 0.55rem; }
 .worlds-tile[data-world-size="medium"] .worlds-tile-head { gap: 8px; }
 
-/* "N left ›" / "✓ all done" — the medium tile's whole body. Mint pill when there's still
-   something open today, quiet outline when there isn't. */
-.worlds-left-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  margin-top: 9px;
-  padding: 4px 9px;
-  border-radius: 11px;
-  font-size: 0.6rem; font-weight: 700;
-  background: linear-gradient(180deg, var(--mint-bright, #8ff0b8), var(--mint, #7ee0a8));
-  color: #06231a;
+/* Tap targets at medium: every quick-pick keeps ~40px of height. The pager's own compact
+   .qc-chip / .qc-yes rules shrink these to ~23px, which is fine on a full-width large tile but
+   not on a half-width column — so re-inflate them here only (large is untouched). */
+.worlds-tile[data-world-size="medium"] .qc-chip,
+.worlds-tile[data-world-size="medium"] .qc-yes,
+.worlds-tile[data-world-size="medium"] .qc-keyboard {
+  min-height: 40px;
+  padding-top: 6px; padding-bottom: 6px;
+  font-size: 0.74rem;
 }
-.worlds-left-chip.is-done {
-  background: none;
-  border: 1px solid #234034;
-  color: var(--mint, #7ee0a8);
-  font-weight: 600;
-}
-.worlds-left-chip .ic { width: 11px; height: 11px; vertical-align: -0.14em; }
-.worlds-tile-open:hover .worlds-left-chip { filter: brightness(1.08); }
+.worlds-tile[data-world-size="medium"] .qc-no { min-height: 40px; font-size: 0.62rem; }
+/* Rather than squeeze below that, WRAP. A counter row already stacks its chips under the label;
+   this lets the chips themselves fall onto a second line, and lets a Yes/No pair drop under its
+   question when the column is too narrow to hold both. `min-width` on the question is what
+   decides "too narrow" — above it everything stays on one line. */
+.worlds-tile[data-world-size="medium"] .qc-row { flex-wrap: wrap; row-gap: 6px; }
+.worlds-tile[data-world-size="medium"] .qc-chips { flex-wrap: wrap; gap: 6px; }
+.worlds-tile[data-world-size="medium"] .qc-chip { flex: 1 1 4.5rem; }
+.worlds-tile[data-world-size="medium"] .qc-q { min-width: 8.5rem; }
+.worlds-tile[data-world-size="medium"] .qc-no { margin-left: auto; }  /* keeps No/Yes right-aligned on either line */
 
 @media (max-width: 430px) {
   .worlds-tile .worlds-size-btn { width: 24px; height: 24px; top: 8px; right: 8px; }
   .worlds-tile .worlds-tile-head { padding-right: 28px; }
-  .worlds-left-chip { font-size: 0.58rem; padding: 4px 8px; }
 }

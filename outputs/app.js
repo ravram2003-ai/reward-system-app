@@ -5691,24 +5691,16 @@
     return (page || []).reduce((n, p) => n + worldSlotCost(p.size), 0);
   }
 
-  // MEDIUM tile footer: how much of today is still open in this world. Reuses the check-in
-  // engine's own "ask" list, so the number always matches what the LARGE tile would prompt for.
-  // Deliberately passive — a medium tile carries no logging controls (that's what keeps it
-  // readable at half width); tapping it opens the world.
-  function worldsLeftChip(t) {
-    const world = checkinWorldFromTile(t);
-    const left = world ? buildCheckinItems(world).ask.length : 0;
-    return left > 0
-      ? `<span class="worlds-left-chip">${escapeHtml(String(left))} left <span aria-hidden="true">›</span></span>`
-      : `<span class="worlds-left-chip is-done">${svgIcon("check", "icon-xs")} all done</span>`;
-  }
-
-  // One world tile, at the size this world is saved at (see worldTileSize).
-  //   LARGE  — spans both grid columns: header (ring, name, "Rank #1 · N active today"), the
-  //            quick check-in, the leaderboard, recent posts and the dashed add-module chips.
-  //   MEDIUM — one column: the same header at a smaller ring/name plus an "N left ›" chip.
+  // One world tile, at the size this world is saved at (see worldTileSize). BOTH sizes lead with
+  // the slim header and the full, interactive quick check-in — collapsing a world hides the
+  // reading material, never the logging:
+  //   MEDIUM — one column: header (smaller ring, name, rank) + the quick check-in. Nothing else.
+  //   LARGE  — spans both columns: the same, plus the leaderboard, recent posts and add-module
+  //            chips, and a roomier ring/status line.
   // Both carry the ⤡/⤢ corner control, which resizes ONLY this world. In edit mode the corner
   // belongs to drag/remove instead, so the control is dropped entirely.
+  // The open target is the HEADER only, at either size: the body is all logging controls, and a
+  // stray tap there must log or do nothing — never navigate away mid check-in.
   function renderWorldsTile(p) {
     const t = p.tile;
     const size = worldTileSize(p.key);
@@ -5716,27 +5708,19 @@
     const typeClass = t.type === "community" ? "tile-community" : "tile-personal";
     const sizeBtn = worldsEditMode ? "" : `<button class="world-size-btn worlds-size-btn" type="button" data-world-size-cycle
         aria-label="${large ? "Collapse" : "Expand"} ${escapeHtml(t.name)}" title="${large ? "Collapse to medium" : "Expand to large"}"><span aria-hidden="true">${large ? "⤡" : "⤢"}</span></button>`;
-    const head = `${renderWorldRing(t, large ? "large" : "medium")}
-        <div class="worlds-tile-title">
-          <h3>${escapeHtml(t.name)}</h3>
-          <p>${renderWorldStat(t, large)}</p>
-        </div>`;
-    const open = `role="button" tabindex="0" data-world-open aria-label="Open ${escapeHtml(t.name)}"`;
-    // Large keeps the open target on the HEADER only — its body is full of its own controls.
-    // Medium has no controls, so the whole card (header + chip) is one open target.
-    const body = large
-      ? `<div class="worlds-tile-head" ${open}>${head}</div>
-        ${checkinTileHtml(t, { compact: true })}
-        ${renderWorldSections(t)}`
-      : `<div class="worlds-tile-open" ${open}>
-          <div class="worlds-tile-head">${head}</div>
-          ${worldsLeftChip(t)}
-        </div>`;
     return `<div class="world-tile worlds-tile ${typeClass}" data-world-size="${size}"
         data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(p.key)}">
         <button class="worlds-tile-rm" type="button" data-world-archive="${escapeHtml(p.key)}" aria-label="Remove ${escapeHtml(t.name)} from your layout" tabindex="-1">−</button>
         ${sizeBtn}
-        ${body}
+        <div class="worlds-tile-head" role="button" tabindex="0" data-world-open aria-label="Open ${escapeHtml(t.name)}">
+          ${renderWorldRing(t, large ? "large" : "medium")}
+          <div class="worlds-tile-title">
+            <h3>${escapeHtml(t.name)}</h3>
+            <p>${renderWorldStat(t, large)}</p>
+          </div>
+        </div>
+        ${checkinTileHtml(t, { compact: true })}
+        ${large ? renderWorldSections(t) : ""}
       </div>`;
   }
 

@@ -5465,25 +5465,34 @@
     });
   }
 
-  // ── Per-tile SIZE (small · medium · large), persisted per user ────────────────
-  // Size is now EXPLICIT (not position-derived): hold-drag reorders, the ⤢ control cycles
-  // size. Default = a single hero (first tile large) + the rest as a compact small grid.
-  const WORLD_SIZES = ["small", "medium", "large"];
+  // ── Per-tile SIZE (medium · large), persisted per user ───────────────────────
+  // Size is EXPLICIT (not position-derived) and per world: the ⤡/⤢ control in each tile's own
+  // top-right corner toggles just that world. Two sizes only — LARGE is the full-width tile
+  // (header + check-in + modules) and MEDIUM is the half-width header + "N left" summary.
+  const WORLD_SIZES = ["medium", "large"];
   function worldLayout() {
     state.homeLayout = state.homeLayout || {};
     state.homeLayout.sizes = state.homeLayout.sizes || {};
     state.homeLayout.sections = state.homeLayout.sections || {};
     return state.homeLayout;
   }
-  function worldTileSize(key, index) {
+  // Default is LARGE — a world you haven't touched shows everything. Layouts saved under the
+  // old three-size scheme still hold "small"; it reads as medium so nobody's grid breaks.
+  function worldTileSize(key) {
     const saved = worldLayout().sizes[key];
-    if (WORLD_SIZES.indexOf(saved) > -1) return saved;
-    return index === 0 ? "large" : "small";
+    if (saved === "small") return "medium";
+    return WORLD_SIZES.indexOf(saved) > -1 ? saved : "large";
   }
   function setWorldTileSize(key, size) {
     if (WORLD_SIZES.indexOf(size) === -1) return;
     worldLayout().sizes[key] = size;
     saveState();
+    // Resizing REPACKS the pages, so this world can land on a different one — follow it.
+    // Clamping the page index (all renderWorldGrid does) isn't enough: collapsing the last
+    // large world pulls it back a page and leaves the user staring at a page that now holds
+    // nothing but the "New world" card.
+    const landed = buildWorldsPages().findIndex((page) => page.some((p) => p.key === key));
+    if (landed > -1) worldsPageIndex = landed;
     renderWorldGrid();
   }
   function worldTileFromKey(key) {
@@ -5579,7 +5588,8 @@
   const WORLDS_TWO_COL_MIN = 520;        // pager width (px) at which tiles sit two-up
   const WORLDS_EDGE_ZONE = 54;           // px from the pager edge that arms a page flip
   const WORLDS_EDGE_DWELL = 500;         // ms of holding there before it flips
-  const WORLDS_TILES_PER_PAGE = 2;       // exactly two half-width worlds per page (1 on phone)
+  const WORLDS_PAGE_SLOTS = 4;           // 2 columns × 2 rows of column slots per page
+  const WORLDS_PAGE_SLOTS_1COL = 2;      // phone: one large world, or two collapsed ones
   let worldsPageIndex = 0;
   let worldsPageCount = 1;
   let worldsEditMode = false;
@@ -5619,7 +5629,7 @@
   // Persist + push. Kept in one place so every mutation syncs the same way.
   function saveWorldLayout(next) {
     state.worldLayout = {
-      // {worldId, page, index} — there are no tile sizes; every tile is half width.
+      // {worldId, page, index} — size is NOT here: it lives in homeLayout.sizes (worldTileSize).
       entries: (next.entries || []).map((e, i) => ({
         worldId: String(e.worldId),
         page: numberOrDefault(e.page, 0), index: numberOrDefault(e.index, i),
@@ -5640,16 +5650,25 @@
     }, 400);
   }
 
+  /* A page is a grid of COLUMN SLOTS, not a fixed tile count — that's what lets sizes mix on
+     one page. A large tile spans both columns (2 slots), a medium one column (1). With the
+     default of everything large this comes out at exactly two worlds per page (one per row) —
+     the same page count as before sizes came back — and collapsing worlds fits more. */
+  function worldSlotCost(size) { return size === "large" ? 2 : 1; }
+  function worldsSlotsPerPage() {
+    return worldsColumns() === 1 ? WORLDS_PAGE_SLOTS_1COL : WORLDS_PAGE_SLOTS;
+  }
+
   /* Build the ordered, paged tile list: saved layout first (honouring page + index), then any
-     world the layout hasn't seen yet appended with a default size. Archived worlds drop out. */
+     world the layout hasn't seen yet appended at the end. Archived worlds drop out. */
   function buildWorldsPages() {
-    const perPage = worldsColumns() === 1 ? 1 : WORLDS_TILES_PER_PAGE;
+    const capacity = worldsSlotsPerPage();
     const tiles = buildWorldTiles().filter((t) => !worldIsArchived(worldTileKey(t)));
     const placed = tiles.slice().map((t) => {
       const key = worldTileKey(t);
       const e = worldLayoutEntry(key);
       return {
-        tile: t, key: key,
+        tile: t, key: key, size: worldTileSize(key),
         // Unplaced worlds sort to the end, so a newly joined world simply appends.
         page: e ? numberOrDefault(e.page, 0) : Number.MAX_SAFE_INTEGER,
         index: e ? numberOrDefault(e.index, 0) : Number.MAX_SAFE_INTEGER,
@@ -5657,29 +5676,67 @@
     });
     placed.sort((a, b) => (a.page - b.page) || (a.index - b.index));
     const pages = [];
-    for (let i = 0; i < placed.length; i += perPage) pages.push(placed.slice(i, i + perPage));
+    let page = [], used = 0;
+    placed.forEach((p) => {
+      const cost = Math.min(worldSlotCost(p.size), capacity); // a large never outgrows its page
+      if (page.length && used + cost > capacity) { pages.push(page); page = []; used = 0; }
+      page.push(p);
+      used += cost;
+    });
+    if (page.length) pages.push(page);
     return pages.length ? pages : [[]];
   }
+  // Slots a rendered page already spends, so the add-card knows whether it still fits.
+  function worldsPageSlots(page) {
+    return (page || []).reduce((n, p) => n + worldSlotCost(p.size), 0);
+  }
 
-  // One world tile. There are NO sizes — every tile is an equal half-width column and is FULLY
-  // featured: header (ring, name, "Rank #1 · N active"), the quick check-in, the leaderboard,
-  // recent posts and the dashed add-module chips. It scrolls internally when tall, so a busy
-  // world never breaks the grid or shifts the page.
+  // MEDIUM tile footer: how much of today is still open in this world. Reuses the check-in
+  // engine's own "ask" list, so the number always matches what the LARGE tile would prompt for.
+  // Deliberately passive — a medium tile carries no logging controls (that's what keeps it
+  // readable at half width); tapping it opens the world.
+  function worldsLeftChip(t) {
+    const world = checkinWorldFromTile(t);
+    const left = world ? buildCheckinItems(world).ask.length : 0;
+    return left > 0
+      ? `<span class="worlds-left-chip">${escapeHtml(String(left))} left <span aria-hidden="true">›</span></span>`
+      : `<span class="worlds-left-chip is-done">${svgIcon("check", "icon-xs")} all done</span>`;
+  }
+
+  // One world tile, at the size this world is saved at (see worldTileSize).
+  //   LARGE  — spans both grid columns: header (ring, name, "Rank #1 · N active today"), the
+  //            quick check-in, the leaderboard, recent posts and the dashed add-module chips.
+  //   MEDIUM — one column: the same header at a smaller ring/name plus an "N left ›" chip.
+  // Both carry the ⤡/⤢ corner control, which resizes ONLY this world. In edit mode the corner
+  // belongs to drag/remove instead, so the control is dropped entirely.
   function renderWorldsTile(p) {
     const t = p.tile;
+    const size = worldTileSize(p.key);
+    const large = size === "large";
     const typeClass = t.type === "community" ? "tile-community" : "tile-personal";
-    return `<div class="world-tile worlds-tile ${typeClass}"
+    const sizeBtn = worldsEditMode ? "" : `<button class="world-size-btn worlds-size-btn" type="button" data-world-size-cycle
+        aria-label="${large ? "Collapse" : "Expand"} ${escapeHtml(t.name)}" title="${large ? "Collapse to medium" : "Expand to large"}"><span aria-hidden="true">${large ? "⤡" : "⤢"}</span></button>`;
+    const head = `${renderWorldRing(t, large ? "large" : "medium")}
+        <div class="worlds-tile-title">
+          <h3>${escapeHtml(t.name)}</h3>
+          <p>${renderWorldStat(t, large)}</p>
+        </div>`;
+    const open = `role="button" tabindex="0" data-world-open aria-label="Open ${escapeHtml(t.name)}"`;
+    // Large keeps the open target on the HEADER only — its body is full of its own controls.
+    // Medium has no controls, so the whole card (header + chip) is one open target.
+    const body = large
+      ? `<div class="worlds-tile-head" ${open}>${head}</div>
+        ${checkinTileHtml(t, { compact: true })}
+        ${renderWorldSections(t)}`
+      : `<div class="worlds-tile-open" ${open}>
+          <div class="worlds-tile-head">${head}</div>
+          ${worldsLeftChip(t)}
+        </div>`;
+    return `<div class="world-tile worlds-tile ${typeClass}" data-world-size="${size}"
         data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(p.key)}">
         <button class="worlds-tile-rm" type="button" data-world-archive="${escapeHtml(p.key)}" aria-label="Remove ${escapeHtml(t.name)} from your layout" tabindex="-1">−</button>
-        <div class="worlds-tile-head" role="button" tabindex="0" data-world-open aria-label="Open ${escapeHtml(t.name)}">
-          ${renderWorldRing(t, "large")}
-          <div class="worlds-tile-title">
-            <h3>${escapeHtml(t.name)}</h3>
-            <p>${renderWorldStat(t, true)}</p>
-          </div>
-        </div>
-        ${checkinTileHtml(t, { compact: true })}
-        ${renderWorldSections(t)}
+        ${sizeBtn}
+        ${body}
       </div>`;
   }
 
@@ -5690,10 +5747,9 @@
     const tiles = buildWorldTiles();
     if (els.worldCount) els.worldCount.textContent = tiles.length ? String(tiles.length) : "";
     const pages = buildWorldsPages();
-    // The add-card takes a slot like any tile: if the last page is already full it starts a
-    // new page, so a page never renders more than the two cells the grid is built for.
-    const perPage = worldsColumns() === 1 ? 1 : WORLDS_TILES_PER_PAGE;
-    if (pages[pages.length - 1].length >= perPage) pages.push([]);
+    // The add-card takes one column slot like a medium tile: if the last page has no room left
+    // it starts a new page, so a page never renders more cells than the grid is built for.
+    if (worldsPageSlots(pages[pages.length - 1]) + 1 > worldsSlotsPerPage()) pages.push([]);
     const addPageIndex = pages.length - 1;
     worldsPageCount = Math.max(1, pages.length);
     worldsPageIndex = Math.max(0, Math.min(worldsPageIndex, worldsPageCount - 1));
@@ -5941,8 +5997,8 @@
     tile.style.width = ""; tile.style.height = ""; tile.style.left = ""; tile.style.top = "";
     const moved = worldsDrag.moved;
     worldsDrag.tile = null; worldsDrag.ph = null; worldsDrag.pointerId = null; worldsDrag.moved = false;
-    // A tap with no movement is a no-op in edit mode (there are no sizes to toggle) —
-    // the tile simply returns to its slot.
+    // A tap with no movement is a no-op in edit mode — the corner resize control is hidden
+    // while editing, so the tile simply returns to its slot.
     if (!moved) return;
     commitWorldsLayout();
   }
@@ -6060,7 +6116,7 @@
     const key = worldTileKey(t);
     const typeClass = (t.type === "community" ? "tile-community" : "tile-personal") + (numberOrDefault(t.percent, 0) >= 100 ? " is-complete" : "");
     const attrs = `data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(key)}" data-world-size="${size}"`;
-    const sizeBtn = `<button type="button" class="world-size-btn" data-world-size-cycle aria-label="Resize ${escapeHtml(t.name)} (small, medium, large)" title="Resize"><span aria-hidden="true">⤢</span></button>`;
+    const sizeBtn = `<button type="button" class="world-size-btn" data-world-size-cycle aria-label="${size === "large" ? "Collapse" : "Expand"} ${escapeHtml(t.name)}" title="${size === "large" ? "Collapse to medium" : "Expand to large"}"><span aria-hidden="true">${size === "large" ? "⤡" : "⤢"}</span></button>`;
     const open = `role="button" tabindex="0" aria-label="Open ${escapeHtml(t.name)}"`;
     const hasCover = !!t.coverPath;
     const initials = escapeHtml((getInitials(t.name) || "W").slice(0, 2));
@@ -6372,10 +6428,14 @@
     // In edit mode a tap is a size toggle (handled on pointerup), never "open the world".
     if (worldsEditMode && q(".worlds-tile")) return;
     const t = event.target;
+    // The corner ⤡/⤢ resizes ONLY this world and never opens it. Two sizes, so the old cycle is
+    // a straight toggle; it reads the size from the same store it writes to, so a stale
+    // data-world-size on the node can't flip it the wrong way.
     const sizeCycle = t.closest("[data-world-size-cycle]");
     if (sizeCycle) {
       const tile = sizeCycle.closest("[data-world-key]");
-      if (tile) setWorldTileSize(tile.dataset.worldKey, WORLD_SIZES[(WORLD_SIZES.indexOf(tile.dataset.worldSize) + 1) % WORLD_SIZES.length]);
+      const key = tile && tile.dataset.worldKey;
+      if (key) setWorldTileSize(key, worldTileSize(key) === "large" ? "medium" : "large");
       return;
     }
     // Medium-tile slot "⇄" → toggle its dropdown; pick a section to set that slot.

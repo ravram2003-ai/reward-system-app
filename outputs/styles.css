@@ -12404,10 +12404,16 @@ input:not([type="range"]):not([type="checkbox"]).qc-typed {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-auto-rows: min-content;
+  /* A large tile spans both columns, so a medium sitting alone in column 1 would otherwise
+     leave a permanent hole and an extra row. `dense` lets a later medium backfill it — the
+     same fix .world-grid already uses. Turned OFF while editing, because drag-to-reorder
+     places by coordinates and commits DOM order: there, what you see must be the order. */
+  grid-auto-flow: row dense;
   align-content: start;
   gap: 10px;
   padding: 4px 2px 12px;
 }
+.world-grid.is-editing .worlds-page { grid-auto-flow: row; }
 
 /* Tiles — medium spans one column, large spans both */
 .world-tile.worlds-tile {
@@ -12422,8 +12428,12 @@ input:not([type="range"]):not([type="checkbox"]).qc-typed {
   text-align: left;
   touch-action: pan-y;          /* vertical scroll stays native; horizontal is ours */
 }
-/* No sizes: every tile is one equal half-width column and scrolls internally when tall. */
+/* Per-world size (see worldTileSize): LARGE spans both columns and scrolls internally when
+   tall; MEDIUM is one column and is short by construction (header + "N left"), so it never
+   needs its own scroller. Attribute selectors (0,2,0) outrank the plain .worlds-tile base. */
 .worlds-tile { grid-column: span 1; max-height: min(66vh, 620px); overflow-y: auto; scrollbar-width: none; }
+.worlds-tile[data-world-size="large"]  { grid-column: span 2; }
+.worlds-tile[data-world-size="medium"] { grid-column: span 1; max-height: none; overflow-y: visible; }
 .worlds-tile::-webkit-scrollbar { display: none; }
 .world-tile.worlds-tile:hover { transform: none; }
 
@@ -12664,4 +12674,69 @@ button.bkt-gplayer:focus-visible,
 button.challenge-duel-side:focus-visible {
   outline: 2px solid #3ddc97;
   outline-offset: 2px;
+}
+
+/* ── Per-world collapse: the corner ⤡/⤢ + the medium tile (fix/world-tile-sizes) ───────────
+   Each tile carries the EXISTING .world-size-btn in its own top-right corner; here it's themed
+   for the pager's flat dark tiles (the base style is a frosted white handle built for tiles
+   with cover photos). The remove badge sits top-LEFT and only in edit mode, so they never
+   collide. See work/world-tile-collapse-reference.html. */
+.worlds-tile .worlds-size-btn {
+  top: 9px; right: 9px;
+  width: 26px; height: 26px;
+  border-radius: 9px;
+  background: #0f1613;
+  border: 1px solid #2c3a33;
+  color: var(--mint, #7ee0a8);
+  box-shadow: none;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  font-size: 0.72rem;
+}
+.worlds-tile .worlds-size-btn:hover { background: var(--mint-deep, #173026); border-color: #2c5a48; color: var(--mint-bright, #8ff0b8); }
+.worlds-tile .worlds-size-btn:active { transform: scale(0.92); }
+.worlds-tile .worlds-size-btn:focus-visible {
+  outline: 2px solid var(--mint, #7ee0a8);
+  outline-offset: 2px;
+  border-color: #2c5a48;
+  box-shadow: none;
+}
+/* The header must clear the corner control at both sizes. */
+.worlds-tile .worlds-tile-head { padding-right: 30px; }
+
+/* MEDIUM — the whole card is one open target (it holds no controls of its own). */
+.worlds-tile-open {
+  display: block; width: 100%;
+  background: none; border: 0; padding: 0;
+  text-align: left; color: inherit; font: inherit;
+  cursor: pointer;
+}
+.worlds-tile-open:focus-visible { outline: 2px solid var(--mint, #7ee0a8); outline-offset: 3px; border-radius: 12px; }
+.worlds-tile[data-world-size="medium"] .worlds-tile-title h3 { font-size: 0.72rem; }
+.worlds-tile[data-world-size="medium"] .worlds-tile-title p { font-size: 0.55rem; }
+.worlds-tile[data-world-size="medium"] .worlds-tile-head { gap: 8px; }
+
+/* "N left ›" / "✓ all done" — the medium tile's whole body. Mint pill when there's still
+   something open today, quiet outline when there isn't. */
+.worlds-left-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-top: 9px;
+  padding: 4px 9px;
+  border-radius: 11px;
+  font-size: 0.6rem; font-weight: 700;
+  background: linear-gradient(180deg, var(--mint-bright, #8ff0b8), var(--mint, #7ee0a8));
+  color: #06231a;
+}
+.worlds-left-chip.is-done {
+  background: none;
+  border: 1px solid #234034;
+  color: var(--mint, #7ee0a8);
+  font-weight: 600;
+}
+.worlds-left-chip .ic { width: 11px; height: 11px; vertical-align: -0.14em; }
+.worlds-tile-open:hover .worlds-left-chip { filter: brightness(1.08); }
+
+@media (max-width: 430px) {
+  .worlds-tile .worlds-size-btn { width: 24px; height: 24px; top: 8px; right: 8px; }
+  .worlds-tile .worlds-tile-head { padding-right: 28px; }
+  .worlds-left-chip { font-size: 0.58rem; padding: 4px 8px; }
 }

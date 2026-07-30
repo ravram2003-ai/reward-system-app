@@ -10954,9 +10954,6 @@ img.lb-avatar { object-fit: cover; }
 .empty-cta:hover { background: rgba(58, 214, 166, 0.2); }
 
 /* Edit layout pill (replaces the permanent hint; long-press still works) */
-.edit-layout-row { display: flex; justify-content: center; margin: 12px 0 0; }
-.edit-layout-pill { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font-size: var(--t-xs); font-weight: 600; border: 1px solid var(--line); border-radius: var(--r-full); padding: 7px 14px; background: none; cursor: pointer; }
-.edit-layout-pill:hover { color: var(--ink); border-color: var(--line-strong); }
 
 /* kbd hints (desktop Today) */
 .kbd-hint { display: none; }
@@ -12425,22 +12422,17 @@ input:not([type="range"]):not([type="checkbox"]).qc-typed {
   text-align: left;
   touch-action: pan-y;          /* vertical scroll stays native; horizontal is ours */
 }
-.worlds-tile[data-size="medium"] { grid-column: span 1; }
-.worlds-tile[data-size="large"] { grid-column: span 2; max-height: min(62vh, 560px); overflow-y: auto; scrollbar-width: none; }
-.worlds-tile[data-size="large"]::-webkit-scrollbar { display: none; }
+/* No sizes: every tile is one equal half-width column and scrolls internally when tall. */
+.worlds-tile { grid-column: span 1; max-height: min(66vh, 620px); overflow-y: auto; scrollbar-width: none; }
+.worlds-tile::-webkit-scrollbar { display: none; }
 .world-tile.worlds-tile:hover { transform: none; }
 
-/* Phones: a single column. Declared AFTER the base tile rules — same specificity, so source
-   order decides (placed earlier it lost to `[data-size="large"] { grid-column: span 2 }`).
-   The JS drives the actual column COUNT off the pager's own width; this just guarantees a
-   phone never tries to sit two tiles side by side. */
+/* Phones: a single column. The JS drives the actual column COUNT off the pager's own width;
+   this just guarantees a phone never tries to sit two tiles side by side. */
 @media (max-width: 560px) {
   .worlds-page { grid-template-columns: minmax(0, 1fr) !important; }
-  .worlds-tile[data-size="large"] { grid-column: span 1; max-height: none; overflow-y: visible; }
+  .worlds-tile { max-height: none; overflow-y: visible; }
 }
-/* Grip is a real button now (discoverable size toggle), not just decoration. */
-.worlds-tile-grip { background: none; border: 0; padding: 2px 4px; cursor: pointer; line-height: 1; }
-.worlds-tile-grip:hover { color: var(--mint, #7ee0a8); }
 
 .worlds-tile-head {
   display: flex; align-items: center; gap: 9px;
@@ -12474,16 +12466,21 @@ input:not([type="range"]):not([type="checkbox"]).qc-typed {
 }
 .worlds-dot.is-on { background-color: var(--mint, #7ee0a8); width: 19px; border-radius: 4px; }
 
-/* Footer: edit toggle + tip */
-.worlds-foot { display: flex; align-items: center; gap: 9px; padding: 2px 2px 0; }
-.worlds-editbtn {
+/* The ONE edit control: a pill in the top-right header cluster. */
+.header-edit-pill {
   background: #0f1613; border: 1px solid #1e2b24; color: #eaf2ee;
-  border-radius: 20px; padding: 8px 15px; font-size: 0.72rem; font-weight: 600; cursor: pointer;
+  border-radius: 20px; padding: 6px 13px; font-size: 0.72rem; font-weight: 600;
+  cursor: pointer; white-space: nowrap; line-height: 1.2;
+  transition: background-color 150ms ease, color 150ms ease, opacity 150ms ease;
 }
-.world-grid.is-editing .worlds-editbtn {
+.header-edit-pill:hover { border-color: #2c5a48; color: #7ee0a8; }
+.header-edit-pill.is-editing {
   background: linear-gradient(180deg, #8ff0b8, #7ee0a8); color: #06231a; border-color: transparent;
 }
-.worlds-tip { flex: 1; font-size: 0.62rem; color: #86a096; line-height: 1.35; }
+/* While editing, the sibling icons step back so the Done pill reads as the active control. */
+.header-cluster.is-worlds-editing > :not(.header-edit-pill) { opacity: 0.4; }
+/* Instruction line, shown ONLY in edit mode. */
+.worlds-tip { margin: 6px 2px 0; font-size: 0.62rem; color: #86a096; line-height: 1.35; text-align: center; }
 
 /* Edit mode: jiggle + remove badge + resize grip */
 .worlds-tile-rm {
@@ -12492,11 +12489,9 @@ input:not([type="range"]):not([type="checkbox"]).qc-typed {
   background: #e0857f; color: #2a0f0d; font-size: 0.75rem; font-weight: 700;
   display: none; place-items: center; border: 2px solid #0a0f0d; cursor: pointer;
 }
-.worlds-tile-grip { position: absolute; bottom: 5px; right: 7px; font-size: 0.62rem; color: #86a096; display: none; }
 .world-grid.is-editing .worlds-tile { animation: worldsJiggle 0.32s infinite; cursor: grab; }
 .world-grid.is-editing .worlds-tile:nth-child(even) { animation-delay: 0.16s; }
 .world-grid.is-editing .worlds-tile-rm { display: grid; }
-.world-grid.is-editing .worlds-tile-grip { display: block; }
 .world-grid.is-editing .worlds-add { animation: none; }
 @keyframes worldsJiggle { 0%, 100% { transform: rotate(-0.5deg); } 50% { transform: rotate(0.5deg); } }
 
@@ -12560,9 +12555,6 @@ body.worlds-noselect, body.worlds-noselect * { user-select: none !important; -we
 .worlds-tile .qc-handled-sub { font-size: 0.55rem; color: #86a096; }
 .worlds-tile .qc-handled-check { color: var(--mint, #7ee0a8); }
 .worlds-tile .qc-foot { display: none; }
-/* Medium tiles are header + one prompt only — hide the heavier modules. */
-.worlds-tile[data-size="medium"] .world-sections,
-.worlds-tile[data-size="medium"] .world-addbar { display: none; }
 .worlds-tile .world-cap { letter-spacing: 1.2px; font-size: 0.58rem; }
 
 /* Visible keyboard focus on every pager control */

@@ -5585,22 +5585,27 @@
      (renderWorldRing + renderWorldStat, checkinTileHtml, renderWorldSections), and renders into
      the SAME #worldGrid mount so the existing delegation keeps working.
      See work/worlds-pager-edit-reference.html. ──────────────────────────────────────────── */
-  const WORLDS_TWO_COL_MIN = 520;        // pager width (px) at which tiles sit two-up
+  const WORLDS_ONE_COL_MAX = 760;        // ≤ this viewport = phone: one world per row
+  const WORLDS_TWO_COL_MIN = 520;        // …and never two-up inside a pager narrower than this
   const WORLDS_EDGE_ZONE = 54;           // px from the pager edge that arms a page flip
   const WORLDS_EDGE_DWELL = 500;         // ms of holding there before it flips
-  const WORLDS_PAGE_SLOTS = 4;           // 2 columns × 2 rows of column slots per page
-  const WORLDS_PAGE_SLOTS_1COL = 2;      // phone: one large world, or two collapsed ones
+  const WORLDS_PAGE_SLOTS = 4;           // 2 columns × 2 rows of grid cells per page
+  const WORLDS_PAGE_SLOTS_1COL = 2;      // phone: 1 column × 2 rows
   let worldsPageIndex = 0;
   let worldsPageCount = 1;
   let worldsEditMode = false;
   let worldsLastCols = 0;
 
-  // Two columns whenever the PAGER ITSELF is wide enough — not the window. On desktop the
-  // sidebar eats ~290px, so a 1000px window can leave a ~700px column; measuring the window
-  // made tiles stack full-width on perfectly roomy screens.
+  // Half of a phone screen is too narrow for the check-in, so phones get ONE column and size
+  // controls height alone. Above that, two columns — but measured on the PAGER, not the window:
+  // the desktop sidebar eats ~290px, and measuring the window made tiles stack full-width on
+  // perfectly roomy screens. renderWorldGrid stamps the result on the mount so the CSS grid and
+  // the slot budget can never disagree about how many columns there are.
   function worldsColumns() {
+    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    if (vw && vw <= WORLDS_ONE_COL_MAX) return 1;
     const host = els.worldGrid;
-    const w = (host && host.clientWidth) || window.innerWidth || document.documentElement.clientWidth || 0;
+    const w = (host && host.clientWidth) || vw;
     return w >= WORLDS_TWO_COL_MIN ? 2 : 1;
   }
   function worldsReducedMotion() {
@@ -5650,10 +5655,10 @@
     }, 400);
   }
 
-  /* A page is a grid of COLUMN SLOTS, not a fixed tile count — that's what lets sizes mix on
-     one page. A large tile spans both columns (2 slots), a medium one column (1). With the
-     default of everything large this comes out at exactly two worlds per page (one per row) —
-     the same page count as before sizes came back — and collapsing worlds fits more. */
+  /* A page is a grid of CELLS (2 columns × 2 rows; 1 × 2 on a phone), not a fixed tile count —
+     that's what lets sizes mix on one page. Every tile is one column wide; a large one is two
+     rows tall (2 cells), a medium one row (1 cell). So one large fills a column and two mediums
+     stack beside it in exactly the same height. */
   function worldSlotCost(size) { return size === "large" ? 2 : 1; }
   function worldsSlotsPerPage() {
     return worldsColumns() === 1 ? WORLDS_PAGE_SLOTS_1COL : WORLDS_PAGE_SLOTS;
@@ -5691,12 +5696,13 @@
     return (page || []).reduce((n, p) => n + worldSlotCost(p.size), 0);
   }
 
-  // One world tile, at the size this world is saved at (see worldTileSize). BOTH sizes lead with
-  // the slim header and the full, interactive quick check-in — collapsing a world hides the
-  // reading material, never the logging:
-  //   MEDIUM — one column: header (smaller ring, name, rank) + the quick check-in. Nothing else.
-  //   LARGE  — spans both columns: the same, plus the leaderboard, recent posts and add-module
-  //            chips, and a roomier ring/status line.
+  // One world tile, at the size this world is saved at (see worldTileSize). The iPhone-widget
+  // model: every tile is always HALF the screen (one grid column) and size changes HEIGHT only.
+  // Both sizes lead with the slim header and the full, interactive quick check-in — collapsing a
+  // world hides the reading material, never the logging:
+  //   MEDIUM — one grid row: header (smaller ring, name, rank) + the quick check-in. Ends there.
+  //   LARGE  — two grid rows: the same, plus the leaderboard, recent posts and add-module chips
+  //            continuing below, and a roomier ring/status line. Two mediums stack in its height.
   // Both carry the ⤡/⤢ corner control, which resizes ONLY this world. In edit mode the corner
   // belongs to drag/remove instead, so the control is dropped entirely.
   // The open target is the HEADER only, at either size: the body is all logging controls, and a
@@ -5755,6 +5761,10 @@
       : "";
     mount.classList.add("is-pager");
     mount.classList.toggle("is-editing", worldsEditMode);
+    // Single source of truth for the column count: the CSS grid reads this, so the layout and
+    // the slot budget above can never disagree (a mismatch would stack tiles the packer thought
+    // were side by side).
+    mount.dataset.worldsCols = String(worldsLastCols);
     mount.innerHTML = `
       ${nav}
       <div class="worlds-shell">

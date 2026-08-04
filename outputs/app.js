@@ -3042,11 +3042,13 @@
       "systemCoverImg",
       "systemIconThumb",
       "systemIconImg",
+      "systemBgButton",
       "communityMediaFields",
       "communityCoverThumb",
       "communityCoverImg",
       "communityIconThumb",
       "communityIconImg",
+      "communityBgButton",
       "personalRulesPanel",
       "personalRules",
       "worldPostsPanel",
@@ -5423,6 +5425,62 @@
   // ════════════════════════════════════════════════════════════════════════════
   function worldTileKey(t) { return t.type + ":" + t.id; }
 
+  /* ── World tile backgrounds (feat/world-backgrounds) ──────────────────────────────────────
+     A world's tile can paint a background behind its content. The PHOTO source is the world's
+     existing cover (`coverPath` → the private world-media bucket), so choosing a background is
+     the same upload, the same resized asset and the same cached signed URL the cover already
+     uses — no second bucket and no extra egress. `tileBg` only records which source to paint
+     and how strongly: { kind: "photo" | "preset" | "none", preset, opacity }.
+       null  → DEFAULT: a world that has a cover shows it; one that doesn't stays plain.
+       none  → the owner explicitly removed it, even though a cover exists.
+     See supabase/world-tile-bg.sql. */
+  const WORLD_BG_DEFAULT_OPACITY = 0.5;
+  const WORLD_BG_PRESETS = [
+    { id: "moss",  label: "Moss",  css: "linear-gradient(155deg, #1d5c48, #0a1f19)" },
+    { id: "dusk",  label: "Dusk",  css: "linear-gradient(155deg, #3b2f6b, #120f2b)" },
+    { id: "ember", label: "Ember", css: "linear-gradient(155deg, #7a3520, #1f0f0b)" },
+    { id: "tide",  label: "Tide",  css: "linear-gradient(155deg, #16506e, #071820)" },
+    { id: "slate", label: "Slate", css: "linear-gradient(155deg, #2a3430, #121815)" },
+  ];
+  function worldBgPreset(id) {
+    return WORLD_BG_PRESETS.find((p) => p.id === id) || WORLD_BG_PRESETS[0];
+  }
+  // Anything unrecognised (including a row saved before the migration ran) reads as null =
+  // "default", so a bad value can never render something broken.
+  function normalizeTileBg(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const kind = raw.kind === "photo" || raw.kind === "preset" || raw.kind === "none" ? raw.kind : null;
+    if (!kind) return null;
+    const opacity = Math.min(1, Math.max(0, numberOrDefault(raw.opacity, WORLD_BG_DEFAULT_OPACITY)));
+    return { kind: kind, preset: worldBgPreset(raw.preset).id, opacity: opacity };
+  }
+  // What this tile should actually paint, resolved against the cover it really has. Returns
+  // null for "plain tile" — which is also what a photo background degrades to if the cover was
+  // removed, so a tile can never end up with an empty dark box where an image should be.
+  function worldTileBgFor(t) {
+    if (!t) return null;
+    const cover = t.coverPath || "";
+    const saved = normalizeTileBg(t.bg);
+    if (!saved) return cover ? { kind: "photo", preset: "", opacity: WORLD_BG_DEFAULT_OPACITY, coverPath: cover } : null;
+    if (saved.kind === "none") return null;
+    if (saved.kind === "photo") return cover ? { kind: "photo", preset: "", opacity: saved.opacity, coverPath: cover } : null;
+    return { kind: "preset", preset: saved.preset, opacity: saved.opacity, coverPath: "" };
+  }
+  // The two layers that sit behind a tile's content: the image/preset at the chosen strength,
+  // then a scrim that darkens toward the bottom so text and buttons stay readable over any
+  // photo. The <img> is painted from the CACHED signed URL by paintWorldTilesMedia.
+  function worldTileBgHtml(bg) {
+    if (!bg) return "";
+    const style = bg.kind === "preset"
+      ? `background:${bg.preset ? worldBgPreset(bg.preset).css : ""};opacity:${bg.opacity}`
+      : `opacity:${bg.opacity}`;
+    const img = bg.kind === "photo"
+      ? `<img class="worlds-tile-bg-img" alt="" loading="lazy">`
+      : "";
+    return `<span class="worlds-tile-bg" style="${escapeHtml(style)}" aria-hidden="true">${img}</span>
+      <span class="worlds-tile-scrim" aria-hidden="true"></span>`;
+  }
+
   // Phase 2 drag-reorder state (long-press on touch / click-drag on desktop).
   const worldDrag = { key: null, pointerId: null, startX: 0, startY: 0, started: false, longPress: null, ghost: null, ghostDX: 0, ghostDY: 0, placeholder: null, suppressClick: false };
 
@@ -5432,7 +5490,7 @@
       const me = (community.members || []).find((m) => m.id === "me");
       const target = communityTarget(community);
       const myPoints = me ? communityMemberPointsOnDate(community, me, todayIso) : 0;
-      tiles.push({ type: "community", id: community.id, name: community.name || "Community", myPoints: myPoints, target: target, percent: progressPercent(myPoints, target), community: community, coverPath: community.coverUrl || community.cover_url || "", iconPath: community.iconUrl || community.icon_url || "", ownerIsMe: isCommunityAdmin(community) });
+      tiles.push({ type: "community", id: community.id, name: community.name || "Community", myPoints: myPoints, target: target, percent: progressPercent(myPoints, target), community: community, coverPath: community.coverUrl || community.cover_url || "", iconPath: community.iconUrl || community.icon_url || "", bg: community.tileBg || community.tile_bg || null, ownerIsMe: isCommunityAdmin(community) });
     });
     (state.systems || []).forEach((rawSystem) => {
       const system = normalizeSystem(rawSystem);
@@ -5440,7 +5498,7 @@
       const summary = calculateDashboardSummary(system, values);
       const myPoints = roundScore(summary.total);
       const target = numberOrDefault(summary.target && summary.target.total, 0);
-      tiles.push({ type: "personal", id: rawSystem.id, name: rawSystem.title || "System", myPoints: myPoints, target: target, percent: progressPercent(myPoints, target), toGo: Math.max(target - myPoints, 0), coverPath: rawSystem.coverUrl || "", iconPath: rawSystem.iconUrl || "", ownerIsMe: true });
+      tiles.push({ type: "personal", id: rawSystem.id, name: rawSystem.title || "System", myPoints: myPoints, target: target, percent: progressPercent(myPoints, target), toGo: Math.max(target - myPoints, 0), coverPath: rawSystem.coverUrl || "", iconPath: rawSystem.iconUrl || "", bg: rawSystem.tileBg || null, ownerIsMe: true });
     });
     return applyWorldLayout(tiles);
   }
@@ -5585,27 +5643,27 @@
      (renderWorldRing + renderWorldStat, checkinTileHtml, renderWorldSections), and renders into
      the SAME #worldGrid mount so the existing delegation keeps working.
      See work/worlds-pager-edit-reference.html. ──────────────────────────────────────────── */
-  const WORLDS_ONE_COL_MAX = 760;        // ≤ this viewport = phone: one world per row
-  const WORLDS_TWO_COL_MIN = 520;        // …and never two-up inside a pager narrower than this
+  const WORLDS_TWO_COL_MIN = 320;        // pager width (px) at which tiles sit two-up
   const WORLDS_EDGE_ZONE = 54;           // px from the pager edge that arms a page flip
   const WORLDS_EDGE_DWELL = 500;         // ms of holding there before it flips
   const WORLDS_PAGE_SLOTS = 4;           // 2 columns × 2 rows of grid cells per page
-  const WORLDS_PAGE_SLOTS_1COL = 2;      // phone: 1 column × 2 rows
+  const WORLDS_PAGE_SLOTS_1COL = 2;      // only the very narrowest screens: 1 column × 2 rows
   let worldsPageIndex = 0;
   let worldsPageCount = 1;
   let worldsEditMode = false;
   let worldsLastCols = 0;
 
-  // Half of a phone screen is too narrow for the check-in, so phones get ONE column and size
-  // controls height alone. Above that, two columns — but measured on the PAGER, not the window:
-  // the desktop sidebar eats ~290px, and measuring the window made tiles stack full-width on
-  // perfectly roomy screens. renderWorldGrid stamps the result on the mount so the CSS grid and
-  // the slot budget can never disagree about how many columns there are.
+  // Two columns essentially everywhere — including phones, where the pair lands at ~165px each.
+  // That used to be too narrow to log from, which is why this once cut over to one column below
+  // 760px; the check-in's narrow variant (see the @container block in styles.css) now collapses
+  // each prompt to a one-tap button at that width, so the cutover is no longer needed and only
+  // the very smallest screens stack. Measured on the PAGER, not the window: the desktop sidebar
+  // eats ~290px, and measuring the window made tiles stack full-width on perfectly roomy screens.
+  // renderWorldGrid stamps the result on the mount so the CSS grid and the slot budget can never
+  // disagree about how many columns there are.
   function worldsColumns() {
-    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
-    if (vw && vw <= WORLDS_ONE_COL_MAX) return 1;
     const host = els.worldGrid;
-    const w = (host && host.clientWidth) || vw;
+    const w = (host && host.clientWidth) || window.innerWidth || document.documentElement.clientWidth || 0;
     return w >= WORLDS_TWO_COL_MIN ? 2 : 1;
   }
   function worldsReducedMotion() {
@@ -5714,8 +5772,15 @@
     const typeClass = t.type === "community" ? "tile-community" : "tile-personal";
     const sizeBtn = worldsEditMode ? "" : `<button class="world-size-btn worlds-size-btn" type="button" data-world-size-cycle
         aria-label="${large ? "Collapse" : "Expand"} ${escapeHtml(t.name)}" title="${large ? "Collapse to medium" : "Expand to large"}"><span aria-hidden="true">${large ? "⤡" : "⤢"}</span></button>`;
-    return `<div class="world-tile worlds-tile ${typeClass}" data-world-size="${size}"
+    // A world with no background stays exactly as it was, and its owner gets the "Add a cover"
+    // affordance in the header instead.
+    const bg = worldTileBgFor(t);
+    const addCover = (!bg && t.ownerIsMe && !worldsEditMode)
+      ? `<button class="worlds-tile-addbg" type="button" data-world-bg-open="${escapeHtml(p.key)}">Add a cover ＋</button>`
+      : "";
+    return `<div class="world-tile worlds-tile ${typeClass}${bg ? " has-bg" : ""}" data-world-size="${size}"
         data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(p.key)}">
+        ${worldTileBgHtml(bg)}
         <button class="worlds-tile-rm" type="button" data-world-archive="${escapeHtml(p.key)}" aria-label="Remove ${escapeHtml(t.name)} from your layout" tabindex="-1">−</button>
         ${sizeBtn}
         <div class="worlds-tile-head" role="button" tabindex="0" data-world-open aria-label="Open ${escapeHtml(t.name)}">
@@ -5725,6 +5790,7 @@
             <p>${renderWorldStat(t, large)}</p>
           </div>
         </div>
+        ${addCover}
         ${checkinTileHtml(t, { compact: true })}
         ${large ? renderWorldSections(t) : ""}
       </div>`;
@@ -6193,6 +6259,12 @@
       if (!el) return;
       paintWorldMediaSlot(t.coverPath, el.querySelector(".world-tile-cover"), el.querySelector(".world-tile-cover-img"), stale);
       paintWorldMediaSlot(t.iconPath, el.querySelector(".world-tile-icon"), el.querySelector(".world-tile-icon-img"), stale);
+      // Tile BACKGROUND: same cover path, same painter → same memoized signed URL, so the image
+      // is one browser-cache hit no matter how often the grid re-renders (see cachedSignedUrl).
+      const bg = worldTileBgFor(t);
+      if (bg && bg.kind === "photo") {
+        paintWorldMediaSlot(bg.coverPath, el.querySelector(".worlds-tile-bg"), el.querySelector(".worlds-tile-bg-img"), stale);
+      }
     });
   }
 
@@ -6425,6 +6497,8 @@
     // The corner ⤡/⤢ resizes ONLY this world and never opens it. Two sizes, so the old cycle is
     // a straight toggle; it reads the size from the same store it writes to, so a stale
     // data-world-size on the node can't flip it the wrong way.
+    const bgOpen = t.closest("[data-world-bg-open]");
+    if (bgOpen) { openWorldBgPicker(bgOpen.dataset.worldBgOpen); return; }
     const sizeCycle = t.closest("[data-world-size-cycle]");
     if (sizeCycle) {
       const tile = sizeCycle.closest("[data-world-key]");
@@ -6494,6 +6568,8 @@
     if (yes) { checkinLog(world, yes.dataset.qcYes); return true; }
     const amt = target.closest("[data-qc-amount]");
     if (amt) { checkinLog(world, amt.dataset.qcAmount, numberOrDefault(amt.dataset.qcValue, 0)); return true; }
+    const more = target.closest("[data-qc-more]");
+    if (more) { toggleCheckinMore(world, more); return true; }
     const skip = target.closest("[data-qc-skip]");
     if (skip) { skipCheckinRule(world.id, skip.dataset.qcSkip); renderWorldGrid(); return true; }
     const type = target.closest("[data-qc-type]");
@@ -10982,6 +11058,24 @@
   // not silence a different surface.
   function checkinLearnKey(contextId, ruleId) { return "checkin:" + contextId + ":" + ruleId; }
   function isCheckinSkipped(contextId, ruleId) { return !!checkinSkipsToday()[checkinSkipKey(contextId, ruleId)]; }
+  // Counter rows whose NARROW layout is showing its other amounts. Kept outside the DOM because
+  // both surfaces re-render as one HTML string — a class on the node alone would be lost on the
+  // next log. Keyed the same way skips are ("<contextId>:<ruleId>").
+  const checkinMoreOpen = new Set();
+  // Reveal / hide the alternative amounts under a narrow counter row. Toggles the node directly
+  // (no re-render, so the row doesn't jump under the finger) and records it for the next render.
+  function toggleCheckinMore(world, button) {
+    const row = button.closest(".qc-row");
+    if (!row || !world) return;
+    const ruleId = button.dataset.qcMore;
+    const open = !row.classList.contains("is-more");
+    row.classList.toggle("is-more", open);
+    button.setAttribute("aria-expanded", open ? "true" : "false");
+    const label = button.getAttribute("aria-label") || "";
+    button.setAttribute("aria-label", (open ? "Hide" : "Show") + label.replace(/^(Hide|Show)/, ""));
+    const key = checkinSkipKey(world.id, ruleId);
+    if (open) checkinMoreOpen.add(key); else checkinMoreOpen.delete(key);
+  }
   function skipCheckinRule(contextId, ruleId) {
     checkinSkipsToday()[checkinSkipKey(contextId, ruleId)] = 1;
     coachLearnRule(checkinLearnKey(contextId, ruleId), "dismissed"); // own namespace
@@ -11238,6 +11332,22 @@
   // shows the rule's short label ("Cardio") instead of the full question, and its chips show the
   // bare number, so icon + label + "usually X" + Skip all fit one row. Yes/no prompts keep their
   // question ("Lift today?"), which already reads as a label. See work/pointwell-two-worlds.html.
+  // Units shortened for the narrow one-tap button, where ~90px has to hold number + unit.
+  // Anything not listed keeps the raw unit when it's already short, else drops to just the
+  // number — the prompt label right above always names the metric, so nothing is lost.
+  const CHECKIN_SHORT_UNITS = {
+    minutes: "min", minute: "min", hours: "hr", hour: "hr", seconds: "sec",
+    grams: "g", gram: "g", kilograms: "kg", pounds: "lb", ounces: "oz",
+    miles: "mi", kilometers: "km", calories: "cal", sessions: "sets", servings: "servings",
+  };
+  function checkinShortUnit(unit) {
+    const u = String(unit || "").trim();
+    if (!u) return "";
+    const mapped = CHECKIN_SHORT_UNITS[u.toLowerCase()];
+    if (mapped) return mapped;
+    return u.length <= 6 ? u : "";
+  }
+
   function checkinCardHtml(world, opts) {
     const compact = !!(opts && opts.compact);
     if (!world) return "";
@@ -11274,18 +11384,38 @@
       // For long units the question already names them ("…how many minutes?") → show the number.
       // Compact (pager) chips are bare numbers — the label + "usually X" already carry the unit.
       const chipUnit = compact ? "" : (unit.length <= 5 ? unit : "");
+      // The most-likely amount: what the NARROW layout promotes to a one-tap button.
+      const primaryAmt = amounts.indexOf(usual) > -1 ? usual : amounts[0];
+      // That button is only ~90px wide on a phone, so the unit is abbreviated ("30 min", not
+      // "30 minutes") and dropped entirely when number + unit still wouldn't fit ("10,000", not
+      // a clipped "10,000 ste…"). Nothing is lost: the prompt's own label sits right above it.
+      const leadFull = formatMetricPhrase(primaryAmt, checkinShortUnit(unit), "");
+      const leadText = leadFull.length <= 10 ? leadFull : formatCount(primaryAmt);
       const chips = amounts.map((amt) => {
         const isUsual = amt === usual;
         const text = chipUnit ? formatMetricPhrase(amt, chipUnit, "") : formatCount(amt);
-        return `<button class="qc-chip${isUsual ? " is-usual" : ""}" type="button" data-qc-amount="${ruleId}" data-qc-value="${amt}">${escapeHtml(text)}</button>`;
+        return `<button class="qc-chip${isUsual ? " is-usual" : ""}${amt === primaryAmt ? " is-primary" : ""}" type="button" data-qc-amount="${ruleId}" data-qc-value="${amt}">${escapeHtml(text)}</button>`;
       }).join("");
-      return `<div class="qc-row qc-row-counter" data-qc-row="${ruleId}">
+      // NARROW variant (see the @container block in styles.css). Below ~220px a tile can't hold
+      // three chips in a row, so the same row shows ONE full-width button for the likeliest
+      // amount plus a chevron that reveals the rest. Always rendered, shown only when the card
+      // is actually that narrow — one renderer, two layouts, no fork. The lead button carries
+      // the SAME data-qc-amount as a chip, so it logs through the existing handler untouched.
+      const moreOpen = checkinMoreOpen.has(checkinSkipKey(world.id, it.rule.id));
+      const narrow = primaryAmt > 0
+        ? `<div class="qc-narrow">
+            <button class="qc-lead" type="button" data-qc-amount="${ruleId}" data-qc-value="${primaryAmt}">${escapeHtml(leadText)}</button>
+            <button class="qc-more" type="button" data-qc-more="${ruleId}" aria-expanded="${moreOpen ? "true" : "false"}" aria-label="${moreOpen ? "Hide" : "Show"} other amounts for ${escapeHtml(it.rule.label || "rule")}"><span class="qc-more-chev" aria-hidden="true">⌄</span></button>
+          </div>`
+        : "";
+      return `<div class="qc-row qc-row-counter${moreOpen ? " is-more" : ""}" data-qc-row="${ruleId}">
           <div class="qc-counter-head">
             <span class="qc-icon" aria-hidden="true">${icon}</span>
             <span class="qc-q">${question}</span>
             ${usualNote ? `<span class="qc-usual">${usualNote}</span>` : ""}
             <button class="qc-no" type="button" data-qc-skip="${ruleId}">Skip</button>
           </div>
+          ${narrow}
           <div class="qc-chips">
             ${chips}
             <button class="qc-keyboard" type="button" data-qc-type="${ruleId}" aria-label="Type an amount for ${escapeHtml(it.rule.label || "rule")}">⌨</button>
@@ -11354,6 +11484,8 @@
   // addDailyEntryFromDraft), so points/streak/leaderboard update and no composer/post prompt opens.
   function wireQuickCheckin(host, world) {
     const logIt = (ruleId, amount) => checkinLog(world, ruleId, amount);
+    Array.from(host.querySelectorAll("[data-qc-more]")).forEach((b) =>
+      b.addEventListener("click", (e) => { e.stopPropagation(); toggleCheckinMore(world, b); }));
     Array.from(host.querySelectorAll("[data-qc-yes]")).forEach((b) =>
       b.addEventListener("click", (e) => { e.stopPropagation(); logIt(b.dataset.qcYes); }));
     Array.from(host.querySelectorAll("[data-qc-amount]")).forEach((b) =>
@@ -11750,6 +11882,217 @@
     else renderCommunityDetail();
   }
 
+  /* ── Background picker ────────────────────────────────────────────────────────────────────
+     One sheet for "what shows behind this world's tile": a live preview built from the SAME
+     worldTileBgHtml the real tile uses (so what you see is literally what renders), a photo
+     picker that goes through the existing cover upload (resize → world-media → path), five
+     presets, and a strength slider. Save writes; Remove goes back to the plain tile. */
+  let worldBgDraft = null;   // { key, type, id, name, coverPath, kind, preset, opacity }
+
+  function worldBgTargetFromKey(key) {
+    const t = buildWorldTiles().find((x) => worldTileKey(x) === key);
+    return t || null;
+  }
+  function openWorldBgPicker(key) {
+    const t = worldBgTargetFromKey(key);
+    if (!t) return;
+    // The database only lets a community's OWNER write its row, so don't offer the editor to
+    // anyone else — and never to a signed-out viewer.
+    if (!worldBgCanEdit(t)) { showToast("Only the world's owner can change its background"); return; }
+    const cur = worldTileBgFor(t);
+    worldBgDraft = {
+      key: key, type: t.type, id: t.id, name: t.name, coverPath: t.coverPath || "",
+      kind: cur ? cur.kind : (t.coverPath ? "photo" : "preset"),
+      preset: (cur && cur.preset) || WORLD_BG_PRESETS[0].id,
+      opacity: cur ? cur.opacity : WORLD_BG_DEFAULT_OPACITY,
+    };
+    renderWorldBgPicker();
+  }
+  // Communities are owner-only at the DB (world-tile-bg.sql relies on the existing
+  // "communities update by owner" policy), so mirror that here rather than the looser
+  // admin check the cover controls use — otherwise a co-admin gets an editor that silently
+  // saves nothing. Personal systems are the user's own.
+  function worldBgCanEdit(t) {
+    if (!t) return false;
+    if (t.type === "personal") return true;
+    const c = t.community || (state.communities || []).find((x) => x.id === t.id);
+    return !!c && (c.ownerId || "me") === "me";
+  }
+  function closeWorldBgPicker() {
+    worldBgDraft = null;
+    const back = document.querySelector("[data-world-bg-overlay]");
+    if (back && back.parentNode) back.parentNode.removeChild(back);
+    document.removeEventListener("keydown", onWorldBgKey);
+  }
+  function onWorldBgKey(e) { if (e.key === "Escape") closeWorldBgPicker(); }
+
+  function renderWorldBgPicker() {
+    const d = worldBgDraft;
+    if (!d) return;
+    const preview = { name: d.name, coverPath: d.coverPath, bg: { kind: d.kind, preset: d.preset, opacity: d.opacity } };
+    const bg = worldTileBgFor(preview);
+    const pct = Math.round(d.opacity * 100);
+    const swatches = WORLD_BG_PRESETS.map((p) => `<button type="button" class="wbg-swatch${d.kind === "preset" && d.preset === p.id ? " is-on" : ""}"
+        style="background:${p.css}" data-world-bg-preset="${escapeHtml(p.id)}" aria-pressed="${d.kind === "preset" && d.preset === p.id ? "true" : "false"}" aria-label="${escapeHtml(p.label)} background"><span>${escapeHtml(p.label)}</span></button>`).join("");
+    const body = `
+      <div class="wbg-preview-wrap">
+        <p class="wbg-cap">Preview</p>
+        <div class="world-tile worlds-tile tile-community wbg-preview${bg ? " has-bg" : ""}" data-world-size="medium">
+          ${worldTileBgHtml(bg)}
+          <div class="worlds-tile-head">
+            <div class="score-ring world-ring world-ring-medium" aria-hidden="true">
+              <svg class="score-ring-svg" viewBox="0 0 44 44">
+                <circle class="score-ring-bg" cx="22" cy="22" r="19"></circle>
+                <circle class="score-ring-fill" cx="22" cy="22" r="19" pathLength="100" style="stroke-dashoffset:45"></circle>
+              </svg>
+              <strong class="score-ring-label">2/9</strong>
+            </div>
+            <div class="worlds-tile-title"><h3>${escapeHtml(d.name)}</h3><p>Rank #1 · 1 active</p></div>
+          </div>
+          <div class="wbg-preview-panel"><span>Quick check-in</span><em>3 left</em></div>
+        </div>
+      </div>
+      <p class="wbg-cap">Photo</p>
+      <div class="wbg-photo-row">
+        <button type="button" class="primary-button wbg-choose" data-world-bg-photo>🖼 Choose photo</button>
+        <button type="button" class="ghost-button wbg-camera" data-world-bg-camera aria-label="Take a photo">${svgIcon("camera", "icon-sm")}</button>
+      </div>
+      <input type="file" accept="image/*" hidden data-world-bg-file>
+      <input type="file" accept="image/*" capture="environment" hidden data-world-bg-cam-file>
+      <p class="wbg-cap">Or a preset</p>
+      <div class="wbg-swatches">${swatches}</div>
+      <div class="wbg-strength">
+        <label for="worldBgStrength">How strong <span class="wbg-pct">${pct}%</span></label>
+        <input id="worldBgStrength" type="range" min="10" max="100" step="5" value="${pct}" data-world-bg-opacity>
+        <div class="wbg-strength-ends"><span>Subtle</span><span>Bold</span></div>
+      </div>
+      <div class="wbg-actions">
+        <button type="button" class="ghost-button wbg-remove" data-world-bg-remove>Remove</button>
+        <button type="button" class="primary-button" data-world-bg-save>Save background</button>
+      </div>`;
+
+    let back = document.querySelector("[data-world-bg-overlay]");
+    if (!back) {
+      back = document.createElement("div");
+      back.className = "post-overlay-backdrop";
+      back.setAttribute("data-world-bg-overlay", "");
+      back.innerHTML = `
+        <div class="post-overlay-sheet world-bg-sheet" role="dialog" aria-modal="true" aria-label="Tile background">
+          <div class="post-overlay-bar">
+            <span class="post-overlay-grab" aria-hidden="true"></span>
+            <button type="button" class="post-overlay-close" data-world-bg-close aria-label="Close">✕</button>
+          </div>
+          <div class="post-overlay-scroll world-bg-body"></div>
+        </div>`;
+      document.body.appendChild(back);
+      back.addEventListener("click", (e) => { if (e.target === back) closeWorldBgPicker(); });
+      back.addEventListener("click", onWorldBgClick);
+      back.addEventListener("input", onWorldBgInput);
+      back.addEventListener("change", onWorldBgChange);
+      document.addEventListener("keydown", onWorldBgKey);
+    }
+    back.querySelector(".world-bg-body").innerHTML = body;
+    // Paint the preview photo through the SAME cached signed URL the tile uses — no second fetch.
+    if (bg && bg.kind === "photo") {
+      paintWorldMediaSlot(bg.coverPath, back.querySelector(".worlds-tile-bg"), back.querySelector(".worlds-tile-bg-img"), () => false);
+    }
+  }
+
+  function onWorldBgClick(event) {
+    const q = (sel) => event.target.closest && event.target.closest(sel);
+    if (q("[data-world-bg-close]")) { closeWorldBgPicker(); return; }
+    const back = document.querySelector("[data-world-bg-overlay]");
+    if (!back || !worldBgDraft) return;
+    if (q("[data-world-bg-photo]")) { const i = back.querySelector("[data-world-bg-file]"); if (i) i.click(); return; }
+    if (q("[data-world-bg-camera]")) { const i = back.querySelector("[data-world-bg-cam-file]"); if (i) i.click(); return; }
+    const preset = q("[data-world-bg-preset]");
+    if (preset) { worldBgDraft.kind = "preset"; worldBgDraft.preset = preset.dataset.worldBgPreset; renderWorldBgPicker(); return; }
+    if (q("[data-world-bg-remove]")) { saveWorldBg({ kind: "none", preset: worldBgDraft.preset, opacity: worldBgDraft.opacity }); return; }
+    if (q("[data-world-bg-save]")) { saveWorldBg({ kind: worldBgDraft.kind, preset: worldBgDraft.preset, opacity: worldBgDraft.opacity }); return; }
+  }
+  function onWorldBgInput(event) {
+    const slider = event.target.closest && event.target.closest("[data-world-bg-opacity]");
+    if (!slider || !worldBgDraft) return;
+    worldBgDraft.opacity = Math.min(1, Math.max(0, numberOrDefault(slider.value, 50) / 100));
+    // Live: nudge the preview layer straight rather than re-rendering, so dragging stays smooth
+    // and the slider keeps focus.
+    const back = document.querySelector("[data-world-bg-overlay]");
+    const layer = back && back.querySelector(".worlds-tile-bg");
+    const pct = back && back.querySelector(".wbg-pct");
+    if (layer) layer.style.opacity = String(worldBgDraft.opacity);
+    if (pct) pct.textContent = Math.round(worldBgDraft.opacity * 100) + "%";
+  }
+  function onWorldBgChange(event) {
+    const input = event.target.closest && event.target.closest("[data-world-bg-file],[data-world-bg-cam-file]");
+    if (!input || !input.files || !input.files[0]) return;
+    const file = input.files[0];
+    input.value = "";
+    chooseWorldBgPhoto(file);
+  }
+
+  // Photo pick → the EXISTING cover upload (resizeImageForUpload → world-media → path). The
+  // path is held on the draft and only written to cover_url on Save.
+  async function chooseWorldBgPhoto(file) {
+    const d = worldBgDraft;
+    if (!d) return;
+    if (!/^image\//i.test(file.type || "")) { showToast("That's not an image — choose a photo"); return; }
+    if (file.size > ENTRY_PHOTO_MAX_BYTES) { showToast("Photo is too big (max 5 MB) — pick a smaller one"); return; }
+    const uid = state.account && state.account.userId;
+    if (!signalsReady() || !uid || !window.PointwellSignals || typeof window.PointwellSignals.uploadWorldMedia !== "function") {
+      showToast("Sign in to set a photo"); return;
+    }
+    showToast("Uploading photo…");
+    const up = await Promise.resolve(window.PointwellSignals.uploadWorldMedia(file, uid, d.id)).catch(() => ({ error: { message: "upload failed" } }));
+    if (!up || up.error || !up.path) { showToast((up && up.error && up.error.message) || "Couldn't upload the photo"); return; }
+    if (!worldBgDraft || worldBgDraft.key !== d.key) return;   // picker closed / switched mid-upload
+    worldBgDraft.coverPath = up.path;
+    worldBgDraft.kind = "photo";
+    renderWorldBgPicker();
+  }
+
+  // Commit. Communities go to the DB (owner-only by RLS — saveCommunityTileBg asks for the row
+  // back so a blocked write is reported instead of silently "succeeding"); personal systems are
+  // local state. The photo, when there is one, is saved to the world's existing cover_url.
+  async function saveWorldBg(bg) {
+    const d = worldBgDraft;
+    if (!d) return;
+    const clean = normalizeTileBg(bg) || { kind: "none", preset: WORLD_BG_PRESETS[0].id, opacity: WORLD_BG_DEFAULT_OPACITY };
+    const newCover = clean.kind === "photo" ? d.coverPath : "";
+    if (d.type === "community") {
+      const c = (state.communities || []).find((x) => x.id === d.id);
+      if (!c || (c.ownerId || "me") !== "me") { showToast("Only the world's owner can change its background"); return; }
+      if (signalsReady() && isServerBackedCommunity(c) && window.PointwellSignals) {
+        if (newCover && newCover !== (c.coverUrl || "") && typeof window.PointwellSignals.updateCommunityMedia === "function") {
+          const res = await Promise.resolve(window.PointwellSignals.updateCommunityMedia(d.id, { cover_url: newCover })).catch(() => ({ error: { message: "save failed" } }));
+          if (res && res.error) { showToast(communityDbError(res.error, "Couldn't save the photo")); return; }
+        }
+        if (typeof window.PointwellSignals.saveCommunityTileBg === "function") {
+          const res = await Promise.resolve(window.PointwellSignals.saveCommunityTileBg(d.id, clean)).catch(() => ({ error: { message: "save failed" }, saved: false }));
+          // A missing column (migration not run yet) is not a failure — fall through to local
+          // state so the background still works on this device, exactly like world_layout does.
+          if (res && res.error && !isMissingColumnError(res.error)) { showToast(communityDbError(res.error, "Couldn't save the background")); return; }
+        }
+      }
+      if (newCover) c.coverUrl = newCover;
+      c.tileBg = clean;
+    } else {
+      const sys = (state.systems || []).find((s) => s.id === d.id);
+      if (!sys) { showToast("Couldn't find that world"); return; }
+      if (newCover) sys.coverUrl = newCover;
+      sys.tileBg = clean;
+    }
+    saveState();
+    closeWorldBgPicker();
+    renderWorldGrid();
+    showToast(clean.kind === "none" ? "Background removed" : "Background updated");
+  }
+  // Postgres 42703 = undefined_column: the world-tile-bg migration hasn't been run yet.
+  function isMissingColumnError(err) {
+    const code = String((err && err.code) || "");
+    const msg = String((err && err.message) || "").toLowerCase();
+    return code === "42703" || msg.indexOf("tile_bg") > -1;
+  }
+
   function bindWorldDetail() {
     const pick = (input) => { if (input) input.click(); };
     // Detail-page inline shortcuts: tap the cover banner → cover picker (ignore the Back pill);
@@ -11767,6 +12110,14 @@
     if (els.systemIconThumb) els.systemIconThumb.addEventListener("click", () => pick(els.worldIconInput));
     if (els.communityCoverThumb) els.communityCoverThumb.addEventListener("click", () => pick(els.worldCoverInput));
     if (els.communityIconThumb) els.communityIconThumb.addEventListener("click", () => pick(els.worldIconInput));
+    // "Tile background…" in either editor opens the picker for THAT world — same resolution as
+    // the cover controls (currentMediaWorld), so it always targets the world being edited.
+    const openBgForEditor = () => {
+      const w = currentMediaWorld();
+      if (w && w.type && w.id) openWorldBgPicker(w.type + ":" + w.id);
+    };
+    if (els.systemBgButton) els.systemBgButton.addEventListener("click", openBgForEditor);
+    if (els.communityBgButton) els.communityBgButton.addEventListener("click", openBgForEditor);
     if (els.worldCoverInput) els.worldCoverInput.addEventListener("change", () => { const f = els.worldCoverInput.files && els.worldCoverInput.files[0]; els.worldCoverInput.value = ""; if (f) chooseWorldMedia(f, "cover"); });
     if (els.worldIconInput) els.worldIconInput.addEventListener("change", () => { const f = els.worldIconInput.files && els.worldIconInput.files[0]; els.worldIconInput.value = ""; if (f) chooseWorldMedia(f, "icon"); });
     if (els.worldTrendsToggle) els.worldTrendsToggle.addEventListener("click", () => { state.worldTrendsOpen = !state.worldTrendsOpen; saveState(); applyWorldTrendsCollapsed(); });
@@ -23547,6 +23898,9 @@
       // they survive a reload — fetchMyCommunities selects *, so the row has these columns.
       coverUrl: row.cover_url || "",
       iconUrl: row.icon_url || "",
+      // Worlds-page tile background (world-tile-bg.sql). Null until the migration runs, which
+      // simply means "default": the cover photo if there is one, else the plain tile.
+      tileBg: normalizeTileBg(row.tile_bg),
       // Auto-count members' connected-device totals on login/sync. Default ON: only an explicit
       // false (the owner opting out) disables it — null/undefined/true all mean on. (fetchMyCommunities
       // selects *, so the column is present.)

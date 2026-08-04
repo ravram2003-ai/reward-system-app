@@ -671,6 +671,27 @@
     }
   }
 
+  // Save a world's tile background onto its community row (world-tile-bg.sql). bg is
+  // { kind, preset, opacity } or null to clear.
+  //
+  // Unlike updateCommunityMedia this ASKS FOR THE ROW BACK. PostgREST reports an RLS-blocked
+  // update as a success with zero rows — no error — so a non-owner would otherwise be told the
+  // save worked while the database ignored it. `.select("id")` turns that into an empty array we
+  // can detect and report honestly. Returns { error, saved:boolean }.
+  async function saveCommunityTileBg(communityId, bg) {
+    var sb = getClient();
+    if (!sb || !communityId) return { error: { message: "Couldn't save the background." }, saved: false };
+    try {
+      var res = await sb.from("communities").update({ tile_bg: bg || null }).eq("id", communityId).select("id");
+      if (res.error) return { error: res.error, saved: false };
+      var rows = res.data || [];
+      if (!rows.length) return { error: { message: "Only the world's owner can change its background." }, saved: false };
+      return { error: null, saved: true };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." }, saved: false };
+    }
+  }
+
   // Resolve { id, display_name, handle, avatar_url } cards for a set of peer ids the
   // caller is already allowed to see (public / friends / existing thread). Used to
   // show peer avatars + names in Chats, which is built from the signals table and has
@@ -1943,6 +1964,7 @@
     uploadWorldMedia: uploadWorldMedia,
     worldMediaSignedUrl: worldMediaSignedUrl,
     updateCommunityMedia: updateCommunityMedia,
+    saveCommunityTileBg: saveCommunityTileBg,
     getProfileCards: getProfileCards,
     likeEntry: likeEntry,
     unlikeEntry: unlikeEntry,

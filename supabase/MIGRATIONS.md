@@ -184,6 +184,18 @@ you know what's live in production.
   written payload round-trips (entries + archived), and `get_profile_overview` does NOT reference
   `world_layout` — so another viewer can never read your arrangement.
 
+- [ ] **31. world-tile-bg.sql** — adds `communities.tile_bg` (jsonb, nullable): how that world's
+  Worlds-page tile paints its background — `{kind:"photo"|"preset", preset, opacity}`. The photo
+  itself is NOT stored here: a photo background reuses the world's existing `cover_url` path in the
+  private `world-media` bucket (#see world-media.sql), so it's the same upload, the same resized
+  asset and the same cached signed URL the cover already uses — no new bucket, no extra egress.
+  **No new policy**: `communities` RLS already restricts UPDATE to `owner_user = auth.uid()`, so
+  only the owner can set a background, and reads follow the existing member-visibility policy.
+  *(after the base schema — needs the `communities` table)*.
+  **Until this runs, backgrounds still work but stay LOCAL** (localStorage only): the client's
+  save degrades to local state, so a community background won't follow you to another device or
+  show for other members. Personal systems are local by design and unaffected either way.
+
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).
   Deployed slug is **`bright-api`** (NOT `generate-rules` — the slug and the folder differ).

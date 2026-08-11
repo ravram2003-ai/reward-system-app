@@ -449,11 +449,19 @@
     const header = document.querySelector(".sidebar");
     if (!header) return;
     const root = document.documentElement;
-    if (window.matchMedia("(max-width: 1050px)").matches) {
-      root.style.setProperty("--mobile-header-h", header.offsetHeight + "px");
-    } else {
+    if (!window.matchMedia("(max-width: 1050px)").matches) {
       root.style.removeProperty("--mobile-header-h"); // desktop uses the base layout
+      return;
     }
+    // A HIDDEN header measures 0 — which is exactly what happens on the sign-in screen, where
+    // .auth-locked display:none's the sidebar. Writing 0 here is worse than writing nothing: it
+    // collapses the workspace's top padding to the bare gap, so once the user signs in and the
+    // real 50px fixed header appears, the first thing in the view (the Feed's Friends/Discover
+    // control) renders UNDER it. Drop the property instead and let the CSS fallback hold the
+    // space until there's a real height to report.
+    const h = header.offsetHeight;
+    if (h > 0) root.style.setProperty("--mobile-header-h", h + "px");
+    else root.style.removeProperty("--mobile-header-h");
   }
 
   let headerHeightRaf = 0;
@@ -472,6 +480,13 @@
     window.addEventListener("load", measureChrome);
     // Web-font swap can change the wrapped header's height after first paint.
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(measureChrome).catch(() => {});
+    // The header's height also changes without any window event: it's display:none on the
+    // sign-in screen and comes back at full height on sign-in, and its icon row can wrap. Watch
+    // the element itself so the clearance is right whenever it changes, not just on resize.
+    if (typeof ResizeObserver === "function") {
+      const header = document.querySelector(".sidebar");
+      if (header) new ResizeObserver(schedule).observe(header);
+    }
   }
 
   // An invite link is <app-url>?join=CODE. Capture the code, then strip it from the
@@ -565,14 +580,20 @@
     render();
   }
 
+  // Showing/hiding the sign-in screen display:none's or restores the fixed mobile header, which
+  // fires no window event — so re-measure its height here. Without this the workspace keeps the
+  // clearance it computed while the header was hidden (0) and the first thing in the view lands
+  // underneath it once you sign in.
   function showAuthScreen() {
     if (els.authScreen) els.authScreen.hidden = false;
     document.body.classList.add("auth-locked");
+    syncHeaderHeight();
   }
 
   function hideAuthScreen() {
     if (els.authScreen) els.authScreen.hidden = true;
     document.body.classList.remove("auth-locked");
+    syncHeaderHeight();
   }
 
   // Sign-in-first hero: "Continue with Apple/Google" are UNIFIED sign-in-or-create buttons.

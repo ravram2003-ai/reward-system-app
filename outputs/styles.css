@@ -12081,7 +12081,11 @@ input:not([type="range"]):not([type="checkbox"]).world-rule-amt-input {
    real (now shorter) header; the fallback covers the pre-sync frame. */
 @media (max-width: 1050px) {
   .sidebar { padding: calc(6px + env(safe-area-inset-top, 0px)) 14px 6px; }
-  .workspace { padding-top: calc(var(--mobile-header-h, 58px) + 6px); }
+  /* +10px, not +6: the first thing in a view is often a bordered, rounded control (the Feed's
+     Friends/Discover segmented, the world-detail hub tabs), and 6px left its top edge visually
+     flush against the header. This is real clearance on the scrolling region — never a negative
+     margin on the control. */
+  .workspace { padding-top: calc(var(--mobile-header-h, 58px) + 10px); }
 }
 /* The now-empty left side of the header shouldn't reserve title height: keep the icon row compact. */
 .brand-block { min-height: 0; align-items: center; }

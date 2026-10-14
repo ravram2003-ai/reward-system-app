@@ -423,6 +423,7 @@
   let onboardingCopiedIds = [];         // public-system ids copied this run
   let onboardingJoinedIds = [];         // community ids joined this run
   let onboardingAddedSystemId = "";     // the AI system id once Added
+  let onboardingPeopleQuery = "";       // step-4 "Find your friends" search text
 
   document.addEventListener("DOMContentLoaded", init);
 
@@ -1109,8 +1110,15 @@
             ? `<div class="onboard-result-list">${onboardingPublicMatches.map(onboardingPublicSystemRow).join("")}</div>`
             : `<p class="empty-state onboard-empty">Nothing here yet — you're early.</p>`}
         </section>
+        ${onboardingStay.includes("friends") ? `<section class="onboard-section">
+          <p class="onboard-group-label">Find your friends</p>
+          <p class="onboard-sub">You said friends keep you on track. Add a few now and their check-ins land in your feed from day one.</p>
+          <div class="community-search-field onboard-people-field"><input type="search" id="onboardPeopleInput" placeholder="Name or @handle" autocomplete="off" value="${escapeHtml(onboardingPeopleQuery)}" aria-label="Find people" data-onboard-people></div>
+          <div class="onboard-result-list" id="onboardPeopleResults">${renderPeopleSection(onboardingPeopleQuery)}</div>
+        </section>` : ""}
         <div class="onboard-actions">
-          <button class="primary-button" type="button" data-onboard="done">Done — go to my day</button>
+          <button class="primary-button" type="button" data-onboard="done">${onboardingDraft && !onboardingAddedSystemId ? "Add &amp; go to my worlds" : "Go to my worlds"}</button>
+          ${onboardingDraft && !onboardingAddedSystemId ? `<button class="ghost-button" type="button" data-onboard="done-skip">Skip the system for now</button>` : ""}
           ${skip}
         </div>
       </div>`;
@@ -1210,7 +1218,13 @@
     if (action === "add-system") { onboardingAddAiSystem(); return; }
     if (action === "copy-system") { onboardingCopyPublicSystem(target.dataset.system); return; }
     if (action === "join-community") { onboardingJoinCommunity(target.dataset.community); return; }
-    if (action === "done") { state.activeView = "dashboard"; finishOnboarding(); return; }
+    if (action === "done") {
+      // Keep what step 4 built: "Done" used to drop the generated system unless you'd also
+      // tapped "Add this system". Skipping it is now its own, explicit button.
+      if (onboardingDraft && !onboardingAddedSystemId) onboardingAddAiSystem();
+      state.activeView = "dashboard"; finishOnboarding(); return;
+    }
+    if (action === "done-skip") { state.activeView = "dashboard"; finishOnboarding(); return; }
   }
 
   // Pressing Enter in the "add your own" field adds it as a removable interest chip.
@@ -1736,7 +1750,7 @@
     // events/cheers — DMs are excluded server-side) + pending community join requests.
     const bellUnread = ready ? bellNotifications.filter((n) => !n.read).length : 0;
     const challengeIncoming = ready ? myIncomingChallenges().length : 0; // pending challenges sent TO me
-    const bellBadge = bellUnread + requestCount + challengeIncoming;
+    const bellBadge = bellUnread + requestCount + challengeIncoming + (ready ? milestonesUnseen() : 0);
     // Header cluster badges, each its own live count: Alerts bell = activity about me
     // (NEVER direct messages), Friends = pending friend requests, Chats = unread DMs.
     const fmt = (n) => (n > 9 ? "9+" : String(n));
@@ -1946,6 +1960,61 @@
   }
 
 
+  /* ── Your people's milestones ─────────────────────────────────────────────────────────
+     The server bell only carries reactions TO you. These two kinds are about what your people
+     DID — a streak milestone, or passing you on a shared leaderboard — and are derived on the
+     client from the entries you can already read as a co-member. Nothing is stored server-side;
+     "seen" is a per-day flag so the badge counts them once. */
+  const MILESTONE_STREAKS = [3, 7, 14, 30, 100];
+  function peopleMilestones() {
+    const today = getTodayKey(), yday = offsetDate(-1);
+    const out = [];
+    worldsPeopleToday().forEach((p) => {
+      if (p.isMe || !p.userId) return;
+      p.worlds.forEach((w) => {
+        const probe = memberProbe(w.community, w.member);
+        const streak = probeStreak(probe);
+        if (probe.getPts(today) > 0 && MILESTONE_STREAKS.indexOf(streak) > -1) {
+          out.push({ key: `streak:${p.id}:${w.id}:${streak}`, kind: "streak", person: p, world: w, streak: streak });
+        }
+        // Rank change: they were below you yesterday and are above you today, in this world.
+        const me = (w.community.members || []).find((m) => m.id === "me");
+        if (me) {
+          const theirsY = communityMemberPointsOnDate(w.community, w.member, yday), mineY = communityMemberPointsOnDate(w.community, me, yday);
+          const theirsT = w.points, mineT = communityMemberPointsOnDate(w.community, me, today);
+          if (theirsY <= mineY && theirsT > mineT && theirsT > 0) out.push({ key: `passed:${p.id}:${w.id}:${today}`, kind: "passed", person: p, world: w });
+        }
+      });
+    });
+    return out;
+  }
+  function milestonesUnseen() {
+    const day = getTodayKey();
+    return (state.milestonesSeenDay === day) ? 0 : peopleMilestones().length;
+  }
+  function markMilestonesSeen() {
+    const day = getTodayKey();
+    if (state.milestonesSeenDay !== day) { state.milestonesSeenDay = day; saveState(); renderNotifications(); }
+  }
+  document.addEventListener("click", (e) => {
+    if (els.notifBellButton && e.target && els.notifBellButton.contains(e.target)) markMilestonesSeen();
+    const cheer = e.target.closest && e.target.closest(".notif-panel [data-worlds-cheer]");
+    if (cheer) { e.stopPropagation(); cheerWorldsPerson(cheer.dataset.worldsCheer); }
+    const see = e.target.closest && e.target.closest(".notif-panel [data-notif-world]");
+    if (see) { e.stopPropagation(); closeNotifPanel(); openWorldCommunity(see.dataset.notifWorld); }
+  });
+  function renderMilestoneRow(m) {
+    const p = m.person;
+    const av = renderAvatar({ name: p.name, avatarUrl: p.avatarUrl, color: p.color || avatarColor(p.name) });
+    const text = m.kind === "streak"
+      ? `hit a <b>${m.streak}-day streak</b> ${svgIcon("flame", "icon-xs")}`
+      : `<b>passed you</b> in ${escapeHtml(m.world.name)}`;
+    const action = m.kind === "streak"
+      ? `<button class="wp-cheer small" type="button" data-worlds-cheer="${escapeHtml(p.id)}">👏 Cheer</button>`
+      : `<button class="ghost-button small" type="button" data-notif-world="${escapeHtml(String(m.world.id))}">See board ›</button>`;
+    return `<div class="notif-item notif-milestone">${av}<div class="notif-item-main"><strong>${escapeHtml(p.name)}</strong><span>${text} · ${escapeHtml(m.world.name)}</span></div><div class="notif-item-actions">${action}</div></div>`;
+  }
+
   function renderNotifPanel() {
     if (!els.notifPanel) return;
     if (!signalsReady()) {
@@ -1962,6 +2031,12 @@
     // Incoming challenges (Accept/Decline) — surfaced here so the opponent sees a sent challenge.
     const challengeSection = challengeNotifSectionHtml();
     if (challengeSection) sections.push(challengeSection);
+
+    // Your people: what they DID today (streaks, overtakes), with a one-tap cheer.
+    const milestones = peopleMilestones();
+    if (milestones.length) {
+      sections.push(`<div class="notif-section"><span class="notif-section-label">Your people</span>` + milestones.slice(0, 8).map(renderMilestoneRow).join("") + `</div>`);
+    }
 
     // Community join requests (owner-side) — their own actionable section.
     if (ownerJoinRequests.length) {
@@ -2860,6 +2935,8 @@
       "communitySettingsView",
       "communityMemberActivityView",
       "findCommunitiesView",
+      "peopleView",
+      "peopleList",
       "profileView",
       "scoreContextSelect",
       "scoreHeroContext",
@@ -3238,6 +3315,7 @@
       "communityComposerPhoto",
       "communityFeedSort",
       "communityCompetePanel",
+      "communityMembersPanel",
       "communityCompeteHub",
       "communityMembersList",
       "communityAboutPanel",
@@ -3262,6 +3340,7 @@
       "community-settings": els.communitySettingsView,
       "community-member-activity": els.communityMemberActivityView,
       "find-communities": els.findCommunitiesView,
+      people: els.peopleView,
       friends: els.friendsView,
       "friend-activity": els.friendActivityView,
       chats: els.chatsView,
@@ -3515,7 +3594,7 @@
     els.backFromMemberActivityButton.addEventListener("click", returnToCommunityDetail);
     els.backFromFindCommunitiesButton.addEventListener("click", returnToCommunities);
     if (els.headerSearchButton) els.headerSearchButton.addEventListener("click", openHeaderSearch);
-    if (els.headerSearchForm) els.headerSearchForm.addEventListener("submit", (event) => event.preventDefault());
+    if (els.headerSearchForm) els.headerSearchForm.addEventListener("submit", (event) => { event.preventDefault(); if (els.headerSearchInput) rememberSearch(els.headerSearchInput.value); });
     if (els.headerSearchInput) els.headerSearchInput.addEventListener("input", (event) => {
       state.searchQuery = event.target.value;
       state.buildViewedPublicId = ""; // a new query closes any open "view details"
@@ -3737,11 +3816,56 @@
     } catch (e) { mount.hidden = true; }
   }
 
+  // ── Browser history ──────────────────────────────────────────────────────────────────────
+  // One history entry per screen change, so the phone's Back (Android button, iOS swipe) steps
+  // back through the app instead of leaving it. A snapshot of the few state keys a screen needs
+  // rides on each entry; popstate restores them and re-renders. Same-screen re-renders (which
+  // happen constantly) record nothing.
+  let navHistorySuppress = false;   // true while a Back is being applied — don't push for it
+  let navLastKey = "";
+  function navSnapshot() {
+    return {
+      view: state.activeView,
+      communityId: state.selectedCommunityId || "",
+      systemId: state.detailSystemId || "",
+      profileUserId: state.profileUserId || "",
+      worldDetailType: state.worldDetailType || "",
+      scoreContext: state.scoreContext || "",
+    };
+  }
+  function navKey(s) { return [s.view, s.communityId, s.systemId, s.profileUserId].join("|"); }
+  function syncNavHistory() {
+    if (!window.history || typeof window.history.pushState !== "function") return;
+    const snap = navSnapshot();
+    const key = navKey(snap);
+    if (key === navLastKey) return;
+    navLastKey = key;
+    if (navHistorySuppress) return;
+    try {
+      if (!window.history.state || !window.history.state.pw) window.history.replaceState({ pw: snap }, "");
+      else window.history.pushState({ pw: snap }, "");
+    } catch (e) { /* a sandboxed host can refuse; the on-screen Back still works */ }
+  }
+  window.addEventListener("popstate", (e) => {
+    const snap = e.state && e.state.pw;
+    if (!snap || !snap.view) return;
+    navHistorySuppress = true;
+    state.activeView = snap.view;
+    if (snap.communityId) state.selectedCommunityId = snap.communityId;
+    if (snap.systemId) state.detailSystemId = snap.systemId;
+    if (snap.profileUserId) state.profileUserId = snap.profileUserId;
+    if (snap.worldDetailType) state.worldDetailType = snap.worldDetailType;
+    if (snap.scoreContext) state.scoreContext = snap.scoreContext;
+    navLastKey = "";
+    try { render(); } finally { navHistorySuppress = false; }
+  });
+
   function render() {
     // An open post overlay floats over the current screen; a navigation that changed the view dismisses it
     // (background re-renders that keep the same view leave it intact). Tap-out/X/swipe/Esc close it directly.
     if (postOverlayItem && state.activeView !== postOverlayOpenView) closePostOverlay();
     renderChrome();
+    syncNavHistory();
     renderActiveView();
     renderDashboard();
     renderPostComposer();
@@ -3754,6 +3878,7 @@
     renderCommunityMemberActivity();
     renderFindCommunities();
     renderFriends();
+    renderPeople();
     renderFriendActivity();
     renderProfilePage();
     renderProfile();
@@ -3964,8 +4089,12 @@
   }
 
   // "Back" from a community detail/settings now lands on Today (the Communities tab is gone).
+  // A world remembers where you opened it from (Build, Search, Feed, People…) and returns there.
+  let worldBackView = "";
   function returnToCommunities() {
-    state.activeView = "dashboard";
+    const back = worldBackView && els.views && els.views[worldBackView] && worldBackView !== "community-detail" ? worldBackView : "dashboard";
+    worldBackView = "";
+    state.activeView = back;
     saveState();
     render();
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -4544,6 +4673,7 @@
       <div class="pc-head">
         <button type="button" class="pc-back" data-pc-back aria-label="Cancel"${postComposerPublishing ? " disabled" : ""}>‹</button>
         <span class="pc-eyebrow">${sharing ? "New post" : "New entry"}</span>
+        <button type="button" class="pc-coach" data-coach-open aria-label="Ask Coach">${svgIcon("sparkle", "icon-xs")} Coach<span data-coach-count></span></button>
         <span class="pc-author">${escapeHtml(authorName)}</span>
         ${avatar}
       </div>
@@ -4940,6 +5070,60 @@
     renderChatsPanels();
     requestAnimationFrame(() => { if (els.chatsAddFriendInput) els.chatsAddFriendInput.focus(); });
   }
+
+  /* ── People (the fourth tab) ──────────────────────────────────────────────────────────────
+     Everyone you follow and everyone you share a world with, sorted by who's active today, each
+     with the same ring the home strip uses, their streak, and a one-tap Cheer. The people
+     search lives here too — the one place to find someone. */
+  let peopleQuery = "";
+  function renderPeople() {
+    if (!els.peopleList || state.activeView !== "people") return;
+    if (!signalsReady()) { els.peopleList.innerHTML = emptyState("Sign in to see your people."); return; }
+    const people = worldsPeopleToday().filter((p) => !p.isMe);
+    const seen = new Set(people.map((p) => String(p.userId)));
+    // Friends you share no world with: we can't see their day, but they're still your people.
+    const elsewhere = (friendsDetailed || []).filter((f) => !seen.has(String(f.user_id)));
+    const active = people.filter((p) => p.active);
+    const quiet = people.filter((p) => !p.active && p.isFriend);
+    const mayKnow = people.filter((p) => !p.isFriend);
+    const row = (p) => `<div class="pp-row${p.active ? "" : " is-dim"}">
+        <button type="button" class="pp-open" data-worlds-person-open="${escapeHtml(p.id)}" aria-label="Open ${escapeHtml(p.name)}">${worldsPersonRing(p, "sm")}
+          <span class="pp-who"><strong>${escapeHtml(p.name)}</strong><small>${p.active ? `${p.done} of ${p.total} done` : "Nothing yet today"} · ${p.worlds.map((w) => escapeHtml(w.name) + (w.rank ? " #" + w.rank : "")).join(" · ")}</small></span></button>
+        ${p.isFriend
+          ? `<button type="button" class="pp-cheer" data-worlds-cheer="${escapeHtml(p.id)}">👏 Cheer</button>`
+          : `<button type="button" class="pp-follow" data-people-follow="${escapeHtml(String(p.userId || ""))}">Follow</button>`}
+      </div>`;
+    const section = (cap, list, html) => list.length ? `<p class="pp-cap">${cap}</p>${html}` : "";
+    els.peopleList.innerHTML = `
+      <div class="community-search-field pp-search"><span class="community-search-icon" aria-hidden="true">${svgIcon("search", "icon-sm")}</span><input type="search" id="peopleSearchInput" placeholder="Find people by name or @handle" autocomplete="off" value="${escapeHtml(peopleQuery)}" aria-label="Find people" data-people-search></div>
+      <div id="peopleSearchResults">${peopleQuery.trim().length >= 2 ? renderPeopleSection(peopleQuery.trim()) : ""}</div>
+      ${section(`Active today · ${active.length}`, active, active.map(row).join(""))}
+      ${section("Not yet today", quiet, quiet.map(row).join(""))}
+      ${section("People you may know · from your worlds", mayKnow, mayKnow.map(row).join(""))}
+      ${section("Friends in other worlds", elsewhere, elsewhere.map(renderFriendListRow).join(""))}
+      ${!people.length && !elsewhere.length ? emptyState("No one here yet. Join a world or follow a few people and their days show up.", { label: "Find people", action: "find-friends", icon: "users" }, { label: "Join a world", action: "find-worlds" }) : ""}`;
+  }
+  document.addEventListener("input", (e) => {
+    const i = e.target.closest && e.target.closest("[data-people-search]");
+    if (!i) return;
+    peopleQuery = i.value;
+    runPeopleSearch(i.value);
+  });
+  document.addEventListener("click", (e) => {
+    const t = e.target;
+    if (!t.closest) return;
+    const open = t.closest("#peopleView [data-worlds-person-open]"); if (open) { openWorldsPerson(open.dataset.worldsPersonOpen); return; }
+    const cheer = t.closest("#peopleView [data-worlds-cheer]"); if (cheer) { cheerWorldsPerson(cheer.dataset.worldsCheer); return; }
+    const fol = t.closest("#peopleView [data-people-follow]");
+    if (fol) {
+      if (!signalsReady() || !fol.dataset.peopleFollow) { showToast("Sign in to follow"); return; }
+      fol.disabled = true; fol.textContent = "Following";
+      Promise.resolve(window.PointwellSignals.followUser(fol.dataset.peopleFollow)).then((r) => { if (r && r.error) { showToast("Couldn't follow"); fol.disabled = false; fol.textContent = "Follow"; } }).catch(() => { fol.disabled = false; fol.textContent = "Follow"; });
+      return;
+    }
+    const add = t.closest("#peopleSearchResults [data-add-friend-id]"); if (add) { sendFriendRequestTo(add.dataset.addFriendId, add.dataset.addFriendName || ""); return; }
+    const view = t.closest("#peopleSearchResults [data-build-view-person-id]"); if (view) { openUserProfile(view.dataset.buildViewPersonId); return; }
+  });
 
   function renderFriends() {
     if (!els.friendsList) return;
@@ -5555,12 +5739,13 @@
     state.homeLayout.sections = state.homeLayout.sections || {};
     return state.homeLayout;
   }
-  // Default is LARGE — a world you haven't touched shows everything. Layouts saved under the
-  // old three-size scheme still hold "small"; it reads as medium so nobody's grid breaks.
+  // Default is MEDIUM — four to a page, logging front and centre. Layouts saved under the old
+  // three-size scheme still hold "small"; it reads as medium so nobody's grid breaks.
   function worldTileSize(key) {
     const saved = worldLayout().sizes[key];
     if (saved === "small") return "medium";
-    return WORLD_SIZES.indexOf(saved) > -1 ? saved : "large";
+    // Medium by default: four worlds to a page. Large (the full tile) is one tap away.
+    return WORLD_SIZES.indexOf(saved) > -1 ? saved : "medium";
   }
   function setWorldTileSize(key, size) {
     if (WORLD_SIZES.indexOf(size) === -1) return;
@@ -5671,6 +5856,7 @@
   const WORLDS_PAGE_SLOTS_1COL = 2;      // only the very narrowest screens: 1 column × 2 rows
   let worldsPageIndex = 0;
   let worldsPageCount = 1;
+  let communitiesLoadError = "";         // set when the last fetch failed; shows the retry banner
   let worldsEditMode = false;
   let worldsLastCols = 0;
 
@@ -5691,6 +5877,106 @@
     return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   }
   function worldsPagerEl() { return document.getElementById("worldsPager"); }
+
+  /* ── Your people today ──────────────────────────────────────────────────────────────────
+     Everyone whose day you can actually see — the members of the worlds you're in — with how
+     much of TODAY'S CHECK-INS they've done across the worlds you share. That share is what
+     the ring shows: points are out of 8 in one world and 6 in another, so they don't add up
+     into one number, but "3 of 4 things done" compares fairly between people. Points stay per
+     world, one tap away in the popover. Visibility is whatever the database already allows:
+     a member's entries are readable only inside worlds you both belong to. */
+  let worldsPersonOpen = "";   // id of the person whose popover is open (survives re-renders)
+  function worldsPeopleToday() {
+    const myId = state.account && state.account.userId;
+    const today = getTodayKey();
+    const byUser = {};
+    (state.communities || []).forEach((c) => {
+      const rules = normalizeSystem(c.system || { rules: [] }).rules.map(scoring.normalizeRule).filter((r) => r.simpleStyle !== "penalty");
+      const standings = worldStandings(c);
+      (c.members || []).forEach((m) => {
+        const uid = m.id === "me" ? "me" : String(m.userId || m.id);
+        if (!uid) return;
+        const values = communityValuesForMember(c.id, m.id, today) || {};
+        const done = rules.filter((r) => numberOrDefault(values[r.id], 0) > 0).length;
+        const rank = standings.findIndex((s) => s.id === m.id) + 1;
+        const rec = byUser[uid] || (byUser[uid] = {
+          id: uid, userId: m.id === "me" ? myId : m.userId, isMe: m.id === "me",
+          name: m.id === "me" ? "You" : (m.name || "Member"), avatarUrl: m.avatarUrl, color: m.color,
+          done: 0, total: 0, worlds: [],
+        });
+        rec.done += done; rec.total += rules.length;
+        rec.worlds.push({ id: c.id, name: c.name || "World", points: communityMemberPointsOnDate(c, m, today), target: communityTarget(c), rank: rank, community: c, member: m });
+      });
+    });
+    const people = Object.keys(byUser).map((k) => byUser[k]);
+    people.forEach((p) => {
+      p.pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
+      p.active = p.done > 0;
+      p.isFriend = p.isMe || (p.userId && friends.has(String(p.userId)));
+    });
+    // You first, then friends, then everyone else; most done first within each.
+    people.sort((a, b) => (b.isMe - a.isMe) || (b.isFriend - a.isFriend) || (b.done - a.done) || a.name.localeCompare(b.name));
+    return people;
+  }
+  function worldsPersonRing(p, cls) {
+    return `<span class="wp-ring ${cls || ""}${p.active ? "" : " is-dim"}" aria-hidden="true">
+        <svg viewBox="0 0 44 44"><circle class="score-ring-bg" cx="22" cy="22" r="19"></circle><circle class="score-ring-fill" cx="22" cy="22" r="19" pathLength="100" style="stroke-dashoffset:${100 - p.pct}"></circle></svg>
+        ${renderAvatar({ className: "wp-av", name: p.name === "You" ? (state.profile && state.profile.name) || "You" : p.name, avatarUrl: p.avatarUrl, color: p.color || avatarColor(p.name) })}
+      </span>`;
+  }
+  function renderWorldsPerson(p) {
+    return `<button type="button" class="wp${p.isMe ? " is-me" : ""}${p.active ? "" : " is-dim"}${worldsPersonOpen === p.id ? " is-open" : ""}" data-worlds-person="${escapeHtml(p.id)}"
+        aria-label="${escapeHtml(p.name)}: ${p.done} of ${p.total} check-ins done today" aria-expanded="${worldsPersonOpen === p.id ? "true" : "false"}">
+        ${worldsPersonRing(p)}<span class="wp-name">${escapeHtml(p.name)}</span>
+      </button>`;
+  }
+  function renderWorldsPersonPop(p) {
+    const worlds = p.worlds.map((w) => `<div class="wp-world"><span class="wp-wn">${escapeHtml(w.name)}</span><span class="wp-wpts">${escapeHtml(formatPoints(w.points))}/${escapeHtml(formatPoints(w.target))} pts</span><span class="wp-wr">${w.rank ? "#" + w.rank : ""}</span></div>`).join("");
+    const actions = p.isMe ? "" : `<div class="wp-actions">
+        <button type="button" class="wp-cheer" data-worlds-cheer="${escapeHtml(p.id)}">👏 Cheer ${escapeHtml(p.name)}</button>
+        <button type="button" class="wp-open" data-worlds-person-open="${escapeHtml(p.id)}">Their day ›</button>
+      </div>`;
+    return `<div class="wp-pop-head">${renderAvatar({ className: "wp-pop-av", name: p.name, avatarUrl: p.avatarUrl, color: p.color || avatarColor(p.name) })}<span><strong>${escapeHtml(p.name)}</strong><small>${p.done} of ${p.total} check-ins done today</small></span></div>
+      ${worlds}
+      <p class="wp-cap">Ring = check-ins done today across the worlds you share. Points stay per world.</p>
+      ${actions}`;
+  }
+  function renderWorldsPeopleStrip() {
+    const people = worldsPeopleToday();
+    if (people.length < 2) return "";   // just you → nothing to compare with yet
+    const open = worldsPersonOpen ? people.find((p) => p.id === worldsPersonOpen) : null;
+    return `<div class="worlds-people" role="list" aria-label="Your people today">${people.slice(0, 14).map(renderWorldsPerson).join("")}</div>
+      <div class="wp-pop" id="worldsPersonPop"${open ? "" : " hidden"}>${open ? renderWorldsPersonPop(open) : ""}</div>`;
+  }
+  function toggleWorldsPerson(id) {
+    worldsPersonOpen = worldsPersonOpen === id ? "" : id;
+    const pop = document.getElementById("worldsPersonPop");
+    const p = worldsPersonOpen ? worldsPeopleToday().find((x) => x.id === worldsPersonOpen) : null;
+    if (pop) { pop.hidden = !p; pop.innerHTML = p ? renderWorldsPersonPop(p) : ""; }
+    document.querySelectorAll("[data-worlds-person]").forEach((b) => {
+      const on = b.dataset.worldsPerson === worldsPersonOpen;
+      b.classList.toggle("is-open", on); b.setAttribute("aria-expanded", on ? "true" : "false");
+    });
+  }
+  // Cheer = the existing kudos signal, sent in the first world you share with them.
+  function cheerWorldsPerson(id) {
+    const p = worldsPeopleToday().find((x) => x.id === id);
+    const w = p && p.worlds[0];
+    if (!w) return;
+    if (!signalsReady()) { showToast("Sign in to cheer"); return; }
+    const preset = (window.PointwellSignals && typeof window.PointwellSignals.presetsForType === "function")
+      ? window.PointwellSignals.presetsForType("kudos")[0] : "Nice work";
+    sendChosenSignal(w.community, w.member, "kudos", preset, null);
+    const b = document.querySelector(`[data-worlds-cheer="${CSS.escape(id)}"]`);
+    if (b) { b.textContent = "👏 Cheered"; b.disabled = true; }
+  }
+  function openWorldsPerson(id) {
+    const p = worldsPeopleToday().find((x) => x.id === id);
+    const w = p && p.worlds[0];
+    if (!w) return;
+    state.selectedCommunityId = w.community.id;
+    openMemberProfile(w.community, w.member.id);
+  }
 
   /* ── Layout model ────────────────────────────────────────────────────────────────────────
      state.worldLayout = { entries: [{ worldId, size, page, index }], archived: [worldId] }.
@@ -5791,30 +6077,59 @@
     const size = worldTileSize(p.key);
     const large = size === "large";
     const typeClass = t.type === "community" ? "tile-community" : "tile-personal";
-    const sizeBtn = worldsEditMode ? "" : `<button class="world-size-btn worlds-size-btn" type="button" data-world-size-cycle
-        aria-label="${large ? "Collapse" : "Expand"} ${escapeHtml(t.name)}" title="${large ? "Collapse to medium" : "Expand to large"}"><span aria-hidden="true">${large ? "⤡" : "⤢"}</span></button>`;
-    // A world with no background stays exactly as it was, and its owner gets the "Add a cover"
-    // affordance in the header instead.
+    // ONE control per tile: the ⋯ menu (size, background, rules, hide). Gone in edit mode,
+    // where drag/remove own the corner.
+    const menu = worldsEditMode ? "" : `<button class="worlds-tile-menu-btn" type="button" data-world-menu aria-haspopup="menu" aria-expanded="false" aria-label="Options for ${escapeHtml(t.name)}">⋯</button>
+      <div class="worlds-tile-menu" role="menu" hidden>
+        <button type="button" role="menuitem" data-world-size-cycle>${large ? "⤡ Smaller" : "⤢ Larger"}</button>
+        <button type="button" role="menuitem" data-world-bg-open="${escapeHtml(p.key)}">🖼 Background</button>
+        <button type="button" role="menuitem" data-world-rules="${escapeHtml(p.key)}">✎ Edit rules</button>
+        <button type="button" role="menuitem" class="is-danger" data-world-archive="${escapeHtml(p.key)}">Hide from home</button>
+      </div>`;
     const bg = worldTileBgFor(t);
-    const addCover = (!bg && t.ownerIsMe && !worldsEditMode)
-      ? `<button class="worlds-tile-addbg" type="button" data-world-bg-open="${escapeHtml(p.key)}">Add a cover ＋</button>`
-      : "";
+    // Empty check-in → say why, instead of a dark box: either everything's logged, or the
+    // check-in hasn't opened yet (it waits for the hours you usually log).
+    const checkin = checkinTileHtml(t, { compact: true });
+    let quiet = "";
+    if (!checkin) {
+      const w = checkinWorldFromTile(t);
+      const ask = w ? buildCheckinItems(w).ask.length : 0;
+      quiet = ask
+        ? `<div class="qc-quiet"><span>Nothing due yet<br><b>check-in opens around noon</b></span><button type="button" class="qc-quiet-log" data-world-log="${escapeHtml(p.key)}">Log now ›</button></div>`
+        : `<div class="qc-quiet is-done"><span><b>All logged for today ✓</b></span></div>`;
+    }
     return `<div class="world-tile worlds-tile ${typeClass}${bg ? " has-bg" : ""}" data-world-size="${size}"
         data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(p.key)}">
         ${worldTileBgHtml(bg)}
         <button class="worlds-tile-rm" type="button" data-world-archive="${escapeHtml(p.key)}" aria-label="Remove ${escapeHtml(t.name)} from your layout" tabindex="-1">−</button>
-        ${sizeBtn}
+        ${menu}
         <div class="worlds-tile-head" role="button" tabindex="0" data-world-open aria-label="Open ${escapeHtml(t.name)}">
-          ${renderWorldRing(t, large ? "large" : "medium")}
-          <div class="worlds-tile-title">
-            <h3>${escapeHtml(t.name)}</h3>
+          <h3 class="worlds-tile-name">${escapeHtml(t.name)}<span class="worlds-tile-arrow" aria-hidden="true">›</span></h3>
+          <div class="worlds-tile-meta">
+            ${renderWorldRing(t, large ? "large" : "medium")}
             <p>${renderWorldStat(t, large)}</p>
           </div>
         </div>
-        ${addCover}
-        ${checkinTileHtml(t, { compact: true })}
+        ${checkin}${quiet}
         ${large ? renderWorldSections(t) : ""}
       </div>`;
+  }
+  function closeWorldTileMenus() {
+    document.querySelectorAll(".worlds-tile-menu:not([hidden])").forEach((m) => { m.hidden = true; });
+    document.querySelectorAll("[data-world-menu][aria-expanded=\"true\"]").forEach((b) => b.setAttribute("aria-expanded", "false"));
+  }
+  // A tap anywhere else (outside the grid too) or Escape closes an open tile menu.
+  document.addEventListener("click", (e) => {
+    const t = e.target;
+    if (t.closest && (t.closest("[data-world-menu]") || t.closest(".worlds-tile-menu"))) return;
+    if (document.querySelector(".worlds-tile-menu:not([hidden])")) closeWorldTileMenus();
+  }, true);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeWorldTileMenus(); });
+  function openWorldRules(key) {
+    const t = worldTileFromKey(key);
+    if (!t) return;
+    if (t.type === "community") { openWorldCommunity(t.id); openCommunitySettings(); }
+    else { openWorldPersonal(t.id); editSystemFromScore(); }
   }
 
   function renderWorldGrid() {
@@ -5824,10 +6139,9 @@
     const tiles = buildWorldTiles();
     if (els.worldCount) els.worldCount.textContent = tiles.length ? String(tiles.length) : "";
     const pages = buildWorldsPages();
-    // The add-card takes one column slot like a medium tile: if the last page has no room left
-    // it starts a new page, so a page never renders more cells than the grid is built for.
-    if (worldsPageSlots(pages[pages.length - 1]) + 1 > worldsSlotsPerPage()) pages.push([]);
-    const addPageIndex = pages.length - 1;
+    // "+ New world" lives in the nav row now, always reachable; the add-card only appears when
+    // there is nothing else to show.
+    const addPageIndex = tiles.length ? -1 : 0;
     worldsPageCount = Math.max(1, pages.length);
     worldsPageIndex = Math.max(0, Math.min(worldsPageIndex, worldsPageCount - 1));
     worldsLastCols = worldsColumns();
@@ -5839,20 +6153,30 @@
       ? pages.map((_, i) => `<button class="worlds-dot${i === worldsPageIndex ? " is-on" : ""}" type="button"
           aria-current="${i === worldsPageIndex ? "true" : "false"}" aria-label="Go to page ${i + 1} of ${worldsPageCount}" data-worlds-dot="${i}"></button>`).join("")
       : "";
-    const nav = worldsPageCount > 1
-      ? `<div class="worlds-nav">
-          <button class="worlds-chev" type="button" data-worlds-prev aria-label="Previous page">‹</button>
+    const nav = `<div class="worlds-nav${worldsPageCount > 1 ? "" : " is-single"}">
+          ${worldsPageCount > 1 ? `<button class="worlds-chev" type="button" data-worlds-prev aria-label="Previous page">‹</button>
           <div class="worlds-dots" role="group" aria-label="World pages">${dots}</div>
-          <button class="worlds-chev" type="button" data-worlds-next aria-label="Next page">›</button>
-        </div>`
-      : "";
+          <button class="worlds-chev" type="button" data-worlds-next aria-label="Next page">›</button>` : ""}
+          ${tiles.length ? `<button class="worlds-new" type="button" data-world-add>+ New world</button>` : ""}
+        </div>`;
     mount.classList.add("is-pager");
     mount.classList.toggle("is-editing", worldsEditMode);
     // Single source of truth for the column count: the CSS grid reads this, so the layout and
     // the slot budget above can never disagree (a mismatch would stack tiles the packer thought
     // were side by side).
     mount.dataset.worldsCols = String(worldsLastCols);
+    // Worlds you've hidden stay one tap from coming back; a failed refresh says so and offers Retry.
+    const hiddenTiles = worldLayoutState().archived.map((k) => tiles.find((t) => worldTileKey(t) === String(k))).filter(Boolean);
+    const hiddenRow = hiddenTiles.length
+      ? `<div class="worlds-hidden"><span class="worlds-hidden-cap">Hidden from home (${hiddenTiles.length})</span>${hiddenTiles.map((t) =>
+          `<button type="button" class="worlds-hidden-item" data-worlds-restore="${escapeHtml(worldTileKey(t))}">${escapeHtml(t.name)}<b>Restore</b></button>`).join("")}</div>`
+      : "";
+    const banner = communitiesLoadError
+      ? `<div class="worlds-banner" role="alert">Couldn't refresh your worlds — showing your last saved ones<button type="button" data-worlds-retry>Retry</button></div>`
+      : "";
     mount.innerHTML = `
+      ${banner}
+      ${renderWorldsPeopleStrip()}
       ${nav}
       <div class="worlds-shell">
         <span class="worlds-edge worlds-edge-l" aria-hidden="true"></span>
@@ -5865,7 +6189,8 @@
       </div>
       ${worldsEditMode
         ? `<p class="worlds-tip">Drag a tile to move it · hold at an edge to change page</p>`
-        : ""}`;
+        : ""}
+      ${hiddenRow}`;
     paintWorldTilesMedia(tiles);
     bindWorldsPager();
     // Restore the scroll position for the active page without animating on a re-render.
@@ -6117,7 +6442,7 @@
     els.worldsEditPill = pill;
     const onWorlds = state.activeView === "dashboard";
     pill.hidden = !onWorlds;
-    pill.textContent = worldsEditMode ? "✓ Done" : "✎ Edit";
+    pill.textContent = worldsEditMode ? "✓ Done" : "⠿ Arrange";
     pill.classList.toggle("is-editing", worldsEditMode);
     pill.setAttribute("aria-pressed", worldsEditMode ? "true" : "false");
     const cluster = pill.parentElement;
@@ -6132,7 +6457,15 @@
     if (cur.archived.indexOf(String(key)) > -1) return;
     saveWorldLayout({ entries: cur.entries.filter((e) => String(e.worldId) !== String(key)), archived: cur.archived.concat([String(key)]) });
     renderWorldGrid();
-    showToast("Removed from your layout — restore it from Build");
+    // Reversible on the spot, and again later from the "Hidden from home" row under the pager.
+    showToast("Hidden from your home", { label: "Undo", onClick: () => restoreWorldToLayout(key) });
+  }
+  function restoreWorldToLayout(key) {
+    const cur = worldLayoutState();
+    if (cur.archived.indexOf(String(key)) === -1) return;
+    saveWorldLayout({ entries: cur.entries, archived: cur.archived.filter((k) => String(k) !== String(key)) });
+    renderWorldGrid();
+    showToast("Back on your home");
   }
 
   // Column count changes at 760px → the page flow changes, so rebuild and stay put.
@@ -6508,6 +6841,16 @@
     if (q("[data-worlds-prev]")) { goWorldsPage(worldsPageIndex - 1); return; }
     if (q("[data-worlds-next]")) { goWorldsPage(worldsPageIndex + 1); return; }
     if (q("[data-worlds-edit]")) { toggleWorldsEditMode(); return; }
+    const restore = q("[data-worlds-restore]");
+    if (restore) { restoreWorldToLayout(restore.dataset.worldsRestore); return; }
+    const person = q("[data-worlds-person]");
+    if (person) { toggleWorldsPerson(person.dataset.worldsPerson); return; }
+    const cheer = q("[data-worlds-cheer]");
+    if (cheer) { cheerWorldsPerson(cheer.dataset.worldsCheer); return; }
+    const popen = q("[data-worlds-person-open]");
+    if (popen) { openWorldsPerson(popen.dataset.worldsPersonOpen); return; }
+    if (q("#worldsPersonPop")) return;   // taps inside the popover stay there
+    if (q("[data-worlds-retry]")) { communitiesLoadError = ""; renderWorldGrid(); loadCommunitiesFromDb(); return; }
     const archive = q("[data-world-archive]");
     if (archive) { archiveWorldFromLayout(archive.dataset.worldArchive); return; }
     // A click that follows a drag must not also open the tile.
@@ -6518,8 +6861,20 @@
     // The corner ⤡/⤢ resizes ONLY this world and never opens it. Two sizes, so the old cycle is
     // a straight toggle; it reads the size from the same store it writes to, so a stale
     // data-world-size on the node can't flip it the wrong way.
+    const menuBtn = t.closest("[data-world-menu]");
+    if (menuBtn) {
+      const m = menuBtn.nextElementSibling; const wasOpen = m && !m.hidden;
+      closeWorldTileMenus();
+      if (m && !wasOpen) { m.hidden = false; menuBtn.setAttribute("aria-expanded", "true"); }
+      return;
+    }
+    if (!t.closest(".worlds-tile-menu")) closeWorldTileMenus();
+    const rules = t.closest("[data-world-rules]");
+    if (rules) { openWorldRules(rules.dataset.worldRules); return; }
+    const logNow = t.closest("[data-world-log]");
+    if (logNow) { openPostComposer(); return; }
     const bgOpen = t.closest("[data-world-bg-open]");
-    if (bgOpen) { openWorldBgPicker(bgOpen.dataset.worldBgOpen); return; }
+    if (bgOpen) { closeWorldTileMenus(); openWorldBgPicker(bgOpen.dataset.worldBgOpen); return; }
     const sizeCycle = t.closest("[data-world-size-cycle]");
     if (sizeCycle) {
       const tile = sizeCycle.closest("[data-world-key]");
@@ -6592,7 +6947,12 @@
     const more = target.closest("[data-qc-more]");
     if (more) { toggleCheckinMore(world, more); return true; }
     const skip = target.closest("[data-qc-skip]");
-    if (skip) { skipCheckinRule(world.id, skip.dataset.qcSkip); renderWorldGrid(); return true; }
+    if (skip) {
+      const ruleId = skip.dataset.qcSkip;
+      skipCheckinRule(world.id, ruleId); renderWorldGrid();
+      showToast("Skipped for today", { label: "Undo", onClick: () => { delete checkinSkipsToday()[checkinSkipKey(world.id, ruleId)]; saveState(); renderWorldGrid(); } });
+      return true;
+    }
     const type = target.closest("[data-qc-type]");
     if (type) { openCheckinTileTyping(target, world, type.dataset.qcType); return true; }
     const go = target.closest("[data-qc-typed-go]");
@@ -6780,6 +7140,7 @@
 
   function openWorldCommunity(id) {
     if (!(state.communities || []).some((c) => c.id === id)) return;
+    if (state.activeView !== "community-detail" && !worldBackView) worldBackView = state.activeView;
     state.worldDetailType = "community";
     state.scoreContext = "community:" + id;
     saveState();
@@ -6790,6 +7151,7 @@
   // VIEW it; logging stays on the "+" FAB / Coach.
   function openWorldPersonal(id) {
     if (!(state.systems || []).some((s) => s.id === id)) return;
+    if (state.activeView !== "community-detail" && !worldBackView) worldBackView = state.activeView;
     state.detailSystemId = id;
     state.scoreContext = "personal";
     state.trackerSystemId = id;
@@ -7210,7 +7572,7 @@
     if (!els.headerSearchResults) return;
     const query = String(state.searchQuery || "").trim().toLowerCase();
     if (query.length < 2) {
-      els.headerSearchResults.innerHTML = emptyState(signalsReady() ? "Search communities, people, and public systems by name." : "Sign in to search.");
+      els.headerSearchResults.innerHTML = signalsReady() ? renderSearchPrefill() : emptyState("Sign in to search.");
       return;
     }
     const systems = getBuildPublicSystems();
@@ -7228,7 +7590,24 @@
   function refreshSearchSurfaces() {
     renderBuildSearchResults();
     if (state.activeView === "search") renderHeaderSearchResults();
+    // Onboarding's "Find your friends" list shares the same people search; update just the list
+    // so the input keeps focus and its text.
+    const op = document.getElementById("onboardPeopleResults");
+    if (op && onboardingActive) op.innerHTML = renderPeopleSection(onboardingPeopleQuery);
+    const pr = document.getElementById("peopleSearchResults");
+    if (pr) pr.innerHTML = peopleQuery.trim().length >= 2 ? renderPeopleSection(peopleQuery.trim()) : "";
   }
+  document.addEventListener("input", (e) => {
+    const i = e.target.closest && e.target.closest("[data-onboard-people]");
+    if (!i) return;
+    onboardingPeopleQuery = i.value;
+    runPeopleSearch(i.value);
+  });
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest("#onboardPeopleResults [data-add-friend-id]");
+    if (!b) return;
+    sendFriendRequestTo(b.dataset.addFriendId, b.dataset.addFriendName || "");
+  });
 
   // Shared result-card handlers — identical for both search surfaces (reuse existing handlers).
   function bindSearchResultActions(container, systems) {
@@ -7275,6 +7654,37 @@
     }, 250);
   }
 
+  // Before the first keystroke: people from your worlds you don't follow yet, your recent
+  // searches, and the public systems people are copying — all from data already loaded.
+  let recentSearches = [];
+  function rememberSearch(q) {
+    q = String(q || "").trim(); if (q.length < 2) return;
+    recentSearches = [q].concat(recentSearches.filter((x) => x.toLowerCase() !== q.toLowerCase())).slice(0, 6);
+    try { localStorage.setItem("pointwell-recent-searches", JSON.stringify(recentSearches)); } catch (e) { /* ignore */ }
+  }
+  try { recentSearches = JSON.parse(localStorage.getItem("pointwell-recent-searches") || "[]").slice(0, 6); } catch (e) { recentSearches = []; }
+  function renderSearchPrefill() {
+    const mayKnow = worldsPeopleToday().filter((p) => !p.isMe && !p.isFriend && p.userId).slice(0, 5);
+    const people = mayKnow.map((p) => `<div class="pp-row"><button type="button" class="pp-open" data-worlds-person-open="${escapeHtml(p.id)}" aria-label="Open ${escapeHtml(p.name)}">${worldsPersonRing(p, "sm")}<span class="pp-who"><strong>${escapeHtml(p.name)}</strong><small>${p.worlds.map((w) => escapeHtml(w.name)).join(" · ")}</small></span></button><button type="button" class="pp-follow" data-people-follow="${escapeHtml(String(p.userId))}">Follow</button></div>`).join("");
+    const recent = recentSearches.length ? `<div class="sp-recent">${recentSearches.map((q) => `<button type="button" class="sp-chip" data-search-recent="${escapeHtml(q)}">${escapeHtml(q)}</button>`).join("")}</div>` : "";
+    const trending = (state.publicSystems || []).slice().sort((a, b) => (b.copyCount || 0) - (a.copyCount || 0)).slice(0, 4);
+    const sys = trending.map((s) => `<button type="button" class="sp-sys" data-search-fill="${escapeHtml(s.title || "")}"><span class="sp-sys-ic">${svgIcon("target", "icon-sm")}</span><span><strong>${escapeHtml(s.title || "Reward system")}</strong><small>${escapeHtml(formatCount(s.copyCount || 0))} copies${s.ownerName ? " · " + escapeHtml(s.ownerName) : ""}</small></span></button>`).join("");
+    const sec = (cap, html) => html ? `<p class="pp-cap">${cap}</p>${html}` : "";
+    const body = sec("People you may know · from your worlds", people) + sec("Recent", recent) + sec("Trending public systems", sys);
+    return body || emptyState("Search communities, people, and public systems by name.");
+  }
+  document.addEventListener("click", (e) => {
+    const t = e.target; if (!t.closest) return;
+    const r = t.closest("[data-search-recent],[data-search-fill]");
+    if (r && els.headerSearchInput) { els.headerSearchInput.value = r.dataset.searchRecent || r.dataset.searchFill || ""; els.headerSearchInput.dispatchEvent(new Event("input", { bubbles: true })); els.headerSearchInput.focus(); return; }
+    const open = t.closest("#searchView [data-worlds-person-open]"); if (open) { openWorldsPerson(open.dataset.worldsPersonOpen); return; }
+    const fol = t.closest("#searchView [data-people-follow]");
+    if (fol) {
+      if (!signalsReady()) { showToast("Sign in to follow"); return; }
+      fol.disabled = true; fol.textContent = "Following";
+      Promise.resolve(window.PointwellSignals.followUser(fol.dataset.peopleFollow)).then((x) => { if (x && x.error) { showToast("Couldn't follow"); fol.disabled = false; fol.textContent = "Follow"; } }).catch(() => { fol.disabled = false; fol.textContent = "Follow"; });
+    }
+  });
   function renderPeopleSection(query) {
     if (!signalsReady()) return emptyState("Sign in to search for people.");
     if (query.length < 2) return emptyState("Type at least 2 characters to find people by name or handle.");
@@ -9198,6 +9608,7 @@
   let discoverFeedItems = [];    // mapped into the { entry, community, member, rule, when, discover } shape
   let discoverLoading = false;
   let discoverLoaded = false;
+  let discoverLoadFailed = false;      // last load threw → show Retry instead of "nothing yet"
 
   // A real DB id (uuid) means likes/comments can attach; a just-logged local entry
   // (makeId("community-entry")) cannot until the next loadCommunitiesFromDb().
@@ -9429,10 +9840,12 @@
       return;
     }
     let rows = [];
+    discoverLoadFailed = false;
     try {
       rows = await window.PointwellSignals.discoverFeed(callerDiscoverCategories(), null, 30);
     } catch (error) {
       rows = [];
+      discoverLoadFailed = true;   // stays "loaded" so we don't retry in a loop; the user can
     }
     discoverFeedRows = Array.isArray(rows) ? rows : [];
     discoverFeedItems = discoverFeedRows.map(mapDiscoverRowToItem).filter(Boolean);
@@ -9520,7 +9933,9 @@
     els.communityFeed.hidden = false;
     els.communityFeed.innerHTML = feedItems.length
       ? `<div class="community-feed-list">${feedItems.map(renderFeedPost).join("")}</div>`
-      : emptyState("No similar public posts yet.", { label: "Find friends", action: "find-friends", icon: "users" });
+      : discoverLoadFailed
+        ? emptyState("Couldn't load Discover right now.", { label: "Retry", action: "retry-discover" })
+        : emptyState("No similar public posts yet.", { label: "Find people", action: "find-friends", icon: "users" });
     bindEntryPhotos(els.communityFeed);
     bindFeedDelegation();
     restoreFeedDrafts(els.communityFeed, drafts);
@@ -9554,20 +9969,17 @@
     // into one card. Runs BEFORE the slice so a bundle counts as the single item it renders as.
     feedItems = bundleFeedItems(rawItems).slice(0, 20);
 
-    // Hide entirely when there's nothing to show (no communities AND no followed posts);
-    // show a friendly empty state when you have communities but no logs yet.
-    if (!feedItems.length && !state.communities.length) {
-      els.communityFeed.hidden = true;
-      els.communityFeed.innerHTML = "";
-      setFeedCount("");
-      return;
-    }
+    // Never render nothing: a brand-new user's default tab used to be blank. The empty state
+    // names the two things that fill it.
     setFeedCount(feedItems.length ? plural(feedItems.length, "update") : "");
     const drafts = captureFeedDrafts(els.communityFeed);
     els.communityFeed.hidden = false;
     els.communityFeed.innerHTML = feedItems.length
       ? `<div class="community-feed-list">${feedItems.map(renderFeedPost).join("")}</div>`
-      : emptyState("Your friends' progress will land here.", { label: "Find friends", action: "find-friends", icon: "users" });
+      : emptyState(
+          state.communities.length ? "Your friends' progress will land here." : "Your feed is quiet. Follow a few people or join a world and their check-ins show up here.",
+          { label: "Find people", action: "find-friends", icon: "users" },
+          { label: "Join a world", action: "find-worlds" });
     bindEntryPhotos(els.communityFeed);
     bindFeedDelegation();
     restoreFeedDrafts(els.communityFeed, drafts);
@@ -9642,7 +10054,7 @@
     const rel = (window.PointwellSignals && typeof window.PointwellSignals.formatRelativeTime === "function")
       ? (window.PointwellSignals.formatRelativeTime(item.when, Date.now()) || "") : "";
     const relText = rel === "just now" || !rel ? (rel || "") : rel + " ago";
-    const sub = [item.community ? item.community.name : "", relText].filter(Boolean).map(escapeHtml).join(" · ");
+    const sub = [item.community ? `<button type="button" class="ig-world-link" data-feed-community="${escapeHtml(String(item.community.id))}">${escapeHtml(item.community.name)} ›</button>` : "", escapeHtml(relText)].filter(Boolean).join(" · ");
     const canSocial = signalsReady() && isDbEntryId(entry.id);
     const social = feedSocialFor(entryId);
     const isMe = entry.userId === "me";
@@ -9703,7 +10115,7 @@
     const rel = (window.PointwellSignals && typeof window.PointwellSignals.formatRelativeTime === "function") ? (window.PointwellSignals.formatRelativeTime(item.when, Date.now()) || "") : "";
     const relText = rel === "just now" || !rel ? (rel || "") : rel + " ago";
     // Profile posts have no community → sub is just the relative time; community posts show "Name · time".
-    const sub = [item.community ? item.community.name : "", relText].filter(Boolean).map(escapeHtml).join(" · ");
+    const sub = [item.community ? `<button type="button" class="ig-world-link" data-feed-community="${escapeHtml(String(item.community.id))}">${escapeHtml(item.community.name)} ›</button>` : "", escapeHtml(relText)].filter(Boolean).join(" · ");
     const goal = item.rule ? goalAmountForRule(item.rule) : 0;
     const milestone = goal > 0 && numberOrDefault(entry.amount, 0) >= goal;
     // A post upgraded from a wearable sync keeps a small "via Fitbit" badge.
@@ -9864,7 +10276,11 @@
     if (feedCommentsOpen.has(entryId)) {
       const rows = feedCommentsCache.get(entryId);
       if (!rows) return `<div class="ig-comments"><div class="ig-comment">Loading…</div></div>`;
-      const list = rows.map((c) => `<div class="ig-comment"><span class="ig-name">${escapeHtml(c.display_name || "Member")}</span>${escapeHtml(c.body || "")}</div>`).join("");
+      const list = rows.map((c) => {
+        const nm = escapeHtml(c.display_name || "Member");
+        const who = c.user_id ? `<button type="button" class="ig-name ig-name-link" data-feed-commenter="${escapeHtml(String(c.user_id))}">${nm}</button>` : `<span class="ig-name">${nm}</span>`;
+        return `<div class="ig-comment">${who}${escapeHtml(c.body || "")}<button type="button" class="ig-reply" data-feed-reply-to="${nm}">Reply</button></div>`;
+      }).join("");
       return `<div class="ig-comments">${list}</div>`;
     }
     // Collapsed: a "View all" link (when >1) + the most-recent comment preview.
@@ -10062,6 +10478,18 @@
     if (menuRoot && !event.target.closest("[data-feed-menu]") && !event.target.closest(".ig-menu-pop")) {
       Array.from(menuRoot.querySelectorAll(".ig-menu-pop")).forEach((p) => { p.hidden = true; });
     }
+    const worldBtn = event.target.closest("[data-feed-community]");
+    if (worldBtn) { worldBackView = "feed"; openWorldCommunity(worldBtn.dataset.feedCommunity); return; }
+    const replyBtn = event.target.closest("[data-feed-reply-to]");
+    if (replyBtn) {
+      // Reply = prefill "@name " in that post's comment box and focus it.
+      const card = replyBtn.closest("[data-feed-entry]");
+      const input = card && card.querySelector("[data-feed-comment-input]");
+      if (input) { const tag = "@" + String(replyBtn.dataset.feedReplyTo || "").replace(/\s+/g, "") + " "; if (input.value.indexOf(tag) !== 0) input.value = tag + input.value; input.focus(); }
+      return;
+    }
+    const nameBtn = event.target.closest("[data-feed-commenter]");
+    if (nameBtn) { openUserProfile(nameBtn.dataset.feedCommenter); return; }
     const authorBtn = event.target.closest("[data-feed-author]");
     if (authorBtn) { openUserProfile(authorBtn.dataset.feedAuthor); return; }
     const likeBtn = event.target.closest("[data-feed-like]");
@@ -10386,6 +10814,7 @@
   const COMMUNITY_HUB_TABS = [
     { id: "feed", label: "Feed" },
     { id: "leaderboard", label: "Leaderboard" },
+    { id: "members", label: "Members" },
     { id: "compete", label: "Compete" },
     { id: "about", label: "About" }
   ];
@@ -10896,6 +11325,7 @@
     show("communityLeaderboardPanel", tab === "leaderboard" && lbOn);
     show("communityYourDayPanel", tab === "leaderboard");
     show("worldTrendsPanel", tab === "leaderboard" && trendsOn);
+    show("communityMembersPanel", tab === "members");
     show("communityCompetePanel", tab === "compete");
     show("communityAboutPanel", tab === "about");
     if (els.personalRulesPanel) els.personalRulesPanel.hidden = true;
@@ -11393,7 +11823,7 @@
         return `<div class="qc-row" data-qc-row="${ruleId}">
             <span class="qc-icon" aria-hidden="true">${icon}</span>
             <span class="qc-q">${question}</span>
-            <button class="qc-no" type="button" data-qc-skip="${ruleId}">No</button>
+            <button class="qc-no" type="button" data-qc-skip="${ruleId}">${compact ? "Not today" : "No"}</button>
             <button class="qc-yes" type="button" data-qc-yes="${ruleId}">Yes</button>
           </div>`;
       }
@@ -12712,7 +13142,11 @@
     // a "what others see" self-preview — see renderProfilePage / openMyProfile.)
     // When opened from a community (leaderboard), remember it → the "Today in <community>"
     // section. Any other entry point (feed, friends, search) clears it.
-    state.profileCommunityContextId = communityContextId ? String(communityContextId) : "";
+    // Default the context to the first world you share: the profile then shows their day
+    // whether you arrived from the feed, search, People or a leaderboard (one destination).
+    state.profileCommunityContextId = communityContextId
+      ? String(communityContextId)
+      : (((state.communities || []).find((c) => (c.members || []).some((m) => String(m.userId) === id)) || {}).id || "");
     profileBackView = (state.activeView && state.activeView !== "profile-page") ? state.activeView : "feed";
     state.profileUserId = id;
     state.profileListMode = null; // always open the profile itself, not a stale followers list
@@ -13054,8 +13488,36 @@
       ? `<button class="secondary-button small profile-today-kudos" type="button" data-today-kudos="${escapeHtml(member.id)}"><span aria-hidden="true">♥</span> Kudos</button>`
       : "";
 
+    // PROGRESS FIRST: their streak and 7-day dots in this world, the cross-world ring, every
+    // world you share with their rank, and a two-column "You · Them" for this world. The photo
+    // grid comes after. All from data you already hold as a co-member.
+    const theirProbe = memberProbe(community, member);
+    const theirStreak = probeStreak(theirProbe);
+    const me = (community.members || []).find((m) => m.id === "me");
+    const myProbe = memberProbe(community, me);
+    const myStreak = probeStreak(myProbe);
+    const myRank = standings.findIndex((item) => item.id === "me") + 1;
+    const myPts = me ? communityMemberPointsOnDate(community, me, todayIso) : 0;
+    const person = worldsPeopleToday().find((p) => String(p.userId) === String(state.profileUserId));
+    const shared = person ? person.worlds : [];
+    const progress = `
+      <div class="pf-progress">
+        ${person ? worldsPersonRing(person) : ""}
+        <div class="pf-progress-main">
+          <strong>${svgIcon("flame", "icon-xs")} ${theirStreak}-day streak</strong>
+          <small>${person ? `${person.done} of ${person.total} check-ins done today` : ""}${person && shared.length > 1 ? ` · ${shared.length} worlds with you` : ""}</small>
+          ${probeWeekDotsHtml(theirProbe)}
+        </div>
+      </div>
+      ${!isOwnProfile ? `<div class="pf-compare">
+        <div class="pf-cmp you"><small>You</small><strong>${escapeHtml(formatPoints(myPts))} pts</strong><small>${myRank ? "#" + myRank : "—"} · ${myStreak}d streak</small></div>
+        <div class="pf-cmp"><small>${escapeHtml(member.name || "Them")}</small><strong>${escapeHtml(formatPoints(summary.total))} pts</strong><small>${rank ? "#" + rank : "—"} · ${theirStreak}d streak</small></div>
+      </div>` : ""}
+      ${shared.length > 1 ? `<div class="pf-worlds">${shared.map((w) => `<div class="wp-world"><span class="wp-wn">${escapeHtml(w.name)}</span><span class="wp-wpts">${escapeHtml(formatPoints(w.points))}/${escapeHtml(formatPoints(w.target))} pts</span><span class="wp-wr">${w.rank ? "#" + w.rank : ""}</span></div>`).join("")}</div>` : ""}`;
+
     return `
       <section class="profile-section profile-today-section">
+        ${progress}
         <div class="profile-today-head">
           <h3 class="profile-section-title">Today in ${escapeHtml(community.name)}</h3>
           ${kudos}
@@ -15461,7 +15923,13 @@
     els.coachLauncherBadge.hidden = !show;
     els.coachLauncherBadge.textContent = n > 9 ? "9+" : String(n);
     if (els.coachLauncher) els.coachLauncher.classList.toggle("has-nudges", show);
+    // The same count on the in-page Coach buttons (Today card, composer) that replaced the FAB.
+    document.querySelectorAll("[data-coach-count]").forEach((el) => { el.textContent = show ? (n > 9 ? "9+" : String(n)) : ""; const b = el.closest("[data-coach-open]"); if (b) b.classList.toggle("has-nudges", show); });
   }
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest("[data-coach-open]");
+    if (b) { e.preventDefault(); toggleCoachPanel(); }
+  });
 
   function coachActiveNudgeCount() {
     const recap = coach.recapPending ? 1 : 0;
@@ -15578,6 +16046,30 @@
   // The per-day "hit" primitive shared by every streak computation: the daily target + a getPts(date)
   // that reads the same points coachContextStreak uses. Extracted so the streak CARD (week dots,
   // best-run, at-risk) reuses the EXACT same hit logic instead of re-deriving streaks from scratch.
+  // Streak + 7-day dots for ANY member of a community (not just "me"), from the same points
+  // read the leaderboard uses — so a friend's profile and the bell can show their streak.
+  function memberProbe(community, member) {
+    return { target: communityTarget(community), getPts: (d) => member ? communityMemberPointsOnDate(community, member, d) : 0 };
+  }
+  function probeStreak(probe) {
+    let streak = 0;
+    for (let i = 0; i < 60; i++) {
+      const logged = probe.getPts(offsetDate(-i)) > 0;
+      if (i === 0 && !logged) continue;
+      if (logged) streak += 1; else break;
+    }
+    return streak;
+  }
+  function probeWeekDotsHtml(probe) {
+    const today = getTodayKey();
+    return `<div class="pf-week" aria-hidden="true">${[6, 5, 4, 3, 2, 1, 0].map((back) => {
+      const key = offsetDate(-back);
+      const day = new Date(); day.setDate(day.getDate() - back);
+      const letter = ["S", "M", "T", "W", "T", "F", "S"][day.getDay()];
+      const hit = probe.getPts(key) > 0;
+      return `<span class="pf-day${hit ? " hit" : ""}${key === today ? " today" : ""}">${letter}</span>`;
+    }).join("")}</div>`;
+  }
   function streakContextProbe(ctx) {
     if (ctx.type === "community") {
       const target = communityTarget(ctx.community);
@@ -15660,12 +16152,29 @@
 
   // The prominent Today streak card (amber flame + count + 7-day dots + milestone progress). Reuses
   // coachContextStreak for the count and the shared probe for the dots/best-run — no new streak math.
+  // Across ALL your worlds: how many are fully checked in and how many prompts remain. This is
+  // the first line of the home screen; the streak (one context's) rides along underneath.
+  function todaySummary() {
+    const tiles = buildWorldTiles().filter((t) => !worldIsArchived(worldTileKey(t)));
+    let done = 0, left = 0;
+    tiles.forEach((t) => {
+      const w = checkinWorldFromTile(t);
+      const ask = w ? buildCheckinItems(w).ask.length : 0;
+      if (!ask) done++; left += ask;
+    });
+    return { worlds: tiles.length, done: done, left: left };
+  }
   function renderStreakCard() {
     if (!els.streakCard) return;
     const ctx = streakActiveContext();
     const probe = ctx ? streakContextProbe(ctx) : null;
-    if (!ctx || !probe) { els.streakCard.hidden = true; els.streakCard.innerHTML = ""; return; } // show even without a target (streak from activity)
+    const sum = todaySummary();
+    if ((!ctx || !probe) && !sum.worlds) { els.streakCard.hidden = true; els.streakCard.innerHTML = ""; return; }
     els.streakCard.hidden = false;
+    if (!ctx || !probe) {
+      els.streakCard.innerHTML = `<div class="streak-bar today-bar"><div class="streak-headline"><strong class="streak-count">${sum.done} of ${sum.worlds} worlds done</strong><p class="streak-sub">${sum.left ? sum.left + " check-ins left" : "All logged for today"}</p></div></div>`;
+      return;
+    }
     const streak = coachContextStreak(ctx);
     maybeCelebrateMilestone(ctx, streak);
     const key = ctx.type + ":" + ctx.id;
@@ -15687,13 +16196,15 @@
     if (streak <= 0) sub = "Log today to start";
     else if (loggedToday) sub = "Logged today · " + milestoneNote;
     else sub = milestoneNote;
+    const nudges = coachActiveNudgeCount();
     els.streakCard.innerHTML = `
-      <div class="streak-bar${streak <= 0 ? " is-zero" : ""}${celebrating ? " is-celebrating" : ""}">
+      <div class="streak-bar today-bar${streak <= 0 ? " is-zero" : ""}${celebrating ? " is-celebrating" : ""}">
         <span class="streak-flame" aria-hidden="true">${svgIcon("flame")}</span>
         <div class="streak-headline">
-          <strong class="streak-count">${escapeHtml(String(streak))}-day streak</strong>
-          <p class="streak-sub">${escapeHtml(sub)}</p>
+          <strong class="streak-count">${sum.worlds ? `${sum.done} of ${sum.worlds} worlds done` : `${escapeHtml(String(streak))}-day streak`}</strong>
+          <p class="streak-sub">${sum.worlds ? `${sum.left ? sum.left + " check-ins left" : "All logged"} · ${escapeHtml(String(streak))}-day streak` : escapeHtml(sub)}</p>
         </div>
+        <button type="button" class="today-coach${nudges ? " has-nudges" : ""}" data-coach-open aria-label="Open Coach">${svgIcon("sparkle", "icon-xs")}<span data-coach-count>${nudges ? nudges : ""}</span></button>
         <div class="streak-week-inline" aria-hidden="true">${dots}</div>
       </div>`;
     try { renderSidebarModules(); } catch (e) { /* sidebar modules are desktop sugar */ }
@@ -23954,6 +24465,14 @@
   async function loadCommunitiesFromDb() {
     if (!communitiesAreShared()) return;
     const res = await window.PointwellSignals.fetchMyCommunities(state.account.userId);
+    if (res && res.error) {
+      // Keep the last good list. One bad network moment must not wipe your worlds and then
+      // save the empty list over them; the Worlds page shows a banner with Retry instead.
+      communitiesLoadError = (res.error && res.error.message) || "Couldn't reach the server";
+      render();
+      return;
+    }
+    communitiesLoadError = "";
     state.communities = (res.communities || []).map((row) =>
       communityFromDb(row, (res.membersByCommunity || {})[row.id] || []));
     state.communityEntries = (res.entries || []).map(communityEntryFromDb);
@@ -24665,26 +25184,40 @@
     localStorage.setItem(storageKey, JSON.stringify(state));
   }
 
-  function emptyState(message, cta) {
-    // One line of copy + one CTA button (no bare dashed boxes). cta = { label, action, icon }.
-    const btn = cta ? `<button type="button" class="empty-cta" data-empty-cta="${escapeHtml(cta.action)}">${cta.icon ? svgIcon(cta.icon, "icon-xs") : ""}${escapeHtml(cta.label)}</button>` : "";
-    return `<div class="empty-state${cta ? " has-cta" : ""}"><p>${escapeHtml(message)}</p>${btn}</div>`;
+  function emptyState(message, cta, cta2) {
+    // One line of copy + a CTA (and an optional quieter second one). cta = { label, action, icon }.
+    const btn = (c, cls) => c ? `<button type="button" class="empty-cta${cls}" data-empty-cta="${escapeHtml(c.action)}">${c.icon ? svgIcon(c.icon, "icon-xs") : ""}${escapeHtml(c.label)}</button>` : "";
+    return `<div class="empty-state${cta ? " has-cta" : ""}"><p>${escapeHtml(message)}</p>${btn(cta, "")}${btn(cta2, " secondary")}</div>`;
   }
   // Delegated CTA actions for empty states (find friends / log with a photo).
   document.addEventListener("click", (e) => {
     const b = e.target.closest && e.target.closest("[data-empty-cta]");
     if (!b) return;
     const a = b.dataset.emptyCta;
-    if (a === "find-friends") { try { openAddFriendFromFriends(); } catch (err) { state.activeView = "chats"; saveState(); render(); } }
+    // ONE people-finder: header Search (it has people + worlds + public systems), not the Chats panel.
+    if (a === "find-friends") { try { openHeaderSearch(); } catch (err) { state.activeView = "search"; } saveState(); render(); }
+    else if (a === "find-worlds") { try { openFindCommunities(); } catch (err) { state.activeView = "find-communities"; saveState(); render(); } }
+    else if (a === "retry-discover") { discoverLoaded = false; discoverLoadFailed = false; loadDiscoverFeed(); try { renderActiveFeed(); } catch (err) { /* ignore */ } }
     else if (a === "log-photo") { try { openPostComposer(); setTimeout(() => { const ph = document.querySelector("[data-pc-photo]"); if (ph) ph.click(); }, 80); } catch (err) { /* ignore */ } }
     else if (a === "new-entry") { try { openPostComposer(); } catch (err) { /* ignore */ } }
   });
 
-  function showToast(message) {
+  // action = { label, onClick } adds a button (e.g. "Undo") and keeps the toast up longer.
+  function showToast(message, action) {
     clearTimeout(toastTimer);
-    els.toast.textContent = message;
+    els.toast.textContent = "";
+    els.toast.appendChild(document.createTextNode(String(message)));
+    if (action && action.label) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "toast-action"; b.textContent = action.label;
+      b.addEventListener("click", () => {
+        clearTimeout(toastTimer); els.toast.classList.remove("show");
+        try { action.onClick(); } catch (e) { /* ignore */ }
+      });
+      els.toast.appendChild(b);
+    }
     els.toast.classList.add("show");
-    toastTimer = setTimeout(() => els.toast.classList.remove("show"), 2200);
+    toastTimer = setTimeout(() => els.toast.classList.remove("show"), action ? 4500 : 2200);
   }
 
   function makeId(prefix) {

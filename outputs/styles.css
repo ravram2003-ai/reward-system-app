@@ -12905,3 +12905,157 @@ button.challenge-duel-side:focus-visible {
   .wbg-preview { max-width: 100%; }
   .world-bg-sheet .world-bg-body { padding: 4px 13px 20px; }
 }
+
+
+/* ── Stability pass (feat/people-first) ──────────────────────────────────────────────────── */
+.toast-action { margin-left: 14px; background: none; border: 0; padding: 0 2px; color: #7ee0a8; font: inherit; font-weight: 700; cursor: pointer; }
+.worlds-banner { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 8px 10px; border-radius: 10px; background: #2a1f1a; border: 1px solid #5a3a2f; color: #f0c9b8; font-size: 0.72rem; }
+.worlds-banner button { margin-left: auto; flex: 0 0 auto; background: none; border: 1px solid #5a3a2f; color: #ffd9c7; border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 0.7rem; font-weight: 700; cursor: pointer; }
+.worlds-hidden { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 10px 2px 0; font-size: 0.68rem; color: #86a096; }
+.worlds-hidden-cap { letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.58rem; font-weight: 700; }
+.worlds-hidden-item { background: #0f1613; border: 1px solid #243029; color: #cfe0d9; border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 0.68rem; cursor: pointer; }
+.worlds-hidden-item b { color: #7ee0a8; margin-left: 6px; }
+.worlds-hidden-item:hover { border-color: #2c5a48; }
+.empty-cta + .empty-cta { margin-left: 8px; }
+.empty-cta.secondary { background: none; border: 1px solid #1d3a2e; color: #7ee0a8; }
+.onboard-people-field { margin: 8px 0 6px; }
+#onboardPeopleResults .build-result-actions [data-build-view-person-id] { display: none; } /* stay inside onboarding */
+
+
+/* ── People-first home (feat/people-first) ───────────────────────────────────────────────── */
+/* Your people today: a row of rings above the worlds. Lit = logged something today. */
+.worlds-people { display: flex; gap: 10px; overflow-x: auto; padding: 4px 2px 6px; scrollbar-width: none; }
+.worlds-people::-webkit-scrollbar { display: none; }
+.wp { flex: 0 0 auto; width: 56px; display: flex; flex-direction: column; align-items: center; gap: 4px; background: none; border: 0; padding: 2px 0; color: inherit; font-family: inherit; cursor: pointer; border-radius: 10px; }
+.wp:focus-visible { outline: 2px solid #7ee0a8; outline-offset: 2px; }
+.wp-ring { position: relative; width: 48px; height: 48px; display: grid; place-items: center; flex: 0 0 auto; }
+.wp-ring.sm { width: 40px; height: 40px; }
+.wp-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.wp-ring .score-ring-bg, .wp-ring .score-ring-fill { fill: none; stroke-width: 4; }
+.wp-ring .score-ring-bg { stroke: #203029; }
+.wp-ring .score-ring-fill { stroke: #7ee0a8; stroke-linecap: round; stroke-dasharray: 100; transition: stroke-dashoffset .3s ease; }
+.wp-ring.is-dim .score-ring-fill { stroke: #2a3a33; }
+.wp-av, .wp-ring .avatar, .wp-ring .member-avatar { width: 34px !important; height: 34px !important; font-size: 0.68rem; }
+.wp-ring.sm .wp-av, .wp-ring.sm .avatar, .wp-ring.sm .member-avatar { width: 28px !important; height: 28px !important; font-size: 0.6rem; }
+.wp.is-dim .wp-av, .wp.is-dim .avatar { opacity: .55; }
+.wp-name { font-size: 0.6rem; color: #cfe0d9; max-width: 56px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wp.is-dim .wp-name { color: #5f7369; }
+.wp.is-me .wp-name { color: #7ee0a8; font-weight: 700; }
+.wp.is-open .wp-ring::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid #7ee0a8; }
+.wp-pop { margin: 2px 0 10px; background: #101816; border: 1px solid #2c3a33; border-radius: 14px; padding: 10px 12px; font-size: 0.72rem; }
+.wp-pop-head { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+.wp-pop-head .wp-pop-av, .wp-pop-head .avatar { width: 30px; height: 30px; }
+.wp-pop-head strong { display: block; font-size: 0.82rem; }
+.wp-pop-head small { color: #8ba299; font-size: 0.66rem; }
+.wp-world { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 8px; background: #0c1310; margin-bottom: 3px; }
+.wp-wn { font-weight: 700; flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wp-wpts { color: #eaf2ee; font-weight: 700; font-variant-numeric: tabular-nums; }
+.wp-wr { color: #7ee0a8; font-weight: 700; min-width: 24px; text-align: right; }
+.wp-cap { margin: 6px 0 8px; font-size: 0.6rem; color: #5f7369; }
+.wp-actions { display: flex; gap: 8px; }
+.wp-cheer, .wp-open { flex: 1 1 auto; min-height: 40px; border-radius: 9px; font-family: inherit; font-weight: 700; font-size: 0.72rem; cursor: pointer; }
+.wp-cheer { background: #173026; border: 1px solid #1d3a2e; color: #bfeed3; }
+.wp-cheer:disabled { background: linear-gradient(180deg, #8ff0b8, #7ee0a8); color: #06231a; border-color: transparent; }
+.wp-open { background: none; border: 1px solid #243029; color: #cfe0d9; }
+
+/* Today card: cross-world summary + the Coach entry that replaced the floating button */
+.today-coach { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 6px 9px; border-radius: 999px; background: #0f1613; border: 1px solid #243029; color: #8ba299; font: inherit; font-size: 0.68rem; font-weight: 700; cursor: pointer; flex: 0 0 auto; }
+.today-coach.has-nudges { color: #7ee0a8; border-color: #2c5a48; }
+.today-coach [data-coach-count]:not(:empty) { background: #7ee0a8; color: #06231a; border-radius: 999px; padding: 0 5px; font-size: 0.6rem; margin-left: 2px; }
+.pc-coach { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding: 5px 9px; border-radius: 999px; background: #0f1613; border: 1px solid #243029; color: #8ba299; font: inherit; font-size: 0.7rem; font-weight: 700; cursor: pointer; }
+.pc-coach.has-nudges { color: #7ee0a8; border-color: #2c5a48; }
+.pc-coach [data-coach-count]:not(:empty) { background: #7ee0a8; color: #06231a; border-radius: 999px; padding: 0 5px; font-size: 0.6rem; }
+.coach-fab, #coachLauncher { display: none !important; }   /* one floating button: the +. Coach lives in the Today card and the composer. */
+
+/* Worlds nav row: always present, with "+ New world" */
+.worlds-nav.is-single { justify-content: flex-end; margin-bottom: 8px; }
+.worlds-new { margin-left: 8px; background: none; border: 1px dashed #2c4a3d; color: #7ee0a8; border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 0.68rem; font-weight: 700; cursor: pointer; }
+.worlds-new:hover { background: #173026; border-style: solid; }
+
+/* People screen */
+.people-list { display: flex; flex-direction: column; gap: 2px; }
+.pp-search { margin-bottom: 10px; }
+.pp-cap { margin: 12px 0 4px; font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; color: #8ba299; }
+.pp-row { display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-top: 1px solid #15201b; }
+.pp-open { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; background: none; border: 0; padding: 0; color: inherit; font-family: inherit; text-align: left; cursor: pointer; }
+.pp-who { min-width: 0; }
+.pp-who strong { display: block; font-size: 0.86rem; }
+.pp-who small { display: block; color: #8ba299; font-size: 0.66rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pp-row.is-dim .pp-who strong { color: #9fb0aa; }
+.pp-cheer, .pp-follow { flex: 0 0 auto; min-height: 36px; padding: 6px 11px; border-radius: 999px; font: inherit; font-size: 0.7rem; font-weight: 700; cursor: pointer; }
+.pp-cheer { background: #173026; border: 1px solid #1d3a2e; color: #bfeed3; }
+.pp-cheer:disabled { background: linear-gradient(180deg, #8ff0b8, #7ee0a8); color: #06231a; border-color: transparent; }
+.pp-follow { background: none; border: 1px solid #1d3a2e; color: #7ee0a8; }
+.pp-follow:disabled { color: #8ba299; border-color: #243029; }
+@media (max-width: 430px) { .wp { width: 52px; } .wp-ring { width: 44px; height: 44px; } }
+
+
+/* ── Profile: progress before photos (feat/people-first) ─────────────────────────────────── */
+.pf-progress { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.pf-progress .wp-ring { width: 54px; height: 54px; }
+.pf-progress .wp-ring .wp-av, .pf-progress .wp-ring .avatar, .pf-progress .wp-ring .member-avatar { width: 38px !important; height: 38px !important; }
+.pf-progress-main strong { display: flex; align-items: center; gap: 4px; font-size: 0.92rem; }
+.pf-progress-main small { display: block; color: #8ba299; font-size: 0.7rem; margin-top: 1px; }
+.pf-week { display: flex; gap: 5px; margin-top: 7px; }
+.pf-day { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 0.56rem; font-weight: 700; color: #6f827a; background: #1a2622; }
+.pf-day.hit { background: #7ee0a8; color: #06231a; }
+.pf-day.today:not(.hit) { box-shadow: inset 0 0 0 1.5px #7ee0a8; }
+.pf-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+.pf-cmp { background: #0c1310; border: 1px solid #17231d; border-radius: 10px; padding: 7px 10px; }
+.pf-cmp small { display: block; font-size: 0.64rem; color: #8ba299; }
+.pf-cmp strong { display: block; font-size: 1rem; font-weight: 800; margin: 1px 0; }
+.pf-cmp.you strong { color: #7ee0a8; }
+.pf-worlds { display: flex; flex-direction: column; gap: 3px; margin-bottom: 12px; font-size: 0.74rem; }
+
+/* Bell: milestone rows */
+.notif-milestone { background: rgba(14, 44, 34, 0.25); border-radius: 10px; }
+.notif-milestone b { color: #7ee0a8; font-weight: 700; }
+.wp-cheer.small { flex: 0 0 auto; min-height: 32px; padding: 5px 10px; font-size: 0.68rem; }
+
+
+/* ── Polish pass (feat/people-first) ─────────────────────────────────────────────────────── */
+.ig-world-link { background: none; border: 0; padding: 0; font: inherit; color: #7ee0a8; font-weight: 700; cursor: pointer; }
+.ig-world-link:hover { text-decoration: underline; }
+.ig-name-link { background: none; border: 0; padding: 0; font: inherit; font-weight: 700; color: #eaf2ee; cursor: pointer; margin-right: 5px; }
+.ig-name-link:hover { color: #7ee0a8; }
+.ig-comment { display: flex; align-items: baseline; gap: 4px; }
+.ig-reply { margin-left: auto; background: none; border: 0; font: inherit; font-size: 0.66rem; color: #8ba299; cursor: pointer; padding: 2px 4px; flex: 0 0 auto; }
+.ig-reply:hover { color: #7ee0a8; }
+.sp-recent { display: flex; flex-wrap: wrap; gap: 6px; }
+.sp-chip { background: #11181a; border: 1px solid #1e2b24; color: #cfe0d9; border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 0.74rem; cursor: pointer; }
+.sp-chip:hover { border-color: #2c5a48; color: #7ee0a8; }
+.sp-sys { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: none; border: 0; padding: 7px 4px; font: inherit; color: inherit; cursor: pointer; border-top: 1px solid #15201b; }
+.sp-sys:first-of-type { border-top: 0; }
+.sp-sys-ic { width: 30px; height: 30px; border-radius: 9px; background: #173026; color: #7ee0a8; display: grid; place-items: center; flex: 0 0 auto; }
+.sp-sys strong { display: block; font-size: 0.86rem; }
+.sp-sys small { color: #8ba299; font-size: 0.68rem; }
+.worlds-tile-head { flex-direction: column; align-items: stretch; gap: 5px; }
+.worlds-tile-name { margin: 0; font-size: 0.86rem; font-weight: 800; letter-spacing: 0.2px; color: var(--txt, #eaf2ee); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }
+.worlds-tile[data-world-size="medium"] .worlds-tile-name { font-size: 0.78rem; }
+.worlds-tile-arrow { color: var(--txt-dim, #8ba299); font-weight: 400; flex: 0 0 auto; }
+.worlds-tile-head:hover .worlds-tile-arrow { color: var(--mint, #7ee0a8); }
+.worlds-tile-meta { display: flex; align-items: center; gap: 8px; }
+.worlds-tile-meta p { margin: 0; font-size: 0.6rem; color: var(--txt-dim, #8ba299); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.worlds-tile .worlds-tile-head { padding-right: 32px; }
+.worlds-tile-menu-btn { position: absolute; top: 9px; right: 9px; z-index: 3; width: 26px; height: 26px; border-radius: 9px; background: #0f1613; border: 1px solid #2c3a33; color: var(--mint, #7ee0a8); font: inherit; font-size: 0.9rem; line-height: 1; cursor: pointer; display: grid; place-items: center; }
+.worlds-tile-menu-btn:hover { background: #173026; border-color: #2c5a48; }
+.worlds-tile-menu-btn:focus-visible { outline: 2px solid #7ee0a8; outline-offset: 2px; }
+.worlds-tile-menu { position: absolute; top: 38px; right: 9px; z-index: 5; min-width: 150px; background: #101816; border: 1px solid #2c3a33; border-radius: 11px; padding: 4px; display: flex; flex-direction: column; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55); }
+.worlds-tile-menu button { background: none; border: 0; color: #eaf2ee; font: inherit; font-size: 0.74rem; text-align: left; padding: 8px 10px; border-radius: 8px; cursor: pointer; min-height: 36px; }
+.worlds-tile-menu button:hover { background: #173026; }
+.worlds-tile-menu button.is-danger { color: #e0857f; }
+.worlds-tile .world-size-btn, .worlds-tile-addbg { display: none; }
+.qc-quiet { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 9px; padding: 9px 10px; border: 1px dashed #243b31; border-radius: 11px; font-size: 0.66rem; color: #8ba299; line-height: 1.3; }
+.qc-quiet b { color: #7ee0a8; font-weight: 700; }
+.qc-quiet.is-done { border-style: solid; border-color: #1d3a2e; }
+.qc-quiet-log { background: none; border: 0; color: #7ee0a8; font: inherit; font-size: 0.7rem; font-weight: 700; cursor: pointer; padding: 6px 4px; min-height: 40px; flex: 0 0 auto; }
+.community-members-panel { padding-top: 4px; }
+/* Today card on a phone: the headline is the point — drop the decorative week dots and let
+   the second line wrap instead of truncating. */
+@media (max-width: 430px) {
+  .today-bar .streak-week-inline { display: none; }
+  .today-bar .streak-headline { min-width: 0; flex: 1 1 auto; }
+  .today-bar .streak-count { font-size: 1rem; line-height: 1.15; }
+  .today-bar .streak-sub { white-space: normal; overflow: visible; text-overflow: clip; }
+  .today-bar .today-coach { padding: 5px 7px; }
+}

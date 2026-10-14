@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20260731-feedclip">
+    <link rel="stylesheet" href="styles.css?v=20261013-pf6">
 
   </head>
   <body>
@@ -85,7 +85,7 @@
           <div class="header-cluster">
             <!-- Worlds layout editing lives HERE (top-right), not at the bottom of the pager.
                  Shown only on the Worlds view; becomes a mint "✓ Done" while editing. -->
-            <button class="header-edit-pill" type="button" id="worldsEditPill" data-worlds-edit aria-pressed="false">✎ Edit</button>
+            <button class="header-edit-pill" type="button" id="worldsEditPill" data-worlds-edit aria-pressed="false">⠿ Arrange</button>
             <button class="header-icon-btn" type="button" id="headerSearchButton" aria-label="Search">
               <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
             </button>
@@ -117,9 +117,9 @@
             <span class="nav-create-fab" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span>
             <span class="nav-create-label">Log entry</span>
           </button>
-          <button class="nav-tab" type="button" data-view="systems" aria-label="Build and Edit">
-            <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 6.5 17 4a2.1 2.1 0 0 1 3 3l-2.5 2.5M13 8l3 3M14.5 9.5 6.2 17.8a1.7 1.7 0 0 1-2.4-2.4l8.3-8.3"/><path d="M4.5 3.5a4 4 0 0 0 5 5L18 17a1.4 1.4 0 0 1-2 2l-8.5-8.5a4 4 0 0 1-5-5L5 8l3-3-2.5-2.5Z"/></svg></span>
-            <span>Build</span>
+          <button class="nav-tab" type="button" data-view="people" aria-label="People">
+            <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 19a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.6"/><path d="M15.5 14.2a5 5 0 0 1 6 4.8"/></svg></span>
+            <span>People</span>
           </button>
           <button class="nav-tab nav-tab-profile" type="button" data-view="profile-page" aria-label="Profile">
             <span class="avatar tab-avatar" id="profileAvatar" aria-hidden="true">AR</span>
@@ -1142,12 +1142,12 @@
                 <strong class="world-name" id="worldName">World</strong>
                 <p class="world-subtitle" id="worldSubtitle"></p>
               </div>
-              <button class="world-edit-btn" type="button" id="worldEditButton" hidden>Edit</button>
+              <button class="world-edit-btn" type="button" id="worldEditButton" hidden>Rules</button>
             </div>
 
             <div class="world-actions" id="worldActions">
               <button class="world-action primary" type="button" id="inviteButton">Invite</button>
-              <button class="world-action" type="button" id="communitySettingsButton">Settings</button>
+              <button class="world-action" type="button" id="communitySettingsButton">Rules &amp; settings</button>
             </div>
             <div class="invite-options world-invite-options" id="inviteOptions" hidden>
               <button class="ghost-button small" type="button" id="copyInviteLinkButton">Copy Link</button>
@@ -1202,12 +1202,11 @@
 
             <!-- COMPETE tab (community-only): the contest hub (1v1 · tournaments · teams) over a
                  collapsible member roster (challenging people needs the roster). -->
+            <section class="world-section community-members-panel" id="communityMembersPanel" hidden aria-label="Members">
+              <div class="community-members-list" id="communityMembersList"></div>
+            </section>
             <section class="world-section community-compete-panel" id="communityCompetePanel" hidden aria-label="Compete">
               <div class="compete-hub" id="communityCompeteHub"></div>
-              <details class="compete-members-block">
-                <summary class="compete-members-summary"><span>Members &amp; challenges</span><span class="compete-members-caret" aria-hidden="true">▾</span></summary>
-                <div class="community-members-list" id="communityMembersList"></div>
-              </details>
             </section>
 
             <!-- ABOUT tab (community-only): description · how points work (rules) · meta · Leave. -->
@@ -1373,6 +1372,13 @@
             </label>
             <div class="find-community-results" id="findCommunityResults"></div>
           </section>
+        </section>
+
+        <section class="view" id="peopleView" aria-labelledby="peopleTitle">
+          <div class="view-header feed-header">
+            <div class="feed-title-row"><h2 id="peopleTitle">People</h2></div>
+          </div>
+          <div class="people-list" id="peopleList"></div>
         </section>
 
         <section class="view" id="friendsView" aria-labelledby="friendsTitle">
@@ -1614,13 +1620,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20260731-feedclip"></script>
-    <script src="auth-helpers.js?v=20260731-feedclip"></script>
-    <script src="scoring.js?v=20260731-feedclip"></script>
-    <script src="insight.js?v=20260731-feedclip"></script>
-    <script src="signals.js?v=20260731-feedclip"></script>
-    <script src="wearables.js?v=20260731-feedclip"></script>
-    <script type="module" src="auth.js?v=20260731-feedclip"></script>
-    <script src="app.js?v=20260731-feedclip"></script>
+    <script src="supabase-config.js?v=20261013-pf6"></script>
+    <script src="auth-helpers.js?v=20261013-pf6"></script>
+    <script src="scoring.js?v=20261013-pf6"></script>
+    <script src="insight.js?v=20261013-pf6"></script>
+    <script src="signals.js?v=20261013-pf6"></script>
+    <script src="wearables.js?v=20261013-pf6"></script>
+    <script type="module" src="auth.js?v=20261013-pf6"></script>
+    <script src="app.js?v=20261013-pf6"></script>
   </body>
 </html>

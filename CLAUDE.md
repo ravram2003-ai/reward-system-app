@@ -41,10 +41,20 @@ repeat them and the app stays consistent.
    results. If the server is already running, just re-share the link.
 
 ## Product decisions (keep consistent with these — don't reintroduce removed things)
-- **Navigation:** bottom tabs = **Today · Feed · Communities · Build**. Top-right header
-  cluster = **Alerts (bell) · Friends · Chats · Profile avatar**, each with its own
-  badge. The center **"+" FAB logs an entry only** (creating systems/communities lives in
-  the Build tab).
+- **Navigation:** bottom tabs = **Feed · Worlds · (+ log) · People · Profile**. Top-right header
+  cluster = **Arrange (Worlds only) · Search · Alerts (bell) · Chats**, each badge its own live
+  count. The center **"+" FAB logs an entry only**. Coach lives in the Today card and the
+  composer header, not a floating button. Build is no longer a tab: reach it from "+ New world"
+  on Worlds or from a world's Rules / Rules & settings.
+- **Worlds = the home screen.** Top to bottom: the Today card (worlds done · check-ins left ·
+  streak), the "your people today" strip (ring = share of check-ins done across the worlds you
+  share — never a points sum; points stay per world, one tap away), then world tiles (medium by
+  default, one ⋯ menu each: size · background · rules · hide). Hiding a world is reversible
+  (Undo toast + "Hidden from home" row).
+- **People = the fourth tab.** Everyone you follow or share a world with, sorted by active
+  today, with ring + streak + one-tap Cheer; the one place to find people. A profile opened from
+  anywhere leads with progress (streak, 7-day dots, You · Them, shared worlds) before photos.
+- **Browser history is real:** one entry per screen change, so hardware Back steps back in-app.
 - **A community = a shared reward system + members.** Inviting people turns a personal
   system into a community. Build creates and edits both.
 - **Profile visibility = request-to-follow.** Public profiles are open: feed, communities,

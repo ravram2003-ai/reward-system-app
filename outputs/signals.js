@@ -1142,7 +1142,9 @@
     if (!sb || !userId || !UUID_RE.test(String(userId))) return empty;
     try {
       var mine = await sb.from("community_members").select("community_id").eq("user_id", userId);
-      if (mine.error) return empty;
+      // A FAILED read is not an EMPTY read. Returning the empty shape on error used to let the
+      // client overwrite (and persist) the user's real list with nothing after one bad request.
+      if (mine.error) return Object.assign({}, empty, { error: mine.error });
       var ids = [];
       (mine.data || []).forEach(function (r) { if (ids.indexOf(r.community_id) === -1) ids.push(r.community_id); });
       if (!ids.length) return empty;
@@ -1153,13 +1155,15 @@
         var mr = await sb.rpc("get_community_members", { cid: ids[i] });
         membersByCommunity[ids[i]] = mr.error ? [] : (mr.data || []);
       }
+      if (cRes.error) return Object.assign({}, empty, { error: cRes.error });
+      if (eRes.error) return Object.assign({}, empty, { error: eRes.error });
       return {
-        communities: cRes.error ? [] : (cRes.data || []),
+        communities: cRes.data || [],
         membersByCommunity: membersByCommunity,
-        entries: eRes.error ? [] : (eRes.data || [])
+        entries: eRes.data || []
       };
     } catch (e) {
-      return empty;
+      return Object.assign({}, empty, { error: { message: "Couldn't reach the server." } });
     }
   }
 

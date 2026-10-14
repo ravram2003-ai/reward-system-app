@@ -12926,22 +12926,28 @@ button.challenge-duel-side:focus-visible {
 /* Your people today: a row of rings above the worlds. Lit = logged something today. */
 .worlds-people { display: flex; gap: 10px; overflow-x: auto; padding: 4px 2px 6px; scrollbar-width: none; }
 .worlds-people::-webkit-scrollbar { display: none; }
-.wp { flex: 0 0 auto; width: 56px; display: flex; flex-direction: column; align-items: center; gap: 4px; background: none; border: 0; padding: 2px 0; color: inherit; font-family: inherit; cursor: pointer; border-radius: 10px; }
+.wp { flex: 0 0 auto; width: 60px; display: flex; flex-direction: column; align-items: center; gap: 4px; background: none; border: 0; padding: 2px 0; color: inherit; font-family: inherit; cursor: pointer; border-radius: 10px; }
 .wp:focus-visible { outline: 2px solid #7ee0a8; outline-offset: 2px; }
-.wp-ring { position: relative; width: 48px; height: 48px; display: grid; place-items: center; flex: 0 0 auto; }
-.wp-ring.sm { width: 40px; height: 40px; }
-.wp-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
-.wp-ring .score-ring-bg, .wp-ring .score-ring-fill { fill: none; stroke-width: 4; }
-.wp-ring .score-ring-bg { stroke: #203029; }
-.wp-ring .score-ring-fill { stroke: #7ee0a8; stroke-linecap: round; stroke-dasharray: 100; transition: stroke-dashoffset .3s ease; }
-.wp-ring.is-dim .score-ring-fill { stroke: #2a3a33; }
-.wp-av, .wp-ring .avatar, .wp-ring .member-avatar { width: 34px !important; height: 34px !important; font-size: 0.68rem; }
-.wp-ring.sm .wp-av, .wp-ring.sm .avatar, .wp-ring.sm .member-avatar { width: 28px !important; height: 28px !important; font-size: 0.6rem; }
-.wp.is-dim .wp-av, .wp.is-dim .avatar { opacity: .55; }
+/* The ring: a thin track hugging the picture, a mint arc with round ends, a 2px gap.
+   Lit = logged today (arc + soft glow); dim = faint track, picture desaturated; done = ✓ badge. */
+.wp-ring { position: relative; width: 52px; height: 52px; display: grid; place-items: center; flex: 0 0 auto; }
+.wp-ring.sm { width: 42px; height: 42px; }
+.wp-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
+.wpr-track, .wpr-arc { fill: none; stroke-width: 3; }
+.wpr-track { stroke: #1d2925; }
+.wpr-arc { stroke: #7ee0a8; stroke-linecap: round; stroke-dasharray: 100; transition: stroke-dashoffset .35s ease; filter: drop-shadow(0 0 3px rgba(126, 224, 168, .55)); }
+.wp-ring.is-dim .wpr-arc { opacity: 0; }
+.wp-ring.is-dim .wpr-track { stroke: #1a221f; }
+.wp-av, .wp-ring .avatar, .wp-ring .member-avatar { width: 42px !important; height: 42px !important; border-radius: 50% !important; object-fit: cover; font-size: 0.78rem; box-shadow: 0 0 0 2px #070a09; }
+span.wp-av, .wp-ring span.avatar, .wp-ring span.member-avatar { display: grid; place-items: center; }   /* initials only — never an <img> */
+.wp-ring.sm .wp-av, .wp-ring.sm .avatar, .wp-ring.sm .member-avatar { width: 33px !important; height: 33px !important; font-size: 0.66rem; }
+.wp-ring.is-dim .wp-av, .wp-ring.is-dim .avatar, .wp-ring.is-dim .member-avatar { opacity: .6; filter: saturate(.55); }
+.wp-done { position: absolute; right: -1px; bottom: -1px; width: 16px; height: 16px; border-radius: 50%; background: #7ee0a8; color: #06231a; font-style: normal; font-size: 10px; font-weight: 800; display: grid; place-items: center; box-shadow: 0 0 0 2px #070a09; }
+.wp-ring.sm .wp-done { width: 13px; height: 13px; font-size: 8px; }
 .wp-name { font-size: 0.6rem; color: #cfe0d9; max-width: 56px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wp.is-dim .wp-name { color: #5f7369; }
 .wp.is-me .wp-name { color: #7ee0a8; font-weight: 700; }
-.wp.is-open .wp-ring::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid #7ee0a8; }
+.wp.is-open .wp-ring::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 1.5px solid rgba(126, 224, 168, .6); }
 .wp-pop { margin: 2px 0 10px; background: #101816; border: 1px solid #2c3a33; border-radius: 14px; padding: 10px 12px; font-size: 0.72rem; }
 .wp-pop-head { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
 .wp-pop-head .wp-pop-av, .wp-pop-head .avatar { width: 30px; height: 30px; }
@@ -12987,7 +12993,7 @@ button.challenge-duel-side:focus-visible {
 .pp-cheer:disabled { background: linear-gradient(180deg, #8ff0b8, #7ee0a8); color: #06231a; border-color: transparent; }
 .pp-follow { background: none; border: 1px solid #1d3a2e; color: #7ee0a8; }
 .pp-follow:disabled { color: #8ba299; border-color: #243029; }
-@media (max-width: 430px) { .wp { width: 52px; } .wp-ring { width: 44px; height: 44px; } }
+@media (max-width: 430px) { .wp { width: 56px; } .wp-ring { width: 48px; height: 48px; } .wp-ring .wp-av, .wp-ring .avatar, .wp-ring .member-avatar { width: 38px !important; height: 38px !important; } }
 
 
 /* ── Profile: progress before photos (feat/people-first) ─────────────────────────────────── */
@@ -13059,3 +13065,17 @@ button.challenge-duel-side:focus-visible {
   .today-bar .streak-sub { white-space: normal; overflow: visible; text-overflow: clip; }
   .today-bar .today-coach { padding: 5px 7px; }
 }
+
+
+/* Profile: the ring is on the picture; one quiet line under the handle. */
+/* The ring hugs the picture: the wrapper shrinks to the avatar, the picture becomes a circle,
+   and the svg sits 6px outside it on every side. A visible track means 0% still reads as a ring. */
+.profile-hero-avwrap.has-ring { position: relative; display: inline-grid; place-items: center; width: max-content; }
+.profile-hero-avwrap.has-ring .profile-hero-avatar { border-radius: 50% !important; object-fit: cover; box-shadow: 0 0 0 3px #0a0f0d; }
+.pf-hero-ring { position: absolute; inset: -7px; width: auto; height: auto; transform: rotate(-90deg); pointer-events: none; overflow: visible; }
+.pf-hero-ring .wpr-track { stroke: #2a3a33; stroke-width: 2.8; }
+.pf-hero-ring .wpr-arc { stroke-width: 2.8; }
+.pf-hero-ring.is-dim .wpr-arc { opacity: 0; }
+.profile-hero-avwrap.has-ring .profile-avatar-cam { z-index: 2; }
+.profile-hero-progress { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 0.76rem; color: #8ba299; }
+.profile-hero-progress .ic { color: #7ee0a8; }

@@ -5919,9 +5919,11 @@
     return people;
   }
   function worldsPersonRing(p, cls) {
-    return `<span class="wp-ring ${cls || ""}${p.active ? "" : " is-dim"}" aria-hidden="true">
-        <svg viewBox="0 0 44 44"><circle class="score-ring-bg" cx="22" cy="22" r="19"></circle><circle class="score-ring-fill" cx="22" cy="22" r="19" pathLength="100" style="stroke-dashoffset:${100 - p.pct}"></circle></svg>
+    const done = p.total && p.done >= p.total;
+    return `<span class="wp-ring ${cls || ""}${p.active ? "" : " is-dim"}${done ? " is-done" : ""}" aria-hidden="true">
+        <svg viewBox="0 0 44 44"><circle class="wpr-track" cx="22" cy="22" r="20"></circle><circle class="wpr-arc" cx="22" cy="22" r="20" pathLength="100" style="stroke-dashoffset:${100 - p.pct}"></circle></svg>
         ${renderAvatar({ className: "wp-av", name: p.name === "You" ? (state.profile && state.profile.name) || "You" : p.name, avatarUrl: p.avatarUrl, color: p.color || avatarColor(p.name) })}
+        ${done ? `<i class="wp-done">✓</i>` : ""}
       </span>`;
   }
   function renderWorldsPerson(p) {
@@ -5970,12 +5972,16 @@
     const b = document.querySelector(`[data-worlds-cheer="${CSS.escape(id)}"]`);
     if (b) { b.textContent = "👏 Cheered"; b.disabled = true; }
   }
+  // From the strip / People / Search a person opens as a plain profile — picture ring, one
+  // progress line, follows, photos. (A leaderboard row still opens the in-world "Today in"
+  // drill-down; that is the only place it belongs.)
   function openWorldsPerson(id) {
     const p = worldsPeopleToday().find((x) => x.id === id);
     const w = p && p.worlds[0];
     if (!w) return;
     state.selectedCommunityId = w.community.id;
-    openMemberProfile(w.community, w.member.id);
+    if (w.member && w.member.userId) openUserProfile(w.member.userId);
+    else openMemberProfile(w.community, w.member.id);
   }
 
   /* ── Layout model ────────────────────────────────────────────────────────────────────────
@@ -13142,11 +13148,7 @@
     // a "what others see" self-preview — see renderProfilePage / openMyProfile.)
     // When opened from a community (leaderboard), remember it → the "Today in <community>"
     // section. Any other entry point (feed, friends, search) clears it.
-    // Default the context to the first world you share: the profile then shows their day
-    // whether you arrived from the feed, search, People or a leaderboard (one destination).
-    state.profileCommunityContextId = communityContextId
-      ? String(communityContextId)
-      : (((state.communities || []).find((c) => (c.members || []).some((m) => String(m.userId) === id)) || {}).id || "");
+    state.profileCommunityContextId = communityContextId ? String(communityContextId) : "";
     profileBackView = (state.activeView && state.activeView !== "profile-page") ? state.activeView : "feed";
     state.profileUserId = id;
     state.profileListMode = null; // always open the profile itself, not a stale followers list
@@ -13408,6 +13410,15 @@
       ? `<button class="profile-banner-btn profile-banner-gear" type="button" data-profile-settings aria-label="Edit profile and privacy settings"><span aria-hidden="true">⚙</span></button>` : "";
     const avatarCamHtml = isOwnProfile
       ? `<button class="profile-avatar-cam" type="button" data-profile-avatar-edit aria-label="Change profile photo">${svgIcon("camera", "icon-xs")}</button>` : "";
+    // Progress lives on the picture: a ring for today's check-ins across every world you share
+    // (your own = all your worlds), plus one quiet line. Follows and photos stay the page.
+    const heroRing = (() => {
+      const p = worldsPeopleToday().find((x) => isOwnProfile ? x.isMe : String(x.userId) === String(state.profileUserId));
+      if (!p || !p.total) return null;
+      let streak = 0;
+      p.worlds.forEach((w) => { streak = Math.max(streak, probeStreak(memberProbe(w.community, w.member))); });
+      return { pct: p.pct, done: p.done, total: p.total, active: p.active, streak: streak };
+    })();
     let html = `
       <section class="profile-hero profile-hero-card">
         <div class="profile-banner${coverUrl ? " has-cover" : ""}"${bannerStyle}${bannerOwnerAttr}>
@@ -13416,13 +13427,15 @@
           ${coverEditHtml}
         </div>
         <div class="profile-hero-body">
-          <div class="profile-hero-avwrap">
+          <div class="profile-hero-avwrap${heroRing ? " has-ring" : ""}">
+            ${heroRing ? `<svg class="pf-hero-ring${heroRing.active ? "" : " is-dim"}" viewBox="0 0 44 44" aria-hidden="true"><circle class="wpr-track" cx="22" cy="22" r="20"></circle><circle class="wpr-arc" cx="22" cy="22" r="20" pathLength="100" style="stroke-dashoffset:${100 - heroRing.pct}"></circle></svg>` : ""}
             ${renderAvatar({ className: "large-avatar profile-hero-avatar", name: o.display_name || "Member", avatarUrl: avatarUrl })}
             ${avatarCamHtml}
           </div>
           <div class="profile-hero-id">
             <strong class="profile-hero-name">${name}</strong>
             <span class="profile-hero-handle">${handle}</span>
+            ${heroRing ? `<span class="profile-hero-progress">${svgIcon("flame", "icon-xs")} ${heroRing.streak}-day streak · ${heroRing.done} of ${heroRing.total} today</span>` : ""}
             ${bioHtml}
           </div>
           ${actionRow}
@@ -13488,36 +13501,8 @@
       ? `<button class="secondary-button small profile-today-kudos" type="button" data-today-kudos="${escapeHtml(member.id)}"><span aria-hidden="true">♥</span> Kudos</button>`
       : "";
 
-    // PROGRESS FIRST: their streak and 7-day dots in this world, the cross-world ring, every
-    // world you share with their rank, and a two-column "You · Them" for this world. The photo
-    // grid comes after. All from data you already hold as a co-member.
-    const theirProbe = memberProbe(community, member);
-    const theirStreak = probeStreak(theirProbe);
-    const me = (community.members || []).find((m) => m.id === "me");
-    const myProbe = memberProbe(community, me);
-    const myStreak = probeStreak(myProbe);
-    const myRank = standings.findIndex((item) => item.id === "me") + 1;
-    const myPts = me ? communityMemberPointsOnDate(community, me, todayIso) : 0;
-    const person = worldsPeopleToday().find((p) => String(p.userId) === String(state.profileUserId));
-    const shared = person ? person.worlds : [];
-    const progress = `
-      <div class="pf-progress">
-        ${person ? worldsPersonRing(person) : ""}
-        <div class="pf-progress-main">
-          <strong>${svgIcon("flame", "icon-xs")} ${theirStreak}-day streak</strong>
-          <small>${person ? `${person.done} of ${person.total} check-ins done today` : ""}${person && shared.length > 1 ? ` · ${shared.length} worlds with you` : ""}</small>
-          ${probeWeekDotsHtml(theirProbe)}
-        </div>
-      </div>
-      ${!isOwnProfile ? `<div class="pf-compare">
-        <div class="pf-cmp you"><small>You</small><strong>${escapeHtml(formatPoints(myPts))} pts</strong><small>${myRank ? "#" + myRank : "—"} · ${myStreak}d streak</small></div>
-        <div class="pf-cmp"><small>${escapeHtml(member.name || "Them")}</small><strong>${escapeHtml(formatPoints(summary.total))} pts</strong><small>${rank ? "#" + rank : "—"} · ${theirStreak}d streak</small></div>
-      </div>` : ""}
-      ${shared.length > 1 ? `<div class="pf-worlds">${shared.map((w) => `<div class="wp-world"><span class="wp-wn">${escapeHtml(w.name)}</span><span class="wp-wpts">${escapeHtml(formatPoints(w.points))}/${escapeHtml(formatPoints(w.target))} pts</span><span class="wp-wr">${w.rank ? "#" + w.rank : ""}</span></div>`).join("")}</div>` : ""}`;
-
     return `
       <section class="profile-section profile-today-section">
-        ${progress}
         <div class="profile-today-head">
           <h3 class="profile-section-title">Today in ${escapeHtml(community.name)}</h3>
           ${kudos}

@@ -41,7 +41,7 @@ repeat them and the app stays consistent.
    results. If the server is already running, just re-share the link.
 
 ## Product decisions (keep consistent with these — don't reintroduce removed things)
-- **Navigation:** bottom tabs = **Feed · Worlds · (+ log) · People · Profile**. Top-right header
+- **Navigation:** bottom tabs = **Worlds · Feed · (+ log) · People · Profile**. Top-right header
   cluster = **Arrange (Worlds only) · Search · Alerts (bell) · Chats**, each badge its own live
   count. The center **"+" FAB logs an entry only**. Coach lives in the Today card and the
   composer header, not a floating button. Build is no longer a tab: reach it from "+ New world"

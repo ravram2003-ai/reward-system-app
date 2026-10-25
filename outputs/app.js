@@ -5890,6 +5890,7 @@
   let worldsHeroOpen = false;        // Personal hero breakdown expanded (survives re-renders)
   let worldsSwitchAnim = false;      // one-shot: fade the next render in (set by setWorldsSegment)
   let worldsFlashKey = "";           // tile that just logged: flashes for 600ms across re-renders
+  let worldsCelebrateKey = "";       // tile whose LAST check-in just landed: ring fills + recap fades up, once
   function worldsSegment() { return worldLayoutState().segment; }
   function worldsSegmentType(seg) { return (seg || worldsSegment()) === "community" ? "community" : "personal"; }
   function worldsSegmentTiles(seg) {
@@ -6184,13 +6185,17 @@
     const mini = community && !large ? worldMiniLbBody(t.community) : "";
     // Counted ONCE per tile: the ring, the stat line and the body all read the same numbers.
     const counts = worldCheckinCounts(t);
-    // PERSONAL: every one of today's check-ins as a scrolling list (3 visible + a peek; 5 when
-    // large). COMMUNITY: the mini leaderboard, "✓ next" and "+N more" → the sheet with the rest.
-    // The header is the only thing that opens the world (the full check-in lives inside it).
+    // WIDGET RULE: a tile's size never changes, only its content does. PERSONAL: today's
+    // check-ins as a list that fills the space between header and the "Done" footer and scrolls
+    // inside the tile. COMMUNITY: the mini leaderboard, "✓ next" and "+N more" → the sheet.
+    // A finished world keeps its slot and becomes a recap (worldsTileRecap). The header is the
+    // only thing that opens the world (the full check-in lives inside it).
+    const done = counts.total > 0 && !counts.ask.length;
     const body = community
-      ? `<div class="wt-actions">${worldsTileAction(t, p.key, counts)}${worldsTileMore(t, p.key, counts)}</div>`
+      ? (done ? worldsTileRecap(t, counts, true) : `<div class="wt-actions">${worldsTileAction(t, p.key, counts)}${worldsTileMore(t, p.key, counts)}</div>`)
       : worldsTileChecklist(t, p.key, large, counts);
-    return `<div class="world-tile worlds-tile ${typeClass}${bg ? " has-bg" : ""}${p.key === worldsFlashKey ? " is-flash" : ""}" data-world-size="${size}"
+    const celebrate = p.key === worldsCelebrateKey;   // one-time: the render right after the last check-in
+    return `<div class="world-tile worlds-tile ${typeClass}${bg ? " has-bg" : ""}${p.key === worldsFlashKey ? " is-flash" : ""}${done ? " is-done" : ""}${celebrate ? " is-celebrate" : ""}" data-world-size="${size}"
         data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(p.key)}">
         ${worldTileBgHtml(bg)}
         <button class="worlds-tile-rm" type="button" data-world-archive="${escapeHtml(p.key)}" aria-label="Remove ${escapeHtml(t.name)} from your layout" tabindex="-1">−</button>
@@ -6208,16 +6213,74 @@
       </div>`;
   }
   // PERSONAL tile body: all of today's rows from the shared check-in renderer (checkinRowHtml via
-  // checkinCardHtml — head/intro/foot are hidden by CSS), in a scroll list capped by
-  // worldsFitLists to 3 full rows + a peek (5 when large), followed by the "↓ N more" button.
-  // Nothing left → "✓ All done today"; no rules → add one.
+  // checkinCardHtml — head/intro/foot are hidden by CSS) in a list that FILLS the fixed tile and
+  // scrolls inside it ("↓ N more" / "↑ Back to top"), then the "Done" footer (what's logged so
+  // far — a nearly-finished tile is never blank). Nothing left → the recap; no rules → add one.
   function worldsTileChecklist(t, key, large, counts) {
     const c = counts || worldCheckinCounts(t);
     if (!c.total && !c.skipped.length) return `<button type="button" class="wt-done is-empty" data-world-rules="${escapeHtml(key)}">✎ Add a rule</button>`;
-    if (!c.ask.length) return `<div class="wt-done">✓ All done today</div>`;
+    if (!c.ask.length) return worldsTileRecap(t, c, false);
     const rows = checkinCardHtml(c.world, { compact: true, always: true });
-    if (!rows) return `<div class="wt-done">✓ All done today</div>`;
-    return `<div class="quick-checkin wt-checkins" data-wt-list="${escapeHtml(key)}" data-wt-visible="${large ? 5 : 3}" role="group" aria-label="Check-ins for ${escapeHtml(t.name)}">${rows}</div><button type="button" class="wt-more" data-wt-more hidden></button>`;
+    if (!rows) return worldsTileRecap(t, c, false);
+    return `<div class="quick-checkin wt-checkins" data-wt-list="${escapeHtml(key)}" role="group" aria-label="Check-ins for ${escapeHtml(t.name)}">${rows}</div><button type="button" class="wt-more" data-wt-more hidden></button>${worldsDoneFooter(c)}`;
+  }
+  // Chips of what's logged today ("Water · 6 cups", "Stretched"), from today's values — the same
+  // numbers the ring counts. Yes/no rules show their label (no trailing "?").
+  function worldsLoggedChips(c) {
+    const values = c.values || {};
+    return (c.rules || []).filter((r) => numberOrDefault(values[r.id], 0) > 0).map((r) => {
+      const label = String(r.label || "Rule").replace(/\?\s*$/, "");
+      const yesNo = r.simpleStyle === "yesNo" || r.inputMethod === "toggle" || String(r.unit || "") === "done";
+      const unit = String(r.unit || "").trim();
+      const phrase = formatMetricPhrase(values[r.id], checkinShortUnit(unit) || unit, "");
+      // "3,110 steps", not "Steps · 3,110 steps": a label that merely names the unit is dropped.
+      const text = yesNo ? label : (label.toLowerCase() === unit.toLowerCase() ? phrase : `${label} · ${phrase}`);
+      return `<span class="wt-chip">${escapeHtml(text)}</span>`;
+    }).join("");
+  }
+  // "Done" footer under a partly-done list: one line, extra chips clipped, hidden until something
+  // is logged.
+  function worldsDoneFooter(c) {
+    const chips = worldsLoggedChips(c);
+    return chips ? `<div class="wt-footer"><em>Done</em><div class="wt-chips">${chips}</div></div>` : "";
+  }
+  // Tomorrow's first check-in: the first rule the check-in would ask about — buildCheckinItems'
+  // order (most-completed first, then label) over the eligible rules, ignoring today's values —
+  // with its usual amount. Yes/no rules show just the label.
+  function worldsTomorrowText(world) {
+    if (!world) return "";
+    const isCommunity = world.type === "community";
+    const sys = normalizeSystem(isCommunity ? world.community.system : world.system);
+    const contextType = isCommunity ? "community" : "personal";
+    const rules = (sys.rules || []).map(scoring.normalizeRule)
+      .filter((r) => r.simpleStyle !== "penalty" && !(isRuleSynced(r) && r.allowManualOverride === false))
+      .map((r) => ({ rule: r, affinity: checkinRuleAffinity(r, contextType, world.id) }))
+      .sort((a, b) => (b.affinity - a.affinity) || String(a.rule.label).localeCompare(String(b.rule.label)));
+    const first = rules[0] && rules[0].rule;
+    if (!first) return "";
+    const label = String(first.label || "Rule").replace(/\?\s*$/, "");
+    if (first.simpleStyle === "yesNo") return label;
+    const usual = checkinAmountsForRule(first, contextType, world.id).usual;
+    const unit = String(first.unit || "").trim();
+    if (!(usual > 0)) return label;
+    const phrase = formatMetricPhrase(usual, checkinShortUnit(unit) || unit, "");
+    return label.toLowerCase() === unit.toLowerCase() ? phrase : `${label} · ${phrase}`;
+  }
+  // The finished state = a recap that fills the same tile: title, what was logged (personal),
+  // the streak (personal) and tomorrow's first check-in. Community tiles keep their leaderboard
+  // above and get the title + Tomorrow line.
+  function worldsTileRecap(t, counts, community) {
+    const c = counts || worldCheckinCounts(t);
+    const world = c.world;
+    const tomorrow = worldsTomorrowText(world);
+    let streak = 0;
+    if (!community && world && world.system) streak = worldPersonalStreak(world.system);
+    return `<div class="wt-recap${community ? " is-community" : ""}">
+        <div class="wt-recap-title">${svgIcon("check", "icon-sm")}${community ? "You're done today" : "All done today"}</div>
+        ${community ? "" : `<div class="wt-chips">${worldsLoggedChips(c)}</div>`}
+        ${streak > 0 ? `<div class="wt-streak">${svgIcon("flame", "icon-xs")}${streak}-day streak</div>` : ""}
+        ${tomorrow ? `<div class="wt-tomorrow">Tomorrow · <b>${escapeHtml(tomorrow)}</b></div>` : ""}
+      </div>`;
   }
   // COMMUNITY tile: "+N more" (N = what's left after the ✓ next) opens the sheet with every
   // check-in. Only when more than one is left; never in edit mode (drag owns the tile there).
@@ -6253,6 +6316,7 @@
     if (!world) return;
     const rule = checkinRuleById(world, ruleId);
     const prevRank = before.type === "community" ? worldMyRank(before.community) : 0;
+    const prevLeft = worldCheckinCounts(before).left;
     lastQuietEntry = null;
     checkinLog(world, ruleId, amount > 0 ? amount : undefined);
     const created = lastQuietEntry;   // set synchronously by addDailyEntryFromDraft (no photo → no await)
@@ -6270,10 +6334,18 @@
     else msg = `Logged ${item}${amtText} · +${formatPoints(gained)}`;
     showToast(msg, { label: "Undo", onClick: () => worldsUndoEntry(created) });
     // The flash rides on the markup (renderWorldsTile) so the async saves that re-render the grid
-    // right after a log can't drop it mid-animation.
+    // right after a log can't drop it mid-animation. The LAST check-in also plays the one-time
+    // celebration (ring fills, recap fades up) — only at this moment, never on later renders or
+    // reloads. Under reduced motion the classes still land; the CSS plays nothing.
+    const finished = prevLeft > 0 && !now.left;
+    const el = els.worldGrid && els.worldGrid.querySelector(`[data-world-key="${cssEscapeAttr(key)}"]`);
+    if (finished) {
+      worldsCelebrateKey = key;
+      if (el) el.classList.add("is-celebrate");
+      setTimeout(() => { worldsCelebrateKey = ""; }, 700);
+    }
     if (worldsReducedMotion()) return;
     worldsFlashKey = key;
-    const el = els.worldGrid && els.worldGrid.querySelector(`[data-world-key="${cssEscapeAttr(key)}"]`);
     if (el) el.classList.add("is-flash");
     setTimeout(() => {
       worldsFlashKey = "";
@@ -6304,6 +6376,7 @@
   // id is gone — say so rather than deleting the wrong thing.
   function worldsUndoEntry(info) {
     if (!info || !info.id) return;
+    worldsCelebrateKey = "";   // undoing the finishing log must not replay the celebration on the list
     const isPost = (e) => !!(e && (e.postId || e.photoPath || e.message));
     if (info.kind === "community") {
       const entry = (state.communityEntries || []).find((e) => e.id === info.id);
@@ -6367,9 +6440,8 @@
   function worldsFitLists(mount) {
     if (!worldsGridVisible(mount)) return;
     mount.querySelectorAll(".wt-checkins").forEach((list) => {
-      const rows = worldsListRows(list);
-      const visible = Math.max(1, numberOrDefault(list.dataset.wtVisible, 3));
-      list.style.maxHeight = rows.length > visible ? (rows[visible].offsetTop + 24) + "px" : "";
+      // The list's height comes from the fixed tile (flex: 1 1 auto; min-height: 0), never from
+      // measuring rows — the widget rule: the tile sets the size, the content adapts.
       const saved = worldsListScroll[list.dataset.wtList];
       if (saved) list.scrollTop = saved;
       worldsListUpdateMore(list);
@@ -7076,7 +7148,7 @@
       return `<div class="score-ring world-ring world-ring-${size} is-checkins" role="img" aria-label="${total ? `${done} of ${total} check-ins` : "No check-ins yet"}">
         <svg class="score-ring-svg" viewBox="0 0 44 44" aria-hidden="true">
           <circle class="score-ring-bg" cx="22" cy="22" r="19"></circle>
-          <circle class="score-ring-fill" cx="22" cy="22" r="19" pathLength="100" style="stroke-dashoffset:${100 - pctC}"></circle>
+          ${pctC > 0 ? `<circle class="score-ring-fill" cx="22" cy="22" r="19" pathLength="100" style="stroke-dashoffset:${100 - pctC}"></circle>` : ""}
         </svg>
         <strong class="score-ring-label">${labelC}</strong>
       </div>`;
@@ -12366,7 +12438,7 @@
   const CHECKIN_SHORT_UNITS = {
     minutes: "min", minute: "min", hours: "hr", hour: "hr", seconds: "sec",
     grams: "g", gram: "g", kilograms: "kg", pounds: "lb", ounces: "oz",
-    miles: "mi", kilometers: "km", calories: "cal", sessions: "sets", servings: "servings",
+    miles: "mi", kilometers: "km", calories: "cal", servings: "servings",
   };
   function checkinShortUnit(unit) {
     const u = String(unit || "").trim();
@@ -12478,7 +12550,7 @@
         ${narrow}
         <div class="qc-chips">
           ${chips}
-          <button class="qc-keyboard" type="button" data-qc-type="${ruleId}" aria-label="Type an amount for ${escapeHtml(it.rule.label || "rule")}">⌨</button>
+          <button class="qc-keyboard" type="button" data-qc-type="${ruleId}" aria-label="Type an amount for ${escapeHtml(it.rule.label || "rule")}">${svgIcon("edit", "icon-sm")}</button>
         </div>
       </div>`;
   }
@@ -19046,6 +19118,14 @@
     return clampToRange(numberOrDefault(value, suggestedEntryAmount(rule)), settings.min, settings.max);
   }
 
+  // A rule measures TIME when its unit says so (or it has no unit and the label implies it). The
+  // keyword heuristics below only apply then — "Study session" counted in sessions must not be
+  // suggested as "30" or ranged 0–300 just because its label says "study".
+  function ruleMeasuresTime(rule) {
+    const unit = String(rule.unit || "").trim().toLowerCase();
+    if (!unit || unit === "done") return true;
+    return /^(min|mins|minute|minutes|hr|hrs|hour|hours|sec|secs|second|seconds)$/.test(unit);
+  }
   function suggestedEntryAmount(rule) {
     if (rule.inputMethod === "toggle") return 1;
     const text = `${rule.label} ${rule.unit}`.toLowerCase();
@@ -19056,7 +19136,7 @@
     if (text.includes("fat")) return 20;
     if (text.includes("calorie")) return 500;
     if (text.includes("spend") || text.includes("budget") || text.includes("dollar")) return 25;
-    if (text.includes("minute") || text.includes("lifting") || text.includes("lift") || text.includes("study")) return 30;
+    if (ruleMeasuresTime(rule) && (text.includes("minute") || text.includes("lifting") || text.includes("lift") || text.includes("study"))) return 30;
     return Math.max(numberOrDefault(rule.everyAmount, 0), numberOrDefault(rule.inputStep, 1), 1);
   }
 
@@ -19069,7 +19149,7 @@
     if (text.includes("carb")) return { min: 0, max: 500, step: 5 };
     if (text.includes("fat")) return { min: 0, max: 200, step: 5 };
     if (text.includes("calorie")) return { min: 0, max: 5000, step: 50 };
-    if (text.includes("lifting") || text.includes("lift") || text.includes("study") || text.includes("minute")) {
+    if (ruleMeasuresTime(rule) && (text.includes("lifting") || text.includes("lift") || text.includes("study") || text.includes("minute"))) {
       return { min: 0, max: 300, step: 5 };
     }
     if (text.includes("spend") || text.includes("budget") || text.includes("dollar")) return { min: 0, max: 500, step: 1 };
@@ -20299,9 +20379,17 @@
     const l = String(label || "").trim();
     if (!u) return l ? `${grouped} ${l}` : grouped;
     const compact = new Set(["g", "mg", "kg", "oz", "lb"]);
-    const valueUnit = compact.has(u.toLowerCase()) ? `${grouped}${u}` : `${grouped} ${u}`;
+    // Exactly 1 of a word unit reads singular ("1 block", "1 session", "1 hr"); compact units and
+    // anything too short to be a plural word ("mi", "km") stay as written.
+    const shown = Number(value) === 1 ? singularUnit(u) : u;
+    const valueUnit = compact.has(u.toLowerCase()) ? `${grouped}${u}` : `${grouped} ${shown}`;
     if (!l || l.toLowerCase() === u.toLowerCase()) return valueUnit;
     return `${valueUnit} ${l}`;
+  }
+  function singularUnit(u) {
+    if (u.length <= 2 || !/s$/i.test(u) || /ss$/i.test(u)) return u;
+    if (/(sh|ch|x|ss|z)es$/i.test(u)) return u.slice(0, -2);   // glasses → glass, boxes → box
+    return u.slice(0, -1);                                      // blocks → block, minutes → minute
   }
 
   // Clean one-line metric for a logged-progress feed post: "{value} {unit}" with the number

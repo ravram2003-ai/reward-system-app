@@ -56,6 +56,9 @@ repeat them and the app stays consistent.
   segment has its own pager. Personal tiles list every check-in (3 visible, scroll for more); community
   tiles keep their mini leaderboard with "✓ next check-in" + "+N more" → a sheet of every check-in. All
   quiet logs, no composer. Tile rings show check-ins done/total, never points.
+- **Tiles are fixed height per size (widget rule): content adapts, the grid never reflows.** A finished
+  world keeps its slot and shows a recap (logged today, streak, tomorrow's first check-in) after a
+  one-time celebration.
 - **People = the fourth tab.** Everyone you follow or share a world with, sorted by active
   today, with ring + streak + one-tap Cheer; the one place to find people. A profile opened from
   anywhere leads with progress (streak, 7-day dots, You · Them, shared worlds) before photos.

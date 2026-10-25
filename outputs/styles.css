@@ -13107,13 +13107,13 @@ span.wp-av, .wp-ring span.avatar, .wp-ring span.member-avatar { display: grid; p
 .worlds-tile .world-sections { flex: 0 0 auto; }
 .worlds-tile.is-flash { animation: worldsFlash .55s ease; }
 @keyframes worldsFlash { 0% { box-shadow: 0 0 0 0 rgba(126, 224, 168, .6); } 100% { box-shadow: 0 0 0 10px rgba(126, 224, 168, 0); } }
-/* Tiles are content-sized (align start) in BOTH segments, like the reference: a personal tile holds
-   a check-in list of varying length, a community tile a 1–3 row leaderboard + ✓ next + "+N more",
-   and a fixed row could only ever clip one of them. A large tile still spans two rows. */
-.world-grid[data-worlds-segment="personal"] .worlds-page,
-.world-grid[data-worlds-segment="community"] .worlds-page { grid-auto-rows: auto; align-items: start; }
-.world-grid[data-worlds-segment="personal"] .worlds-tile,
-.world-grid[data-worlds-segment="community"] .worlds-tile { height: auto; overflow: visible; }
+/* Row height per segment — the WIDGET RULE: every medium tile in a segment is exactly one fixed
+   row (content adapts, the grid never reflows), a large tile exactly two rows + the gap. Values
+   measured at 390px: personal = header + 3 check-in rows + a 24px peek + "↓ N more" + the Done
+   footer; community = header + mini leaderboard + "✓ next" + "+N more". See the fixed-height
+   block at the end of this file for the tile internals. */
+.world-grid[data-worlds-segment="personal"] .worlds-shell { --worlds-row: 480px; }
+.world-grid[data-worlds-segment="community"] .worlds-shell { --worlds-row: 312px; }
 .worlds-empty { margin: 8px 0 4px; }
 .worlds-empty .empty-state { padding: 22px 16px; }
 
@@ -13128,7 +13128,7 @@ span.wp-av, .wp-ring span.avatar, .wp-ring span.member-avatar { display: grid; p
    COMMUNITY tiles add "+N more" → a sheet of every check-in. Rows are the shared .qc-* renderer:
    inside a ~165px tile the @container narrow variant (lead + ⌄) applies by itself. Appended last.
    See work/tile-multi-checkin-reference.html. */
-.wt-checkins { position: relative; margin: 0; padding: 0; border: 0; background: none; animation: none; overflow-y: auto; overscroll-behavior-y: contain; touch-action: pan-y; scrollbar-width: none; flex: 0 1 auto; min-height: 0; }
+.wt-checkins { position: relative; margin: 0; padding: 0; border: 0; background: none; animation: none; overflow-y: auto; overscroll-behavior-y: contain; touch-action: pan-y; scrollbar-width: none; flex: 1 1 auto; min-height: 0; }
 .wt-checkins::-webkit-scrollbar { display: none; }
 .wt-checkins.is-fade { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent); }
 .wt-checkins .qc-head, .wt-checkins .qc-intro, .wt-checkins .qc-foot, .wt-checkins .qc-row-handled { display: none; }
@@ -13224,4 +13224,40 @@ span.wp-av, .wp-ring span.avatar, .wp-ring span.member-avatar { display: grid; p
 }
 @media (prefers-reduced-motion: reduce) {
   .wt-checkins .qc-row { transition: none; }
+}
+
+
+/* ── Fixed-height tiles + finished-world recap (fix/world-tile-fixed-height) ──────────────────
+   Inside a tile: header and footer are flex: 0 0 auto, the check-in list is flex: 1 1 auto with
+   min-height: 0 and scrolls inside; nothing overflows the tile. A finished world fills the same
+   tile with a recap, tinted; the last check-in plays a one-time celebration (ring fill, pulse,
+   recap fade-up). See work/world-tile-fixed-height-reference.html. */
+.world-tile.worlds-tile { overflow: hidden; }
+.worlds-tile[data-world-size="large"] { overflow-y: auto; }   /* a large tile's sections may run on; they scroll, never clip */
+.wt-footer { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; min-width: 0; border-top: 1px solid #17231d; padding-top: 7px; }
+.wt-footer em { font-style: normal; font-size: 0.62rem; color: #5f7369; flex: 0 0 auto; }
+.wt-chips { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.wt-footer .wt-chips { flex-wrap: nowrap; overflow: hidden; }   /* one line; extra chips clip */
+.wt-chip { font-size: 0.66rem; color: #cfe9df; background: #11201a; border: 1px solid #2a5a45; border-radius: 7px; padding: 3px 7px; white-space: nowrap; flex: 0 0 auto; }
+.wt-recap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.wt-recap-title { font-size: 0.86rem; font-weight: 800; color: #7ee0a8; display: flex; align-items: center; gap: 6px; }
+.wt-recap-title .ic { color: #7ee0a8; }
+.wt-streak { font-size: 0.7rem; font-weight: 600; color: #e0a46b; display: inline-flex; align-items: center; gap: 4px; }
+.wt-streak .ic { color: #e0a46b; }
+.wt-tomorrow { margin-top: auto; font-size: 0.66rem; color: #8ba299; border-top: 1px solid #17231d; padding-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-tomorrow b { color: #eaf2ee; font-weight: 600; }
+.worlds-tile.is-done { background: #0f1a15; border-color: #2a5a45; }
+.worlds-tile.is-done .worlds-tile-bg, .worlds-tile.is-done .worlds-tile-scrim { display: none; }
+/* Ring: the grey track always shows on tiles (the per-type stroke rules hid it). */
+.worlds-tile .world-ring.is-checkins .score-ring-bg { stroke: #26352e; }
+/* One-time celebration: pulse (worldsFlash), ring fills from empty, recap fades up. */
+.worlds-tile.is-celebrate { animation: worldsFlash .7s ease; }
+.worlds-tile.is-celebrate .score-ring-fill { animation: wtRingFill .6s ease; }
+@keyframes wtRingFill { from { stroke-dashoffset: 100; } }
+.worlds-tile.is-celebrate .wt-recap { animation: wtFadeUp .4s ease both; }
+@keyframes wtFadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+/* ✎ replaces the ⌨ glyph in every quick check-in surface. */
+.qc-keyboard .ic { width: 16px; height: 16px; vertical-align: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .worlds-tile.is-celebrate, .worlds-tile.is-celebrate .score-ring-fill, .worlds-tile.is-celebrate .wt-recap { animation: none; }
 }

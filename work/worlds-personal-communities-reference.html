@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — Worlds split: Personal vs Communities (interactive reference)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/dist/tabler-icons.min.css">
+<style>
+body{margin:0;background:#040605;padding:24px 12px 60px;display:flex;flex-direction:column;align-items:center;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
+.note{max-width:400px;font-size:13px;color:#8ba299;line-height:1.55;margin:0 0 18px}.note b{color:#eaf2ee}
+.ph{--mint:#7ee0a8;--mb:#8ff0b8;--deep:#173026;--line:#1e2b24;--txt:#eaf2ee;--dim:#8ba299;--faint:#5f7369;
+ width:380px;height:760px;background:#0a0f0d;border:1px solid #1e2b24;border-radius:32px;overflow:hidden;display:flex;flex-direction:column;position:relative;color:var(--txt)}
+.top{display:flex;align-items:center;gap:17px;padding:16px 19px 10px}
+.top .sp{flex:1}.top i{font-size:19px;color:var(--dim)}
+.seg{margin:0 15px 13px;display:flex;background:#0f1613;border:1px solid var(--line);border-radius:14px;padding:3px}
+.seg button{flex:1;background:none;border:none;font:inherit;color:var(--dim);font-size:13px;font-weight:600;padding:9px 0;border-radius:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;transition:background .2s,color .2s}
+.seg button.on{background:linear-gradient(180deg,var(--mb),var(--mint));color:#06231a}
+.seg .ct{font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:8px;background:rgba(6,35,26,.16)}
+.seg button:not(.on) .ct{background:var(--deep);color:var(--mint)}
+.body{flex:1;overflow-y:auto;padding:0 15px 96px;scrollbar-width:none}
+.body::-webkit-scrollbar{display:none}
+.view{display:none;animation:fi .28s ease}.view.on{display:block}
+@keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.ring{border-radius:50%;display:grid;place-items:center;font-weight:800;color:var(--mint);flex:0 0 auto;
+ background:radial-gradient(closest-side,#0b110e 79%,transparent 80%),conic-gradient(var(--mint) var(--p),#22302a 0);transition:background .4s}
+.hero{display:flex;align-items:center;gap:14px;background:linear-gradient(160deg,#10201a,#0b120f);border:1px solid #23402f;border-radius:20px;padding:15px;cursor:pointer}
+.hero .ring{width:70px;height:70px;font-size:17px}
+.hx{flex:1}.hl{font-size:15px;font-weight:800}.hs{font-size:11.5px;color:var(--dim);margin-top:3px}
+.streak{display:inline-flex;align-items:center;gap:5px;margin-top:8px;font-size:11px;font-weight:600;color:#f0c97a;background:#1c160b;border:1px solid #3a2c12;border-radius:9px;padding:3px 8px}
+.chev{color:var(--faint);font-size:14px;transition:transform .25s}.hero.open .chev{transform:rotate(180deg)}
+.brk{overflow:hidden;max-height:0;transition:max-height .3s ease}.brk.open{max-height:260px}
+.brk-in{background:#0c1310;border:1px solid #17231d;border-radius:14px;padding:6px 12px;margin-top:8px}
+.br{display:flex;align-items:center;gap:9px;padding:8px 0;border-top:1px solid #15201b}.br:first-child{border-top:none}
+.br .bn{font-size:12px;font-weight:600;width:96px}.br .bb{flex:1;height:6px;border-radius:4px;background:#1a2620;overflow:hidden}
+.br .bb i{display:block;height:100%;background:linear-gradient(90deg,#2f9d6f,var(--mint));transition:width .4s}
+.br .bp{font-size:11px;color:var(--dim);width:66px;text-align:right}
+.cap{font-size:10px;letter-spacing:1.3px;color:var(--faint);font-weight:700;margin:18px 3px 9px;display:flex;justify-content:space-between}
+.cap em{font-style:normal;letter-spacing:0;color:var(--dim)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{border:1px solid var(--line);border-radius:18px;padding:11px;display:flex;flex-direction:column;gap:9px;position:relative;
+ background:linear-gradient(180deg,color-mix(in srgb,var(--c) 34%,#0d1512),#0a100d 62%)}
+.tile.flash{animation:fl .5s ease}@keyframes fl{0%{box-shadow:0 0 0 0 rgba(126,224,168,.6)}100%{box-shadow:0 0 0 10px rgba(126,224,168,0)}}
+.th{display:flex;align-items:center;gap:8px}.th .ring{width:36px;height:36px;font-size:9.5px}
+.tn{font-size:12.5px;font-weight:800;line-height:1.2}.ts{font-size:10.5px;color:var(--dim);margin-top:2px}
+.log{margin-top:auto;border:none;font:inherit;cursor:pointer;height:38px;border-radius:11px;background:linear-gradient(180deg,var(--mb),var(--mint));color:#06231a;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log:active{transform:scale(.97)}
+.dn{margin-top:auto;height:38px;border-radius:11px;display:grid;place-items:center;font-size:11.5px;font-weight:600;color:var(--mint);background:#11201a;border:1px solid #2a5a45}
+.pub{position:absolute;top:10px;right:10px;font-size:9.5px;font-weight:600;color:var(--mint);background:rgba(17,32,26,.9);border:1px solid #2a5a45;border-radius:7px;padding:2px 6px}
+.lbw{display:flex;flex-direction:column;gap:4px}
+.lb{display:flex;align-items:center;gap:6px;padding:5px 7px;border-radius:8px;background:rgba(14,21,18,.85);border:1px solid #14201b;font-size:11px;transition:background .3s}
+.lb.me{background:var(--deep);border-color:#1d3a2e}
+.lb .rk{width:10px;font-weight:700;color:var(--dim)}.lb.me .rk{color:var(--mint)}
+.lb .av{width:15px;height:15px;border-radius:50%;flex:0 0 auto}
+.lb .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lb b{font-weight:700;color:var(--dim)}.lb.me b{color:var(--mint)}
+.ppl{display:flex;gap:12px;overflow-x:auto;padding:2px 2px 4px;scrollbar-width:none}
+.ppl::-webkit-scrollbar{display:none}
+.pp{text-align:center;flex:0 0 auto;cursor:pointer;background:none;border:none;font:inherit;color:inherit;padding:0}
+.pa{width:50px;height:50px;border-radius:50%;padding:3px;background:conic-gradient(var(--mint) var(--p),#22302a 0);transition:background .4s}
+.pa div{width:100%;height:100%;border-radius:50%;border:2.5px solid #0a0f0d;display:grid;place-items:center;font-size:13px;font-weight:700;color:#eaf2ee}
+.pn{font-size:10.5px;color:var(--dim);margin-top:5px}.pp.me .pn{color:var(--mint);font-weight:700}
+.toast{position:absolute;left:50%;bottom:92px;transform:translate(-50%,12px);opacity:0;pointer-events:none;transition:.25s;
+ background:#11201a;border:1px solid #2a5a45;color:var(--mb);font-size:12px;font-weight:600;padding:9px 15px;border-radius:20px;white-space:nowrap;z-index:9}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.nav{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:flex-end;justify-content:space-around;padding:9px 8px 16px;background:#080c0a;border-top:1px solid var(--line)}
+.nv{flex:1;text-align:center;color:var(--faint);font-size:10.5px}.nv i{font-size:21px;display:block;margin-bottom:2px}.nv.on{color:var(--mint)}
+.plus{flex:0 0 auto;width:54px;height:54px;border-radius:50%;margin-top:-26px;background:linear-gradient(180deg,var(--mb),var(--mint));display:grid;place-items:center;color:#06231a;box-shadow:0 8px 20px rgba(126,224,168,.35);border:3px solid #080c0a}
+.plus i{font-size:26px}
+.nav .me{width:22px;height:22px;border-radius:50%;background:#355d91;margin:0 auto 2px;display:grid;place-items:center;font-size:8px;color:#eaf2ee}
+@media (prefers-reduced-motion:reduce){.view,.tile.flash{animation:none}.brk,.ring,.pa,.br .bb i{transition:none}}
+</style>
+</head>
+<body>
+<p class="note"><b>Worlds split — Personal vs Communities.</b> Tap the toggle to switch; tap ✓ buttons to log (rings, counts and leaderboards update live); tap the Personal summary to expand per-world points; tap a person in the strip. Personal = only you (one combined ring = share of check-ins, never a points sum; no social). Communities = people strip + rank + leaderboards. Sample data is illustrative — the real app uses live state.</p>
+<div class="ph">
+ <div class="top"><span class="sp"></span><i class="ti ti-layout-grid"></i><i class="ti ti-search"></i><i class="ti ti-bell"></i><i class="ti ti-message-circle"></i></div>
+ <div class="seg">
+  <button id="sP" class="on">🔒 Personal <span class="ct" id="cP"></span></button>
+  <button id="sC">👥 Communities <span class="ct" id="cC"></span></button>
+ </div>
+ <div class="body" id="bd">
+  <div class="view on" id="vP">
+   <div class="hero" id="hero" role="button" tabindex="0" aria-expanded="false">
+    <div class="ring" id="hr"></div>
+    <div class="hx"><div class="hl">Your goals today</div><div class="hs" id="hs"></div><span class="streak">🔥 3-day streak</span></div>
+    <span class="chev">⌄</span>
+   </div>
+   <div class="brk" id="brk"><div class="brk-in" id="brkIn"></div></div>
+   <div class="cap"><span>YOUR WORLDS</span><em id="pc"></em></div>
+   <div class="grid" id="gP"></div>
+  </div>
+  <div class="view" id="vC">
+   <div class="cap" style="margin-top:2px"><span>YOUR PEOPLE TODAY</span><em>share of check-ins</em></div>
+   <div class="ppl" id="ppl"></div>
+   <div class="cap"><span>YOUR COMMUNITIES</span><em id="cc"></em></div>
+   <div class="grid" id="gC"></div>
+  </div>
+ </div>
+ <div class="toast" id="tst"></div>
+ <div class="nav">
+  <div class="nv"><i class="ti ti-news"></i>Feed</div>
+  <div class="nv on"><i class="ti ti-world"></i>Worlds</div>
+  <div class="plus"><i class="ti ti-plus"></i></div>
+  <div class="nv"><i class="ti ti-users"></i>People</div>
+  <div class="nv"><span class="me">RA</span>Profile</div>
+ </div>
+</div>
+<script>
+(function(){
+ var P=[
+  {n:'Deep Work',e:'🧠',c:'#5a46b0',total:5,done:3,pts:2,pend:['Focus 90m','Plan tomorrow']},
+  {n:'Fitness',e:'🏋️',c:'#2f8a64',total:5,done:1,pts:1.5,pend:['Lift','Cardio 25m','Protein 140g','Sleep 7h']},
+  {n:'Reading',e:'📖',c:'#b0702a',total:3,done:3,pts:1,pend:[]},
+  {n:'Mindful',e:'🧘',c:'#2f6aa5',total:2,done:0,pts:1,pend:['Meditate 10m','Journal']}
+ ];
+ var C=[
+  {n:'THE BOYS',e:'💪',c:'#3a6ea5',size:8,total:9,done:2,pts:1.5,pend:['Cardio 25m','Lift','Protein'],
+   m:[{n:'You',p:2,me:true,col:'#355d91'},{n:'Jacob',p:3,col:'#9a4a2c'},{n:'Ravram26',p:1,col:'#2f7a5c'},{n:'Sri',p:.5,col:'#7a5cc4'}]},
+  {n:'FAMILY',e:'🏡',c:'#a5476b',size:4,total:8,done:4,pts:1,pend:['Walk 30m','Water 6'],
+   m:[{n:'Mom',p:5,col:'#c98bb0'},{n:'You',p:4,me:true,col:'#355d91'},{n:'Dad',p:2,col:'#6a7a8a'}]},
+  {n:'SQUASH',e:'🎾',c:'#b5702a',size:6,total:9,done:6,pts:2,pend:['Court 60m'],
+   m:[{n:'You',p:7,me:true,col:'#355d91'},{n:'Jacob',p:5,col:'#9a4a2c'},{n:'Kai',p:4,col:'#2f6aa5'}]},
+  {n:'RUN CLUB',e:'🏃',c:'#2f8a64',size:128,pub:true,total:4,done:1,pts:3,pend:['Run 5k'],
+   m:[{n:'Kate',p:12,col:'#b0556e'},{n:'Marcus',p:9,col:'#3a6ea5'},{n:'You',p:4,me:true,col:'#355d91'}]}
+ ];
+ var PEOPLE=[{n:'Jacob',p:90,col:'#9a4a2c'},{n:'Mom',p:62,col:'#c98bb0'},{n:'Sri',p:55,col:'#7a5cc4'},{n:'Ravram',p:30,col:'#2f7a5c'},{n:'Kai',p:20,col:'#2f6aa5'},{n:'Mia',p:0,col:'#6a7a8a'}];
+ var $=function(id){return document.getElementById(id)};
+ function fmt(x){return Math.round(x*10)/10}
+ function sum(a,f){return a.reduce(function(s,x){return s+f(x)},0)}
+ var tt;function toast(m){var t=$('tst');t.textContent=m;t.classList.add('on');clearTimeout(tt);tt=setTimeout(function(){t.classList.remove('on')},1700)}
+ function pTile(w,i){
+  var left=w.pend.length,pct=Math.round(w.done/w.total*100);
+  return '<div class="tile" id="pt'+i+'" style="--c:'+w.c+'"><div class="th"><div class="ring" style="--p:'+pct+'%">'+w.done+'/'+w.total+'</div>'
+   +'<div><div class="tn">'+w.e+' '+w.n+'</div><div class="ts">'+(left?left+' left today':'complete')+'</div></div></div>'
+   +(left?'<button class="log" data-p="'+i+'">✓ '+w.pend[0]+'</button>':'<div class="dn">✓ All done today</div>')+'</div>';
+ }
+ function cTile(c,i){
+  var s=c.m.slice().sort(function(a,b){return b.p-a.p}),me=c.m.filter(function(x){return x.me})[0],rank=s.indexOf(me)+1;
+  var rows=rank<=3?s.slice(0,3):s.slice(0,2).concat([me]);
+  var left=c.pend.length,pct=Math.round(c.done/c.total*100);
+  return '<div class="tile" id="ct'+i+'" style="--c:'+c.c+'">'+(c.pub?'<span class="pub">🌐 Public</span>':'')
+   +'<div class="th"><div class="ring" style="--p:'+pct+'%">'+c.done+'/'+c.total+'</div>'
+   +'<div><div class="tn">'+c.e+' '+c.n+'</div><div class="ts">Rank #'+rank+' of '+c.size+'</div></div></div>'
+   +'<div class="lbw">'+rows.map(function(r){return '<div class="lb'+(r.me?' me':'')+'"><span class="rk">'+(s.indexOf(r)+1)+'</span><span class="av" style="background:'+r.col+'"></span><span class="nm">'+r.n+'</span><b>'+fmt(r.p)+'</b></div>'}).join('')+'</div>'
+   +(left?'<button class="log" data-c="'+i+'">✓ '+c.pend[0]+'</button>':'<div class="dn">✓ You\'re done today</div>')+'</div>';
+ }
+ function render(flash){
+  var pd=sum(P,function(w){return w.done}),pt=sum(P,function(w){return w.total}),pct=Math.round(pd/pt*100);
+  var hr=$('hr');hr.style.setProperty('--p',pct+'%');hr.textContent=pct+'%';
+  $('hs').textContent=pd+' of '+pt+' check-ins · '+P.length+' personal worlds';
+  $('brkIn').innerHTML=P.map(function(w){var p=Math.round(w.done/w.total*100);return '<div class="br"><span class="bn">'+w.e+' '+w.n+'</span><span class="bb"><i style="width:'+p+'%"></i></span><span class="bp">'+fmt(w.done*w.pts)+' / '+fmt(w.total*w.pts)+' pts</span></div>'}).join('');
+  $('gP').innerHTML=P.map(pTile).join('');
+  $('gC').innerHTML=C.map(cTile).join('');
+  var pl=sum(P,function(w){return w.pend.length}),cl=sum(C,function(c){return c.pend.length});
+  $('cP').textContent=pl?pl+' left':'✓';$('cC').textContent=cl?cl+' left':'✓';
+  $('pc').textContent=P.length+' worlds';$('cc').textContent=C.length+' communities';
+  var you=Math.round(sum(C,function(c){return c.done})/sum(C,function(c){return c.total})*100);
+  var ppl=[{n:'You',p:you,col:'#355d91',me:true}].concat(PEOPLE);
+  $('ppl').innerHTML=ppl.map(function(x){return '<button class="pp'+(x.me?' me':'')+'" data-n="'+x.n+'"><div class="pa" style="--p:'+x.p+'%"><div style="background:'+x.col+'">'+x.n[0]+'</div></div><div class="pn">'+x.n+'</div></button>'}).join('');
+  if(flash){var el=$(flash);if(el){el.classList.add('flash');}}
+ }
+ function seg(p){$('sP').classList.toggle('on',p);$('sC').classList.toggle('on',!p);$('vP').classList.toggle('on',p);$('vC').classList.toggle('on',!p);$('bd').scrollTop=0}
+ $('sP').onclick=function(){seg(true)};$('sC').onclick=function(){seg(false)};
+ $('hero').onclick=function(){var o=$('brk').classList.toggle('open');this.classList.toggle('open',o);this.setAttribute('aria-expanded',o)};
+ document.querySelector('.ph').addEventListener('click',function(e){
+  var b=e.target.closest('.log');
+  if(b&&b.dataset.p!==undefined){var w=P[+b.dataset.p],item=w.pend.shift();w.done++;render('pt'+b.dataset.p);
+   toast(w.pend.length?'Logged '+item+' · +'+fmt(w.pts)+' pts':w.n+' complete for today 🎉');return}
+  if(b&&b.dataset.c!==undefined){var c=C[+b.dataset.c],me=c.m.filter(function(x){return x.me})[0];
+   var before=c.m.slice().sort(function(a,b){return b.p-a.p}).indexOf(me)+1;
+   var item2=c.pend.shift();c.done++;me.p+=c.pts;
+   var after=c.m.slice().sort(function(a,b){return b.p-a.p}).indexOf(me)+1;render('ct'+b.dataset.c);
+   toast(after<before?'↑ You moved to #'+after+' in '+c.n:'Logged '+item2+' · +'+fmt(c.pts)+' pts');return}
+  var pp=e.target.closest('.pp');if(pp){toast(pp.dataset.n==='You'?'Opens your profile':'Opens '+pp.dataset.n+'\'s profile');}
+ });
+ render();
+})();
+</script>
+</body>
+</html>

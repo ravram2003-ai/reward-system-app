@@ -393,6 +393,7 @@
   let friendActivityLoading = false;
   let aiGenerating = false;         // guards the async "Generate with AI" calls
   let pendingBuildMode = "";        // a start card was picked; awaiting the personal/community choice
+  let buildPreferredAudience = "";  // "+ New world" from a Worlds segment: that segment's audience, so Build skips the question
   let buildCommunityResults = [];   // public communities matching the build search
   let aiRefining = false;           // guards the async "Improve this system" chat calls
   let aiImproveOpen = false;        // keep the improve/chat panel open across re-renders
@@ -1576,7 +1577,10 @@
     if (window.PointwellSignals && typeof window.PointwellSignals.getWorldLayout === "function") {
       try {
         const layout = await window.PointwellSignals.getWorldLayout(uid);
-        if (layout && typeof layout === "object") { state.worldLayout = layout; saveState(); renderWorldGrid(); }
+        // A change made on this device in the last few seconds (a segment toggle, a drag) is newer
+        // than this copy and is already on its way up — applying the server copy would undo it.
+        const localIsNewer = Date.now() - worldLayoutLocalAt < 10000;
+        if (layout && typeof layout === "object" && !localIsNewer) { state.worldLayout = layout; saveState(); renderWorldGrid(); }
       } catch (e) { /* keep the local layout */ }
     }
     await refreshInbox();
@@ -2987,7 +2991,6 @@
       "analyticsToggle",
       "dashboardAnalytics",
       "worldGrid",
-      "streakCard",
       "dashboardDetail",
       "notifBellButton",
       "notifBellBadge",
@@ -4017,6 +4020,7 @@
     state.buildViewedProfileId = "";
     state.buildViewedPublicId = "";
     pendingBuildMode = "";
+    buildPreferredAudience = "";
   }
 
   // Public-community results for the Build search — reuses the existing community
@@ -5846,7 +5850,7 @@
      persists to profiles.world_layout so it follows the user across devices.
 
      Every tile is still built from buildWorldTiles() and composed from existing parts
-     (renderWorldRing + renderWorldStat, checkinTileHtml, renderWorldSections), and renders into
+     (renderWorldRing + renderWorldStat, worldsTileAction, renderWorldSections), and renders into
      the SAME #worldGrid mount so the existing delegation keeps working.
      See work/worlds-pager-edit-reference.html. ──────────────────────────────────────────── */
   const WORLDS_TWO_COL_MIN = 320;        // pager width (px) at which tiles sit two-up
@@ -5859,6 +5863,61 @@
   let communitiesLoadError = "";         // set when the last fetch failed; shows the retry banner
   let worldsEditMode = false;
   let worldsLastCols = 0;
+
+  /* ── Personal · Communities split ────────────────────────────────────────────────────────
+     Worlds is two screens behind one toggle. PERSONAL = only your progress: one combined ring
+     (share of today's check-ins across your personal worlds — never a points sum, since points
+     differ per world), your streak, and a per-world breakdown. COMMUNITIES = the people strip,
+     your rank and a mini leaderboard per tile. Only the active segment is rendered; each keeps
+     its own page index. The choice persists per user inside profiles.world_layout (no schema
+     change — it's the same jsonb the layout already lives in).
+     See work/worlds-personal-communities-reference.html. */
+  const WORLDS_SEGMENTS = ["personal", "community"];
+  const worldsPageIndexBy = { personal: 0, community: 0 };   // the parked page of the inactive segment
+  let worldsHeroOpen = false;        // Personal hero breakdown expanded (survives re-renders)
+  let worldsSwitchAnim = false;      // one-shot: fade the next render in (set by setWorldsSegment)
+  let worldsFlashKey = "";           // tile that just logged: flashes for 600ms across re-renders
+  function worldsSegment() { return worldLayoutState().segment; }
+  function worldsSegmentType(seg) { return (seg || worldsSegment()) === "community" ? "community" : "personal"; }
+  function worldsSegmentTiles(seg) {
+    const type = worldsSegmentType(seg);
+    return buildWorldTiles().filter((t) => t.type === type && !worldIsArchived(worldTileKey(t)));
+  }
+  function setWorldsSegment(seg) {
+    if (WORLDS_SEGMENTS.indexOf(seg) === -1) return;
+    const prev = worldsSegment();
+    if (seg === prev) return;
+    worldsPageIndexBy[prev] = worldsPageIndex;
+    worldsPageIndex = numberOrDefault(worldsPageIndexBy[seg], 0);
+    worldsPersonOpen = "";            // the people popover belongs to Communities
+    closeWorldTileMenus();
+    const cur = worldLayoutState();
+    saveWorldLayout({ entries: cur.entries, archived: cur.archived, segment: seg });
+    worldsSwitchAnim = !worldsReducedMotion();
+    renderWorldGrid();
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }
+  // Today's check-ins for one tile: eligible rules, how many are logged, what is still asked.
+  // Eligibility is exactly buildCheckinItems' (no penalties, no manual-off synced rules), so the
+  // ring, the "N left" labels and the ✓ button can never disagree.
+  function worldCheckinCounts(t) {
+    const w = checkinWorldFromTile(t);
+    if (!w) return { total: 0, done: 0, left: 0, ask: [], world: null };
+    const sys = normalizeSystem(w.type === "community" ? w.community.system : w.system);
+    const values = (w.type === "community" ? communityValuesForMember(w.community.id, "me", getTodayKey()) : todayValuesForSystem(sys)) || {};
+    const rules = (sys.rules || []).map(scoring.normalizeRule)
+      .filter((r) => r.simpleStyle !== "penalty" && !(isRuleSynced(r) && r.allowManualOverride === false));
+    const done = rules.filter((r) => numberOrDefault(values[r.id], 0) > 0).length;
+    const items = buildCheckinItems(w);
+    return { total: rules.length, done: done, left: items.ask.length, ask: items.ask, world: w };
+  }
+  function worldsSegmentSummary(seg) {
+    const tiles = worldsSegmentTiles(seg);
+    const sum = { worlds: tiles.length, total: 0, done: 0, left: 0, pct: 0 };
+    tiles.forEach((t) => { const c = worldCheckinCounts(t); sum.total += c.total; sum.done += c.done; sum.left += c.left; });
+    sum.pct = sum.total ? Math.round((sum.done / sum.total) * 100) : 0;
+    return sum;
+  }
 
   // Two columns essentially everywhere — including phones, where the pair lands at ~165px each.
   // That used to be too narrow to log from, which is why this once cut over to one column below
@@ -5994,6 +6053,7 @@
     return {
       entries: Array.isArray(wl.entries) ? wl.entries : [],
       archived: Array.isArray(wl.archived) ? wl.archived : [],
+      segment: WORLDS_SEGMENTS.indexOf(wl.segment) > -1 ? wl.segment : "personal",  // default Personal
     };
   }
   function worldLayoutEntry(key) {
@@ -6004,6 +6064,7 @@
   }
   // Persist + push. Kept in one place so every mutation syncs the same way.
   function saveWorldLayout(next) {
+    const segment = WORLDS_SEGMENTS.indexOf(next.segment) > -1 ? next.segment : worldLayoutState().segment;
     state.worldLayout = {
       // {worldId, page, index} — size is NOT here: it lives in homeLayout.sizes (worldTileSize).
       entries: (next.entries || []).map((e, i) => ({
@@ -6011,12 +6072,15 @@
         page: numberOrDefault(e.page, 0), index: numberOrDefault(e.index, i),
       })),
       archived: (next.archived || []).map(String),
+      segment: segment,   // which Worlds segment is open (Personal / Communities)
     };
     saveState();
     pushWorldLayout();
   }
   let worldLayoutPushTimer = null;
+  let worldLayoutLocalAt = 0;   // when this device last changed the layout (see the startup fetch)
   function pushWorldLayout() {
+    worldLayoutLocalAt = Date.now();
     if (!signalsReady() || !window.PointwellSignals || typeof window.PointwellSignals.saveWorldLayout !== "function") return;
     clearTimeout(worldLayoutPushTimer);   // coalesce a burst of drags into one write
     worldLayoutPushTimer = setTimeout(() => {
@@ -6037,9 +6101,9 @@
 
   /* Build the ordered, paged tile list: saved layout first (honouring page + index), then any
      world the layout hasn't seen yet appended at the end. Archived worlds drop out. */
-  function buildWorldsPages() {
+  function buildWorldsPages(segment) {
     const capacity = worldsSlotsPerPage();
-    const tiles = buildWorldTiles().filter((t) => !worldIsArchived(worldTileKey(t)));
+    const tiles = worldsSegmentTiles(segment);   // one segment at a time; pages are per segment
     const placed = tiles.slice().map((t) => {
       const key = worldTileKey(t);
       const e = worldLayoutEntry(key);
@@ -6093,32 +6157,83 @@
         <button type="button" role="menuitem" class="is-danger" data-world-archive="${escapeHtml(p.key)}">Hide from home</button>
       </div>`;
     const bg = worldTileBgFor(t);
-    // Empty check-in → say why, instead of a dark box: either everything's logged, or the
-    // check-in hasn't opened yet (it waits for the hours you usually log).
-    const checkin = checkinTileHtml(t, { compact: true });
-    let quiet = "";
-    if (!checkin) {
-      const w = checkinWorldFromTile(t);
-      const ask = w ? buildCheckinItems(w).ask.length : 0;
-      quiet = ask
-        ? `<div class="qc-quiet"><span>Nothing due yet<br><b>check-in opens around noon</b></span><button type="button" class="qc-quiet-log" data-world-log="${escapeHtml(p.key)}">Log now ›</button></div>`
-        : `<div class="qc-quiet is-done"><span><b>All logged for today ✓</b></span></div>`;
-    }
-    return `<div class="world-tile worlds-tile ${typeClass}${bg ? " has-bg" : ""}" data-world-size="${size}"
+    const community = t.type === "community";
+    const pub = community && t.community && t.community.visibility === "public"
+      ? `<span class="wt-pub" title="Public community">🌐 Public</span>` : "";
+    // Communities carry their mini leaderboard (top 3, or top 2 + you). A large tile shows the
+    // full Leaderboard module below instead, so the mini one is medium-only.
+    const mini = community && !large ? worldMiniLbBody(t.community) : "";
+    // The body opens the world (where the FULL check-in lives); the ✓ button is the one action.
+    return `<div class="world-tile worlds-tile ${typeClass}${bg ? " has-bg" : ""}${p.key === worldsFlashKey ? " is-flash" : ""}" data-world-size="${size}"
         data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(p.key)}">
         ${worldTileBgHtml(bg)}
         <button class="worlds-tile-rm" type="button" data-world-archive="${escapeHtml(p.key)}" aria-label="Remove ${escapeHtml(t.name)} from your layout" tabindex="-1">−</button>
         ${menu}
         <div class="worlds-tile-head" role="button" tabindex="0" data-world-open aria-label="Open ${escapeHtml(t.name)}">
-          <h3 class="worlds-tile-name">${escapeHtml(t.name)}<span class="worlds-tile-arrow" aria-hidden="true">›</span></h3>
+          <h3 class="worlds-tile-name"><span class="worlds-tile-nm">${escapeHtml(t.name)}</span>${pub}<span class="worlds-tile-arrow" aria-hidden="true">›</span></h3>
           <div class="worlds-tile-meta">
             ${renderWorldRing(t, large ? "large" : "medium")}
             <p>${renderWorldStat(t, large)}</p>
           </div>
         </div>
-        ${checkin}${quiet}
+        ${mini ? `<div class="wt-lb" data-world-open>${mini}</div>` : ""}
+        ${worldsTileAction(t, p.key)}
         ${large ? renderWorldSections(t) : ""}
       </div>`;
+  }
+  // ONE action per tile: "✓ <next check-in>" logs through the existing quiet path (checkinLog →
+  // quickLogRule / quickLogCommunityRule). Nothing left → a done line. No rules yet → add some.
+  // The next item is the first the check-in would ask about; for a counter it carries the usual
+  // amount, exactly what the check-in's one-tap lead button logs.
+  function worldsTileAction(t, key) {
+    const c = worldCheckinCounts(t);
+    if (!c.total) return `<button type="button" class="wt-done is-empty" data-world-rules="${escapeHtml(key)}">✎ Add a rule</button>`;
+    const next = c.ask[0];
+    if (!next) return `<div class="wt-done">✓ ${t.type === "community" ? "You're done today" : "All done today"}</div>`;
+    const unit = String(next.rule.unit || "").trim();
+    const amounts = (next.amounts && next.amounts.amounts) || [];
+    const usual = next.amounts && next.amounts.usual;
+    const amt = next.isYesNo ? 0 : (amounts.indexOf(usual) > -1 ? usual : (amounts[0] || 0));
+    const label = String(next.rule.label || "Rule") + (amt > 0 ? " · " + formatMetricPhrase(amt, checkinShortUnit(unit), "") : "");
+    return `<button type="button" class="wt-log" data-wt-log="${escapeHtml(next.rule.id)}" data-wt-key="${escapeHtml(key)}" data-wt-amount="${amt > 0 ? amt : ""}"
+        aria-label="Log ${escapeHtml(label)} in ${escapeHtml(t.name)}"><span class="wt-log-check" aria-hidden="true">✓</span><span class="wt-log-text">${escapeHtml(label)}</span></button>`;
+  }
+  // The ✓ tap: log, then say what changed. The quiet path already re-renders the grid (rings,
+  // counts, segment labels, hero and strip are all derived from state); this only adds the toast —
+  // a rank climb in a community, otherwise the item and the points it earned.
+  function worldsTileLog(key, ruleId, amount) {
+    const before = worldTileFromKey(key);
+    const world = checkinWorldFromTile(before);
+    if (!world) return;
+    const rule = checkinRuleById(world, ruleId);
+    const prevLeft = worldCheckinCounts(before).left;
+    const prevRank = before.type === "community" ? worldMyRank(before.community) : 0;
+    checkinLog(world, ruleId, amount > 0 ? amount : undefined);
+    const after = worldTileFromKey(key);
+    if (!after || !rule) return;
+    const now = worldCheckinCounts(after);
+    if (now.left >= prevLeft) return;   // nothing was logged (already done / manual off) — that path said why
+    const gained = Math.max(0, roundScore(numberOrDefault(after.myPoints, 0) - numberOrDefault(before.myPoints, 0)));
+    const item = String(rule.label || "check-in");
+    let msg;
+    if (after.type === "community") {
+      const rank = worldMyRank(after.community);
+      msg = rank && prevRank && rank < prevRank ? `↑ You moved to #${rank} in ${after.name}` : `Logged ${item} · +${formatPoints(gained)} pts`;
+    } else {
+      msg = now.left ? `Logged ${item} · +${formatPoints(gained)} pts` : `${after.name} complete for today 🎉`;
+    }
+    showToast(msg);
+    // The flash rides on the markup (renderWorldsTile) so the async saves that re-render the grid
+    // right after a log can't drop it mid-animation.
+    if (worldsReducedMotion()) return;
+    worldsFlashKey = key;
+    const el = els.worldGrid && els.worldGrid.querySelector(`[data-world-key="${cssEscapeAttr(key)}"]`);
+    if (el) el.classList.add("is-flash");
+    setTimeout(() => {
+      worldsFlashKey = "";
+      const live = els.worldGrid && els.worldGrid.querySelector(`[data-world-key="${cssEscapeAttr(key)}"]`);
+      if (live) live.classList.remove("is-flash");
+    }, 600);
   }
   function closeWorldTileMenus() {
     document.querySelectorAll(".worlds-tile-menu:not([hidden])").forEach((m) => { m.hidden = true; });
@@ -6142,37 +6257,39 @@
     const mount = els.worldGrid;
     if (!mount) return;
     if (worldsDrag.tile) return;   // never rebuild mid-drag — it would drop the lifted tile
-    const tiles = buildWorldTiles();
-    if (els.worldCount) els.worldCount.textContent = tiles.length ? String(tiles.length) : "";
-    const pages = buildWorldsPages();
-    // "+ New world" lives in the nav row now, always reachable; the add-card only appears when
-    // there is nothing else to show.
-    const addPageIndex = tiles.length ? -1 : 0;
+    const seg = worldsSegment();
+    const allTiles = buildWorldTiles();
+    const tiles = worldsSegmentTiles(seg);
+    if (els.worldCount) els.worldCount.textContent = allTiles.length ? String(allTiles.length) : "";
+    const pages = buildWorldsPages(seg);
     worldsPageCount = Math.max(1, pages.length);
     worldsPageIndex = Math.max(0, Math.min(worldsPageIndex, worldsPageCount - 1));
+    worldsPageIndexBy[seg] = worldsPageIndex;
     worldsLastCols = worldsColumns();
-    const addCard = `<div class="world-tile worlds-tile worlds-add" role="button" tabindex="0" data-world-add aria-label="Add a world">
-        <span class="world-add-plus" aria-hidden="true">+</span>
-        <span class="world-add-label">${tiles.length ? "New world" : "Create your first world"}</span>
-      </div>`;
     const dots = worldsPageCount > 1
       ? pages.map((_, i) => `<button class="worlds-dot${i === worldsPageIndex ? " is-on" : ""}" type="button"
           aria-current="${i === worldsPageIndex ? "true" : "false"}" aria-label="Go to page ${i + 1} of ${worldsPageCount}" data-worlds-dot="${i}"></button>`).join("")
       : "";
-    const nav = `<div class="worlds-nav${worldsPageCount > 1 ? "" : " is-single"}">
-          ${worldsPageCount > 1 ? `<button class="worlds-chev" type="button" data-worlds-prev aria-label="Previous page">‹</button>
+    // Dots + chevrons only when there is more than one page. "+ New world" sits in the caption
+    // row above the tiles and carries the segment, so Build starts in that audience (openAddWorld).
+    const nav = tiles.length && worldsPageCount > 1 ? `<div class="worlds-nav">
+          <button class="worlds-chev" type="button" data-worlds-prev aria-label="Previous page">‹</button>
           <div class="worlds-dots" role="group" aria-label="World pages">${dots}</div>
-          <button class="worlds-chev" type="button" data-worlds-next aria-label="Next page">›</button>` : ""}
-          ${tiles.length ? `<button class="worlds-new" type="button" data-world-add>+ New world</button>` : ""}
-        </div>`;
+          <button class="worlds-chev" type="button" data-worlds-next aria-label="Next page">›</button>
+        </div>` : "";
     mount.classList.add("is-pager");
     mount.classList.toggle("is-editing", worldsEditMode);
     // Single source of truth for the column count: the CSS grid reads this, so the layout and
     // the slot budget above can never disagree (a mismatch would stack tiles the packer thought
     // were side by side).
     mount.dataset.worldsCols = String(worldsLastCols);
-    // Worlds you've hidden stay one tap from coming back; a failed refresh says so and offers Retry.
-    const hiddenTiles = worldLayoutState().archived.map((k) => tiles.find((t) => worldTileKey(t) === String(k))).filter(Boolean);
+    // Row height differs per segment (styles.css). NOT "data-worlds-seg": that attribute is the
+    // toggle buttons' hook in onWorldGridClick, and closest() would match the mount from any tap.
+    mount.dataset.worldsSegment = seg;
+    // Worlds you've hidden stay one tap from coming back (this segment's only); a failed refresh
+    // says so and offers Retry.
+    const type = worldsSegmentType(seg);
+    const hiddenTiles = worldLayoutState().archived.map((k) => allTiles.find((t) => worldTileKey(t) === String(k))).filter((t) => t && t.type === type);
     const hiddenRow = hiddenTiles.length
       ? `<div class="worlds-hidden"><span class="worlds-hidden-cap">Hidden from home (${hiddenTiles.length})</span>${hiddenTiles.map((t) =>
           `<button type="button" class="worlds-hidden-item" data-worlds-restore="${escapeHtml(worldTileKey(t))}">${escapeHtml(t.name)}<b>Restore</b></button>`).join("")}</div>`
@@ -6180,29 +6297,115 @@
     const banner = communitiesLoadError
       ? `<div class="worlds-banner" role="alert">Couldn't refresh your worlds — showing your last saved ones<button type="button" data-worlds-retry>Retry</button></div>`
       : "";
-    mount.innerHTML = `
-      ${banner}
-      ${renderWorldsPeopleStrip()}
-      ${nav}
-      <div class="worlds-shell">
+    const pagerLabel = seg === "community" ? "Communities" : "Personal worlds";
+    const pager = tiles.length ? `<div class="worlds-shell">
         <span class="worlds-edge worlds-edge-l" aria-hidden="true"></span>
         <span class="worlds-edge worlds-edge-r" aria-hidden="true"></span>
-        <div class="worlds-pager" id="worldsPager" tabindex="0" role="group" aria-label="Worlds, ${worldsPageCount} pages">
-          ${pages.map((page, i) => `<div class="worlds-page" data-page="${i}">${
-              page.map(renderWorldsTile).join("") + (i === addPageIndex ? addCard : "")
-            }</div>`).join("")}
+        <div class="worlds-pager" id="worldsPager" tabindex="0" role="group" aria-label="${pagerLabel}, ${worldsPageCount} pages">
+          ${pages.map((page, i) => `<div class="worlds-page" data-page="${i}">${page.map(renderWorldsTile).join("")}</div>`).join("")}
         </div>
       </div>
-      ${worldsEditMode
-        ? `<p class="worlds-tip">Drag a tile to move it · hold at an edge to change page</p>`
-        : ""}
-      ${hiddenRow}`;
+      ${worldsEditMode ? `<p class="worlds-tip">Drag a tile to move it · hold at an edge to change page</p>` : ""}`
+      : renderWorldsEmpty(seg);
+    mount.innerHTML = `
+      ${banner}
+      ${renderWorldsToggle(seg)}
+      <div class="worlds-seg-view${worldsSwitchAnim ? " is-in" : ""}" data-worlds-seg-view="${seg}">
+        ${seg === "community" ? renderWorldsCommunitiesLead(tiles) : renderWorldsPersonalHero(tiles)}
+        ${nav}
+        ${pager}
+        ${hiddenRow}
+      </div>`;
+    worldsSwitchAnim = false;
     paintWorldTilesMedia(tiles);
     bindWorldsPager();
     // Restore the scroll position for the active page without animating on a re-render.
     const pgr = worldsPagerEl();
     if (pgr) { pgr.scrollLeft = worldsPageIndex * pgr.clientWidth; }
     syncWorldsDots();
+  }
+
+  // The segmented toggle. Each side carries a live count: "N left" (check-ins still asked in
+  // that segment) or ✓ when everything there is logged; nothing when the segment has no worlds.
+  function renderWorldsToggle(seg) {
+    const btn = (id, icon, label) => {
+      const s = worldsSegmentSummary(id);
+      const ct = !s.worlds ? "" : (s.left ? s.left + " left" : "✓");
+      const on = seg === id;
+      return `<button type="button" class="segmented-button${on ? " active" : ""}" role="tab" aria-selected="${on ? "true" : "false"}" data-worlds-seg="${id}">
+          <span aria-hidden="true">${icon}</span>${label}${ct ? `<span class="ws-ct" aria-label="${s.left ? s.left + " check-ins left" : "all logged today"}">${ct}</span>` : ""}
+        </button>`;
+    };
+    return `<div class="segmented worlds-seg" role="tablist" aria-label="Personal or community worlds">${btn("personal", "🔒", "Personal")}${btn("community", "👥", "Communities")}</div>`;
+  }
+  function worldsCoachButton() {
+    const nudges = coachActiveNudgeCount();
+    return `<button type="button" class="today-coach${nudges ? " has-nudges" : ""}" data-coach-open aria-label="Open Coach">${svgIcon("sparkle", "icon-xs")}<span data-coach-count>${nudges ? nudges : ""}</span></button>`;
+  }
+  // PERSONAL hero: ONE combined ring = share of today's check-ins across your personal worlds
+  // (never a points sum), the best current streak among them (same math as the detail pages,
+  // same milestone celebration the old Today card ran), and a tap-to-expand per-world breakdown.
+  function renderWorldsPersonalHero(tiles) {
+    if (!tiles.length) return "";
+    const s = worldsSegmentSummary("personal");
+    let best = { streak: 0, ctx: null };
+    tiles.forEach((t) => {
+      const sys = (state.systems || []).find((x) => x.id === t.id);
+      if (!sys) return;
+      const ctx = { type: "personal", id: t.id, system: sys };
+      const n = coachContextStreak(ctx);
+      if (!best.ctx || n > best.streak) best = { streak: n, ctx: ctx };
+    });
+    if (best.ctx) maybeCelebrateMilestone(best.ctx, best.streak);
+    const key = best.ctx ? "personal:" + best.ctx.id : "";
+    const celebrating = !!key && streakCelebrateKey === key; if (celebrating) streakCelebrateKey = "";
+    const rows = tiles.map((t) => {
+      const c = worldCheckinCounts(t);
+      const pct = c.total ? Math.round((c.done / c.total) * 100) : 0;
+      return `<div class="wh-row"><span class="wh-rn">${escapeHtml(t.name)}</span><span class="wh-bar" aria-hidden="true"><i style="width:${pct}%"></i></span><span class="wh-rp">${escapeHtml(formatPoints(t.myPoints))} / ${escapeHtml(formatPoints(t.target))} pts</span></div>`;
+    }).join("");
+    const worldsWord = tiles.length === 1 ? "world" : "worlds";
+    return `<div class="wh-wrap${worldsHeroOpen ? " is-open" : ""}${celebrating ? " is-celebrating" : ""}">
+        <div class="wh" role="button" tabindex="0" data-worlds-hero aria-expanded="${worldsHeroOpen ? "true" : "false"}" aria-controls="worldsHeroBrk"
+          aria-label="Your goals today: ${s.done} of ${s.total} check-ins done. Show the per-world breakdown">
+          <div class="wh-ring" aria-hidden="true"><svg viewBox="0 0 44 44"><circle class="wpr-track" cx="22" cy="22" r="20"></circle><circle class="wpr-arc" cx="22" cy="22" r="20" pathLength="100" style="stroke-dashoffset:${100 - s.pct}"></circle></svg><b>${s.pct}%</b></div>
+          <div class="wh-x">
+            <div class="wh-title">Your goals today</div>
+            <div class="wh-sub">${s.done} of ${s.total} check-ins · ${tiles.length} personal ${worldsWord}</div>
+            <span class="wh-streak">${svgIcon("flame", "icon-xs")}${best.streak > 0 ? best.streak + "-day streak" : "Log today to start a streak"}</span>
+          </div>
+          <span class="wh-chev" aria-hidden="true">⌄</span>
+        </div>
+        <div class="wh-brk" id="worldsHeroBrk" aria-hidden="${worldsHeroOpen ? "false" : "true"}"><div class="wh-brk-in"><div class="wh-brk-rows">${rows}</div></div></div>
+      </div>
+      <div class="worlds-cap"><span>Your worlds <i>${tiles.length}</i></span><button class="worlds-new" type="button" data-world-add="personal">+ New world</button>${worldsCoachButton()}</div>`;
+  }
+  // Expand / collapse the hero breakdown in place (no re-render, so nothing jumps).
+  function toggleWorldsHero() {
+    worldsHeroOpen = !worldsHeroOpen;
+    const wrap = els.worldGrid && els.worldGrid.querySelector(".wh-wrap");
+    if (!wrap) return;
+    wrap.classList.toggle("is-open", worldsHeroOpen);
+    const btn = wrap.querySelector("[data-worlds-hero]");
+    if (btn) btn.setAttribute("aria-expanded", worldsHeroOpen ? "true" : "false");
+    const brk = wrap.querySelector(".wh-brk");
+    if (brk) brk.setAttribute("aria-hidden", worldsHeroOpen ? "false" : "true");
+  }
+  // COMMUNITIES lead: the people strip (captioned for what the ring means) above the tiles.
+  function renderWorldsCommunitiesLead(tiles) {
+    if (!tiles.length) return "";
+    const strip = renderWorldsPeopleStrip();
+    return `${strip ? `<div class="worlds-cap"><span>Your people today</span><em>share of check-ins</em>${worldsCoachButton()}</div>${strip}` : ""}
+      <div class="worlds-cap"><span>Your communities <i>${tiles.length}</i></span><button class="worlds-new" type="button" data-world-add="community">+ New world</button>${strip ? "" : worldsCoachButton()}</div>`;
+  }
+  // Nothing in this segment yet → one clear next step (the CTAs route through openAddWorld with
+  // the segment's audience preselected; "Find communities" is the existing finder).
+  function renderWorldsEmpty(seg) {
+    if (seg === "community") {
+      return `<div class="worlds-empty">${emptyState("Create or join a community to see your people's progress here.",
+        { label: "Create a community", action: "new-world-community" }, { label: "Find communities", action: "find-worlds" })}</div>`;
+    }
+    return `<div class="worlds-empty">${emptyState("Set a personal goal — a world only you can see.", { label: "Set a personal goal", action: "new-world-personal" })}</div>`;
   }
 
   function syncWorldsDots() {
@@ -6428,7 +6631,10 @@
       });
     });
     const cur = worldLayoutState();
-    saveWorldLayout({ entries: entries, archived: cur.archived });
+    // Only the active segment is in the DOM: the other segment's placements stay as they were.
+    const seen = new Set(entries.map((e) => e.worldId));
+    const kept = cur.entries.filter((e) => e && !seen.has(String(e.worldId)));
+    saveWorldLayout({ entries: kept.concat(entries), archived: cur.archived });
     renderWorldGrid();
   }
 
@@ -6509,13 +6715,17 @@
   function renderWorldStat(t, full) {
     if (t.type === "community") {
       const rank = worldMyRank(t.community), active = worldActiveToday(t.community);
+      const size = (t.community.members || []).length;
       const bits = [];
-      if (rank) bits.push("Rank #" + rank);
-      if (active) bits.push(active + (full ? " active today" : " active"));
+      if (rank) bits.push("Rank #" + rank + (size > 1 ? " of " + size : ""));
+      if (active && full) bits.push(active + " active today");
       return escapeHtml(bits.join(" · ") || "community");
     }
-    const toGo = numberOrDefault(t.toGo, 0);
-    return toGo > 0 ? escapeHtml(formatPoints(toGo) + (full ? " to go today" : " to go")) : `Goal hit today ${svgIcon("check", "icon-xs")}`;
+    // Personal: what is still to check in today (the ring beside it carries the points).
+    const c = worldCheckinCounts(t);
+    if (!c.total) return "no rules yet";
+    if (c.left) return escapeHtml(c.left + (full ? " left today" : " left"));
+    return `Complete today ${svgIcon("check", "icon-xs")}`;
   }
 
   // Slim cover strip (cover_url or the per-type gradient fallback) with the world's icon
@@ -6731,16 +6941,26 @@
   function worldLbBody(community, limit) {
     const standings = worldStandings(community).slice(0, limit || 3);
     if (!standings.length) return `<p class="world-section-empty">No standings yet.</p>`;
-    return standings.map((m, i) => {
-      const me = m.id === "me";
-      const tap = worldMemberTap(m);
-      const inner = `<span class="world-lb-rank">${i + 1}</span>
-          ${worldAvatarMarkup(m)}
-          <span class="world-lb-name">${me ? "You" : escapeHtml(m.name || "Member")}</span>
-          <strong class="world-lb-pts">${escapeHtml(formatPoints(m.today))}</strong>`;
-      const cls = `world-lb-row${me ? " is-me" : ""}${tap ? " is-tappable" : ""}`;
-      return tap ? `<button class="${cls}"${tap}>${inner}</button>` : `<div class="${cls}">${inner}</div>`;
-    }).join("");
+    return standings.map((m, i) => worldLbRow(m, i + 1)).join("");
+  }
+  function worldLbRow(m, rank) {
+    const me = m.id === "me";
+    const tap = worldMemberTap(m);
+    const inner = `<span class="world-lb-rank">${rank}</span>
+        ${worldAvatarMarkup(m)}
+        <span class="world-lb-name">${me ? "You" : escapeHtml(m.name || "Member")}</span>
+        <strong class="world-lb-pts">${escapeHtml(formatPoints(m.today))}</strong>`;
+    const cls = `world-lb-row${me ? " is-me" : ""}${tap ? " is-tappable" : ""}`;
+    return tap ? `<button class="${cls}"${tap}>${inner}</button>` : `<div class="${cls}">${inner}</div>`;
+  }
+  // The tile's mini leaderboard: top 3, or top 2 + your own row when you're ranked lower, so your
+  // position is always on the tile. Same rows (and member taps) as the Leaderboard module.
+  function worldMiniLbBody(community) {
+    const standings = worldStandings(community);
+    if (!standings.length) return "";
+    const myIdx = standings.findIndex((m) => m.id === "me");
+    const rows = myIdx > 2 ? standings.slice(0, 2).concat([standings[myIdx]]) : standings.slice(0, 3);
+    return rows.map((m) => worldLbRow(m, standings.indexOf(m) + 1)).join("");
   }
 
   function worldPostsBody(community, limit) {
@@ -6847,6 +7067,10 @@
     if (q("[data-worlds-prev]")) { goWorldsPage(worldsPageIndex - 1); return; }
     if (q("[data-worlds-next]")) { goWorldsPage(worldsPageIndex + 1); return; }
     if (q("[data-worlds-edit]")) { toggleWorldsEditMode(); return; }
+    const segBtn = q("[data-worlds-seg]");
+    if (segBtn) { setWorldsSegment(segBtn.dataset.worldsSeg); return; }
+    if (q("[data-coach-open]")) return;   // Coach has its own document-level handler
+    if (q("[data-worlds-hero]")) { toggleWorldsHero(); return; }
     const restore = q("[data-worlds-restore]");
     if (restore) { restoreWorldToLayout(restore.dataset.worldsRestore); return; }
     const person = q("[data-worlds-person]");
@@ -6877,8 +7101,6 @@
     if (!t.closest(".worlds-tile-menu")) closeWorldTileMenus();
     const rules = t.closest("[data-world-rules]");
     if (rules) { openWorldRules(rules.dataset.worldRules); return; }
-    const logNow = t.closest("[data-world-log]");
-    if (logNow) { openPostComposer(); return; }
     const bgOpen = t.closest("[data-world-bg-open]");
     if (bgOpen) { closeWorldTileMenus(); openWorldBgPicker(bgOpen.dataset.worldBgOpen); return; }
     const sizeCycle = t.closest("[data-world-size-cycle]");
@@ -6905,10 +7127,11 @@
     if (addSec) { const tile = addSec.closest("[data-world-key]"); if (tile) addWorldSection(tile.dataset.worldKey, addSec.dataset.worldAddSec); return; }
     const rmSec = t.closest("[data-world-rm-sec]");
     if (rmSec) { const tile = rmSec.closest("[data-world-key]"); if (tile) removeWorldSection(tile.dataset.worldKey, rmSec.dataset.worldRmSec); return; }
-    if (t.closest("[data-world-add]")) { openAddWorld(); return; }
-    // Quick check-in on a large tile — handled here (delegation) because tiles re-render as one
-    // HTML string. Every branch returns so the tap never falls through to "open this world".
-    if (t.closest(".quick-checkin-tile") && onCheckinTileClick(t)) return;
+    const add = t.closest("[data-world-add]");
+    if (add) { openAddWorld(add.dataset.worldAdd); return; }
+    // The tile's ✓ — one tap logs the next check-in through the quiet path (worldsTileLog).
+    const wtLog = t.closest("[data-wt-log]");
+    if (wtLog) { worldsTileLog(wtLog.dataset.wtKey, wtLog.dataset.wtLog, numberOrDefault(wtLog.dataset.wtAmount, 0)); return; }
     // A member (leaderboard row, post author, members strip) → their profile in THIS world's
     // context, the same drill-down the community detail leaderboard uses. A post (thumbnail or
     // caption) → the post overlay in place. Both sit below the drag/edit-mode guards above, so
@@ -6938,61 +7161,6 @@
     openMemberProfile(community, button.dataset.worldMember);
   }
 
-  // Check-in actions inside a Worlds-grid tile. Returns true when the tap was consumed.
-  function onCheckinTileClick(target) {
-    const tileEl = target.closest("[data-world-id]");
-    if (!tileEl) return false;
-    const world = checkinWorldFromTile(
-      buildWorldTiles().find((t) => String(t.id) === tileEl.dataset.worldId && t.type === tileEl.dataset.worldType)
-    );
-    if (!world) return false;
-    const yes = target.closest("[data-qc-yes]");
-    if (yes) { checkinLog(world, yes.dataset.qcYes); return true; }
-    const amt = target.closest("[data-qc-amount]");
-    if (amt) { checkinLog(world, amt.dataset.qcAmount, numberOrDefault(amt.dataset.qcValue, 0)); return true; }
-    const more = target.closest("[data-qc-more]");
-    if (more) { toggleCheckinMore(world, more); return true; }
-    const skip = target.closest("[data-qc-skip]");
-    if (skip) {
-      const ruleId = skip.dataset.qcSkip;
-      skipCheckinRule(world.id, ruleId); renderWorldGrid();
-      showToast("Skipped for today", { label: "Undo", onClick: () => { delete checkinSkipsToday()[checkinSkipKey(world.id, ruleId)]; saveState(); renderWorldGrid(); } });
-      return true;
-    }
-    const type = target.closest("[data-qc-type]");
-    if (type) { openCheckinTileTyping(target, world, type.dataset.qcType); return true; }
-    const go = target.closest("[data-qc-typed-go]");
-    if (go) { commitCheckinTileTyping(target, world, go.dataset.qcTypedGo); return true; }
-    return !!target.closest(".qc-typed"); // taps in the input stay inside the card
-  }
-
-  // ⌨ on a tile → swap the chip row for a typed amount, committing through the same quiet path.
-  function openCheckinTileTyping(target, world, ruleId) {
-    const row = target.closest(".qc-row");
-    const chips = row && row.querySelector(".qc-chips");
-    if (!chips || chips.querySelector(".qc-typed")) return;
-    const rule = checkinRuleById(world, ruleId);
-    chips.innerHTML = `<input class="qc-typed" type="number" inputmode="decimal" min="0" step="any"
-        placeholder="${escapeHtml(String(rule && rule.unit ? rule.unit : "amount"))}" aria-label="Amount">
-      <button class="qc-typed-go" type="button" data-qc-typed-go="${escapeHtml(String(ruleId))}">Log</button>`;
-    const input = chips.querySelector(".qc-typed");
-    if (input) {
-      try { input.focus(); } catch (e) { /* focus is best-effort */ }
-      input.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter") { ev.preventDefault(); commitCheckinTileTyping(input, world, ruleId); }
-      });
-    }
-  }
-  function commitCheckinTileTyping(target, world, ruleId) {
-    const row = target.closest(".qc-row");
-    const input = row && row.querySelector(".qc-typed");
-    const rule = checkinRuleById(world, ruleId);
-    if (!input || !rule) return;
-    const amount = checkinTypedAmount(input.value, rule);
-    if (amount == null) return;
-    checkinLog(world, ruleId, amount);
-  }
-
   // Keyboard: Enter/Space on a focused tile opens it (it's role="button"). Inner controls are
   // real <button>s and fire their own click, so skip them here.
   function onWorldGridKeydown(event) {
@@ -7004,6 +7172,7 @@
     // click on Enter/Space — the same guard onWorldGridClick has. Without this, keyboard users
     // got "open the world" instead of the log they asked for.
     if (t.closest("[data-worlds-dot]") || t.closest("button, input, select, textarea, a[href]")) return;
+    if (t.closest("[data-worlds-hero]")) { event.preventDefault(); toggleWorldsHero(); return; }
     const tile = t.closest(".world-tile");
     if (!tile) return;
     if (tile.classList.contains("worlds-tile") && !t.closest("[data-world-open]")) return;
@@ -7168,12 +7337,14 @@
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }
 
-  function openAddWorld() {
+  function openAddWorld(audience) {
     // Build creates BOTH systems and communities (house rule); land on the Build home.
     state.activeView = "systems";
     state.systemEditorOpen = false;
     state.editingRuleId = "";
     if (typeof resetBuildHome === "function") resetBuildHome();
+    // From the Personal / Communities segment the audience is known: preselect it (chooseBuildStart).
+    buildPreferredAudience = audience === "community" || audience === "personal" ? audience : "";
     saveState();
     render();
     if (typeof scrollSystemsListToTop === "function") scrollSystemsListToTop();
@@ -7189,7 +7360,9 @@
     // Bubble-tile home (Phase 1): the visible Today body. The per-system detail below is
     // hidden (#dashboardDetail) but still computed — its values feed the Add Entry view.
     renderWorldGrid();
-    renderStreakCard(); // prominent streak card under the tiles (reuses coachContextStreak)
+    // The streak lives in the Personal hero (renderWorldsPersonalHero); the old Today/streak card
+    // is gone from this screen. The desktop sidebar modules it used to refresh still need a tick.
+    try { renderSidebarModules(); } catch (e) { /* sidebar modules are desktop sugar */ }
 
     // Default analytics visibility; updateDashboardComputed() flips these for the
     // action-first empty state (and the no-system branch below leaves them visible).
@@ -7474,6 +7647,8 @@
   function chooseBuildStart(mode) {
     if (mode !== "search" && mode !== "ai" && mode !== "scratch") return;
     pendingBuildMode = mode;
+    // Came from a Worlds segment → the audience is already chosen; go straight into that flow.
+    if (buildPreferredAudience) { const a = buildPreferredAudience; buildPreferredAudience = ""; startBuildForAudience(a); return; }
     renderSystems();
     requestAnimationFrame(() => els.buildAudiencePanel?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
   }
@@ -11911,10 +12086,8 @@
     wireQuickCheckin(host, world);
   }
 
-  // Surface 2: the LARGE world tile on the Worlds grid (this is where the reference shows it —
-  // right under the tile's name/rank line, above the Leaderboard/Recent-posts sections).
-  // Tiles are re-rendered as one HTML string, so the tile card is wired by DELEGATION in
-  // onWorldGridClick instead of per-node listeners.
+  // The full card inside a grid tile. Only the legacy renderWorldTile still embeds it: the pager
+  // tiles carry ONE "✓ next check-in" button (worldsTileAction) and open the world for the rest.
   function checkinTileHtml(tile, opts) {
     const world = checkinWorldFromTile(tile);
     const html = world ? checkinCardHtml(world, opts) : "";
@@ -16098,17 +16271,6 @@
     return ["S", "M", "T", "W", "T", "F", "S"][d.getDay()] || "";
   }
 
-  // Last 7 days as dots, using the SAME hit logic as coachContextStreak (logged that day: getPts > 0).
-  function streakWeekDots(ctx, probe) {
-    probe = probe || streakContextProbe(ctx);
-    const today = getTodayKey();
-    const out = [];
-    for (let i = 6; i >= 0; i--) {
-      const date = offsetDate(-i);
-      out.push({ label: weekdayInitial(date), hit: probe.getPts(date) > 0, isToday: date === today });
-    }
-    return out;
-  }
 
   // Next badge + progress toward it (matches the reference: % of the way to the next milestone).
   function streakMilestoneInfo(streak) {
@@ -16137,64 +16299,6 @@
 
   // The prominent Today streak card (amber flame + count + 7-day dots + milestone progress). Reuses
   // coachContextStreak for the count and the shared probe for the dots/best-run — no new streak math.
-  // Across ALL your worlds: how many are fully checked in and how many prompts remain. This is
-  // the first line of the home screen; the streak (one context's) rides along underneath.
-  function todaySummary() {
-    const tiles = buildWorldTiles().filter((t) => !worldIsArchived(worldTileKey(t)));
-    let done = 0, left = 0;
-    tiles.forEach((t) => {
-      const w = checkinWorldFromTile(t);
-      const ask = w ? buildCheckinItems(w).ask.length : 0;
-      if (!ask) done++; left += ask;
-    });
-    return { worlds: tiles.length, done: done, left: left };
-  }
-  function renderStreakCard() {
-    if (!els.streakCard) return;
-    const ctx = streakActiveContext();
-    const probe = ctx ? streakContextProbe(ctx) : null;
-    const sum = todaySummary();
-    if ((!ctx || !probe) && !sum.worlds) { els.streakCard.hidden = true; els.streakCard.innerHTML = ""; return; }
-    els.streakCard.hidden = false;
-    if (!ctx || !probe) {
-      els.streakCard.innerHTML = `<div class="streak-bar today-bar"><div class="streak-headline"><strong class="streak-count">${sum.done} of ${sum.worlds} worlds done</strong><p class="streak-sub">${sum.left ? sum.left + " check-ins left" : "All logged for today"}</p></div></div>`;
-      return;
-    }
-    const streak = coachContextStreak(ctx);
-    maybeCelebrateMilestone(ctx, streak);
-    const key = ctx.type + ":" + ctx.id;
-    const celebrating = streakCelebrateKey === key; if (celebrating) streakCelebrateKey = "";
-    // Labeled 7-day dot strip: day initials over dots; hit = teal-filled, today = teal-outlined.
-    const dots = streakWeekDots(ctx, probe).map((d, i, arr) => {
-      const cls = d.isToday ? (d.hit ? "hit today" : "today") : (d.hit ? "hit" : "miss");
-      const day = new Date(); day.setDate(day.getDate() - (arr.length - 1 - i));
-      const letter = ["S", "M", "T", "W", "T", "F", "S"][day.getDay()];
-      return `<span class="streak-dotcol"><i>${letter}</i><span class="streak-idot ${cls}"></span></span>`;
-    }).join("");
-    const ms = streakMilestoneInfo(streak);
-    const loggedToday = probe.getPts(getTodayKey()) > 0;
-    // "5 days to your 7-day milestone" — plain words, unit named once.
-    const milestoneNote = ms.next
-      ? ms.daysTo + (ms.daysTo === 1 ? " day" : " days") + " to your " + ms.next + "-day milestone"
-      : "100-day legend";
-    let sub;
-    if (streak <= 0) sub = "Log today to start";
-    else if (loggedToday) sub = "Logged today · " + milestoneNote;
-    else sub = milestoneNote;
-    const nudges = coachActiveNudgeCount();
-    els.streakCard.innerHTML = `
-      <div class="streak-bar today-bar${streak <= 0 ? " is-zero" : ""}${celebrating ? " is-celebrating" : ""}">
-        <span class="streak-flame" aria-hidden="true">${svgIcon("flame")}</span>
-        <div class="streak-headline">
-          <strong class="streak-count">${sum.worlds ? `${sum.done} of ${sum.worlds} worlds done` : `${escapeHtml(String(streak))}-day streak`}</strong>
-          <p class="streak-sub">${sum.worlds ? `${sum.left ? sum.left + " check-ins left" : "All logged"} · ${escapeHtml(String(streak))}-day streak` : escapeHtml(sub)}</p>
-        </div>
-        <button type="button" class="today-coach${nudges ? " has-nudges" : ""}" data-coach-open aria-label="Open Coach">${svgIcon("sparkle", "icon-xs")}<span data-coach-count>${nudges ? nudges : ""}</span></button>
-        <div class="streak-week-inline" aria-hidden="true">${dots}</div>
-      </div>`;
-    try { renderSidebarModules(); } catch (e) { /* sidebar modules are desktop sugar */ }
-  }
-
   // ── Streak at-risk nudge: the return driver. When a streak is ALIVE but today isn't logged yet,
   // surface "your N-day streak ends tonight" + a Log-now CTA — once/day, only later in the day. ──
   // Surface the top challenge moment (received / behind-late / won) through Coach — self-contained
@@ -25185,6 +25289,8 @@
     else if (a === "retry-discover") { discoverLoaded = false; discoverLoadFailed = false; loadDiscoverFeed(); try { renderActiveFeed(); } catch (err) { /* ignore */ } }
     else if (a === "log-photo") { try { openPostComposer(); setTimeout(() => { const ph = document.querySelector("[data-pc-photo]"); if (ph) ph.click(); }, 80); } catch (err) { /* ignore */ } }
     else if (a === "new-entry") { try { openPostComposer(); } catch (err) { /* ignore */ } }
+    else if (a === "new-world-personal") openAddWorld("personal");
+    else if (a === "new-world-community") openAddWorld("community");
   });
 
   // action = { label, onClick } adds a button (e.g. "Undo") and keeps the toast up longer.

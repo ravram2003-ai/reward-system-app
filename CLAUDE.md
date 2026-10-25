@@ -53,7 +53,9 @@ repeat them and the app stays consistent.
   (Undo toast + "Hidden from home" row).
 - **Worlds is split into Personal (only your progress; one combined ring = share of check-ins) and
   Communities (people strip, rank and leaderboards).** A segmented toggle at the top switches; each
-  segment has its own pager; every tile's one action is "✓ next check-in" (quiet log, no composer).
+  segment has its own pager. Personal tiles list every check-in (3 visible, scroll for more); community
+  tiles keep their mini leaderboard with "✓ next check-in" + "+N more" → a sheet of every check-in. All
+  quiet logs, no composer. Tile rings show check-ins done/total, never points.
 - **People = the fourth tab.** Everyone you follow or share a world with, sorted by active
   today, with ring + streak + one-tap Cheer; the one place to find people. A profile opened from
   anywhere leads with progress (streak, 7-day dots, You · Them, shared worlds) before photos.

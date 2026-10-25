@@ -153,7 +153,7 @@
     // Authenticated account (Supabase). null = local mode / not signed in.
     // The local current-user id stays "me"; account.userId is its real identity.
     account: null,
-    activeView: "feed", // Feed is the landing tab; returning users keep their last-used view (mergeState spreads saved over seed)
+    activeView: "dashboard", // Worlds is the home screen; a cold start always lands here (init), in-session navigation then takes over
     selectedSystemId: "life-core",
     trackerSystemId: "life-core",
     selectedCommunityId: "",
@@ -431,6 +431,9 @@
   function init() {
     resetSavedBuildSubpage();
     state.profileListMode = null; // transient view state — never restore a stale followers/following list
+    // A cold start always opens on Worlds (the home screen), whatever view was saved last.
+    // In-session navigation and hardware Back are untouched — this runs once, before the first render.
+    state.activeView = "dashboard";
     captureJoinCodeFromUrl();
     cacheElements();
     bindEvents();
@@ -3773,7 +3776,8 @@
     if (e.key === "/") { e.preventDefault(); openAddEntryPage(); return; }
     if (e.key === "n") { e.preventDefault(); openPostComposer(); return; }
     if (/^[1-4]$/.test(e.key)) {
-      const tabs = document.querySelectorAll(".nav-tab");
+      // The four VIEW tabs in nav order (Worlds · Feed · People · Profile); the "+" is not a view.
+      const tabs = document.querySelectorAll(".nav-tabs .nav-tab[data-view]");
       const tab = tabs[Number(e.key) - 1];
       if (tab) { e.preventDefault(); tab.click(); }
     }
@@ -3903,7 +3907,7 @@
   }
 
   function renderChrome() {
-    if (!els.views[state.activeView]) state.activeView = "feed"; // invalid restored view → land on the default (Feed)
+    if (!els.views[state.activeView]) state.activeView = "dashboard"; // invalid restored view → land on the default (Worlds)
     syncWorldsEditPill();   // the top-right Edit pill only appears on Worlds
     const ownProfileActive = state.activeView === "profile"
       || (state.activeView === "profile-page" && !!(state.account && String(state.profileUserId) === String(state.account.userId)));

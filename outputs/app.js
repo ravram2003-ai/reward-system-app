@@ -6700,10 +6700,12 @@
       const ct = !s.worlds ? "" : (s.left ? s.left + " left" : "✓");
       const on = seg === id;
       return `<button type="button" class="segmented-button${on ? " active" : ""}" role="tab" aria-selected="${on ? "true" : "false"}" data-worlds-seg="${id}">
-          <span aria-hidden="true">${icon}</span>${label}${ct ? `<span class="ws-ct" aria-label="${s.left ? s.left + " check-ins left" : "all logged today"}">${ct}</span>` : ""}
+          <span class="ws-ic" aria-hidden="true">${icon}</span>${label}${ct ? `<span class="ws-ct" aria-label="${s.left ? s.left + " check-ins left" : "all logged today"}">${ct}</span>` : ""}
         </button>`;
     };
-    return `<div class="segmented worlds-seg" role="tablist" aria-label="Personal or community worlds">${btn("personal", "🔒", "Personal")}${btn("community", "👥", "Communities")}</div>`;
+    // Line icons (stroke: currentColor), so they take the button's own colour — dim when inactive,
+    // dark on the mint active side — instead of emoji that ignore it.
+    return `<div class="segmented worlds-seg" role="tablist" aria-label="Personal or community worlds">${btn("personal", svgIcon("user", "icon-sm"), "Personal")}${btn("community", svgIcon("users", "icon-sm"), "Communities")}</div>`;
   }
   function worldsCoachButton() {
     const nudges = coachActiveNudgeCount();
@@ -8550,6 +8552,7 @@
     trophy: '<path d="M8 21h8M12 17v4M7 4h10v6a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3"/>',
     award: '<circle cx="12" cy="8" r="6"/><path d="M15.5 13.9 17 22l-5-3-5 3 1.5-8.1"/>',
     users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+    user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
     run: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
     steps: '<path d="M13 4v16M6 4v16"/><path d="M13 7c3 0 5 1 5 4s-2 4-5 4"/>',
     barbell: '<path d="M6.5 6.5v11M17.5 6.5v11M3 9v6M21 9v6M6.5 12h11"/>',

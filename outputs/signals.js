@@ -793,6 +793,20 @@
   // Delete one of MY OWN posts (a community_entries row). The author-only "entries delete own"
   // RLS policy is the real guard; the .eq("user_id") here is a belt-and-suspenders match so a
   // non-author request is a no-op even before RLS. Returns { error }.
+  // Remove MY aggregated day row for one rule (community_id, user_id, rule_id, entry_date) —
+  // what an undo needs once the last log of the day is gone. RLS (community-entry-delete.sql)
+  // only lets the author delete their own rows.
+  async function deleteCommunityEntryByKey(key) {
+    var sb = getClient();
+    if (!sb || !key || !key.community_id || !key.user_id || !key.rule_id || !key.entry_date) return { error: null };
+    try {
+      var res = await sb.from("community_entries").delete()
+        .eq("community_id", key.community_id).eq("user_id", key.user_id).eq("rule_id", key.rule_id).eq("entry_date", key.entry_date);
+      return { error: res.error || null };
+    } catch (e) {
+      return { error: { message: "Couldn't reach the server." } };
+    }
+  }
   async function deleteCommunityEntry(entryId, userId) {
     var sb = getClient();
     if (!sb || !UUID_RE.test(String(entryId)) || !userId) return { error: { message: "Couldn't delete that." } };
@@ -1977,6 +1991,7 @@
     getEntryComments: getEntryComments,
     deleteEntryComment: deleteEntryComment,
     deleteCommunityEntry: deleteCommunityEntry,
+    deleteCommunityEntryByKey: deleteCommunityEntryByKey,
     uploadProfilePost: uploadProfilePost,
     fetchProfilePosts: fetchProfilePosts,
     fetchFollowedProfilePosts: fetchFollowedProfilePosts,

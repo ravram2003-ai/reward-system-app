@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — log every check-in from a tile (reference)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/dist/tabler-icons.min.css">
+<style>
+  :root{color-scheme:dark}*{box-sizing:border-box}
+  body{margin:0;background:#040605;color:#eaf2ee;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;padding:24px 12px 60px;display:flex;flex-direction:column;align-items:center}
+  .note{max-width:390px;font-size:13px;color:#8ba299;line-height:1.55;margin:0 0 16px}.note b{color:#eaf2ee}
+  .ph{--mint:#7ee0a8;--mb:#8ff0b8;--deep:#173026;--line:#1e2b24;--dim:#8ba299;--faint:#5f7369;width:390px;max-width:100%;height:800px;background:#0a0f0d;border:1px solid var(--line);border-radius:32px;overflow:hidden;display:flex;flex-direction:column;position:relative}
+  button{font:inherit;cursor:pointer}
+  button:focus-visible,[role=button]:focus-visible{outline:2px solid var(--mint);outline-offset:2px}
+
+  /* header cluster: Arrange (Worlds only) · Search · Alerts · Chats */
+  .top{display:flex;align-items:center;gap:16px;padding:14px 18px 4px}.top .sp{flex:1}.top i{font-size:19px;color:var(--dim)}
+  .seg{margin:8px 14px 12px;display:flex;background:#0f1613;border:1px solid var(--line);border-radius:14px;padding:3px}
+  .seg button{flex:1;border:none;background:none;font-size:12.5px;font-weight:600;padding:8px 0;border-radius:11px;color:var(--dim)}
+  .seg button.on{background:linear-gradient(180deg,var(--mb),var(--mint));color:#06231a}
+  .seg b{font-size:10px;margin-left:5px;padding:1px 6px;border-radius:7px;background:var(--deep);color:var(--mint)}.seg .on b{background:rgba(6,35,26,.16);color:#06231a}
+  .body{flex:1;overflow-y:auto;padding:0 14px 110px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+
+  .ring{width:34px;height:34px;font-size:10px;border-radius:50%;display:grid;place-items:center;font-weight:800;color:var(--mint);flex:0 0 auto;background:radial-gradient(closest-side,#0b110e 79%,transparent 80%),conic-gradient(var(--mint) var(--p),#22302a 0)}
+  .ring.lg{width:58px;height:58px;font-size:13px}
+  .hero{display:flex;align-items:center;gap:14px;background:#0f1613;border:1px solid var(--line);border-radius:18px;padding:12px 14px;margin-bottom:12px}
+  .h1{font-size:15px;font-weight:800}.h2{font-size:12px;color:var(--dim);margin-top:3px}
+  .strip{display:flex;gap:14px;overflow-x:auto;padding:2px 2px 12px}
+  .pp{text-align:center;flex:0 0 auto}.av{width:46px;height:46px;border-radius:50%;padding:3px;background:conic-gradient(var(--mint) var(--p),#22302a 0)}
+  .av span{display:grid;place-items:center;width:100%;height:100%;border-radius:50%;background:var(--c);border:2px solid #0a0f0d;font-size:14px;font-weight:700}
+  .pn{font-size:10.5px;color:var(--dim);margin-top:4px}
+
+  .tile{border:1px solid var(--line);border-radius:18px;padding:9px;display:flex;flex-direction:column;gap:8px;min-width:0;background:linear-gradient(180deg,color-mix(in srgb,var(--c) 32%,#0d1512),#0a100d 50%)}
+  .th{display:flex;align-items:center;gap:8px;cursor:pointer;border-radius:10px}
+  .tm{min-width:0}.tn{font-size:12.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ts{font-size:10.5px;color:var(--dim);margin-top:2px}
+  .dn{height:40px;border-radius:11px;display:grid;place-items:center;font-size:11.5px;font-weight:600;color:var(--mint);background:#11201a;border:1px solid #2a5a45}
+
+  /* A · Personal: every check-in in the tile, 3 visible + a peek of the 4th, scroll for more */
+  .list{position:relative;overflow-y:auto;overscroll-behavior-y:contain;touch-action:pan-y;scrollbar-width:none}
+  .list::-webkit-scrollbar{display:none}
+  .list.fade{-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 26px),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - 26px),transparent)}
+  .row{background:#0c1310;border:1px solid #17231d;border-radius:12px;padding:7px;margin-bottom:6px;transition:opacity .17s,transform .17s}
+  .row.out{opacity:0;transform:translateX(26px)}
+  .rl{display:flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;margin-bottom:6px;min-height:18px}
+  .rn{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .skip{background:none;border:none;color:var(--dim);font-size:10.5px;font-weight:600;padding:5px 2px}
+  .rb{display:flex;gap:5px}
+  .lead,.yes,.next,.tyg{flex:1;min-width:0;height:40px;border:none;border-radius:10px;background:linear-gradient(180deg,var(--mb),var(--mint));color:#06231a;font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 6px}
+  .chev,.no{height:40px;border-radius:10px;background:var(--deep);border:1px solid #1d3a2e;color:var(--mint)}
+  .chev{flex:0 0 36px;font-size:14px;transition:transform .15s}.row.open .chev{transform:rotate(180deg)}
+  .no{flex:0 0 46px;color:#bfeed3;font-size:12px;font-weight:600}
+  .alts{display:none;gap:5px;margin-top:5px}.row.open .alts{display:flex}
+  .alt{flex:1;height:36px;border-radius:9px;background:var(--deep);border:1px solid #1d3a2e;color:#bfeed3;font-size:12px;font-weight:600}
+  .alt.kb{flex:0 0 36px;color:var(--mint)}
+  .ty{display:flex;gap:5px;width:100%}
+  .tyi{flex:1;min-width:0;height:36px;border-radius:9px;background:#0a100d;border:1px solid #2c5a48;color:#eaf2ee;font:inherit;font-size:13px;padding:0 8px}
+  .tyg{flex:0 0 44px;height:36px}
+  .more{width:100%;height:30px;border-radius:9px;background:transparent;border:1px dashed #2c5a48;color:var(--mint);font-size:11px;font-weight:700}
+
+  /* B · Communities: next check-in + "+N more" → sheet; the mini leaderboard stays */
+  .lbr{display:flex;align-items:center;gap:6px;padding:5px 7px;border-radius:8px;background:rgba(14,21,18,.85);border:1px solid #14201b;font-size:11px;margin-bottom:4px}
+  .lbr.me{background:var(--deep);border-color:#1d3a2e}.lbr .rk{width:10px;font-weight:700;color:var(--dim)}.lbr.me .rk{color:var(--mint)}
+  .lbr .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lbr b{color:var(--dim)}.lbr.me b{color:var(--mint)}
+  .morebtn{height:32px;border-radius:10px;background:var(--deep);border:1px solid #2c5a48;color:var(--mint);font-size:11.5px;font-weight:700}
+
+  .back{position:absolute;inset:0;background:rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:opacity .25s;z-index:20}.back.on{opacity:1;pointer-events:auto}
+  .sheet{position:absolute;left:0;right:0;bottom:0;max-height:82%;display:flex;flex-direction:column;background:#0f1613;border-top:1px solid #2a3a33;border-radius:24px 24px 0 0;transform:translateY(105%);transition:transform .3s cubic-bezier(.3,.9,.3,1);z-index:21}
+  .sheet.on{transform:none}
+  .grab{width:38px;height:4px;border-radius:3px;background:#2c3a33;margin:10px auto 6px}
+  .sh{display:flex;align-items:flex-start;padding:4px 16px 10px;gap:10px}.t1{font-size:16px;font-weight:800}.t2{font-size:11.5px;color:var(--dim);margin-top:3px}
+  .x{margin-left:auto;width:32px;height:32px;border-radius:50%;border:1px solid #2c3a33;background:#0a100d;color:var(--dim);font-size:13px}
+  .sl{overflow-y:auto;padding:0 16px 8px;flex:1;overscroll-behavior:contain}
+  .it{border:1px solid #17231d;background:#0c1310;border-radius:13px;padding:10px;margin-bottom:8px}
+  .il{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;margin-bottom:8px}.il em{font-style:normal;font-size:10.5px;color:var(--faint);font-weight:400;margin-left:auto}
+  .ops{display:flex;gap:5px}
+  .op{flex:1;height:40px;border-radius:10px;background:var(--deep);border:1px solid #1d3a2e;color:#bfeed3;font-size:12.5px;font-weight:600}
+  .op.us{border-color:var(--mint);color:#eaf2ee}.op.kb{flex:0 0 40px;color:var(--mint)}
+  .op.yes{background:linear-gradient(180deg,var(--mb),var(--mint));color:#06231a;border-color:transparent}
+  .it.ok{display:flex;align-items:center;gap:8px;padding:9px 10px;background:#0e1a15;border-color:#21402f}
+  .ck{width:20px;height:20px;border-radius:6px;background:var(--deep);border:1px solid #2c5a48;color:var(--mint);display:grid;place-items:center;font-size:11px;flex:0 0 auto}
+  .it.ok .tx{flex:1;font-size:12px;color:#cfe9df}.it.ok .tx span{color:var(--dim)}.it.ok .pt{font-size:11px;color:var(--mint);font-weight:700}
+  .it.sk .ck{background:#1a1f1d;border-color:#2c3a33;color:var(--faint)}.it.sk .tx{color:var(--dim)}
+  .un{background:none;border:1px solid #2c3a33;color:var(--dim);font-size:10.5px;font-weight:600;border-radius:9px;padding:5px 9px}
+  .sf{padding:10px 16px 18px;border-top:1px solid var(--line)}
+  .done{width:100%;height:46px;border:none;border-radius:13px;background:linear-gradient(180deg,var(--mb),var(--mint));color:#06231a;font-size:14px;font-weight:700}
+
+  .toast{position:absolute;left:50%;bottom:92px;transform:translate(-50%,12px);opacity:0;pointer-events:none;transition:.25s;background:#11201a;border:1px solid #2a5a45;color:var(--mb);font-size:12px;font-weight:600;padding:6px 6px 6px 14px;border-radius:20px;white-space:nowrap;z-index:30;display:flex;align-items:center;gap:10px;max-width:calc(100% - 24px)}
+  .toast.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+  .toast span{overflow:hidden;text-overflow:ellipsis}
+  .toast button{background:var(--deep);border:1px solid #2c5a48;color:var(--mint);font-size:11.5px;font-weight:700;border-radius:14px;padding:5px 11px}
+  .toast:not(.u){padding-right:14px}
+
+  .nav{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:flex-end;justify-content:space-around;padding:9px 8px 16px;background:#080c0a;border-top:1px solid var(--line);z-index:10}
+  .nv{flex:1;text-align:center;color:var(--faint);font-size:10.5px}.nv i{font-size:21px;display:block;margin-bottom:2px}.nv.on{color:var(--mint)}
+  .plus{flex:0 0 auto;width:54px;height:54px;border-radius:50%;margin-top:-26px;background:linear-gradient(180deg,var(--mb),var(--mint));display:grid;place-items:center;color:#06231a;border:3px solid #080c0a}.plus i{font-size:26px}
+  @media (prefers-reduced-motion:reduce){.sheet,.back,.row,.chev,.toast{transition:none}}
+</style>
+</head>
+<body>
+<p class="note"><b>Log every check-in from the Worlds home.</b> <b>Personal</b> tiles list ALL of today's check-ins: 3 visible + a peek of the 4th, scroll (or tap "↓ N more") for the rest; one tap logs the usual amount, ⌄ shows other amounts, ⌨ types one, Skip/No = not today. <b>Communities</b> keep their mini leaderboard: one "✓ next" button + "+N more" opens a sheet with every check-in, full amounts, inline Undo and a live "#2 · 1 pt behind Jacob" line. Rings show check-ins done (2/7), never decimal points. Everything is a quiet log — no composer.</p>
+<div class="ph" id="ph">
+  <div class="top"><span class="sp"></span><i class="ti ti-layout-grid" title="Arrange"></i><i class="ti ti-search"></i><i class="ti ti-bell"></i><i class="ti ti-message-circle"></i></div>
+  <div class="seg" role="tablist" aria-label="Personal or community worlds">
+    <button type="button" role="tab" data-a="seg" data-s="p" id="segP"></button>
+    <button type="button" role="tab" data-a="seg" data-s="c" id="segC"></button>
+  </div>
+  <div class="body" id="body"></div>
+  <div class="back" id="back"></div>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="st1">
+    <div class="grab" aria-hidden="true"></div>
+    <div class="sh"><div><div class="t1" id="st1"></div><div class="t2" id="st2"></div></div><button type="button" class="x" data-a="close" aria-label="Close">✕</button></div>
+    <div class="sl" id="sl"></div>
+    <div class="sf"><button type="button" class="done" data-a="close">Done</button></div>
+  </div>
+  <div class="toast" id="toast" role="status"><span id="tmsg"></span><button type="button" id="tundo" data-a="undolast">Undo</button></div>
+  <div class="nav"><div class="nv"><i class="ti ti-news"></i>Feed</div><div class="nv on"><i class="ti ti-world"></i>Worlds</div><div class="plus"><i class="ti ti-plus"></i></div><div class="nv"><i class="ti ti-users"></i>People</div><div class="nv"><i class="ti ti-user-circle"></i>Profile</div></div>
+</div>
+<script>
+(function(){
+  var RM = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // base = check-ins already done earlier today (not listed); items = what's still asked.
+  var P = [
+    {n:"Academic sprint", c:"#5a46b0", base:1, items:[
+      {t:"n", l:"Study", e:"📚", u:"min", o:[30,45,60], v:45, pt:1},
+      {t:"y", l:"Review notes?", e:"📝", pt:0.5},
+      {t:"n", l:"Flashcards", e:"🃏", u:"cards", o:[20,40,60], v:40, pt:0.5},
+      {t:"y", l:"No phone till 10?", e:"📵", pt:1},
+      {t:"n", l:"Sleep", e:"🌙", u:"hrs", o:[6,7,8], v:8, pt:1}]},
+    {n:"Run build", c:"#2f8a64", base:0, items:[
+      {t:"n", l:"Run", e:"🏃", u:"km", o:[3,5,8], v:5, pt:1},
+      {t:"y", l:"Stretched?", e:"🧘", pt:0.5},
+      {t:"n", l:"Water", e:"💧", u:"cups", o:[4,6,8], v:6, pt:0.5}]},
+    {n:"Lifestyle", c:"#b0702a", base:5, items:[]}
+  ];
+  var C = [
+    {n:"THE BOYS", c:"#3a6ea5", size:8, base:2, m:[{n:"You",p:2,me:1},{n:"Jacob",p:3},{n:"Ravram26",p:1}], items:[
+      {t:"n", l:"Cardio", e:"🏃", u:"min", o:[20,25,30], v:25, pt:1.5},
+      {t:"y", l:"Lifting session", e:"🏋️", pt:2},
+      {t:"n", l:"Protein", e:"🍗", u:"g", o:[110,140,150], v:140, pt:1},
+      {t:"n", l:"Sleep", e:"🌙", u:"hrs", o:[6,7,8], v:7, pt:1},
+      {t:"y", l:"Calories in target", e:"🥗", pt:1}]},
+    {n:"FAMILY", c:"#a5476b", size:4, base:4, m:[{n:"Mom",p:5},{n:"You",p:4,me:1},{n:"Dad",p:2}], items:[
+      {t:"n", l:"Walk", e:"🚶", u:"min", o:[30,45,60], v:45, pt:1},
+      {t:"n", l:"Water", e:"💧", u:"cups", o:[4,6,8], v:6, pt:1}]}
+  ];
+  [P, C].forEach(function (L) { L.forEach(function (w) { w.items.forEach(function (it) { it.s = "p"; }); }); });
+  var G = {p:P, c:C}, SEG = "p", open = -1, opener = null, last = null, tt, scrollMap = {}, focusSel = "";
+  var $ = function (id) { return document.getElementById(id); };
+
+  function fmt(x) { return String(Math.round(x * 100) / 100); }
+  function pend(w) { return w.items.filter(function (it) { return it.s === "p"; }); }
+  function done(w) { return w.base + w.items.filter(function (it) { return it.s === "l"; }).length; }
+  // "Not today" (Skip/No) drops out of today's total, so a skip never leaves the ring short.
+  function total(w) { return w.base + w.items.filter(function (it) { return it.s !== "s"; }).length; }
+  function me(w) { return w.m.filter(function (x) { return x.me; })[0]; }
+  function sorted(w) { return w.m.slice().sort(function (a, b) { return b.p - a.p; }); }
+  function rank(w) { return sorted(w).indexOf(me(w)) + 1; }
+  function gap(w) {
+    var s = sorted(w), r = rank(w), mine = me(w).p;
+    var pts = function (x) { return fmt(x) + (x === 1 ? " pt" : " pts"); };
+    if (r > 1) return pts(s[r - 2].p - mine) + " behind " + s[r - 2].n;
+    if (!s[1]) return "leading";
+    return mine === s[1].p ? "tied with " + s[1].n : pts(mine - s[1].p) + " ahead of " + s[1].n;
+  }
+  function ring(d, t, cls) {
+    var p = t ? Math.round(d / t * 100) : 0;
+    return '<div class="ring' + (cls ? " " + cls : "") + '" style="--p:' + p + '%" aria-label="' + d + " of " + t + ' check-ins">' + d + "/" + t + "</div>";
+  }
+  function attrs(g, wi, ii) { return ' data-g="' + g + '" data-w="' + wi + '"' + (ii > -1 ? ' data-i="' + ii + '"' : ""); }
+  function typeBox(g, wi, ii, it) {
+    return '<div class="ty"><input class="tyi" type="number" inputmode="decimal" min="0" step="any" placeholder="' + it.u + '" aria-label="Amount of ' + it.l + '"' + attrs(g, wi, ii) + '><button type="button" class="tyg" data-a="commit"' + attrs(g, wi, ii) + ">Log</button></div>";
+  }
+
+  // ── A · Personal tile ──
+  function pRow(wi, ii, it) {
+    var A = attrs("p", wi, ii);
+    if (it.t === "y") {
+      return '<div class="row"><div class="rl"><span class="rn">' + it.e + " " + it.l + '</span></div><div class="rb"><button type="button" class="no" data-a="skip"' + A + '>No</button><button type="button" class="yes" data-a="log"' + A + ">Yes ✓</button></div></div>";
+    }
+    var alts = it.typing ? typeBox("p", wi, ii, it)
+      : it.o.filter(function (x) { return x !== it.v; }).map(function (x) { return '<button type="button" class="alt" data-a="log" data-v="' + x + '"' + A + ">" + x + "</button>"; }).join("")
+        + '<button type="button" class="alt kb" data-a="kb"' + A + ' aria-label="Type an amount for ' + it.l + '">⌨</button>';
+    return '<div class="row' + (it.open ? " open" : "") + '"><div class="rl"><span class="rn">' + it.e + " " + it.l + '</span><button type="button" class="skip" data-a="skip"' + A + ">Skip</button></div>"
+      + '<div class="rb"><button type="button" class="lead" data-a="log" data-v="' + it.v + '"' + A + ">" + it.v + " " + it.u + ' ✓</button><button type="button" class="chev" data-a="chev"' + A + ' aria-expanded="' + (it.open ? "true" : "false") + '" aria-label="Other amounts for ' + it.l + '">⌄</button></div>'
+      + '<div class="alts">' + alts + "</div></div>";
+  }
+  function pTile(w, wi) {
+    var p = pend(w), d = done(w), t = total(w), body;
+    if (!t) body = '<button type="button" class="dn">✎ Add a rule</button>';
+    else if (!p.length) body = '<div class="dn">✓ All done today</div>';
+    else body = '<div class="list" data-list="' + wi + '" role="group" aria-label="Check-ins for ' + w.n + '">'
+      + w.items.map(function (it, ii) { return it.s === "p" ? pRow(wi, ii, it) : ""; }).join("")
+      + '</div><button type="button" class="more" data-a="more" hidden></button>';
+    return '<div class="tile" style="--c:' + w.c + '"><div class="th" role="button" tabindex="0" data-a="openw"' + attrs("p", wi, -1) + ">" + ring(d, t)
+      + '<div class="tm"><div class="tn">' + w.n + ' ›</div><div class="ts">' + (p.length ? p.length + " left today" : "Complete today") + "</div></div></div>" + body + "</div>";
+  }
+  function heroP() {
+    var d = 0, t = 0, left = 0, wl = 0;
+    P.forEach(function (w) { d += done(w); t += total(w); var n = pend(w).length; left += n; if (n) wl++; });
+    return '<div class="hero">' + ring(d, t, "lg") + '<div><div class="h1">Your day</div><div class="h2">' + d + " of " + t + " check-ins"
+      + (left ? " · " + left + " left in " + wl + " world" + (wl === 1 ? "" : "s") : " · all done 🎉") + "</div></div></div>";
+  }
+
+  // ── B · Community tile + sheet ──
+  function cTile(w, wi) {
+    var s = sorted(w), p = pend(w), nx = p[0], A = attrs("c", wi, -1);
+    var act = nx
+      ? '<button type="button" class="next" data-a="log"' + attrs("c", wi, w.items.indexOf(nx)) + (nx.t === "n" ? ' data-v="' + nx.v + '"' : "") + ">✓ " + nx.l + (nx.t === "n" ? " · " + nx.v + " " + nx.u : "") + "</button>"
+        + (p.length > 1 ? '<button type="button" class="morebtn" data-a="sheet"' + A + ' aria-haspopup="dialog">+' + (p.length - 1) + " more</button>" : "")
+      : '<div class="dn">✓ You\'re done today</div>';
+    var lb = s.slice(0, 3).map(function (r, i) { return '<div class="lbr' + (r.me ? " me" : "") + '"><span class="rk">' + (i + 1) + '</span><span class="nm">' + r.n + "</span><b>" + fmt(r.p) + "</b></div>"; }).join("");
+    return '<div class="tile" style="--c:' + w.c + '"><div class="th" role="button" tabindex="0" data-a="openw"' + A + ">" + ring(done(w), total(w))
+      + '<div class="tm"><div class="tn">' + w.n + ' ›</div><div class="ts">Rank #' + rank(w) + " of " + w.size + "</div></div></div><div>" + lb + "</div>" + act + "</div>";
+  }
+  function strip() {
+    var ppl = [["Jacob", 80, "#9a4a2c"], ["Mom", 100, "#a5476b"], ["Ravram26", 30, "#355d91"], ["Dad", 45, "#6b5aa5"]];
+    return '<div class="strip">' + ppl.map(function (x) { return '<div class="pp"><div class="av" style="--p:' + x[1] + "%;--c:" + x[2] + '"><span>' + x[0][0] + '</span></div><div class="pn">' + x[0] + "</div></div>"; }).join("") + "</div>";
+  }
+  function renderSheet() {
+    var w = C[open], p = pend(w);
+    $("st1").textContent = "Log for " + w.n;
+    $("st2").textContent = (p.length ? p.length + " left" : "All done") + " · #" + rank(w) + " · " + gap(w);
+    $("sl").innerHTML = w.items.map(function (it, ii) {
+      var A = attrs("c", open, ii);
+      if (it.s === "l") return '<div class="it ok"><span class="ck">✓</span><span class="tx">' + it.e + " " + it.l + (it.val ? " <span>· " + it.val + " " + it.u + "</span>" : "") + '</span><span class="pt">+' + fmt(it.pt) + '</span><button type="button" class="un" data-a="undo"' + A + ">Undo</button></div>";
+      if (it.s === "s") return '<div class="it ok sk"><span class="ck">–</span><span class="tx">' + it.e + " " + it.l + ' <span>· not today</span></span><button type="button" class="un" data-a="undo"' + A + ">Undo</button></div>";
+      if (it.t === "y") return '<div class="it"><div class="il">' + it.e + " " + it.l + '</div><div class="ops"><button type="button" class="op" data-a="skip"' + A + '>No</button><button type="button" class="op yes" data-a="log"' + A + ">Yes ✓</button></div></div>";
+      var ops = it.typing ? typeBox("c", open, ii, it)
+        : it.o.map(function (x) { return '<button type="button" class="op' + (x === it.v ? " us" : "") + '" data-a="log" data-v="' + x + '"' + A + ">" + x + "</button>"; }).join("")
+          + '<button type="button" class="op kb" data-a="kb"' + A + ' aria-label="Type an amount for ' + it.l + '">⌨</button>';
+      return '<div class="it"><div class="il">' + it.e + " " + it.l + "<em>usually " + it.v + " " + it.u + '</em><button type="button" class="skip" data-a="skip"' + A + '>Skip</button></div><div class="ops">' + ops + "</div></div>";
+    }).join("");
+  }
+  function openSheet(wi) { open = wi; renderSheet(); $("sheet").classList.add("on"); $("back").classList.add("on"); setTimeout(function () { $("sheet").querySelector(".x").focus(); }, 50); }
+  function closeSheet() {
+    if (open < 0) return;
+    open = -1; $("sheet").classList.remove("on"); $("back").classList.remove("on");
+    if (opener && document.body.contains(opener)) opener.focus();
+  }
+
+  // ── render + list scrolling ──
+  function saveScroll() { [].forEach.call(document.querySelectorAll(".list"), function (l) { scrollMap[SEG + l.dataset.list] = l.scrollTop; }); }
+  function updMore(list) {
+    var btn = list.nextElementSibling, rows = [].slice.call(list.children);
+    var bottom = list.scrollTop + list.clientHeight;
+    var hidden = rows.filter(function (r) { return r.offsetTop + r.offsetHeight > bottom + 2; }).length;
+    var atEnd = list.scrollTop + list.clientHeight >= list.scrollHeight - 2;
+    list.classList.toggle("fade", !atEnd);
+    if (hidden) { btn.hidden = false; btn.textContent = "↓ " + hidden + " more"; btn.dataset.dir = "down"; }
+    else if (list.scrollTop > 4) { btn.hidden = false; btn.textContent = "↑ Back to top"; btn.dataset.dir = "up"; }
+    else btn.hidden = true;
+  }
+  function fitLists() {
+    [].forEach.call(document.querySelectorAll(".list"), function (l) {
+      var rows = l.children;
+      // Cap at 3 full rows + a peek of the 4th, so it's obvious there's more to scroll.
+      l.style.maxHeight = rows.length > 3 ? (rows[3].offsetTop + 24) + "px" : "none";
+      l.scrollTop = scrollMap[SEG + l.dataset.list] || 0;
+      updMore(l);
+    });
+  }
+  function render() {
+    saveScroll();
+    var lp = P.reduce(function (s, w) { return s + pend(w).length; }, 0), lc = C.reduce(function (s, w) { return s + pend(w).length; }, 0);
+    $("segP").innerHTML = "🔒 Personal <b>" + (lp ? lp + " left" : "✓") + "</b>";
+    $("segC").innerHTML = "👥 Communities <b>" + (lc ? lc + " left" : "✓") + "</b>";
+    $("segP").className = SEG === "p" ? "on" : ""; $("segP").setAttribute("aria-selected", SEG === "p");
+    $("segC").className = SEG === "c" ? "on" : ""; $("segC").setAttribute("aria-selected", SEG === "c");
+    $("body").innerHTML = SEG === "p"
+      ? heroP() + '<div class="grid">' + P.map(pTile).join("") + "</div>"
+      : strip() + '<div class="grid">' + C.map(cTile).join("") + "</div>";
+    fitLists();
+    if (open > -1) renderSheet();
+    if (focusSel) { var f = document.querySelector(focusSel); if (f) f.focus(); focusSel = ""; }
+  }
+
+  // ── actions ──
+  function toastHide() { $("toast").classList.remove("on"); }
+  function toast(m, withUndo) {
+    $("tmsg").textContent = m; $("tundo").hidden = !withUndo; $("toast").classList.toggle("u", !!withUndo);
+    $("toast").classList.add("on"); clearTimeout(tt); tt = setTimeout(toastHide, withUndo ? 3500 : 1800);
+  }
+  function apply(w, it, kind, val) {
+    var comm = !!w.m, before = comm ? rank(w) : 0;
+    if (kind === "log") { it.s = "l"; it.val = it.t === "n" ? val : null; if (comm) me(w).p += it.pt; }
+    else it.s = "s";
+    it.open = false; it.typing = false; it.busy = false;
+    last = {w: w, it: it};
+    render();
+    var msg;
+    if (kind === "skip") msg = it.l + " · not today";
+    else if (comm && rank(w) < before) msg = "↑ You moved to #" + rank(w) + " in " + w.n;
+    else if (!pend(w).length) msg = w.n + " complete for today 🎉";
+    else msg = "Logged " + it.l + (it.val ? " · " + it.val + " " + it.u : "") + " · +" + fmt(it.pt);
+    toast(msg, true);
+  }
+  function act(w, it, kind, val, row) {
+    if (!w || !it || it.s !== "p" || it.busy) return;
+    it.busy = true;
+    if (row && !RM) { row.classList.add("out"); setTimeout(function () { apply(w, it, kind, val); }, 170); }
+    else apply(w, it, kind, val);
+  }
+  function undo(w, it) {
+    if (!it || it.s === "p") return;
+    if (it.s === "l" && w.m) me(w).p -= it.pt;
+    it.s = "p"; it.val = null; render();
+  }
+
+  $("ph").addEventListener("click", function (e) {
+    if (e.target.id === "back") { closeSheet(); return; }
+    var b = e.target.closest("[data-a]"); if (!b) return;
+    var a = b.dataset.a, g = b.dataset.g, L = g ? G[g] : null;
+    var wi = b.dataset.w !== undefined ? +b.dataset.w : -1, w = L && wi > -1 ? L[wi] : null;
+    var ii = b.dataset.i !== undefined ? +b.dataset.i : -1, it = w && ii > -1 ? w.items[ii] : null;
+    var row = b.closest(".list") ? b.closest(".row") : null;
+    if (a === "seg") { if (b.dataset.s !== SEG) { SEG = b.dataset.s; closeSheet(); $("body").scrollTop = 0; render(); } }
+    else if (a === "log") act(w, it, "log", b.dataset.v ? +b.dataset.v : it.v, row);
+    else if (a === "skip") act(w, it, "skip", 0, row);
+    else if (a === "chev") { it.open = !it.open; it.typing = false; render(); }
+    else if (a === "kb") { it.open = true; it.typing = true; focusSel = '.tyi[data-g="' + g + '"][data-w="' + wi + '"][data-i="' + ii + '"]'; render(); }
+    else if (a === "commit") {
+      var inp = b.parentNode.querySelector(".tyi"), v = parseFloat(inp && inp.value);
+      if (!(v > 0)) { toast("Enter an amount"); return; }
+      act(w, it, "log", v, row);
+    }
+    else if (a === "more") {
+      var l = b.previousElementSibling;
+      if (b.dataset.dir === "up") l.scrollTo({top: 0, behavior: RM ? "auto" : "smooth"});
+      else l.scrollBy({top: l.clientHeight - 40, behavior: RM ? "auto" : "smooth"});
+    }
+    else if (a === "sheet") { opener = b; openSheet(wi); }
+    else if (a === "close") closeSheet();
+    else if (a === "undo") undo(w, it);
+    else if (a === "undolast") { if (last) undo(last.w, last.it); toastHide(); }
+    else if (a === "openw") toast("Opens " + w.n + " — the header is the only open target");
+  });
+  document.addEventListener("scroll", function (e) { var t = e.target; if (t && t.classList && t.classList.contains("list")) updMore(t); }, true);
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closeSheet();
+    if (e.key === "Enter" && e.target.classList && e.target.classList.contains("tyi")) { e.preventDefault(); e.target.nextElementSibling.click(); }
+    if ((e.key === "Enter" || e.key === " ") && e.target.getAttribute && e.target.getAttribute("role") === "button") { e.preventDefault(); e.target.click(); }
+  });
+  render();
+})();
+</script>
+</body>
+</html>

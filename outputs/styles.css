@@ -13105,14 +13105,121 @@ span.wp-av, .wp-ring span.avatar, .wp-ring span.member-avatar { display: grid; p
 .worlds-tile .world-sections { flex: 0 0 auto; }
 .worlds-tile.is-flash { animation: worldsFlash .55s ease; }
 @keyframes worldsFlash { 0% { box-shadow: 0 0 0 0 rgba(126, 224, 168, .6); } 100% { box-shadow: 0 0 0 10px rgba(126, 224, 168, 0); } }
-/* Row height per segment: a personal tile is a header + one button; a community tile also holds
-   the mini leaderboard. (A large tile is still exactly two rows of its segment.) */
-.world-grid[data-worlds-segment="personal"] .worlds-shell { --worlds-row: min(21vh, 176px); }
-.world-grid[data-worlds-segment="community"] .worlds-shell { --worlds-row: min(34vh, 272px); }
+/* Tiles are content-sized (align start) in BOTH segments, like the reference: a personal tile holds
+   a check-in list of varying length, a community tile a 1–3 row leaderboard + ✓ next + "+N more",
+   and a fixed row could only ever clip one of them. A large tile still spans two rows. */
+.world-grid[data-worlds-segment="personal"] .worlds-page,
+.world-grid[data-worlds-segment="community"] .worlds-page { grid-auto-rows: auto; align-items: start; }
+.world-grid[data-worlds-segment="personal"] .worlds-tile,
+.world-grid[data-worlds-segment="community"] .worlds-tile { height: auto; overflow: visible; }
 .worlds-empty { margin: 8px 0 4px; }
 .worlds-empty .empty-state { padding: 22px 16px; }
 
 @media (prefers-reduced-motion: reduce) {
   .worlds-seg-view.is-in, .worlds-tile.is-flash, .wh-wrap.is-celebrating .wh-streak { animation: none; }
   .wh-brk, .wh-chev, .wh-bar i, .wh-ring .wpr-arc, .worlds-seg .segmented-button { transition: none; }
+}
+
+
+/* ── Tile multi check-in (feat/tile-multi-checkin) ────────────────────────────────────────
+   PERSONAL tiles list every check-in in a scroll list (3 full rows + a 24px peek, 5 when large);
+   COMMUNITY tiles add "+N more" → a sheet of every check-in. Rows are the shared .qc-* renderer:
+   inside a ~165px tile the @container narrow variant (lead + ⌄) applies by itself. Appended last.
+   See work/tile-multi-checkin-reference.html. */
+.wt-checkins { position: relative; margin: 0; padding: 0; border: 0; background: none; animation: none; overflow-y: auto; overscroll-behavior-y: contain; touch-action: pan-y; scrollbar-width: none; flex: 0 1 auto; min-height: 0; }
+.wt-checkins::-webkit-scrollbar { display: none; }
+.wt-checkins.is-fade { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent); }
+.wt-checkins .qc-head, .wt-checkins .qc-intro, .wt-checkins .qc-foot, .wt-checkins .qc-row-handled { display: none; }
+.wt-checkins .qc-row { background: #0c1310; border: 1px solid #17231d; border-radius: 12px; padding: 7px; margin: 0 0 6px; transition: opacity .17s ease, transform .17s ease; }
+.wt-checkins .qc-row:last-of-type { border-bottom: 1px solid #17231d; }
+.wt-checkins .qc-row.is-out { opacity: 0; transform: translateX(26px); pointer-events: none; }
+.worlds-tile.has-bg .wt-checkins { background: none; border: 0; }
+.worlds-tile.has-bg .wt-checkins .qc-row { background: rgba(12, 19, 16, .9); }
+/* Counter row: label line (icon · name · Skip) then the lead + chevron; Skip keeps a 40px hit area
+   without inflating the line (negative margins don't shrink the target). */
+.wt-checkins .qc-row-counter { padding: 7px; }
+.wt-checkins .qc-counter-head { margin-bottom: 6px; gap: 4px; min-height: 18px; }
+.wt-checkins .qc-q { font-size: 0.72rem; font-weight: 600; min-width: 0; }
+.wt-checkins .qc-counter-head .qc-no { min-height: 40px; min-width: 40px; margin: -7px 0 -7px auto; padding: 0 6px; font-size: 0.64rem; color: #8ba299; }
+.wt-checkins .qc-narrow { margin-top: 0; gap: 5px; }
+.wt-checkins .qc-lead { min-height: 40px; border-radius: 10px; font-size: 0.78rem; background: linear-gradient(180deg, #8ff0b8, #7ee0a8); }
+.wt-checkins .qc-more { flex: 0 0 36px; width: 36px; min-height: 40px; border-radius: 10px; background: #173026; border: 1px solid #1d3a2e; color: #7ee0a8; }
+.wt-checkins .qc-chips { gap: 5px; flex-wrap: nowrap; }   /* one line: alts + ⌨, like the reference */
+.wt-checkins .qc-chip { min-height: 40px; min-width: 0; padding: 4px 3px; border-radius: 9px; font-size: 0.74rem; background: #173026; border: 1px solid #1d3a2e; color: #bfeed3; flex: 1 1 0; }
+.wt-checkins .qc-keyboard { flex: 0 0 36px; width: 36px; min-height: 40px; padding: 4px 0; border-radius: 9px; background: #173026; border: 1px solid #1d3a2e; color: #7ee0a8; }
+.wt-checkins input:not([type="range"]):not([type="checkbox"]).qc-typed { height: 40px; font-size: 0.8rem; }
+.wt-checkins .qc-typed-go { height: 40px; flex: 0 0 44px; padding: 0; border-radius: 9px; background: linear-gradient(180deg, #8ff0b8, #7ee0a8); }
+/* Yes/No row: label line, then [No 46px][Yes ✓] on a line of their own. */
+.wt-checkins .qc-row:not(.qc-row-counter):not(.qc-row-handled) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 5px; }
+.wt-checkins .qc-row:not(.qc-row-counter) .qc-q { flex: 1 1 calc(100% - 26px); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-checkins .qc-row:not(.qc-row-counter) .qc-no { flex: 0 0 46px; min-height: 40px; margin: 0; padding: 0; border-radius: 10px; background: #173026; border: 1px solid #1d3a2e; color: #bfeed3; font-size: 0.74rem; font-weight: 600; }
+.wt-checkins .qc-row:not(.qc-row-counter) .qc-yes { flex: 1 1 auto; min-height: 40px; padding: 0 6px; border-radius: 10px; font-size: 0.78rem; background: linear-gradient(180deg, #8ff0b8, #7ee0a8); color: #06231a; }
+.wt-checkins .qc-row:not(.qc-row-counter) .qc-yes::after { content: " ✓"; }
+/* "↓ N more" / "↑ Back to top" under the list */
+.wt-more { width: 100%; min-height: 40px; border-radius: 9px; background: transparent; border: 1px dashed #2c5a48; color: #7ee0a8; font: inherit; font-size: 0.68rem; font-weight: 700; cursor: pointer; flex: 0 0 auto; }
+.wt-more:hover { background: #173026; }
+.wt-more:focus-visible { outline: 2px solid #7ee0a8; outline-offset: 2px; }
+/* Community: ✓ next + "+N more" */
+.wt-actions { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
+.worlds-tile[data-world-size="medium"] .wt-actions { margin-top: auto; }
+.worlds-tile[data-world-size="medium"] .wt-actions .wt-log, .worlds-tile[data-world-size="medium"] .wt-actions .wt-done { margin-top: 0; }
+.wt-more-btn { width: 100%; min-height: 40px; border-radius: 10px; background: #173026; border: 1px solid #2c5a48; color: #7ee0a8; font: inherit; font-size: 0.72rem; font-weight: 700; cursor: pointer; }
+.wt-more-btn:hover { border-color: #7ee0a8; }
+.wt-more-btn:focus-visible { outline: 2px solid #7ee0a8; outline-offset: 2px; }
+/* Edit mode: the list is inert so a long-press/drag still lifts the tile; no "+N more". */
+.world-grid.is-editing .wt-checkins { pointer-events: none; opacity: .7; }
+.world-grid.is-editing .wt-more, .world-grid.is-editing .wt-more-btn { display: none; }
+/* Check-in ring label is short ("2/6"): give it the room the points label never needed. */
+.world-ring.is-checkins .score-ring-label { font-size: 0.6rem; letter-spacing: 0; }
+.world-ring-large.is-checkins .score-ring-label { font-size: 0.78rem; }
+
+/* The community check-in sheet */
+.post-overlay-sheet.wt-sheet { max-height: 82vh; max-height: 82dvh; }
+.wt-sheet .wt-sheet-body { padding: 0 16px 8px; flex: 1 1 auto; min-height: 0; }
+.wts-head { padding: 2px 0 10px; }
+.wts-title { margin: 0; font-size: 1rem; font-weight: 800; color: #eaf2ee; }
+.wts-sub { margin: 3px 0 0; font-size: 0.72rem; color: #8ba299; }
+.wt-sheet-rows { margin: 0; padding: 0; border: 0; background: none; animation: none; container: none; }
+.wt-sheet-rows .qc-row { background: #0c1310; border: 1px solid #17231d; border-radius: 13px; padding: 10px; margin: 0 0 8px; }
+.wt-sheet-rows .qc-row:last-of-type { border-bottom: 1px solid #17231d; }
+.wt-sheet-rows .qc-row-counter { padding: 10px; }
+.wt-sheet-rows .qc-counter-head { margin-bottom: 8px; gap: 6px; }
+.wt-sheet-rows .qc-q { font-size: 0.8rem; font-weight: 600; }
+.wt-sheet-rows .qc-usual { display: inline; font-size: 0.66rem; color: #5f7369; margin-left: auto; }
+.wt-sheet-rows .qc-counter-head .qc-no { min-height: 40px; min-width: 40px; margin: -8px 0; padding: 0 8px; font-size: 0.68rem; color: #8ba299; }
+.wt-sheet-rows .qc-narrow { display: none !important; }
+.wt-sheet-rows .qc-chips { display: flex !important; gap: 5px; margin-top: 0; }
+.wt-sheet-rows .qc-chip { min-height: 40px; border-radius: 10px; background: #173026; border: 1px solid #1d3a2e; color: #bfeed3; font-size: 0.8rem; font-weight: 600; flex: 1 1 0; }
+.wt-sheet-rows .qc-chip.is-usual { background: #173026; border-color: #7ee0a8; color: #eaf2ee; }
+.wt-sheet-rows .qc-chip.is-primary { display: inline-block; }
+.wt-sheet-rows .qc-keyboard { flex: 0 0 40px; width: 40px; min-height: 40px; border-radius: 10px; background: #173026; border: 1px solid #1d3a2e; color: #7ee0a8; }
+.wt-sheet-rows input:not([type="range"]):not([type="checkbox"]).qc-typed { height: 40px; }
+.wt-sheet-rows .qc-typed-go { height: 40px; flex: 0 0 60px; padding: 0; border-radius: 10px; background: linear-gradient(180deg, #8ff0b8, #7ee0a8); }
+.wt-sheet-rows .qc-row:not(.qc-row-counter) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 5px; }
+.wt-sheet-rows .qc-row:not(.qc-row-counter) .qc-q { flex: 1 1 calc(100% - 26px); min-width: 0; }
+.wt-sheet-rows .qc-row:not(.qc-row-counter) .qc-no { flex: 1 1 0; min-height: 40px; margin: 0; padding: 0; border-radius: 10px; background: #173026; border: 1px solid #1d3a2e; color: #bfeed3; font-size: 0.8rem; font-weight: 600; }
+.wt-sheet-rows .qc-row:not(.qc-row-counter) .qc-yes { flex: 1 1 0; min-height: 40px; padding: 0 6px; border-radius: 10px; font-size: 0.8rem; background: linear-gradient(180deg, #8ff0b8, #7ee0a8); color: #06231a; }
+.wt-sheet-rows .qc-row:not(.qc-row-counter) .qc-yes::after { content: " ✓"; }
+/* Logged / skipped rows */
+.wts-row { display: flex; align-items: center; gap: 8px; padding: 9px 10px; margin: 0 0 8px; border-radius: 13px; background: #0e1a15; border: 1px solid #21402f; font-size: 0.78rem; color: #cfe9df; }
+.wts-row.is-skip { background: #0c1310; border-color: #17231d; color: #8ba299; }
+.wts-ck { flex: 0 0 auto; width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font-size: 0.7rem; font-weight: 800; background: #173026; border: 1px solid #2c5a48; color: #7ee0a8; }
+.wts-row.is-skip .wts-ck { background: #1a1f1d; border-color: #2c3a33; color: #5f7369; }
+.wts-tx { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.wts-tx > span:not(.wts-ic) { color: #8ba299; }
+.wts-ic { display: inline-flex; color: #7ee0a8; }
+.wts-pt { flex: 0 0 auto; font-size: 0.72rem; font-weight: 700; color: #7ee0a8; font-variant-numeric: tabular-nums; }
+.wts-posted { flex: 0 0 auto; font-size: 0.64rem; color: #5f7369; }
+.wt-actions .wt-done { font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wts-undo { flex: 0 0 auto; min-height: 40px; padding: 0 10px; border-radius: 9px; background: none; border: 1px solid #2c3a33; color: #cfe0d9; font: inherit; font-size: 0.68rem; font-weight: 600; cursor: pointer; }
+.wts-undo:hover { border-color: #7ee0a8; color: #7ee0a8; }
+.wts-empty { margin: 8px 0; font-size: 0.78rem; color: #8ba299; }
+.wt-sheet-foot { flex: 0 0 auto; padding: 10px 16px calc(14px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid #1e2b24; }
+.wt-sheet-done { width: 100%; min-height: 46px; border: 0; border-radius: 13px; background: linear-gradient(180deg, #8ff0b8, #7ee0a8); color: #06231a; font: inherit; font-size: 0.9rem; font-weight: 700; cursor: pointer; }
+.wt-sheet-done:focus-visible { outline: 2px solid #eaf2ee; outline-offset: 2px; }
+@media (max-width: 600px) {
+  .post-overlay-sheet.wt-sheet { padding-bottom: 0; }   /* the foot carries the safe-area inset */
+}
+@media (prefers-reduced-motion: reduce) {
+  .wt-checkins .qc-row { transition: none; }
 }

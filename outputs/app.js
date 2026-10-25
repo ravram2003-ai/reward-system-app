@@ -3845,11 +3845,17 @@
     navLastKey = key;
     if (navHistorySuppress) return;
     try {
-      if (!window.history.state || !window.history.state.pw) window.history.replaceState({ pw: snap }, "");
+      const st = window.history.state;
+      // A sheet entry left behind by a navigation that closed the sheet silently is consumed by
+      // the new screen, so Back never lands on a dead duplicate of Worlds.
+      const orphanSheet = !!(st && st.sheet === "wt-checkin" && !worldsSheet);
+      if (!st || !st.pw || orphanSheet) window.history.replaceState({ pw: snap }, "");
       else window.history.pushState({ pw: snap }, "");
     } catch (e) { /* a sandboxed host can refuse; the on-screen Back still works */ }
   }
   window.addEventListener("popstate", (e) => {
+    // Hardware Back with the check-in sheet open closes the sheet (its own history entry).
+    if (worldsSheet) closeWorldsCheckinSheet({ fromPop: true });
     const snap = e.state && e.state.pw;
     if (!snap || !snap.view) return;
     navHistorySuppress = true;
@@ -3867,6 +3873,7 @@
     // An open post overlay floats over the current screen; a navigation that changed the view dismisses it
     // (background re-renders that keep the same view leave it intact). Tap-out/X/swipe/Esc close it directly.
     if (postOverlayItem && state.activeView !== postOverlayOpenView) closePostOverlay();
+    if (worldsSheet && state.activeView !== worldsSheet.openView) closeWorldsCheckinSheet({ silent: true });
     renderChrome();
     syncNavHistory();
     renderActiveView();
@@ -5445,7 +5452,7 @@
   function addCommunityEntry(communityId, userId, rule, amount, source = "manual", message = "", photoPath = "", viaSource = "", postId = "") {
     const dateKey = getTodayKey();
     state.communityEntries = state.communityEntries || [];
-    state.communityEntries.push({
+    const entry = {
       id: makeId("community-entry"),
       communityId,
       userId,
@@ -5461,7 +5468,9 @@
       source,
       viaSource: viaSource || "",
       postId: postId || ""
-    });
+    };
+    state.communityEntries.push(entry);
+    return entry;   // callers that need to undo exactly this log keep the id
   }
 
   function deleteCommunityEntry(entryId, toastMsg) {
@@ -5891,6 +5900,7 @@
     worldsPageIndex = numberOrDefault(worldsPageIndexBy[seg], 0);
     worldsPersonOpen = "";            // the people popover belongs to Communities
     closeWorldTileMenus();
+    closeWorldsCheckinSheet();
     const cur = worldLayoutState();
     saveWorldLayout({ entries: cur.entries, archived: cur.archived, segment: seg });
     worldsSwitchAnim = !worldsReducedMotion();
@@ -5899,17 +5909,22 @@
   }
   // Today's check-ins for one tile: eligible rules, how many are logged, what is still asked.
   // Eligibility is exactly buildCheckinItems' (no penalties, no manual-off synced rules), so the
-  // ring, the "N left" labels and the ✓ button can never disagree.
+  // ring, the "N left" labels, the segment badges, the hero and the rows can never disagree.
+  // A rule skipped today ("not today") leaves today's TOTAL, so a skip never leaves the ring
+  // stuck short: 2/4 becomes 2/3. `rules` = today's eligible, un-skipped rules in rule order;
+  // `skipped` = the ones skipped today (the sheet still lists them, with Undo).
   function worldCheckinCounts(t) {
     const w = checkinWorldFromTile(t);
-    if (!w) return { total: 0, done: 0, left: 0, ask: [], world: null };
+    if (!w) return { total: 0, done: 0, left: 0, ask: [], world: null, rules: [], skipped: [], values: {} };
     const sys = normalizeSystem(w.type === "community" ? w.community.system : w.system);
     const values = (w.type === "community" ? communityValuesForMember(w.community.id, "me", getTodayKey()) : todayValuesForSystem(sys)) || {};
-    const rules = (sys.rules || []).map(scoring.normalizeRule)
+    const eligible = (sys.rules || []).map(scoring.normalizeRule)
       .filter((r) => r.simpleStyle !== "penalty" && !(isRuleSynced(r) && r.allowManualOverride === false));
+    const skipped = eligible.filter((r) => isCheckinSkipped(w.id, r.id) && !(numberOrDefault(values[r.id], 0) > 0));
+    const rules = eligible.filter((r) => skipped.indexOf(r) === -1);
     const done = rules.filter((r) => numberOrDefault(values[r.id], 0) > 0).length;
     const items = buildCheckinItems(w);
-    return { total: rules.length, done: done, left: items.ask.length, ask: items.ask, world: w };
+    return { total: rules.length, done: done, left: items.ask.length, ask: items.ask, world: w, rules: rules, skipped: skipped, values: values };
   }
   function worldsSegmentSummary(seg) {
     const tiles = worldsSegmentTiles(seg);
@@ -6163,7 +6178,14 @@
     // Communities carry their mini leaderboard (top 3, or top 2 + you). A large tile shows the
     // full Leaderboard module below instead, so the mini one is medium-only.
     const mini = community && !large ? worldMiniLbBody(t.community) : "";
-    // The body opens the world (where the FULL check-in lives); the ✓ button is the one action.
+    // Counted ONCE per tile: the ring, the stat line and the body all read the same numbers.
+    const counts = worldCheckinCounts(t);
+    // PERSONAL: every one of today's check-ins as a scrolling list (3 visible + a peek; 5 when
+    // large). COMMUNITY: the mini leaderboard, "✓ next" and "+N more" → the sheet with the rest.
+    // The header is the only thing that opens the world (the full check-in lives inside it).
+    const body = community
+      ? `<div class="wt-actions">${worldsTileAction(t, p.key, counts)}${worldsTileMore(t, p.key, counts)}</div>`
+      : worldsTileChecklist(t, p.key, large, counts);
     return `<div class="world-tile worlds-tile ${typeClass}${bg ? " has-bg" : ""}${p.key === worldsFlashKey ? " is-flash" : ""}" data-world-size="${size}"
         data-world-type="${escapeHtml(t.type)}" data-world-id="${escapeHtml(t.id)}" data-world-key="${escapeHtml(p.key)}">
         ${worldTileBgHtml(bg)}
@@ -6172,22 +6194,41 @@
         <div class="worlds-tile-head" role="button" tabindex="0" data-world-open aria-label="Open ${escapeHtml(t.name)}">
           <h3 class="worlds-tile-name"><span class="worlds-tile-nm">${escapeHtml(t.name)}</span>${pub}<span class="worlds-tile-arrow" aria-hidden="true">›</span></h3>
           <div class="worlds-tile-meta">
-            ${renderWorldRing(t, large ? "large" : "medium")}
-            <p>${renderWorldStat(t, large)}</p>
+            ${renderWorldRing(t, large ? "large" : "medium", counts)}
+            <p>${renderWorldStat(t, large, counts)}</p>
           </div>
         </div>
         ${mini ? `<div class="wt-lb" data-world-open>${mini}</div>` : ""}
-        ${worldsTileAction(t, p.key)}
+        ${body}
         ${large ? renderWorldSections(t) : ""}
       </div>`;
   }
-  // ONE action per tile: "✓ <next check-in>" logs through the existing quiet path (checkinLog →
-  // quickLogRule / quickLogCommunityRule). Nothing left → a done line. No rules yet → add some.
-  // The next item is the first the check-in would ask about; for a counter it carries the usual
-  // amount, exactly what the check-in's one-tap lead button logs.
-  function worldsTileAction(t, key) {
-    const c = worldCheckinCounts(t);
-    if (!c.total) return `<button type="button" class="wt-done is-empty" data-world-rules="${escapeHtml(key)}">✎ Add a rule</button>`;
+  // PERSONAL tile body: all of today's rows from the shared check-in renderer (checkinRowHtml via
+  // checkinCardHtml — head/intro/foot are hidden by CSS), in a scroll list capped by
+  // worldsFitLists to 3 full rows + a peek (5 when large), followed by the "↓ N more" button.
+  // Nothing left → "✓ All done today"; no rules → add one.
+  function worldsTileChecklist(t, key, large, counts) {
+    const c = counts || worldCheckinCounts(t);
+    if (!c.total && !c.skipped.length) return `<button type="button" class="wt-done is-empty" data-world-rules="${escapeHtml(key)}">✎ Add a rule</button>`;
+    if (!c.ask.length) return `<div class="wt-done">✓ All done today</div>`;
+    const rows = checkinCardHtml(c.world, { compact: true, always: true });
+    if (!rows) return `<div class="wt-done">✓ All done today</div>`;
+    return `<div class="quick-checkin wt-checkins" data-wt-list="${escapeHtml(key)}" data-wt-visible="${large ? 5 : 3}" role="group" aria-label="Check-ins for ${escapeHtml(t.name)}">${rows}</div><button type="button" class="wt-more" data-wt-more hidden></button>`;
+  }
+  // COMMUNITY tile: "+N more" (N = what's left after the ✓ next) opens the sheet with every
+  // check-in. Only when more than one is left; never in edit mode (drag owns the tile there).
+  function worldsTileMore(t, key, counts) {
+    const c = counts || worldCheckinCounts(t);
+    if (worldsEditMode || c.left < 2) return "";
+    return `<button type="button" class="wt-more-btn" data-wt-sheet="${escapeHtml(key)}" aria-haspopup="dialog">+${c.left - 1} more</button>`;
+  }
+  // "✓ <next check-in>" logs through the existing quiet path (checkinLog → quickLogRule /
+  // quickLogCommunityRule). Nothing left → a done line. No rules yet → add some. The next item
+  // is the first the check-in would ask about; for a counter it carries the usual amount,
+  // exactly what the check-in's one-tap lead button logs.
+  function worldsTileAction(t, key, counts) {
+    const c = counts || worldCheckinCounts(t);
+    if (!c.total && !c.skipped.length) return `<button type="button" class="wt-done is-empty" data-world-rules="${escapeHtml(key)}">✎ Add a rule</button>`;
     const next = c.ask[0];
     if (!next) return `<div class="wt-done">✓ ${t.type === "community" ? "You're done today" : "All done today"}</div>`;
     const unit = String(next.rule.unit || "").trim();
@@ -6198,31 +6239,32 @@
     return `<button type="button" class="wt-log" data-wt-log="${escapeHtml(next.rule.id)}" data-wt-key="${escapeHtml(key)}" data-wt-amount="${amt > 0 ? amt : ""}"
         aria-label="Log ${escapeHtml(label)} in ${escapeHtml(t.name)}"><span class="wt-log-check" aria-hidden="true">✓</span><span class="wt-log-text">${escapeHtml(label)}</span></button>`;
   }
-  // The ✓ tap: log, then say what changed. The quiet path already re-renders the grid (rings,
-  // counts, segment labels, hero and strip are all derived from state); this only adds the toast —
-  // a rank climb in a community, otherwise the item and the points it earned.
+  // Every quiet log from a tile or the sheet lands here: log through the existing path, then say
+  // what changed with an Undo. The path already re-renders the grid (rings, counts, segment
+  // badges, hero, strip, open sheet all derive from state). Toast priority mirrors the reference:
+  // rank climb → "world complete" → "Logged <item> · <amount> · +pts". Undo deletes THAT entry.
   function worldsTileLog(key, ruleId, amount) {
     const before = worldTileFromKey(key);
     const world = checkinWorldFromTile(before);
     if (!world) return;
     const rule = checkinRuleById(world, ruleId);
-    const prevLeft = worldCheckinCounts(before).left;
     const prevRank = before.type === "community" ? worldMyRank(before.community) : 0;
+    lastQuietEntry = null;
     checkinLog(world, ruleId, amount > 0 ? amount : undefined);
+    const created = lastQuietEntry;   // set synchronously by addDailyEntryFromDraft (no photo → no await)
     const after = worldTileFromKey(key);
-    if (!after || !rule) return;
+    if (!created || !after || !rule) return;   // nothing was logged (already done / manual off) — that path said why
     const now = worldCheckinCounts(after);
-    if (now.left >= prevLeft) return;   // nothing was logged (already done / manual off) — that path said why
     const gained = Math.max(0, roundScore(numberOrDefault(after.myPoints, 0) - numberOrDefault(before.myPoints, 0)));
     const item = String(rule.label || "check-in");
+    const amtText = rule.simpleStyle !== "yesNo" && created.amount > 0
+      ? " · " + formatMetricPhrase(created.amount, checkinShortUnit(String(rule.unit || "")), "") : "";
     let msg;
-    if (after.type === "community") {
-      const rank = worldMyRank(after.community);
-      msg = rank && prevRank && rank < prevRank ? `↑ You moved to #${rank} in ${after.name}` : `Logged ${item} · +${formatPoints(gained)} pts`;
-    } else {
-      msg = now.left ? `Logged ${item} · +${formatPoints(gained)} pts` : `${after.name} complete for today 🎉`;
-    }
-    showToast(msg);
+    const rank = after.type === "community" ? worldMyRank(after.community) : 0;
+    if (after.type === "community" && rank && prevRank && rank < prevRank) msg = `↑ You moved to #${rank} in ${after.name}`;
+    else if (!now.left) msg = `${after.name} complete for today 🎉`;
+    else msg = `Logged ${item}${amtText} · +${formatPoints(gained)}`;
+    showToast(msg, { label: "Undo", onClick: () => worldsUndoEntry(created) });
     // The flash rides on the markup (renderWorldsTile) so the async saves that re-render the grid
     // right after a log can't drop it mid-animation.
     if (worldsReducedMotion()) return;
@@ -6234,6 +6276,322 @@
       const live = els.worldGrid && els.worldGrid.querySelector(`[data-world-key="${cssEscapeAttr(key)}"]`);
       if (live) live.classList.remove("is-flash");
     }, 600);
+  }
+  // Skip ("not today") from a tile row or the sheet: persists for today, drops the rule out of the
+  // ring's total (worldCheckinCounts), re-renders, and offers Undo.
+  function worldsTileSkip(key, ruleId) {
+    const t = worldTileFromKey(key);
+    const world = checkinWorldFromTile(t);
+    if (!world) return;
+    const rule = checkinRuleById(world, ruleId);
+    skipCheckinRule(world.id, ruleId);
+    renderWorldGrid();
+    showToast(`${String((rule && rule.label) || "Check-in")} · not today`, { label: "Undo", onClick: () => worldsUndoSkip(world.id, ruleId) });
+  }
+  function worldsUndoSkip(contextId, ruleId) {
+    delete checkinSkipsToday()[checkinSkipKey(contextId, ruleId)];
+    saveState();
+    renderWorldGrid();
+  }
+  // Undo a quiet log = delete that one entry through the EXISTING delete paths. Personal entries
+  // live in localStorage only; a community entry is local too, but the server holds the day's
+  // per-rule TOTAL, so the reduced total is re-pushed (twice, so it also wins a race with the
+  // original write still in flight). Once a reload has collapsed local entries into DB rows the
+  // id is gone — say so rather than deleting the wrong thing.
+  function worldsUndoEntry(info) {
+    if (!info || !info.id) return;
+    const isPost = (e) => !!(e && (e.postId || e.photoPath || e.message));
+    if (info.kind === "community") {
+      const entry = (state.communityEntries || []).find((e) => e.id === info.id);
+      if (!entry) { showToast("Too late to undo that one"); return; }
+      if (isPost(entry)) { showToast("That one is a post — delete it from the feed"); return; }
+      const community = (state.communities || []).find((c) => c.id === info.communityId);
+      deleteCommunityEntry(info.id, "Undone");
+      if (community) {
+        const repush = () => Promise.resolve(pushCommunityEntryToDb(community, info.ruleId)).catch(() => {});
+        repush(); setTimeout(repush, 1500);
+      }
+      return;
+    }
+    const quick = (state.quickEntries || []).find((e) => e.id === info.id);
+    if (!quick) { showToast("Too late to undo that one"); return; }
+    if (isPost(quick)) { showToast("That one is a post — delete it from the feed"); return; }
+    deleteQuickEntry(info.id);   // re-renders the dashboard (→ the grid)
+    showToast("Undone");
+  }
+  // A tap on a Personal tile row: the row slides out (170ms; instant under reduced motion), then
+  // the log/skip runs. `busy` swallows a second tap during the slide. Taps that didn't come from a
+  // list row (the sheet) run at once.
+  function worldsRowAct(key, kind, ruleId, amount, btn) {
+    const list = btn && btn.closest ? btn.closest(".wt-checkins") : null;
+    const row = list ? btn.closest(".qc-row") : null;
+    if (row && row.dataset.wtBusy) return;
+    const run = () => { if (kind === "skip") worldsTileSkip(key, ruleId); else worldsTileLog(key, ruleId, amount); };
+    if (row && !worldsReducedMotion()) {
+      row.dataset.wtBusy = "1";
+      row.classList.add("is-out");
+      setTimeout(run, 170);
+    } else run();
+  }
+  // Lists: remember each tile list's scroll across re-renders (keyed by tile key), size them to
+  // N full rows + a 24px peek of the next (measured, never a fixed px), and keep the "↓ N more" /
+  // "↑ Back to top" button and the bottom fade in step with the scroll position.
+  const worldsListScroll = {};
+  // render() rebuilds the grid from EVERY view; while Worlds is display:none every box reads 0,
+  // so snapshots and measurements only happen when the grid is actually laid out.
+  function worldsGridVisible(mount) { return !!(mount && mount.getClientRects().length); }
+  function worldsSaveListScroll(mount) {
+    if (!worldsGridVisible(mount)) return;
+    mount.querySelectorAll(".wt-checkins").forEach((l) => { if (l.clientHeight > 0) worldsListScroll[l.dataset.wtList] = l.scrollTop; });
+  }
+  function worldsListRows(list) {
+    return Array.from(list.children).filter((el) => el.classList && el.classList.contains("qc-row") && !el.classList.contains("qc-row-handled"));
+  }
+  function worldsListUpdateMore(list) {
+    const btn = list.nextElementSibling;
+    if (!btn || !btn.hasAttribute("data-wt-more")) return;
+    const rows = worldsListRows(list);
+    const bottom = list.scrollTop + list.clientHeight;
+    const hidden = rows.filter((r) => r.offsetTop + r.offsetHeight > bottom + 2).length;
+    const atEnd = list.scrollTop + list.clientHeight >= list.scrollHeight - 2;
+    list.classList.toggle("is-fade", !atEnd && list.scrollHeight > list.clientHeight + 2);
+    if (worldsEditMode) { btn.hidden = true; return; }
+    if (hidden) { btn.hidden = false; btn.textContent = `↓ ${hidden} more`; btn.dataset.dir = "down"; }
+    else if (list.scrollTop > 4) { btn.hidden = false; btn.textContent = "↑ Back to top"; btn.dataset.dir = "up"; }
+    else btn.hidden = true;
+  }
+  function worldsFitLists(mount) {
+    if (!worldsGridVisible(mount)) return;
+    mount.querySelectorAll(".wt-checkins").forEach((list) => {
+      const rows = worldsListRows(list);
+      const visible = Math.max(1, numberOrDefault(list.dataset.wtVisible, 3));
+      list.style.maxHeight = rows.length > visible ? (rows[visible].offsetTop + 24) + "px" : "";
+      const saved = worldsListScroll[list.dataset.wtList];
+      if (saved) list.scrollTop = saved;
+      worldsListUpdateMore(list);
+    });
+  }
+  // Wire every tile list after a render: the shared row handlers, routed through worldsRowAct so a
+  // tap animates and toasts; the scroll listener keeps the more-button honest.
+  function worldsWireTileLists(mount, tiles) {
+    if (!mount) return;
+    mount.querySelectorAll(".wt-checkins").forEach((list) => {
+      const key = list.dataset.wtList;
+      const t = (tiles || []).find((x) => worldTileKey(x) === key) || worldTileFromKey(key);
+      const world = checkinWorldFromTile(t);
+      if (!world) return;
+      // The row buttons stop propagation, so the grid router's swipe/edit guards never see them:
+      // the same two guards run here first (capture), swallowing the tap.
+      list.addEventListener("click", (e) => {
+        if (worldDrag.suppressClick || worldsEditMode) { e.stopPropagation(); e.preventDefault(); }
+      }, true);
+      wireQuickCheckin(list, world, {
+        rerender: renderWorldGrid,
+        onLog: (ruleId, amount, btn) => worldsRowAct(key, "log", ruleId, amount, btn),
+        onSkip: (ruleId, btn) => worldsRowAct(key, "skip", ruleId, 0, btn),
+        onToggle: () => { worldsSaveListScroll(mount); worldsFitLists(mount); },
+      });
+      list.addEventListener("scroll", () => worldsListUpdateMore(list), { passive: true });
+    });
+  }
+  function worldsListMore(btn) {
+    const list = btn.previousElementSibling;
+    if (!list || !list.classList.contains("wt-checkins")) return;
+    const behavior = worldsReducedMotion() ? "auto" : "smooth";
+    if (btn.dataset.dir === "up") list.scrollTo({ top: 0, behavior: behavior });
+    else list.scrollBy({ top: Math.max(40, list.clientHeight - 40), behavior: behavior });
+  }
+
+  /* ── The community check-in sheet ("+N more") ──────────────────────────────────────────────
+     Built on the post-overlay shell exactly like openWorldBgPicker (create-once backdrop, body
+     re-rendered in place, delegated handlers). Title "Log for <WORLD>", a live "<left> left ·
+     #<rank> · <gap>" line, then EVERY check-in in rule order: pending ones as full qc rows (the
+     shared renderer), logged ones as "✓ … +pts Undo", skipped ones as "– not today Undo". It
+     closes on Done, ✕, the backdrop, Escape and hardware Back (one history entry of its own),
+     and hands focus back to the "+N more" that opened it. renderWorldGrid re-renders it. */
+  let worldsSheet = null;   // { key, openView }
+  let worldsSheetRefocus = null;   // { key, until } — re-focus "+N more" after the close re-render
+  function openWorldsCheckinSheet(key) {
+    const t = worldTileFromKey(key);
+    if (!checkinWorldFromTile(t)) return;
+    worldsSheet = { key: key, openView: state.activeView };
+    worldsSheetRefocus = null;
+    renderWorldsCheckinSheet();
+    try {
+      if (window.history && typeof window.history.pushState === "function") window.history.pushState({ pw: navSnapshot(), sheet: "wt-checkin" }, "");
+    } catch (e) { /* sandboxed host */ }
+    setTimeout(() => { const x = document.querySelector("[data-wt-sheet-overlay] [data-wt-sheet-close]"); if (x) x.focus(); }, 50);
+  }
+  function closeWorldsCheckinSheet(opts) {
+    opts = opts || {};
+    if (!worldsSheet) return;
+    const key = worldsSheet.key;
+    worldsSheet = null;
+    const back = document.querySelector("[data-wt-sheet-overlay]");
+    if (back && back.parentNode) back.parentNode.removeChild(back);
+    document.removeEventListener("keydown", onWorldsSheetKey);
+    // Consume the sheet's own history entry unless Back is what closed us (fromPop) or a
+    // navigation already moved on (silent).
+    if (!opts.fromPop && !opts.silent) {
+      try { if (window.history && window.history.state && window.history.state.sheet === "wt-checkin") window.history.back(); } catch (e) { /* ignore */ }
+    }
+    if (!opts.silent) {
+      // Focus goes back to the "+N more" that opened the sheet — now, and again after the
+      // same-view re-render the consumed history entry triggers (it rebuilds the tiles).
+      worldsSheetRefocus = { key: key, until: Date.now() + 1500 };
+      worldsSheetRefocusNow();
+    }
+  }
+  function worldsSheetRefocusNow(consume) {
+    if (!worldsSheetRefocus) return;
+    if (Date.now() > worldsSheetRefocus.until) { worldsSheetRefocus = null; return; }
+    const opener = document.querySelector(`[data-world-key="${cssEscapeAttr(worldsSheetRefocus.key)}"] [data-wt-sheet]`);
+    if (opener) { try { opener.focus({ preventScroll: true }); } catch (e) { opener.focus(); } }
+    if (consume) worldsSheetRefocus = null;   // once, after the close re-render — never again
+  }
+  function onWorldsSheetKey(e) { if (e.key === "Escape") closeWorldsCheckinSheet(); }
+  // "1 pt behind Jacob" / "2 pts ahead of Mom" / "tied with X" / "leading" — from the SAME daily
+  // standings worldMyRank uses, so the line and the rank can't disagree.
+  function worldGapText(community) {
+    const s = worldStandings(community);
+    const idx = s.findIndex((m) => m.id === "me");
+    if (idx < 0 || s.length < 2) return "leading";
+    const mine = numberOrDefault(s[idx].score, 0);
+    const who = (m) => m.id === "me" ? "you" : (m.name || "Member");
+    const pts = (n) => `${formatPoints(n)} ${n === 1 ? "pt" : "pts"}`;
+    if (idx > 0) {
+      const above = s[idx - 1];
+      const d = roundScore(numberOrDefault(above.score, 0) - mine);
+      return d > 0 ? `${pts(d)} behind ${who(above)}` : `tied with ${who(above)}`;
+    }
+    const below = s[1];
+    const d = roundScore(mine - numberOrDefault(below.score, 0));
+    return d > 0 ? `${pts(d)} ahead of ${who(below)}` : `tied with ${who(below)}`;
+  }
+  // Today's manual entries for one rule (what a logged row lists, each with its own Undo).
+  function worldsTodayEntriesFor(world, ruleId) {
+    if (world.type === "community") {
+      return getCommunityEntriesForMemberOnDate(world.community.id, "me", getTodayKey()).filter((e) => e.ruleId === ruleId && !e.viaSource);
+    }
+    return getQuickEntriesForToday(world.system.id).filter((e) => e.ruleId === ruleId && !e.viaSource);
+  }
+  function worldsSheetRowsHtml(world, counts) {
+    const isCommunity = world.type === "community";
+    const copy = checkinCopyFor(world) || {};
+    const aiQ = (copy && copy.q) || {};
+    const askById = {};
+    counts.ask.forEach((it) => { askById[it.rule.id] = it; });
+    const ids = {};
+    counts.rules.concat(counts.skipped).forEach((r) => { ids[r.id] = 1; });
+    // Rule order, so a row never moves when it flips between pending, logged and skipped.
+    const all = (normalizeSystem(isCommunity ? world.community.system : world.system).rules || []).map(scoring.normalizeRule).filter((r) => ids[r.id]);
+    return all.map((rule) => {
+      const icon = ruleIconSvg(rule, "icon-sm");
+      const label = escapeHtml(String(rule.label || "Rule"));
+      if (counts.skipped.some((x) => x.id === rule.id)) {
+        return `<div class="wts-row is-ok is-skip"><span class="wts-ck" aria-hidden="true">–</span><span class="wts-tx"><span class="wts-ic">${icon}</span>${label} <span>· not today</span></span><button type="button" class="wts-undo" data-wt-unskip="${escapeHtml(rule.id)}">Undo</button></div>`;
+      }
+      if (numberOrDefault(counts.values[rule.id], 0) > 0) {
+        const entries = worldsTodayEntriesFor(world, rule.id);
+        if (!entries.length) {
+          // Credited by a device sync — nothing of ours to undo.
+          return `<div class="wts-row is-ok"><span class="wts-ck" aria-hidden="true">✓</span><span class="wts-tx"><span class="wts-ic">${icon}</span>${label} <span>· ${escapeHtml(formatMetricPhrase(counts.values[rule.id], String(rule.unit || ""), ""))} synced</span></span></div>`;
+        }
+        return entries.map((e) => {
+          const pts = scoring.calculateRule(rule, e.amount).totalPoints;
+          const unit = String(rule.unit || "").trim();
+          const amt = rule.simpleStyle === "yesNo" || rule.inputMethod === "toggle" ? "" : ` <span>· ${escapeHtml(formatMetricPhrase(e.amount, checkinShortUnit(unit) || unit, ""))}</span>`;
+          // Only a bare quiet log is undone here; a post (caption / photo / composer) keeps its
+          // own delete flow in the feed so the post and its points never come apart.
+          const bare = !e.postId && !e.photoPath && !e.message;
+          const tail = bare
+            ? `<button type="button" class="wts-undo" data-wt-undo-entry="${escapeHtml(e.id)}" data-wt-kind="${isCommunity ? "community" : "personal"}" data-wt-rule="${escapeHtml(rule.id)}">Undo</button>`
+            : `<span class="wts-posted">posted</span>`;
+          return `<div class="wts-row is-ok"><span class="wts-ck" aria-hidden="true">✓</span><span class="wts-tx"><span class="wts-ic">${icon}</span>${label}${amt}</span><span class="wts-pt">${escapeHtml(formatSigned(pts))}</span>${tail}</div>`;
+        }).join("");
+      }
+      const it = askById[rule.id];
+      return it ? checkinRowHtml(world, it, { aiQ: aiQ }) : "";
+    }).join("");
+  }
+  function renderWorldsCheckinSheet() {
+    if (!worldsSheet) return;
+    const key = worldsSheet.key;
+    const t = worldTileFromKey(key);
+    const world = checkinWorldFromTile(t);
+    if (!world) { closeWorldsCheckinSheet({ silent: true }); return; }
+    const counts = worldCheckinCounts(t);
+    const rank = world.type === "community" ? worldMyRank(world.community) : 0;
+    const subText = [counts.left ? `${counts.left} left` : "All done"]
+      .concat(rank ? [`#${rank}`, worldGapText(world.community)] : []).join(" · ");
+    const sub = escapeHtml(subText);
+    let back = document.querySelector("[data-wt-sheet-overlay]");
+    if (!back) {
+      back = document.createElement("div");
+      back.className = "post-overlay-backdrop";
+      back.setAttribute("data-wt-sheet-overlay", "");
+      back.innerHTML = `
+        <div class="post-overlay-sheet wt-sheet" role="dialog" aria-modal="true" aria-labelledby="wtSheetTitle">
+          <div class="post-overlay-bar">
+            <span class="post-overlay-grab" aria-hidden="true"></span>
+            <button type="button" class="post-overlay-close" data-wt-sheet-close aria-label="Close">✕</button>
+          </div>
+          <div class="post-overlay-scroll wt-sheet-body"></div>
+          <div class="wt-sheet-foot"><button type="button" class="wt-sheet-done" data-wt-sheet-close>Done</button></div>
+        </div>`;
+      document.body.appendChild(back);
+      back.addEventListener("click", (e) => { if (e.target === back) closeWorldsCheckinSheet(); });
+      back.addEventListener("click", onWorldsSheetClick);
+      document.addEventListener("keydown", onWorldsSheetKey);
+    }
+    const bodyEl = back.querySelector(".wt-sheet-body");
+    // Someone mid-typing keeps their amount: the rows still rebuild (so a log on ANY row shows),
+    // then the typed input is re-opened on its row with the same value — if that rule is still
+    // pending at all.
+    const typing = bodyEl.querySelector(".qc-typed");
+    const typingRow = typing && typing.closest("[data-qc-row]");
+    const keep = typingRow ? { ruleId: typingRow.dataset.qcRow, value: typing.value, focused: document.activeElement === typing } : null;
+    const scrollTop = bodyEl.scrollTop;
+    bodyEl.innerHTML = `
+      <div class="wts-head">
+        <h3 class="wts-title" id="wtSheetTitle">Log for ${escapeHtml(t.name)}</h3>
+        <p class="wts-sub">${sub}</p>
+      </div>
+      <div class="quick-checkin wt-sheet-rows">${worldsSheetRowsHtml(world, counts) || `<p class="wts-empty">Nothing to log here yet.</p>`}</div>`;
+    const rows = bodyEl.querySelector(".wt-sheet-rows");
+    if (rows) wireQuickCheckin(rows, world, {
+      rerender: renderWorldGrid,
+      onLog: (ruleId, amount) => worldsTileLog(key, ruleId, amount),
+      onSkip: (ruleId) => worldsTileSkip(key, ruleId),
+    });
+    if (rows && keep && String(keep.value || "").length && counts.ask.some((it) => it.rule.id === keep.ruleId)) {
+      const kb = rows.querySelector(`[data-qc-row="${cssEscapeAttr(keep.ruleId)}"] [data-qc-type]`);
+      if (kb) {
+        kb.click();   // the shared ⌨ handler swaps the chips for the input (and focuses it)
+        const inp = rows.querySelector(`[data-qc-row="${cssEscapeAttr(keep.ruleId)}"] .qc-typed`);
+        if (inp) { inp.value = keep.value; if (!keep.focused) inp.blur(); }
+      }
+    }
+    bodyEl.scrollTop = scrollTop;
+  }
+  function onWorldsSheetClick(event) {
+    const q = (sel) => event.target.closest && event.target.closest(sel);
+    if (q("[data-wt-sheet-close]")) { closeWorldsCheckinSheet(); return; }
+    if (!worldsSheet) return;
+    const un = q("[data-wt-undo-entry]");
+    if (un) {
+      event.stopPropagation();
+      const t = worldTileFromKey(worldsSheet.key);
+      worldsUndoEntry({ kind: un.dataset.wtKind, id: un.dataset.wtUndoEntry, ruleId: un.dataset.wtRule, communityId: t && t.type === "community" ? t.id : "", systemId: t && t.type === "personal" ? t.id : "" });
+      return;
+    }
+    const unskip = q("[data-wt-unskip]");
+    if (unskip) {
+      event.stopPropagation();
+      const t = worldTileFromKey(worldsSheet.key);
+      const world = checkinWorldFromTile(t);
+      if (world) worldsUndoSkip(world.id, unskip.dataset.wtUnskip);
+    }
   }
   function closeWorldTileMenus() {
     document.querySelectorAll(".worlds-tile-menu:not([hidden])").forEach((m) => { m.hidden = true; });
@@ -6257,6 +6615,7 @@
     const mount = els.worldGrid;
     if (!mount) return;
     if (worldsDrag.tile) return;   // never rebuild mid-drag — it would drop the lifted tile
+    worldsSaveListScroll(mount);   // tile lists keep their place across the rebuild
     const seg = worldsSegment();
     const allTiles = buildWorldTiles();
     const tiles = worldsSegmentTiles(seg);
@@ -6319,10 +6678,14 @@
     worldsSwitchAnim = false;
     paintWorldTilesMedia(tiles);
     bindWorldsPager();
+    worldsWireTileLists(mount, allTiles);
+    worldsFitLists(mount);
     // Restore the scroll position for the active page without animating on a re-render.
     const pgr = worldsPagerEl();
     if (pgr) { pgr.scrollLeft = worldsPageIndex * pgr.clientWidth; }
     syncWorldsDots();
+    if (worldsSheet) renderWorldsCheckinSheet();   // the async saves must never leave it stale
+    else if (worldsSheetRefocus) worldsSheetRefocusNow(true);
   }
 
   // The segmented toggle. Each side carries a live count: "N left" (check-ins still asked in
@@ -6457,6 +6820,7 @@
 
     pgr.addEventListener("keydown", (e) => {
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      if (e.target.closest && e.target.closest("input, textarea")) return;   // caret moves in a typed amount
       e.preventDefault();
       goWorldsPage(worldsPageIndex + (e.key === "ArrowRight" ? 1 : -1));
     });
@@ -6695,7 +7059,22 @@
 
   // The SAME circular progress ring on every tile/size: a donut with "X/Y" centered inside.
   // Per-type colour comes from CSS (.tile-community / .tile-personal — both stroke teal now).
-  function renderWorldRing(t, size) {
+  // With `counts` (worldCheckinCounts — the pager tiles) the ring is CHECK-INS: "2/6" done of
+  // total, never points, so it can't overflow with decimals or read half-empty on a complete
+  // world. Without it (legacy renderWorldTile) it is the points ring it always was.
+  function renderWorldRing(t, size, counts) {
+    if (counts) {
+      const total = numberOrDefault(counts.total, 0), done = Math.min(numberOrDefault(counts.done, 0), total);
+      const pctC = total ? Math.round((done / total) * 100) : 0;
+      const labelC = total ? `${done}/${total}` : "0";   // no rules yet → plain 0, never "0/0"
+      return `<div class="score-ring world-ring world-ring-${size} is-checkins" role="img" aria-label="${total ? `${done} of ${total} check-ins` : "No check-ins yet"}">
+        <svg class="score-ring-svg" viewBox="0 0 44 44" aria-hidden="true">
+          <circle class="score-ring-bg" cx="22" cy="22" r="19"></circle>
+          <circle class="score-ring-fill" cx="22" cy="22" r="19" pathLength="100" style="stroke-dashoffset:${100 - pctC}"></circle>
+        </svg>
+        <strong class="score-ring-label">${labelC}</strong>
+      </div>`;
+    }
     const target = numberOrDefault(t.target, 0);
     const pct = Math.min(Math.max(numberOrDefault(t.percent, 0), 0), 100);
     // No target yet (e.g. a system with no rules) → show just the points, never "X/0".
@@ -6712,7 +7091,7 @@
   }
 
   // Medium/large top stat: community → rank + active; personal → to-go.
-  function renderWorldStat(t, full) {
+  function renderWorldStat(t, full, counts) {
     if (t.type === "community") {
       const rank = worldMyRank(t.community), active = worldActiveToday(t.community);
       const size = (t.community.members || []).length;
@@ -6721,9 +7100,9 @@
       if (active && full) bits.push(active + " active today");
       return escapeHtml(bits.join(" · ") || "community");
     }
-    // Personal: what is still to check in today (the ring beside it carries the points).
-    const c = worldCheckinCounts(t);
-    if (!c.total) return "no rules yet";
+    // Personal: what is still to check in today (the ring beside it counts the same check-ins).
+    const c = counts || worldCheckinCounts(t);
+    if (!c.total) return c.skipped.length ? "Nothing left today" : "no rules yet";
     if (c.left) return escapeHtml(c.left + (full ? " left today" : " left"));
     return `Complete today ${svgIcon("check", "icon-xs")}`;
   }
@@ -7132,6 +7511,12 @@
     // The tile's ✓ — one tap logs the next check-in through the quiet path (worldsTileLog).
     const wtLog = t.closest("[data-wt-log]");
     if (wtLog) { worldsTileLog(wtLog.dataset.wtKey, wtLog.dataset.wtLog, numberOrDefault(wtLog.dataset.wtAmount, 0)); return; }
+    const wtSheet = t.closest("[data-wt-sheet]");
+    if (wtSheet) { openWorldsCheckinSheet(wtSheet.dataset.wtSheet); return; }
+    const wtMore = t.closest("[data-wt-more]");
+    if (wtMore) { worldsListMore(wtMore); return; }
+    // Taps on the list itself (row padding, the fade) do nothing — the header opens the world.
+    if (t.closest(".wt-checkins")) return;
     // A member (leaderboard row, post author, members strip) → their profile in THIS world's
     // context, the same drill-down the community detail leaderboard uses. A post (thumbnail or
     // caption) → the post overlay in place. Both sit below the drag/edit-mode guards above, so
@@ -11582,6 +11967,10 @@
   // One-tap logging from a Today/world-detail rule card. Reuses the existing Add Entry log path
   // (addDailyEntryFromDraft) but stays on the card so it can animate to its logged state.
   let justLoggedRuleId = ""; // the rule whose card should play the just-logged animation once
+  // The entry the LAST quiet log created — { kind: "personal"|"community", id, ruleId, amount,
+  // systemId | communityId } — so a tile/sheet toast can offer Undo (worldsUndoEntry). Reset by
+  // quickLogRule / quickLogCommunityRule before each attempt, so a silent early return leaves null.
+  let lastQuietEntry = null;
 
   // Quiet inline amount entry for COUNTER rules on world / "Your day" rows. Tapping "+ Log"
   // expands a compact −/＋ stepper on the row (instead of opening any full form/composer);
@@ -11986,74 +12375,19 @@
     const items = buildCheckinItems(world);
     // Nothing to ask → the world is fully logged/synced; render nothing.
     if (!items.ask.length) return "";
-    if (!checkinIsTimely(items)) return "";
-    maybeLoadCheckinCopy(world, items);
+    // The time-of-day gate is for the unprompted detail card. A tile list or sheet the user is
+    // looking at deliberately shows everything (opts.always) — the ✓ button never had the gate.
+    if (!checkinIsTimely(items) && !(opts && opts.always)) return "";
+    // The AI phrasing is requested only where the card asks unprompted (the detail page). Tile
+    // lists and the sheet (opts.always) show whatever is cached — otherwise every Worlds render
+    // would chain one request per personal world.
+    if (!(opts && opts.always)) maybeLoadCheckinCopy(world, items);
     const copy = checkinCopyFor(world) || {};
     const aiQ = (copy && copy.q) || {};
     const intro = typeof copy.intro === "string" && copy.intro.trim()
       ? copy.intro.trim()
       : checkinFallbackIntro(items);
-    const rows = items.ask.map((it) => {
-      const ruleId = escapeHtml(it.rule.id);
-      // AI text is untrusted → escapeHtml before it ever reaches innerHTML.
-      const question = (compact && !it.isYesNo)
-        ? escapeHtml(String(it.rule.label || "Rule").slice(0, 28))
-        : escapeHtml(String(aiQ[it.rule.id] || checkinFallbackQuestion(it)).slice(0, 90));
-      const icon = ruleIconSvg(it.rule, "icon-sm");
-      if (it.isYesNo) {
-        return `<div class="qc-row" data-qc-row="${ruleId}">
-            <span class="qc-icon" aria-hidden="true">${icon}</span>
-            <span class="qc-q">${question}</span>
-            <button class="qc-no" type="button" data-qc-skip="${ruleId}">${compact ? "Not today" : "No"}</button>
-            <button class="qc-yes" type="button" data-qc-yes="${ruleId}">Yes</button>
-          </div>`;
-      }
-      const amounts = (it.amounts && it.amounts.amounts) || [];
-      const usual = it.amounts && it.amounts.usual;
-      const unit = String(it.rule.unit || "").trim();
-      const usualNote = usual > 0 ? `usually ${escapeHtml(formatMetricPhrase(usual, unit, ""))}` : "";
-      // Three chips share one line, so the unit only fits when it's short ("150 g", "25 pages").
-      // For long units the question already names them ("…how many minutes?") → show the number.
-      // Compact (pager) chips are bare numbers — the label + "usually X" already carry the unit.
-      const chipUnit = compact ? "" : (unit.length <= 5 ? unit : "");
-      // The most-likely amount: what the NARROW layout promotes to a one-tap button.
-      const primaryAmt = amounts.indexOf(usual) > -1 ? usual : amounts[0];
-      // That button is only ~90px wide on a phone, so the unit is abbreviated ("30 min", not
-      // "30 minutes") and dropped entirely when number + unit still wouldn't fit ("10,000", not
-      // a clipped "10,000 ste…"). Nothing is lost: the prompt's own label sits right above it.
-      const leadFull = formatMetricPhrase(primaryAmt, checkinShortUnit(unit), "");
-      const leadText = leadFull.length <= 10 ? leadFull : formatCount(primaryAmt);
-      const chips = amounts.map((amt) => {
-        const isUsual = amt === usual;
-        const text = chipUnit ? formatMetricPhrase(amt, chipUnit, "") : formatCount(amt);
-        return `<button class="qc-chip${isUsual ? " is-usual" : ""}${amt === primaryAmt ? " is-primary" : ""}" type="button" data-qc-amount="${ruleId}" data-qc-value="${amt}">${escapeHtml(text)}</button>`;
-      }).join("");
-      // NARROW variant (see the @container block in styles.css). Below ~220px a tile can't hold
-      // three chips in a row, so the same row shows ONE full-width button for the likeliest
-      // amount plus a chevron that reveals the rest. Always rendered, shown only when the card
-      // is actually that narrow — one renderer, two layouts, no fork. The lead button carries
-      // the SAME data-qc-amount as a chip, so it logs through the existing handler untouched.
-      const moreOpen = checkinMoreOpen.has(checkinSkipKey(world.id, it.rule.id));
-      const narrow = primaryAmt > 0
-        ? `<div class="qc-narrow">
-            <button class="qc-lead" type="button" data-qc-amount="${ruleId}" data-qc-value="${primaryAmt}">${escapeHtml(leadText)}</button>
-            <button class="qc-more" type="button" data-qc-more="${ruleId}" aria-expanded="${moreOpen ? "true" : "false"}" aria-label="${moreOpen ? "Hide" : "Show"} other amounts for ${escapeHtml(it.rule.label || "rule")}"><span class="qc-more-chev" aria-hidden="true">⌄</span></button>
-          </div>`
-        : "";
-      return `<div class="qc-row qc-row-counter${moreOpen ? " is-more" : ""}" data-qc-row="${ruleId}">
-          <div class="qc-counter-head">
-            <span class="qc-icon" aria-hidden="true">${icon}</span>
-            <span class="qc-q">${question}</span>
-            ${usualNote ? `<span class="qc-usual">${usualNote}</span>` : ""}
-            <button class="qc-no" type="button" data-qc-skip="${ruleId}">Skip</button>
-          </div>
-          ${narrow}
-          <div class="qc-chips">
-            ${chips}
-            <button class="qc-keyboard" type="button" data-qc-type="${ruleId}" aria-label="Type an amount for ${escapeHtml(it.rule.label || "rule")}">⌨</button>
-          </div>
-        </div>`;
-    }).join("");
+    const rows = items.ask.map((it) => checkinRowHtml(world, it, { compact: compact, aiQ: aiQ })).join("");
     const handledRows = items.handled.map((h) => `
         <div class="qc-row qc-row-handled">
           <span class="qc-icon" aria-hidden="true">${ruleIconSvg(h.rule, "icon-sm")}</span>
@@ -12073,6 +12407,73 @@
       ${rows}
       ${handledRows}
       <p class="qc-foot">Skipped ones won't be asked again today.</p>`;
+  }
+  // ONE check-in row (yes/no or counter). The detail card, the Personal tile list and the
+  // community sheet all compose this, so there is exactly one row renderer to keep right.
+  // `it` is a buildCheckinItems ask item; opts.compact = the tile phrasing (rule label as the
+  // question, bare-number chips); opts.aiQ = the per-rule AI questions when they've landed.
+  function checkinRowHtml(world, it, opts) {
+    const compact = !!(opts && opts.compact);
+    const aiQ = (opts && opts.aiQ) || {};
+    const ruleId = escapeHtml(it.rule.id);
+    // AI text is untrusted → escapeHtml before it ever reaches innerHTML.
+    const question = (compact && !it.isYesNo)
+      ? escapeHtml(String(it.rule.label || "Rule").slice(0, 28))
+      : escapeHtml(String(aiQ[it.rule.id] || checkinFallbackQuestion(it)).slice(0, 90));
+    const icon = ruleIconSvg(it.rule, "icon-sm");
+    if (it.isYesNo) {
+      return `<div class="qc-row" data-qc-row="${ruleId}">
+          <span class="qc-icon" aria-hidden="true">${icon}</span>
+          <span class="qc-q">${question}</span>
+          <button class="qc-no" type="button" data-qc-skip="${ruleId}">No</button>
+          <button class="qc-yes" type="button" data-qc-yes="${ruleId}">Yes</button>
+        </div>`;
+    }
+    const amounts = (it.amounts && it.amounts.amounts) || [];
+    const usual = it.amounts && it.amounts.usual;
+    const unit = String(it.rule.unit || "").trim();
+    const usualNote = usual > 0 ? `usually ${escapeHtml(formatMetricPhrase(usual, unit, ""))}` : "";
+    // Three chips share one line, so the unit only fits when it's short ("150 g", "25 pages").
+    // For long units the question already names them ("…how many minutes?") → show the number.
+    // Compact (tile) chips are bare numbers — the label + "usually X" already carry the unit.
+    const chipUnit = compact ? "" : (unit.length <= 5 ? unit : "");
+    // The most-likely amount: what the NARROW layout promotes to a one-tap button.
+    const primaryAmt = amounts.indexOf(usual) > -1 ? usual : amounts[0];
+    // That button is only ~90px wide on a phone, so the unit is abbreviated ("30 min", not
+    // "30 minutes") and dropped entirely when number + unit still wouldn't fit ("10,000", not
+    // a clipped "10,000 ste…"). Nothing is lost: the prompt's own label sits right above it.
+    const leadFull = formatMetricPhrase(primaryAmt, checkinShortUnit(unit), "");
+    const leadText = leadFull.length <= 10 ? leadFull : formatCount(primaryAmt);
+    const chips = amounts.map((amt) => {
+      const isUsual = amt === usual;
+      const text = chipUnit ? formatMetricPhrase(amt, chipUnit, "") : formatCount(amt);
+      return `<button class="qc-chip${isUsual ? " is-usual" : ""}${amt === primaryAmt ? " is-primary" : ""}" type="button" data-qc-amount="${ruleId}" data-qc-value="${amt}">${escapeHtml(text)}</button>`;
+    }).join("");
+    // NARROW variant (see the @container block in styles.css). Below ~200px a card can't hold
+    // three chips in a row, so the same row shows ONE full-width button for the likeliest
+    // amount plus a chevron that reveals the rest. Always rendered, shown only when the card
+    // is actually that narrow — one renderer, two layouts, no fork. The lead button carries
+    // the SAME data-qc-amount as a chip, so it logs through the existing handler untouched.
+    const moreOpen = checkinMoreOpen.has(checkinSkipKey(world.id, it.rule.id));
+    const narrow = primaryAmt > 0
+      ? `<div class="qc-narrow">
+          <button class="qc-lead" type="button" data-qc-amount="${ruleId}" data-qc-value="${primaryAmt}">${escapeHtml(leadText)}</button>
+          <button class="qc-more" type="button" data-qc-more="${ruleId}" aria-expanded="${moreOpen ? "true" : "false"}" aria-label="${moreOpen ? "Hide" : "Show"} other amounts for ${escapeHtml(it.rule.label || "rule")}"><span class="qc-more-chev" aria-hidden="true">⌄</span></button>
+        </div>`
+      : "";
+    return `<div class="qc-row qc-row-counter${moreOpen ? " is-more" : ""}" data-qc-row="${ruleId}">
+        <div class="qc-counter-head">
+          <span class="qc-icon" aria-hidden="true">${icon}</span>
+          <span class="qc-q">${question}</span>
+          ${usualNote ? `<span class="qc-usual">${usualNote}</span>` : ""}
+          <button class="qc-no" type="button" data-qc-skip="${ruleId}">Skip</button>
+        </div>
+        ${narrow}
+        <div class="qc-chips">
+          ${chips}
+          <button class="qc-keyboard" type="button" data-qc-type="${ruleId}" aria-label="Type an amount for ${escapeHtml(it.rule.label || "rule")}">⌨</button>
+        </div>
+      </div>`;
   }
 
   // Surface 1: the world DETAIL page (#quickCheckinCard, above the hub tabs).
@@ -12112,23 +12513,37 @@
 
   // All taps go through the EXISTING quiet log path (quickLogRule / quickLogCommunityRule →
   // addDailyEntryFromDraft), so points/streak/leaderboard update and no composer/post prompt opens.
-  function wireQuickCheckin(host, world) {
-    const logIt = (ruleId, amount) => checkinLog(world, ruleId, amount);
+  // opts (all optional): rerender() — what to repaint after a Skip (default: the detail card);
+  // onLog(ruleId, amount, button) / onSkip(ruleId, button) — a surface that animates or toasts
+  // the tap (the tile list, the sheet) takes it over; the defaults are the plain quiet log/skip.
+  // The world detail page passes nothing and behaves exactly as before.
+  function wireQuickCheckin(host, world, opts) {
+    opts = opts || {};
+    const rerender = typeof opts.rerender === "function" ? opts.rerender : () => renderQuickCheckin(world);
+    const logIt = (ruleId, amount, btn) => {
+      if (typeof opts.onLog === "function") opts.onLog(ruleId, amount, btn);
+      else checkinLog(world, ruleId, amount);
+    };
+    const skipIt = (ruleId, btn) => {
+      if (typeof opts.onSkip === "function") { opts.onSkip(ruleId, btn); return; }
+      skipCheckinRule(world.id, ruleId);   // persists for today; logs nothing, no miss
+      rerender();
+    };
     Array.from(host.querySelectorAll("[data-qc-more]")).forEach((b) =>
-      b.addEventListener("click", (e) => { e.stopPropagation(); toggleCheckinMore(world, b); }));
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleCheckinMore(world, b);
+        if (typeof opts.onToggle === "function") opts.onToggle(b);   // a list re-measures its cap
+      }));
     Array.from(host.querySelectorAll("[data-qc-yes]")).forEach((b) =>
-      b.addEventListener("click", (e) => { e.stopPropagation(); logIt(b.dataset.qcYes); }));
+      b.addEventListener("click", (e) => { e.stopPropagation(); logIt(b.dataset.qcYes, undefined, b); }));
     Array.from(host.querySelectorAll("[data-qc-amount]")).forEach((b) =>
       b.addEventListener("click", (e) => {
         e.stopPropagation();
-        logIt(b.dataset.qcAmount, numberOrDefault(b.dataset.qcValue, 0));
+        logIt(b.dataset.qcAmount, numberOrDefault(b.dataset.qcValue, 0), b);
       }));
     Array.from(host.querySelectorAll("[data-qc-skip]")).forEach((b) =>
-      b.addEventListener("click", (e) => {
-        e.stopPropagation();
-        skipCheckinRule(world.id, b.dataset.qcSkip);   // persists for today; logs nothing, no miss
-        renderQuickCheckin(world);
-      }));
+      b.addEventListener("click", (e) => { e.stopPropagation(); skipIt(b.dataset.qcSkip, b); }));
     // ⌨ → type any amount, reusing the same quiet commit path as the chips.
     Array.from(host.querySelectorAll("[data-qc-type]")).forEach((b) =>
       b.addEventListener("click", (e) => {
@@ -12143,9 +12558,13 @@
         const input = row.querySelector(".qc-typed");
         const go = row.querySelector(".qc-typed-go");
         const commit = () => {
+          if (!rule) return;
           const v = checkinTypedAmount(input.value, rule);
           if (v == null) return;
-          logIt(ruleId, v);
+          // Hand the amount over, then retire the input: a surface that keeps typed inputs across
+          // re-renders (the sheet) must not see this one as "still typing" after it logged.
+          input.value = ""; input.blur();
+          logIt(ruleId, v, go || input);
         };
         if (input) { input.focus(); input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); commit(); } }); }
         if (go) go.addEventListener("click", (ev) => { ev.stopPropagation(); commit(); });
@@ -12174,6 +12593,7 @@
   // `systemOverride` lets a caller outside the detail view (e.g. the check-in card on a Worlds
   // grid tile) name the system explicitly instead of relying on currentDetailWorld().
   function quickLogRule(ruleId, amount, systemOverride) {
+    lastQuietEntry = null;
     let system = systemOverride;
     if (!system) {
       const world = currentDetailWorld();
@@ -12330,6 +12750,7 @@
   // this community so the shared addDailyEntryFromDraft writes a community entry (points + leaderboard
   // update, DB push), then stays on the detail view so the rule card animates to its logged state.
   function quickLogCommunityRule(community, ruleId, amount) {
+    lastQuietEntry = null;
     const sys = normalizeSystem(community.system);
     const rule = (sys.rules || []).map(scoring.normalizeRule).find((r) => r.id === ruleId);
     if (!rule || rule.simpleStyle === "penalty") return;
@@ -18562,7 +18983,8 @@
     }
 
     if (context.type === "community") {
-      addCommunityEntry(context.community.id, "me", rule, amount, isRuleSynced(rule) ? "manual-adjustment" : "manual", message, photoPath, viaSource);
+      const created = addCommunityEntry(context.community.id, "me", rule, amount, isRuleSynced(rule) ? "manual-adjustment" : "manual", message, photoPath, viaSource);
+      lastQuietEntry = { kind: "community", id: created.id, ruleId: rule.id, amount: amount, communityId: context.community.id };
       saveCommunitySummaryForMember(context.community, "me");
       // Persist to the shared DB just like the community check-in button does, so a
       // dashboard "Add Entry" survives navigation / reload / other members. Surface
@@ -18577,7 +18999,7 @@
     } else {
       const dateKey = getTodayKey();
       state.quickEntries = state.quickEntries || [];
-      state.quickEntries.push({
+      const created = {
         id: makeId("quick"),
         date: dateKey,
         dateKey,
@@ -18592,7 +19014,9 @@
         photoPath,
         source: isRuleSynced(rule) ? "manual-adjustment" : "manual",
         viaSource
-      });
+      };
+      state.quickEntries.push(created);
+      lastQuietEntry = { kind: "personal", id: created.id, ruleId: rule.id, amount: amount, systemId: system.id };
       syncDraftInputsFromEntries(system);
       autoSaveToday(system);
     }
@@ -24564,7 +24988,10 @@
     communitiesLoadError = "";
     state.communities = (res.communities || []).map((row) =>
       communityFromDb(row, (res.membersByCommunity || {})[row.id] || []));
-    state.communityEntries = (res.entries || []).map(communityEntryFromDb);
+    state.communityEntries = (res.entries || []).map(communityEntryFromDb)
+      // An undo that empties a rule for the day can leave a 0-amount aggregate behind (older
+      // clients upsert the total). It is not activity — drop it rather than show a ghost line.
+      .filter((e) => e.amount > 0 || e.message || e.photoPath || e.postId);
     if (!state.communities.some((community) => community.id === state.selectedCommunityId)) {
       state.selectedCommunityId = state.communities[0] ? state.communities[0].id : "";
     }
@@ -24728,6 +25155,16 @@
     if (message) payload.message = message;
     if (photoPath) payload.photo_path = photoPath;
     if (postId) payload.post_id = postId;
+    // Undone back to nothing (and nothing attached to the day's row): remove the row instead of
+    // leaving a 0-amount aggregate that would come back as a ghost activity line.
+    const attached = getCommunityEntriesForMemberOnDate(community.id, "me", today)
+      .some((entry) => entry.ruleId === ruleId && (entry.message || entry.photoPath || entry.postId));
+    if (!(total > 0) && !message && !photoPath && !postId && !attached
+        && typeof window.PointwellSignals.deleteCommunityEntryByKey === "function") {
+      return Promise.resolve(window.PointwellSignals.deleteCommunityEntryByKey({
+        community_id: community.id, user_id: state.account.userId, rule_id: ruleId, entry_date: today,
+      })).catch(() => ({ error: { message: "Couldn't reach the server." } }));
+    }
     return Promise.resolve(window.PointwellSignals.upsertCommunityEntry(payload))
       .catch(() => ({ error: { message: "Couldn't reach the server." } }));
   }

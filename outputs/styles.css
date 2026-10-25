@@ -13043,6 +13043,8 @@ span.wp-av, .wp-ring span.avatar, .wp-ring span.member-avatar { display: grid; p
 .worlds-seg .segmented-button:hover { background: rgba(255, 255, 255, 0.04); color: #eaf2ee; }
 .worlds-seg .segmented-button.active { background: linear-gradient(180deg, #8ff0b8, #7ee0a8); color: #06231a; border-color: transparent; box-shadow: none; }
 .worlds-seg .segmented-button:focus-visible { outline: 2px solid #7ee0a8; outline-offset: -2px; }
+.worlds-seg .ws-ic { display: inline-flex; align-items: center; flex: 0 0 auto; }   /* 16px line icon, centred, 6px gap from the label */
+.worlds-seg .ws-ic .ic { width: 16px; height: 16px; vertical-align: 0; }
 .ws-ct { font-size: 0.62rem; font-weight: 800; padding: 1px 7px; border-radius: 8px; background: #173026; color: #7ee0a8; line-height: 1.5; font-variant-numeric: tabular-nums; }
 .worlds-seg .segmented-button.active .ws-ct { background: rgba(6, 35, 26, .16); color: #06231a; }
 .worlds-seg-view.is-in { animation: worldsSegIn .28s ease; }

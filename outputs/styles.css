@@ -13234,10 +13234,7 @@ span.wp-av, .wp-ring span.avatar, .wp-ring span.member-avatar { display: grid; p
    recap fade-up). See work/world-tile-fixed-height-reference.html. */
 .world-tile.worlds-tile { overflow: hidden; }
 .worlds-tile[data-world-size="large"] { overflow-y: auto; }   /* a large tile's sections may run on; they scroll, never clip */
-.wt-footer { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; min-width: 0; border-top: 1px solid #17231d; padding-top: 7px; }
-.wt-footer em { font-style: normal; font-size: 0.62rem; color: #5f7369; flex: 0 0 auto; }
 .wt-chips { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
-.wt-footer .wt-chips { flex-wrap: nowrap; overflow: hidden; }   /* one line; extra chips clip */
 .wt-chip { font-size: 0.66rem; color: #cfe9df; background: #11201a; border: 1px solid #2a5a45; border-radius: 7px; padding: 3px 7px; white-space: nowrap; flex: 0 0 auto; }
 .wt-recap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
 .wt-recap-title { font-size: 0.86rem; font-weight: 800; color: #7ee0a8; display: flex; align-items: center; gap: 6px; }
@@ -13261,3 +13258,91 @@ span.wp-av, .wp-ring span.avatar, .wp-ring span.member-avatar { display: grid; p
 @media (prefers-reduced-motion: reduce) {
   .worlds-tile.is-celebrate, .worlds-tile.is-celebrate .score-ring-fill, .worlds-tile.is-celebrate .wt-recap { animation: none; }
 }
+
+
+/* ── Beyond the goal (feat/beyond-goal) ──────────────────────────────────────────────────────
+   A logged counter stays on the tile as a progress row: goal tick, amber (#e0c27f) past the goal,
+   points earned, the next-point hint and +step buttons (quiet logs). Fits a ~165px tile; targets
+   ≥32px in tiles, ≥40px in the sheet. Amber on near-black: ~10:1. */
+.wt-lbl { font-size: 0.58rem; letter-spacing: 1px; text-transform: uppercase; color: #5f7369; font-weight: 700; margin: 4px 2px 6px; }
+.wt-prog { background: #0c1310; border: 1px solid #17231d; border-radius: 11px; padding: 7px; margin: 0 0 6px; }
+.wt-prog.is-beyond { border-color: #6b5a2f; }
+.wt-prog-top { display: flex; align-items: baseline; gap: 4px; font-size: 0.72rem; font-weight: 700; color: #eaf2ee; }
+.wt-prog-top span { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-prog-top b { color: #7ee0a8; font-size: 0.76rem; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.wt-prog.is-beyond .wt-prog-top b { color: #e0c27f; }
+.wt-bar { position: relative; height: 7px; border-radius: 4px; background: #1a2620; margin: 6px 0 4px; }
+.wt-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: #7ee0a8; }
+.wt-bar-over { position: absolute; top: 0; bottom: 0; border-radius: 0 4px 4px 0; background: #e0c27f; }
+.wt-bar-goal { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #eaf2ee; border-radius: 1px; }
+.wt-prog-sub { font-size: 0.66rem; color: #8ba299; }
+.wt-hint { font-size: 0.64rem; color: #8ba299; margin-top: 2px; }
+.wt-hint.is-beyond { color: #e0c27f; }
+.wt-hint.is-max { color: #5f7369; }
+.wt-add { display: flex; gap: 4px; margin-top: 6px; }
+.wt-add button { flex: 1 1 0; min-width: 0; min-height: 32px; border-radius: 8px; border: 1px solid #1d3a2e; background: #173026; color: #bfeed3; font: inherit; font-size: 0.7rem; font-weight: 600; cursor: pointer; padding: 0 4px; white-space: nowrap; }
+.wt-add button.wt-add-type { flex: 0 0 32px; color: #7ee0a8; display: grid; place-items: center; padding: 0; }
+.wt-add .ic { width: 15px; height: 15px; }
+.wt-add input:not([type="range"]):not([type="checkbox"]).qc-typed { height: 32px; flex: 1 1 auto; min-width: 0; font-size: 0.78rem; }
+.wt-add .qc-typed-go { height: 32px; min-height: 32px; flex: 0 0 48px; padding: 0; border-radius: 8px; background: linear-gradient(180deg, #8ff0b8, #7ee0a8); color: #06231a; font-size: 0.7rem; }
+.wt-yn { display: flex; align-items: center; gap: 6px; font-size: 0.7rem; color: #cfe9df; background: #11201a; border: 1px solid #2a5a45; border-radius: 9px; padding: 7px 8px; margin: 0 0 6px; }
+.wt-yn span { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-yn b { color: #7ee0a8; flex: 0 0 auto; }
+.wt-yn .ic { color: #7ee0a8; flex: 0 0 auto; }
+/* Header stat: "<points> pts today" (+ amber beyond) under the left/complete line. */
+.tile-personal .worlds-tile-meta p { white-space: normal; overflow: hidden; text-overflow: clip; line-height: 1.25; min-width: 0; }
+.wt-stat-line { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-stat-pts b { color: #eaf2ee; font-weight: 700; }
+.wt-stat-beyond { font-style: normal; color: #e0c27f; }
+/* Recap chips: see the "Recap chips expand in place" block below. */
+/* Community sheet: the same row, bigger targets, Undo under it. */
+.wt-sheet-rows .wt-prog { padding: 10px; border-radius: 13px; margin: 0 0 8px; }
+.wt-sheet-rows .wt-prog-top { font-size: 0.8rem; }
+.wt-sheet-rows .wt-add button, .wt-sheet-rows .wt-add .qc-typed-go, .wt-sheet-rows .wt-add input:not([type="range"]):not([type="checkbox"]).qc-typed { min-height: 40px; height: 40px; font-size: 0.78rem; }
+.wt-sheet-rows .wt-add button.wt-add-type { flex: 0 0 40px; }
+
+
+/* ── Recap chips expand in place (feat/recap-expand) ─────────────────────────────────────────
+   A finished tile's chips are two lines (name / amount) with the points and a + as SIBLINGS;
+   the body is a button that opens the shared progress row under the chip (bar, hint, +step / ✎,
+   today's entries with ✕ ≥28px). The chip area fills the tile between the title and the pinned
+   streak / Tomorrow lines and scrolls inside it, with the list's fade. The sheet's rows get the
+   same entries list with 40px targets. See work/recap-expand-reference.html. */
+.wt-chips { position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; touch-action: pan-y; scrollbar-width: none; flex-direction: column; flex-wrap: nowrap; gap: 5px; }
+.wt-chips::-webkit-scrollbar { display: none; }
+.wt-chips.is-fade { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent); }
+.wt-chipw { flex: 0 0 auto; min-width: 0; }
+.wt-chip { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 8px; min-height: 40px; border-radius: 9px; white-space: nowrap; }
+.wt-chip.is-open { border-color: #7ee0a8; border-radius: 9px 9px 0 0; }
+.wt-chip-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; min-height: 32px; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; line-height: 1.25; }
+button.wt-chip-body { cursor: pointer; }
+button.wt-chip-body:focus-visible { outline: 2px solid #7ee0a8; outline-offset: 2px; border-radius: 6px; }
+.wt-chip-body b { display: block; font-size: 0.7rem; font-weight: 700; color: #eaf2ee; overflow: hidden; text-overflow: ellipsis; }
+.wt-chip-body span { display: block; font-size: 0.64rem; color: #8ba299; overflow: hidden; text-overflow: ellipsis; }
+.wt-chip-pts { flex: 0 0 auto; font-size: 0.72rem; font-weight: 700; color: #7ee0a8; font-variant-numeric: tabular-nums; }
+.wt-chip.is-beyond { border-color: #6b5a2f; }
+.wt-chip.is-beyond.is-open { border-color: #7ee0a8; }
+.wt-chip.is-beyond .wt-chip-pts { color: #e0c27f; }
+.wt-chip-add { width: 32px; height: 32px; border-radius: 8px; border: 1px solid #2c5a48; background: #173026; color: #7ee0a8; font: inherit; font-size: 1.05rem; line-height: 1; display: grid; place-items: center; flex: 0 0 auto; cursor: pointer; padding: 0; }
+.wt-chip-add:hover { border-color: #7ee0a8; }
+/* The open chip's panel: attached under it; the shared row without its own card chrome (the
+   chip above already names the rule and shows the points). */
+.wt-chip-panel { background: #0c1310; border: 1px solid #7ee0a8; border-top: 0; border-radius: 0 0 9px 9px; padding: 6px 7px 7px; }
+.wt-chip-panel .wt-prog { background: none; border: 0; border-radius: 0; padding: 0; margin: 0; }
+.wt-chip-panel .wt-prog-top { display: none; }
+.wt-chip-panel .wt-bar { margin-top: 2px; }
+/* Today's entries under a progress row (panel + sheet): "6:15 PM · 40 min  ✕" / "posted" */
+.wt-ents { margin-top: 6px; border-top: 1px solid #17231d; padding-top: 4px; }
+.wt-ent { display: flex; align-items: center; gap: 6px; min-height: 28px; font-size: 0.66rem; color: #cfe9df; }
+.wt-ent > span { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-ent i { font-style: normal; color: #8ba299; }
+.wt-ent.is-synced > span { color: #8ba299; }
+.wt-ent-posted { flex: 0 0 auto; font-style: normal; font-size: 0.62rem; color: #8ba299; padding-right: 4px; }
+.wt-ent-x { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 7px; border: 1px solid #3a2a2a; background: none; color: #e0857f; font: inherit; font-size: 0.72rem; line-height: 1; display: grid; place-items: center; padding: 0; cursor: pointer; }
+.wt-ent-x:hover { border-color: #e0857f; background: #1a1212; }
+.wt-ent-x:focus-visible { outline: 2px solid #e0857f; outline-offset: 2px; }
+.wt-sheet-rows .wt-ents { margin-top: 8px; padding-top: 6px; }
+.wt-sheet-rows .wt-ent { min-height: 40px; font-size: 0.78rem; }
+.wt-sheet-rows .wt-ent-x { width: 40px; height: 40px; border-radius: 9px; font-size: 0.8rem; }
+/* Edit mode: chips are inert — nothing expands, and the + isn't rendered. */
+.world-grid.is-editing .wt-chips { pointer-events: none; opacity: .7; }

@@ -58,7 +58,12 @@ repeat them and the app stays consistent.
   quiet logs, no composer. Tile rings show check-ins done/total, never points.
 - **Tiles are fixed height per size (widget rule): content adapts, the grid never reflows.** A finished
   world keeps its slot and shows a recap (logged today, streak, tomorrow's first check-in) after a
-  one-time celebration.
+  one-time celebration. Recap chips expand in place (tap) into the progress row: + / ✎ to
+  add, today's entries with ✕ (bare logs only; posts keep their feed delete). Deleting the
+  only entry reopens the check-in.
+- **Counters can go past their goal:** logged counters stay on the tile as progress rows (goal tick,
+  amber past goal, points, next-point hint, + buttons; quiet logs). No caps unless a rule sets
+  maxDailyPoints.
 - **People = the fourth tab.** Everyone you follow or share a world with, sorted by active
   today, with ring + streak + one-tap Cheer; the one place to find people. A profile opened from
   anywhere leads with progress (streak, 7-day dots, You · Them, shared worlds) before photos.

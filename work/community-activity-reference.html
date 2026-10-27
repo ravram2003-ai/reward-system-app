@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — world Activity (members only) + Share to Feed (reference)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/dist/tabler-icons.min.css">
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}
+body{margin:0;background:#040605;color:#eaf2ee;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;padding:24px 12px 60px;display:flex;flex-direction:column;align-items:center}
+.note{max-width:400px;font-size:13px;color:#8ba299;line-height:1.55;margin:0 0 12px}.note b{color:#eaf2ee}
+.op{display:flex;gap:6px;margin:0 0 12px}.op button{background:#0f1613;border:1px solid #1e2b24;color:#8ba299;border-radius:10px;padding:7px 12px;font:inherit;font-size:12px;cursor:pointer}.op button.on{border-color:#7ee0a8;color:#7ee0a8}
+.ph{width:390px;max-width:100%;background:#0a0f0d;border:1px solid #1e2b24;border-radius:26px;padding:14px 12px 16px;color:#eaf2ee;font-size:12.5px}
+.ph button,.ph input,.ph textarea{font-family:inherit}.ph button{cursor:pointer}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #7ee0a8;outline-offset:2px}
+.dim{color:#8ba299}.ft{color:#5f7369;font-size:11px}.mint{color:#7ee0a8}
+.av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:11.5px;font-weight:700;color:#fff;flex:0 0 auto}.av.s{width:24px;height:24px;font-size:10px}
+.tile{width:62%;background:#0f1a15;border:1px solid #2a5a45;border-radius:16px;padding:10px;display:flex;flex-direction:column;gap:7px}
+.rg{width:34px;height:34px;border-radius:50%;border:3.5px solid #7ee0a8;display:grid;place-items:center;font-size:10.5px;font-weight:800;color:#7ee0a8}
+.lb{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:9px;background:#0c1310;border:1px solid #14201b;font-size:12px}.lb.me{background:#173026;border-color:#2c5a48}.lb b{margin-left:auto}
+.peek{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#cfe9df;background:#0c1310;border:1px solid #17231d;border-radius:9px;padding:6px 8px;width:100%;text-align:left}.peek i{color:#7ee0a8}
+.row2{display:flex;gap:5px}.row2 button{flex:1;height:36px;border-radius:9px;border:1px solid #2c5a48;background:#173026;color:#7ee0a8;font-size:11.5px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:4px}
+.tm{font-size:11px;color:#8ba299;border-top:1px solid #17231d;padding-top:7px}.tm b{color:#eaf2ee}
+.tabs{display:flex;background:#0f1613;border:1px solid #1e2b24;border-radius:12px;padding:3px;margin:8px 0 12px}.tabs span{flex:1;text-align:center;padding:7px 0;border-radius:9px;color:#8ba299;font-size:12px;font-weight:600}.tabs .on{background:#173026;color:#7ee0a8}
+.lock{font-size:11px;color:#5f7369;display:flex;align-items:center;gap:5px;margin:-4px 2px 10px}
+.cmp{background:#0f1613;border:1px solid #2c5a48;border-radius:14px;padding:10px;margin-bottom:12px}
+.cmp .r{display:flex;gap:8px;align-items:flex-start}.cmp textarea{flex:1;min-height:40px;border:none;background:none;color:#eaf2ee;font-size:13px;resize:none;outline:none;padding:6px 0}
+.tg{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}.tg button{height:32px;border-radius:9px;border:1px solid #1e2b24;background:#0c1310;color:#8ba299;font-size:11.5px;display:inline-flex;align-items:center;gap:5px;padding:0 10px}.tg button.on{border-color:#7ee0a8;color:#7ee0a8}
+.go{margin-left:auto;background:#7ee0a8!important;color:#06231a!important;border:none!important;font-weight:700}
+.lbl{font-size:11px;letter-spacing:1px;color:#5f7369;margin:4px 2px 8px}
+.it{background:#0f1613;border:1px solid #1e2b24;border-radius:14px;padding:10px;margin-bottom:10px}
+.ih{display:flex;align-items:center;gap:8px}.ih .tx{flex:1;min-width:0}.ih b{font-weight:700}.ih .pt{color:#7ee0a8;font-size:12px}
+.ch{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}.ch span{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:#cfe9df;background:#0c1310;border:1px solid #1e2b24;border-radius:8px;padding:4px 8px}.ch i{color:#7ee0a8}
+.img{height:110px;border-radius:10px;background:#2b4a3c;margin-top:8px;display:grid;place-items:center;color:#8ba299;font-size:11px}
+.txt{margin:8px 0 0;font-size:13px;line-height:1.45}
+.qa{display:flex;align-items:center;gap:14px;margin-top:9px;color:#8ba299;font-size:12px}.qa button{background:none;border:none;color:inherit;padding:4px 0;display:inline-flex;align-items:center;gap:4px;font-size:12px}.qa .on{color:#e0857f}.qa .sh{margin-left:auto;color:#7ee0a8}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#7ee0a8;border:1px solid #2a5a45;background:#11201a;border-radius:10px;padding:3px 8px}
+.cm{border-top:1px solid #17231d;margin-top:8px;padding-top:6px}.cr{display:flex;gap:7px;font-size:12px;margin:5px 0}.cr p{margin:0;line-height:1.4}.cr b{font-weight:700}
+.ci{display:flex;gap:6px;margin-top:6px}.ci input{flex:1;min-width:0;height:34px;border-radius:9px;background:#0a100d;border:1px solid #1e2b24;color:#eaf2ee;padding:0 9px;font-size:12px}.ci button{height:34px;border-radius:9px;border:none;background:#173026;color:#7ee0a8;font-weight:700;padding:0 11px;font-size:12px}
+.msg{font-size:11.5px;margin-top:6px}.msg.err{color:#e0857f}.msg.ok{color:#7ee0a8}
+.card{border-radius:12px;background:#11201a;border:1px solid #2a5a45;padding:12px;display:flex;align-items:center;gap:12px;margin-top:8px}
+.card .big{width:56px;height:56px;border-radius:50%;border:5px solid #7ee0a8;display:grid;place-items:center;font-size:13px;font-weight:800;color:#7ee0a8;flex:0 0 auto}
+.card b{display:block;font-size:14px}.card span{font-size:11.5px;color:#8ba299}
+.seg2{display:flex;gap:6px;margin-top:8px}.seg2 button{flex:1;height:36px;border-radius:9px;border:1px solid #1e2b24;background:#0f1613;color:#8ba299;font-size:12px}.seg2 button.on{border-color:#7ee0a8;color:#7ee0a8}
+textarea.cap{width:100%;min-height:54px;border-radius:10px;background:#0a100d;border:1px solid #1e2b24;color:#eaf2ee;padding:8px;font-size:12.5px;margin-top:8px;resize:none}
+.cta{width:100%;height:44px;border:none;border-radius:12px;background:#7ee0a8;color:#06231a;font-weight:700;font-size:13px;margin-top:10px}
+.ghost{background:none!important;border:1px solid #2c3a33!important;color:#8ba299!important}
+</style>
+</head>
+<body>
+<p class="note"><b>Two layers.</b> Inside a world, <b>Activity</b> holds everything: every member's logs merged per person per day, plus messages, photos and notes. Members can like and comment, and <b>only members can see any of it</b>. The main <b>Feed</b> shows only deliberate posts: you tap "Share to Feed", and a post needs words and/or a photo, so a bare log can never be shared. Sharing creates a NEW post with its own thread, so comments made inside the world never leak out.</p>
+<div class="op" id="op"><button data-s="tile" class="on">1 · Tile</button><button data-s="act">2 · Activity</button><button data-s="share">3 · Share to Feed</button><button data-s="feed">4 · Feed</button></div>
+<div class="ph" id="ph"></div>
+<script>
+(function(){
+  var YOU = {n:"You", c:"#355d91"}, RAV = {n:"Ravram26", c:"#5a46b0"};
+  var S = {scr:"tile", draft:"", dphoto:false, attach:true, derr:"", useCard:true, cap:"", perr:"", posted:null};
+  var items = [
+    {id:1, who:YOU, when:"Today · 2h", logs:["Hi"], pts:1, text:"", photo:false, likes:1, liked:false, comments:[{p:RAV, t:"nice, keep it going"}], msg:""},
+    {id:2, who:RAV, when:"Yesterday", logs:["Hi"], pts:1, text:"Back on track this week", photo:true, likes:2, liked:false, comments:[], msg:""}
+  ];
+  var nid = 3, $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
+  function av(p, s) { return '<span class="av' + (s ? " s" : "") + '" style="background:' + p.c + '">' + p.n[0] + "</span>"; }
+  function find(id) { return items.filter(function (i) { return i.id === +id; })[0]; }
+  function mineToday() { return items.filter(function (i) { return i.who === YOU && i.logs.length && i.when.indexOf("Today") === 0; })[0]; }
+  function lastReaction() { for (var i = 0; i < items.length; i++) { var it = items[i]; if (it.who === YOU && it.comments.length) return it.comments[it.comments.length - 1]; } return null; }
+
+  function tile() {
+    var r = lastReaction(), m = mineToday();
+    return '<div class="tile"><div style="font-weight:800">try ›</div><div style="display:flex;align-items:center;gap:8px"><span class="rg">1/1</span><span class="dim" style="font-size:11.5px">Rank #1 of 2</span></div>'
+      + '<div class="lb me"><span class="mint">1</span>' + av(YOU, 1) + 'You<b class="mint">1</b></div><div class="lb"><span class="dim">2</span>' + av(RAV, 1) + "Ravram26<b>0</b></div>"
+      + '<div class="mint" style="font-weight:800">✓ You\'re done today</div>'
+      + (r ? '<button type="button" class="peek" data-go="act"><i class="ti ti-message-circle" aria-hidden="true"></i><span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + r.p.n + ": " + esc(r.t) + "</span></button>" : "")
+      + '<div class="row2"><button type="button" data-a="addto"><i class="ti ti-camera-plus" aria-hidden="true"></i>Photo or note</button><button type="button" data-a="shareitem" data-id="' + (m ? m.id : "") + '"><i class="ti ti-share-3" aria-hidden="true"></i>' + (m && m.shared ? "On Feed" : "Share") + "</button></div>"
+      + '<div class="tm">Tomorrow · <b>Hi</b></div></div>';
+  }
+  function kind(it) { if (it.text || it.photo) return it.logs.length ? "log + message" : "message"; return "log"; }
+  function item(it) {
+    var mine = it.who === YOU;
+    var h = '<div class="it"><div class="ih">' + av(it.who) + '<div class="tx"><b>' + it.who.n + '</b> <span class="ft">· ' + kind(it) + '</span><div class="ft">' + it.when + "</div></div>" + (it.pts ? '<span class="pt">+' + it.pts + "</span>" : "") + "</div>";
+    if (it.text) h += '<p class="txt">' + esc(it.text) + "</p>";
+    if (it.photo) h += '<div class="img">photo · members only</div>';
+    if (it.logs.length) h += '<div class="ch">' + it.logs.map(function (l) { return '<span><i class="ti ti-check" aria-hidden="true"></i>' + esc(l) + "</span>"; }).join("") + "</div>";
+    h += '<div class="qa"><button type="button" data-a="like" data-id="' + it.id + '" class="' + (it.liked ? "on" : "") + '" aria-pressed="' + it.liked + '"><i class="ti ti-heart" aria-hidden="true"></i>' + (it.likes + (it.liked ? 1 : 0)) + '</button><button type="button" data-a="fc" data-id="' + it.id + '"><i class="ti ti-message-circle" aria-hidden="true"></i>' + it.comments.length + "</button>";
+    if (mine) h += '<button type="button" class="sh" data-a="shareitem" data-id="' + it.id + '">' + (it.shared ? '<span class="pill"><i class="ti ti-check" aria-hidden="true"></i>On Feed</span>' : '<i class="ti ti-share-3" aria-hidden="true"></i>Share to Feed') + "</button>";
+    h += "</div>" + (it.msg ? '<div class="msg err">' + it.msg + "</div>" : "");
+    h += '<div class="cm">' + it.comments.map(function (c) { return '<div class="cr">' + av(c.p, 1) + "<p><b>" + c.p.n + "</b> " + esc(c.t) + "</p></div>"; }).join("")
+      + '<div class="ci"><input id="ci' + it.id + '" placeholder="Comment" aria-label="Comment on ' + it.who.n + '\'s activity"><button type="button" data-a="cm" data-id="' + it.id + '">Send</button></div></div></div>';
+    return h;
+  }
+  function act() {
+    return '<div style="display:flex;align-items:center;gap:8px"><i class="ti ti-chevron-left dim" aria-hidden="true"></i><b style="font-size:16px;flex:1">try</b><i class="ti ti-info-circle dim" aria-hidden="true"></i></div>'
+      + '<div class="tabs"><span>Standings</span><span class="on">Activity</span><span>Compete</span><span>Members</span></div>'
+      + '<div class="lock"><i class="ti ti-lock" aria-hidden="true"></i>Only members of try can see this</div>'
+      + '<div class="cmp"><div class="r">' + av(YOU, 1) + '<textarea id="dr" placeholder="Say something to try" aria-label="Message to try">' + esc(S.draft) + "</textarea></div>"
+      + '<div class="tg"><button type="button" data-a="dphoto" class="' + (S.dphoto ? "on" : "") + '"><i class="ti ti-photo" aria-hidden="true"></i>' + (S.dphoto ? "Photo added" : "Photo") + '</button><button type="button" data-a="dattach" class="' + (S.attach ? "on" : "") + '"><i class="ti ti-paperclip" aria-hidden="true"></i>' + (S.attach ? "Attached to today's logs" : "Attach today's logs") + '</button><button type="button" class="go" data-a="send">Post</button></div>'
+      + (S.derr ? '<div class="msg err">' + S.derr + "</div>" : "") + "</div>"
+      + '<div class="lbl">ACTIVITY</div>' + items.map(item).join("");
+  }
+  function snapshotCard() { return '<div class="card"><span class="big">1/1</span><div><b>try · done today</b><span>2-day streak · Rank #1 of 2</span></div></div>'; }
+  function share() {
+    var src = find(S.src) || mineToday();
+    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><button type="button" class="ghost" data-go="act" aria-label="Close" style="width:32px;height:32px;border-radius:50%;background:none"><i class="ti ti-x" aria-hidden="true"></i></button><b style="font-size:15px;flex:1">Share to Feed</b></div>'
+      + '<div class="ft">A new post made from today in <span class="mint">try</span>. No points change, and comments in try stay in try.</div>'
+      + (S.useCard ? snapshotCard() : '<div class="img">your photo</div>')
+      + '<div class="seg2"><button type="button" data-a="card" class="' + (S.useCard ? "on" : "") + '"><i class="ti ti-chart-donut" aria-hidden="true"></i> Stat card</button><button type="button" data-a="usephoto" class="' + (!S.useCard ? "on" : "") + '"><i class="ti ti-photo" aria-hidden="true"></i> ' + (src && src.photo ? "Use your photo" : "Add photo") + "</button></div>"
+      + (src && src.logs.length ? '<div class="ch">' + src.logs.map(function (l) { return '<span><i class="ti ti-check" aria-hidden="true"></i>' + esc(l) + "</span>"; }).join("") + "</div>" : "")
+      + '<textarea class="cap" id="cp" placeholder="Say something about today" aria-label="Caption">' + esc(S.cap) + "</textarea>"
+      + '<div class="ft" style="margin-top:6px">Visible to: everyone (your profile is public)</div>'
+      + (S.perr ? '<div class="msg err">' + S.perr + "</div>" : "")
+      + '<button type="button" class="cta" data-a="post">Post to Feed</button>';
+  }
+  function feed() {
+    if (!S.posted) return '<div class="lbl">FEED · FRIENDS</div><div class="ft" style="padding:20px 4px;text-align:center">Only shared posts show up here. Logs, comments and photos inside a world stay in that world\'s Activity.</div>';
+    var p = S.posted;
+    return '<div class="lbl">FEED · FRIENDS</div><div class="it"><div class="ih">' + av(YOU) + '<div class="tx"><b>You</b> <span class="dim">· <span class="mint">try</span></span><div class="ft">Just now · public</div></div></div>'
+      + (p.cap ? '<p class="txt">' + esc(p.cap) + "</p>" : "") + (p.card ? snapshotCard() : '<div class="img">your photo</div>')
+      + '<div class="ch">' + p.logs.map(function (l) { return '<span><i class="ti ti-check" aria-hidden="true"></i>' + esc(l) + "</span>"; }).join("") + "</div>"
+      + '<div class="qa"><button type="button"><i class="ti ti-heart" aria-hidden="true"></i>0</button><button type="button"><i class="ti ti-message-circle" aria-hidden="true"></i>0 · its own thread</button></div></div>';
+  }
+  function render() {
+    [].forEach.call(document.querySelectorAll("#op button"), function (b) { b.classList.toggle("on", b.dataset.s === S.scr); });
+    $("ph").innerHTML = S.scr === "tile" ? tile() : S.scr === "act" ? act() : S.scr === "share" ? share() : feed();
+  }
+  function openShare(id) {
+    var it = find(id) || mineToday(); if (!it) return;
+    if (it.shared) { S.scr = "feed"; render(); return; }
+    S.src = it.id; S.cap = it.text || ""; S.useCard = !it.photo; S.perr = ""; S.scr = "share"; render();
+  }
+  $("op").addEventListener("click", function (e) { var b = e.target.closest("button"); if (b) { S.scr = b.dataset.s; render(); } });
+  $("ph").addEventListener("click", function (e) {
+    var g = e.target.closest("[data-go]"); if (g) { S.scr = g.dataset.go; render(); return; }
+    var b = e.target.closest("[data-a]"); if (!b) return;
+    var a = b.dataset.a, dr = $("dr"), cp = $("cp");
+    if (dr) S.draft = dr.value; if (cp) S.cap = cp.value;
+    if (a === "addto") { S.scr = "act"; S.attach = true; render(); $("dr").focus(); return; }
+    if (a === "dphoto") { S.dphoto = !S.dphoto; S.derr = ""; render(); return; }
+    if (a === "dattach") { S.attach = !S.attach; render(); return; }
+    if (a === "send") {
+      var t = S.draft.trim(); if (!t && !S.dphoto) { S.derr = "Write something or add a photo"; render(); return; }
+      var m = mineToday();
+      if (S.attach && m) { m.text = m.text ? m.text + "\n" + t : t; m.photo = m.photo || S.dphoto; m.when = "Today · just now"; }
+      else items.unshift({id:nid++, who:YOU, when:"Today · just now", logs:[], pts:0, text:t, photo:S.dphoto, likes:0, liked:false, comments:[], msg:""});
+      S.draft = ""; S.dphoto = false; S.derr = ""; render(); return;
+    }
+    if (a === "shareitem") {
+      var it = find(b.dataset.id) || mineToday(); if (!it) return;
+      if (S.scr === "act" && !(it.text || it.photo) && !it.shared) { it.msg = "A Feed post needs words or a photo. You can add them on the next screen."; }
+      openShare(it.id); return;
+    }
+    if (a === "card") { S.useCard = true; render(); return; }
+    if (a === "usephoto") { S.useCard = false; render(); return; }
+    if (a === "post") {
+      var src = find(S.src) || mineToday();
+      var hasPhoto = !S.useCard;
+      if (!S.cap.trim() && !hasPhoto) { S.perr = "Add a caption or a photo. A stat card alone isn't a post."; render(); return; }
+      src.shared = true; src.msg = ""; S.posted = {cap:S.cap.trim(), card:S.useCard, logs:src.logs}; S.scr = "feed"; render(); return;
+    }
+    var x = find(b.dataset.id); if (!x) return;
+    if (a === "like") { x.liked = !x.liked; render(); return; }
+    if (a === "fc") { $("ci" + x.id).focus(); return; }
+    if (a === "cm") { var v = $("ci" + x.id).value.trim(); if (!v) return; x.comments.push({p:YOU, t:v}); render(); }
+  });
+  render();
+})();
+</script>
+</body>
+</html>

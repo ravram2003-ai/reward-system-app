@@ -5485,7 +5485,7 @@
     if (community) saveCommunitySummaryForMember(community, entry.userId);
     saveState();
     render();
-    showToast(toastMsg || "Community entry removed");
+    if (toastMsg !== null) showToast(toastMsg || "Community entry removed");   // null = the caller toasts
   }
 
   // ── Delete-on-posts (author-only) ──────────────────────────────────────────
@@ -5891,6 +5891,8 @@
   let worldsSwitchAnim = false;      // one-shot: fade the next render in (set by setWorldsSegment)
   let worldsFlashKey = "";           // tile that just logged: flashes for 600ms across re-renders
   let worldsCelebrateKey = "";       // tile whose LAST check-in just landed: ring fills + recap fades up, once
+  const worldsCelebrated = {};       // tile key → the day it celebrated: once per day, never again after a ✕ reopens it
+  const worldsRecapOpen = {};        // tile key → rule id of the recap chip open in place (memory only: reset on reload / segment switch)
   function worldsSegment() { return worldLayoutState().segment; }
   function worldsSegmentType(seg) { return (seg || worldsSegment()) === "community" ? "community" : "personal"; }
   function worldsSegmentTiles(seg) {
@@ -5906,6 +5908,7 @@
     worldsPersonOpen = "";            // the people popover belongs to Communities
     closeWorldTileMenus();
     closeWorldsCheckinSheet();
+    worldsRecapCloseAll(false);       // open recap chips don't carry across segments
     const cur = worldLayoutState();
     saveWorldLayout({ entries: cur.entries, archived: cur.archived, segment: seg });
     worldsSwitchAnim = !worldsReducedMotion();
@@ -6191,6 +6194,7 @@
     // A finished world keeps its slot and becomes a recap (worldsTileRecap). The header is the
     // only thing that opens the world (the full check-in lives inside it).
     const done = counts.total > 0 && !counts.ask.length;
+    if (done) worldsCelebrated[p.key] = getTodayKey();   // finished today: a later re-complete (after a ✕) plays no second celebration
     const body = community
       ? (done ? worldsTileRecap(t, counts, true, p.key) : `<div class="wt-actions">${worldsTileAction(t, p.key, counts)}${worldsTileMore(t, p.key, counts)}</div>`)
       : worldsTileChecklist(t, p.key, large, counts);
@@ -6284,8 +6288,8 @@
     }
     return `<div class="wt-hint${past ? " is-beyond" : ""}">${past ? "Beyond goal · " : ""}next pt at ${escapeHtml(wtAmount(next.value, rule))}</div>`;
   }
-  // THE shared progress row (personal tile list + community sheet). opts.key = the tile key the
-  // +buttons log into; opts.tail = extra markup (the sheet's Undo).
+  // THE shared progress row (personal tile list, recap chip panel, community sheet). opts.key =
+  // the tile key the +buttons log into; opts.tail = extra markup (today's entries list).
   function worldsProgressRowHtml(world, rule, value, opts) {
     opts = opts || {};
     const key = opts.key || "";
@@ -6337,26 +6341,95 @@
       : `<div class="wt-yn">${svgIcon("check", "icon-xs")}<span>${escapeHtml(String(r.label || "Rule").replace(/\?\s*$/, ""))}</span><b>+${escapeHtml(formatPoints(wtRewardAt(r, values[r.id])))}</b></div>`).join("");
     return `<div class="wt-lbl">Logged · add more</div>${rows}`;
   }
-  // Recap chips: one row each with the points; counters keep a + (one step) and turn amber past
-  // their goal — "done" never means locked.
+  // Recap chips: two lines each (name / amount) with the points and a "+" (one step). THREE
+  // SIBLINGS, never nested — the body is a button only for counters: tapping it opens the chip
+  // in place into the shared progress row (bar, hint, +step / ✎, today's entries with ✕), one
+  // open chip per tile, remembered across re-renders (worldsRecapOpen). Yes/no chips have
+  // nothing to expand into; a device-only rule (manual off) expands to "⟳ synced" with no
+  // buttons. In edit mode nothing expands and the + is gone. Amber past the goal.
   function worldsLoggedChips(c, key) {
     const values = c.values || {};
+    const world = c.world;
+    const openId = key && !worldsEditMode ? worldsRecapOpen[key] : "";
     return worldsLoggedRules(c).map((r) => {
       const value = numberOrDefault(values[r.id], 0);
       const label = String(r.label || "Rule").replace(/\?\s*$/, "");
       const counter = wtRuleIsCounter(r);
-      const unit = String(r.unit || "").trim();
-      const phrase = counter ? wtAmount(value, r) : "";
-      // "3,110 steps", not "Steps · 3,110 steps": a label that merely names the unit is dropped.
-      const text = !counter ? label : (label.toLowerCase() === unit.toLowerCase() ? phrase : `${label} · ${phrase}`);
       const pts = wtRewardAt(r, value);
       const beyond = counter ? wtBeyond(r, value) : 0;
       const synced = isRuleSynced(r) && r.allowManualOverride === false;
       const step = wtSteps(r)[0];
-      const add = counter && !synced && key
+      const canOpen = counter && !!key && !worldsEditMode;
+      const open = canOpen && openId === r.id;
+      const amount = counter ? wtAmount(value, r) : "done";
+      const lines = `<b>${escapeHtml(label)}</b><span>${escapeHtml(amount)}</span>`;
+      const body = canOpen
+        ? `<button type="button" class="wt-chip-body" data-wt-chip-toggle="${escapeHtml(r.id)}" data-wt-key="${escapeHtml(key)}" aria-expanded="${open ? "true" : "false"}">${lines}</button>`
+        : `<span class="wt-chip-body">${lines}</span>`;
+      const add = counter && !synced && key && !worldsEditMode
         ? `<button type="button" class="wt-chip-add" data-wt-add="${escapeHtml(r.id)}" data-wt-key="${escapeHtml(key)}" data-wt-amount="${step}" aria-label="Add ${escapeHtml(wtAmount(step, r))} to ${escapeHtml(label)}">+</button>` : "";
-      return `<div class="wt-chip${beyond > 0 ? " is-beyond" : ""}"><span>${escapeHtml(text)}</span><b>+${escapeHtml(formatPoints(pts))}</b>${add}</div>`;
+      const panel = open
+        ? `<div class="wt-chip-panel">${worldsProgressRowHtml(world, r, value, { key: key, tail: worldsEntriesTailHtml(world, r, { key: key }) })}</div>` : "";
+      return `<div class="wt-chipw" data-wt-chip="${escapeHtml(r.id)}"><div class="wt-chip${beyond > 0 ? " is-beyond" : ""}${open ? " is-open" : ""}">${body}<b class="wt-chip-pts">+${escapeHtml(formatPoints(pts))}</b>${add}</div>${panel}</div>`;
     }).join("");
+  }
+  // Under a counter's progress row (recap panel + community sheet): the device's share first
+  // ("⟳ synced · 3,110 steps" — nothing of ours to delete), then today's entries oldest first,
+  // "6:15 PM · 40 min". A bare quiet log gets ✕ (deletes exactly that entry); a post shows
+  // "posted" — its delete stays in the feed so the post and its points never come apart.
+  function worldsEntriesTailHtml(world, rule, opts) {
+    opts = opts || {};
+    const kind = world.type === "community" ? "community" : "personal";
+    const key = opts.key || "";
+    const lines = [];
+    const synced = syncedContribution(rule, { userId: "me", date: getTodayKey() });
+    if (synced > 0) lines.push(`<div class="wt-ent is-synced"><span>⟳ synced · ${escapeHtml(wtAmount(synced, rule))}</span></div>`);
+    worldsTodayEntriesFor(world, rule.id).forEach((e) => {
+      const when = worldsEntryTime(e);
+      const amt = wtAmount(numberOrDefault(e.amount, 0), rule);
+      const bare = !e.postId && !e.photoPath && !e.message;
+      const end = bare
+        ? `<button type="button" class="wt-ent-x" data-wt-ent-x="${escapeHtml(e.id)}" data-wt-kind="${kind}" data-wt-rule="${escapeHtml(rule.id)}" data-wt-key="${escapeHtml(key)}" aria-label="Delete ${escapeHtml(amt)}${when ? " logged at " + escapeHtml(when) : ""}">✕</button>`
+        : `<em class="wt-ent-posted">posted</em>`;
+      lines.push(`<div class="wt-ent"><span>${when ? `<i>${escapeHtml(when)}</i> · ` : ""}${escapeHtml(amt)}</span>${end}</div>`);
+    });
+    return lines.length ? `<div class="wt-ents">${lines.join("")}</div>` : "";
+  }
+  function worldsEntryTime(e) {
+    const iso = e && (e.createdAt || e.timestamp);
+    const d = iso ? new Date(iso) : null;
+    if (!d || isNaN(d.getTime())) return "";
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+  // Tap a chip body: open it in place (one per tile — opening another switches), tap again to
+  // close. Memory only (reset on reload / segment switch), so the grid re-renders after a log
+  // or an async save keep it open. A panel cut off at the bottom of the chip area is scrolled
+  // into view INSIDE that area, never by moving the page.
+  function worldsToggleRecapChip(key, ruleId) {
+    if (worldsEditMode || !key) return;
+    if (worldsRecapOpen[key] === ruleId) delete worldsRecapOpen[key];
+    else worldsRecapOpen[key] = ruleId;
+    renderWorldGrid();
+    if (worldsRecapOpen[key] === ruleId) worldsRecapReveal(key, ruleId);
+  }
+  function worldsRecapReveal(key, ruleId) {
+    const mount = els.worldGrid;
+    if (!worldsGridVisible(mount)) return;
+    const box = mount.querySelector(`.wt-chips[data-wt-list="chips:${cssEscapeAttr(key)}"]`);
+    const item = box && box.querySelector(`.wt-chipw[data-wt-chip="${cssEscapeAttr(ruleId)}"]`);
+    if (!box || !item) return;
+    const top = item.offsetTop, bottom = top + item.offsetHeight;
+    if (bottom > box.scrollTop + box.clientHeight) box.scrollTop = Math.min(top, bottom - box.clientHeight);
+    else if (top < box.scrollTop) box.scrollTop = top;
+    worldsListScroll[box.dataset.wtList] = box.scrollTop;
+    worldsListUpdateMore(box);
+  }
+  // Escape (and a segment switch) closes every open chip. Returns whether any was open.
+  function worldsRecapCloseAll(rerender) {
+    const keys = Object.keys(worldsRecapOpen);
+    keys.forEach((k) => { delete worldsRecapOpen[k]; });
+    if (keys.length && rerender !== false) renderWorldGrid();
+    return keys.length > 0;
   }
   // Tomorrow's first check-in: the first rule the check-in would ask about — buildCheckinItems'
   // order (most-completed first, then label) over the eligible rules, ignoring today's values —
@@ -6391,7 +6464,7 @@
     if (!community && world && world.system) streak = worldPersonalStreak(world.system);
     return `<div class="wt-recap${community ? " is-community" : ""}">
         <div class="wt-recap-title">${svgIcon("check", "icon-sm")}${community ? "You're done today" : "All done today"}</div>
-        ${community ? "" : `<div class="wt-chips">${worldsLoggedChips(c, key || "")}</div>`}
+        ${community ? "" : `<div class="wt-chips" data-wt-list="chips:${escapeHtml(key || "")}">${worldsLoggedChips(c, key || "")}</div>`}
         ${streak > 0 ? `<div class="wt-streak">${svgIcon("flame", "icon-xs")}${streak}-day streak</div>` : ""}
         ${tomorrow ? `<div class="wt-tomorrow">Tomorrow · <b>${escapeHtml(tomorrow)}</b></div>` : ""}
       </div>`;
@@ -6432,6 +6505,7 @@
     const rule = checkinRuleById(world, ruleId);
     const prevRank = before.type === "community" ? worldMyRank(before.community) : 0;
     const prevLeft = worldCheckinCounts(before).left;
+    const already = worldsCelebrated[key] === getTodayKey();   // finished earlier today (a ✕ reopened it): no replay
     lastQuietEntry = null;
     checkinLog(world, ruleId, amount > 0 ? amount : undefined);
     const created = lastQuietEntry;   // set synchronously by addDailyEntryFromDraft (no photo → no await)
@@ -6460,7 +6534,7 @@
     // right after a log can't drop it mid-animation. The LAST check-in also plays the one-time
     // celebration (ring fills, recap fades up) — only at this moment, never on later renders or
     // reloads. Under reduced motion the classes still land; the CSS plays nothing.
-    const finished = prevLeft > 0 && !now.left;
+    const finished = prevLeft > 0 && !now.left && !already;
     const el = els.worldGrid && els.worldGrid.querySelector(`[data-world-key="${cssEscapeAttr(key)}"]`);
     if (finished) {
       worldsCelebrateKey = key;
@@ -6522,27 +6596,55 @@
   // per-rule TOTAL, so the reduced total is re-pushed (twice, so it also wins a race with the
   // original write still in flight). Once a reload has collapsed local entries into DB rows the
   // id is gone — say so rather than deleting the wrong thing.
-  function worldsUndoEntry(info) {
-    if (!info || !info.id) return;
+  // Deletes ANY one of today's entries by id (the toast's Undo, the sheet's Undo, the ✕ in a
+  // recap panel). opts.quiet skips the "Undone" toast (the caller says what happened). Returns
+  // whether the entry was removed.
+  function worldsUndoEntry(info, opts) {
+    opts = opts || {};
+    if (!info || !info.id) return false;
     worldsCelebrateKey = "";   // undoing the finishing log must not replay the celebration on the list
     const isPost = (e) => !!(e && (e.postId || e.photoPath || e.message));
     if (info.kind === "community") {
       const entry = (state.communityEntries || []).find((e) => e.id === info.id);
-      if (!entry) { showToast("Too late to undo that one"); return; }
-      if (isPost(entry)) { showToast("That one is a post — delete it from the feed"); return; }
-      const community = (state.communities || []).find((c) => c.id === info.communityId);
-      deleteCommunityEntry(info.id, "Undone");
+      if (!entry) { showToast("Too late to undo that one"); return false; }
+      if (isPost(entry)) { showToast("That one is a post — delete it from the feed"); return false; }
+      const community = (state.communities || []).find((c) => c.id === (info.communityId || entry.communityId));
+      const ruleId = info.ruleId || entry.ruleId;
+      deleteCommunityEntry(info.id, opts.quiet ? null : "Undone");
       if (community) {
-        const repush = () => Promise.resolve(pushCommunityEntryToDb(community, info.ruleId)).catch(() => {});
+        const repush = () => Promise.resolve(pushCommunityEntryToDb(community, ruleId)).catch(() => {});
         repush(); setTimeout(repush, 1500);
       }
-      return;
+      return true;
     }
     const quick = (state.quickEntries || []).find((e) => e.id === info.id);
-    if (!quick) { showToast("Too late to undo that one"); return; }
-    if (isPost(quick)) { showToast("That one is a post — delete it from the feed"); return; }
+    if (!quick) { showToast("Too late to undo that one"); return false; }
+    if (isPost(quick)) { showToast("That one is a post — delete it from the feed"); return false; }
     deleteQuickEntry(info.id);   // re-renders the dashboard (→ the grid)
-    showToast("Undone");
+    if (!opts.quiet) showToast("Undone");
+    return true;
+  }
+  // ✕ on an entry (recap panel / sheet): delete exactly that one through worldsUndoEntry, then
+  // say what left — "Removed 40 min from Lifting" — with an Undo that re-logs the same amount
+  // through the quiet path. Removing a rule's ONLY entry puts that check-in back in the list
+  // ("· check-in reopened"); completing it again today plays no second celebration.
+  function worldsRemoveEntry(info) {
+    const t = worldTileFromKey(info.key);
+    const world = checkinWorldFromTile(t);
+    const rule = world ? checkinRuleById(world, info.ruleId) : null;
+    if (!world || !rule) return;
+    const pool = info.kind === "community" ? (state.communityEntries || []) : (state.quickEntries || []);
+    const entry = pool.find((e) => e.id === info.id);
+    const amount = entry ? numberOrDefault(entry.amount, 0) : 0;
+    if (!worldsUndoEntry(info, { quiet: true })) return;   // already gone / a post — it said why
+    const after = worldTileFromKey(info.key);
+    const reopened = !!after && worldCheckinCounts(after).ask.some((it) => it.rule.id === info.ruleId);
+    if (reopened) delete worldsRecapOpen[info.key];   // the tile is back to its list
+    const label = String(rule.label || "Rule").replace(/\?\s*$/, "");
+    const what = rule.simpleStyle === "yesNo" ? label : wtAmount(amount, rule);
+    showToast(`Removed ${what} from ${label}${reopened ? " · check-in reopened" : ""}`, {
+      label: "Undo", onClick: () => worldsTileLog(info.key, info.ruleId, amount, { addMore: true })
+    });
   }
   // A tap on a Personal tile row: the row slides out (170ms; instant under reduced motion), then
   // the log/skip runs. `busy` swallows a second tap during the slide. Taps that didn't come from a
@@ -6567,19 +6669,19 @@
   function worldsGridVisible(mount) { return !!(mount && mount.getClientRects().length); }
   function worldsSaveListScroll(mount) {
     if (!worldsGridVisible(mount)) return;
-    mount.querySelectorAll(".wt-checkins").forEach((l) => { if (l.clientHeight > 0) worldsListScroll[l.dataset.wtList] = l.scrollTop; });
+    mount.querySelectorAll(".wt-checkins, .wt-chips[data-wt-list]").forEach((l) => { if (l.clientHeight > 0) worldsListScroll[l.dataset.wtList] = l.scrollTop; });
   }
   function worldsListRows(list) {
     return Array.from(list.children).filter((el) => el.classList && ((el.classList.contains("qc-row") && !el.classList.contains("qc-row-handled")) || el.classList.contains("wt-prog") || el.classList.contains("wt-yn")));
   }
   function worldsListUpdateMore(list) {
+    const atEnd = list.scrollTop + list.clientHeight >= list.scrollHeight - 2;
+    list.classList.toggle("is-fade", !atEnd && list.scrollHeight > list.clientHeight + 2);
     const btn = list.nextElementSibling;
-    if (!btn || !btn.hasAttribute("data-wt-more")) return;
+    if (!btn || !btn.hasAttribute("data-wt-more")) return;   // the recap's chip area: fade only
     const rows = worldsListRows(list);
     const bottom = list.scrollTop + list.clientHeight;
     const hidden = rows.filter((r) => r.offsetTop + r.offsetHeight > bottom + 2).length;
-    const atEnd = list.scrollTop + list.clientHeight >= list.scrollHeight - 2;
-    list.classList.toggle("is-fade", !atEnd && list.scrollHeight > list.clientHeight + 2);
     if (worldsEditMode) { btn.hidden = true; return; }
     if (hidden) { btn.hidden = false; btn.textContent = `↓ ${hidden} more`; btn.dataset.dir = "down"; }
     else if (list.scrollTop > 4) { btn.hidden = false; btn.textContent = "↑ Back to top"; btn.dataset.dir = "up"; }
@@ -6587,7 +6689,7 @@
   }
   function worldsFitLists(mount) {
     if (!worldsGridVisible(mount)) return;
-    mount.querySelectorAll(".wt-checkins").forEach((list) => {
+    mount.querySelectorAll(".wt-checkins, .wt-chips[data-wt-list]").forEach((list) => {
       // The list's height comes from the fixed tile (flex: 1 1 auto; min-height: 0), never from
       // measuring rows — the widget rule: the tile sets the size, the content adapts.
       const saved = worldsListScroll[list.dataset.wtList];
@@ -6616,6 +6718,11 @@
         onToggle: () => { worldsSaveListScroll(mount); worldsFitLists(mount); },
       });
       list.addEventListener("scroll", () => worldsListUpdateMore(list), { passive: true });
+    });
+    // The recap's chip area scrolls the same way (fade, remembered position); its buttons route
+    // through onWorldGridClick, so there's no row wiring to do.
+    mount.querySelectorAll(".wt-chips[data-wt-list]").forEach((box) => {
+      box.addEventListener("scroll", () => worldsListUpdateMore(box), { passive: true });
     });
   }
   function worldsListMore(btn) {
@@ -6718,13 +6825,9 @@
       if (numberOrDefault(counts.values[rule.id], 0) > 0) {
         const entries = worldsTodayEntriesFor(world, rule.id);
         if (wtRuleIsCounter(rule)) {
-          // The shared progress row; Undo removes the most recent bare increment.
-          const bare = entries.filter((e) => !e.postId && !e.photoPath && !e.message);
-          const last = bare[bare.length - 1];
-          const tail = last
-            ? `<div class="wt-prog-undo"><button type="button" class="wts-undo" data-wt-undo-entry="${escapeHtml(last.id)}" data-wt-kind="${isCommunity ? "community" : "personal"}" data-wt-rule="${escapeHtml(rule.id)}">${bare.length > 1 ? "Undo last" : "Undo"}</button></div>`
-            : (entries.length ? `<div class="wt-prog-undo"><span class="wts-posted">posted</span></div>` : "");
-          return worldsProgressRowHtml(world, rule, numberOrDefault(counts.values[rule.id], 0), { key: worldsSheet ? worldsSheet.key : "", tail: tail });
+          // The shared progress row with today's entries under it: ✕ per bare log, "posted" on a post.
+          const key = worldsSheet ? worldsSheet.key : "";
+          return worldsProgressRowHtml(world, rule, numberOrDefault(counts.values[rule.id], 0), { key: key, tail: worldsEntriesTailHtml(world, rule, { key: key }) });
         }
         if (!entries.length) {
           // Credited by a device sync — nothing of ours to undo.
@@ -6816,6 +6919,8 @@
     const addType = q("[data-wt-addtype]");
     if (addType) { event.stopPropagation(); worldsAddTyping(addType); return; }
     if (q(".wt-add")) { event.stopPropagation(); return; }
+    const ex = q("[data-wt-ent-x]");
+    if (ex) { event.stopPropagation(); worldsRemoveEntry({ kind: ex.dataset.wtKind, id: ex.dataset.wtEntX, ruleId: ex.dataset.wtRule, key: ex.dataset.wtKey || worldsSheet.key }); return; }
     const un = q("[data-wt-undo-entry]");
     if (un) {
       event.stopPropagation();
@@ -6841,7 +6946,11 @@
     if (t.closest && (t.closest("[data-world-menu]") || t.closest(".worlds-tile-menu"))) return;
     if (document.querySelector(".worlds-tile-menu:not([hidden])")) closeWorldTileMenus();
   }, true);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeWorldTileMenus(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    closeWorldTileMenus();
+    if (worldsGridVisible(els.worldGrid)) worldsRecapCloseAll();
+  });
   function openWorldRules(key) {
     const t = worldTileFromKey(key);
     if (!t) return;
@@ -7759,6 +7868,12 @@
     if (wtSheet) { openWorldsCheckinSheet(wtSheet.dataset.wtSheet); return; }
     const wtMore = t.closest("[data-wt-more]");
     if (wtMore) { worldsListMore(wtMore); return; }
+    // Recap chips: the body opens/closes the chip in place; ✕ on an entry deletes exactly that
+    // one. Both sit below the swipe/edit guards above (nothing expands in edit mode).
+    const chipToggle = t.closest("[data-wt-chip-toggle]");
+    if (chipToggle) { worldsToggleRecapChip(chipToggle.dataset.wtKey, chipToggle.dataset.wtChipToggle); return; }
+    const entX = t.closest("[data-wt-ent-x]");
+    if (entX) { worldsRemoveEntry({ kind: entX.dataset.wtKind, id: entX.dataset.wtEntX, ruleId: entX.dataset.wtRule, key: entX.dataset.wtKey }); return; }
     // "+step" on a logged counter (list row or recap chip) = one more quiet log; ✎ = type the
     // increment. Both sit below the swipe/edit guards above.
     const wtAdd = t.closest("[data-wt-add]");

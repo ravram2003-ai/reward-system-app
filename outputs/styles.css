@@ -13294,18 +13294,55 @@ span.wp-av, .wp-ring span.avatar, .wp-ring span.member-avatar { display: grid; p
 .wt-stat-line { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wt-stat-pts b { color: #eaf2ee; font-weight: 700; }
 .wt-stat-beyond { font-style: normal; color: #e0c27f; }
-/* Recap chips: a row each, with points; counters keep a + (amber past goal). */
-.wt-chips { flex-direction: column; flex-wrap: nowrap; gap: 5px; }
-.wt-chip { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 8px; min-height: 36px; border-radius: 9px; white-space: nowrap; }
-.wt-chip span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.wt-chip b { color: #7ee0a8; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
-.wt-chip.is-beyond { border-color: #6b5a2f; }
-.wt-chip.is-beyond b { color: #e0c27f; }
-.wt-chip-add { width: 32px; height: 32px; border-radius: 8px; border: 1px solid #2c5a48; background: #173026; color: #7ee0a8; font: inherit; font-size: 1.05rem; line-height: 1; display: grid; place-items: center; flex: 0 0 auto; cursor: pointer; padding: 0; }
-.wt-chip-add:hover { border-color: #7ee0a8; }
+/* Recap chips: see the "Recap chips expand in place" block below. */
 /* Community sheet: the same row, bigger targets, Undo under it. */
 .wt-sheet-rows .wt-prog { padding: 10px; border-radius: 13px; margin: 0 0 8px; }
 .wt-sheet-rows .wt-prog-top { font-size: 0.8rem; }
 .wt-sheet-rows .wt-add button, .wt-sheet-rows .wt-add .qc-typed-go, .wt-sheet-rows .wt-add input:not([type="range"]):not([type="checkbox"]).qc-typed { min-height: 40px; height: 40px; font-size: 0.78rem; }
 .wt-sheet-rows .wt-add button.wt-add-type { flex: 0 0 40px; }
-.wt-prog-undo { display: flex; justify-content: flex-end; margin-top: 6px; }
+
+
+/* ── Recap chips expand in place (feat/recap-expand) ─────────────────────────────────────────
+   A finished tile's chips are two lines (name / amount) with the points and a + as SIBLINGS;
+   the body is a button that opens the shared progress row under the chip (bar, hint, +step / ✎,
+   today's entries with ✕ ≥28px). The chip area fills the tile between the title and the pinned
+   streak / Tomorrow lines and scrolls inside it, with the list's fade. The sheet's rows get the
+   same entries list with 40px targets. See work/recap-expand-reference.html. */
+.wt-chips { position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; touch-action: pan-y; scrollbar-width: none; flex-direction: column; flex-wrap: nowrap; gap: 5px; }
+.wt-chips::-webkit-scrollbar { display: none; }
+.wt-chips.is-fade { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent); }
+.wt-chipw { flex: 0 0 auto; min-width: 0; }
+.wt-chip { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 8px; min-height: 40px; border-radius: 9px; white-space: nowrap; }
+.wt-chip.is-open { border-color: #7ee0a8; border-radius: 9px 9px 0 0; }
+.wt-chip-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; min-height: 32px; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; line-height: 1.25; }
+button.wt-chip-body { cursor: pointer; }
+button.wt-chip-body:focus-visible { outline: 2px solid #7ee0a8; outline-offset: 2px; border-radius: 6px; }
+.wt-chip-body b { display: block; font-size: 0.7rem; font-weight: 700; color: #eaf2ee; overflow: hidden; text-overflow: ellipsis; }
+.wt-chip-body span { display: block; font-size: 0.64rem; color: #8ba299; overflow: hidden; text-overflow: ellipsis; }
+.wt-chip-pts { flex: 0 0 auto; font-size: 0.72rem; font-weight: 700; color: #7ee0a8; font-variant-numeric: tabular-nums; }
+.wt-chip.is-beyond { border-color: #6b5a2f; }
+.wt-chip.is-beyond.is-open { border-color: #7ee0a8; }
+.wt-chip.is-beyond .wt-chip-pts { color: #e0c27f; }
+.wt-chip-add { width: 32px; height: 32px; border-radius: 8px; border: 1px solid #2c5a48; background: #173026; color: #7ee0a8; font: inherit; font-size: 1.05rem; line-height: 1; display: grid; place-items: center; flex: 0 0 auto; cursor: pointer; padding: 0; }
+.wt-chip-add:hover { border-color: #7ee0a8; }
+/* The open chip's panel: attached under it; the shared row without its own card chrome (the
+   chip above already names the rule and shows the points). */
+.wt-chip-panel { background: #0c1310; border: 1px solid #7ee0a8; border-top: 0; border-radius: 0 0 9px 9px; padding: 6px 7px 7px; }
+.wt-chip-panel .wt-prog { background: none; border: 0; border-radius: 0; padding: 0; margin: 0; }
+.wt-chip-panel .wt-prog-top { display: none; }
+.wt-chip-panel .wt-bar { margin-top: 2px; }
+/* Today's entries under a progress row (panel + sheet): "6:15 PM · 40 min  ✕" / "posted" */
+.wt-ents { margin-top: 6px; border-top: 1px solid #17231d; padding-top: 4px; }
+.wt-ent { display: flex; align-items: center; gap: 6px; min-height: 28px; font-size: 0.66rem; color: #cfe9df; }
+.wt-ent > span { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-ent i { font-style: normal; color: #8ba299; }
+.wt-ent.is-synced > span { color: #8ba299; }
+.wt-ent-posted { flex: 0 0 auto; font-style: normal; font-size: 0.62rem; color: #8ba299; padding-right: 4px; }
+.wt-ent-x { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 7px; border: 1px solid #3a2a2a; background: none; color: #e0857f; font: inherit; font-size: 0.72rem; line-height: 1; display: grid; place-items: center; padding: 0; cursor: pointer; }
+.wt-ent-x:hover { border-color: #e0857f; background: #1a1212; }
+.wt-ent-x:focus-visible { outline: 2px solid #e0857f; outline-offset: 2px; }
+.wt-sheet-rows .wt-ents { margin-top: 8px; padding-top: 6px; }
+.wt-sheet-rows .wt-ent { min-height: 40px; font-size: 0.78rem; }
+.wt-sheet-rows .wt-ent-x { width: 40px; height: 40px; border-radius: 9px; font-size: 0.8rem; }
+/* Edit mode: chips are inert — nothing expands, and the + isn't rendered. */
+.world-grid.is-editing .wt-chips { pointer-events: none; opacity: .7; }

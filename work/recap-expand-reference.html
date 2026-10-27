@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pointwell — finished world: tap a chip to add more / fix entries (reference)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/dist/tabler-icons.min.css">
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}
+body{margin:0;background:#040605;color:#eaf2ee;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;padding:24px 12px 60px;display:flex;flex-direction:column;align-items:center}
+.note{max-width:420px;font-size:13px;color:#8ba299;line-height:1.55;margin:0 0 12px}.note b{color:#eaf2ee}
+.ph{position:relative;width:390px;max-width:100%;background:#0a0f0d;border:1px solid #1e2b24;border-radius:26px;padding:12px 10px;color:#eaf2ee;font-size:12px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+.ph button,.ph input{font-family:inherit}.ph button{cursor:pointer}
+button:focus-visible{outline:2px solid #7ee0a8;outline-offset:2px}
+.tl{position:relative;background:#0f1a15;border:1px solid #2a5a45;border-radius:16px;padding:9px;display:flex;flex-direction:column;gap:7px;min-width:0;height:446px;overflow:hidden}
+.nm{font-size:12.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mt{display:flex;align-items:center;gap:7px;font-size:11px;color:#8ba299;line-height:1.35}.mt b{color:#eaf2ee}.mt em{font-style:normal;color:#e0c27f}
+.rg{width:34px;height:34px;border-radius:50%;border:3.5px solid #7ee0a8;display:grid;place-items:center;font-size:10.5px;font-weight:800;flex:0 0 auto}
+.ct{font-size:12.5px;font-weight:800;color:#7ee0a8}
+/* recap body scrolls inside the fixed-height tile; streak + Tomorrow stay pinned */
+.body{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:none;display:flex;flex-direction:column;gap:6px}.body::-webkit-scrollbar{display:none}
+.chip{display:flex;align-items:center;gap:6px;background:#11201a;border:1px solid #2a5a45;border-radius:10px;padding:5px 5px 5px 8px;cursor:pointer;width:100%;color:inherit;text-align:left}
+.chip.bn{border-color:#6b5a2f}.chip.op2{border-color:#7ee0a8;border-radius:10px 10px 0 0}
+.cl{flex:1;min-width:0}.cl b{display:block;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cl span{font-size:11px;color:#8ba299}
+.cp{font-size:12px;font-weight:700;color:#7ee0a8}.bn .cp{color:#e0c27f}
+.pl{width:30px;height:30px;border-radius:7px;border:1px solid #2c5a48;background:#173026;color:#7ee0a8;font-size:15px;display:grid;place-items:center;flex:0 0 auto}
+.pn{background:#0c1310;border:1px solid #7ee0a8;border-top:none;border-radius:0 0 10px 10px;margin:-6px 0 0;padding:8px 7px 7px}
+.bar{position:relative;height:7px;border-radius:4px;background:#1a2620;margin:4px 0}
+.bar .f{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:#7ee0a8}.bar .o{position:absolute;top:0;bottom:0;border-radius:0 4px 4px 0;background:#e0c27f}.bar .gk{position:absolute;top:-3px;bottom:-3px;width:2px;background:#eaf2ee}
+.hint{font-size:11px;color:#e0c27f}
+.ad{display:flex;gap:4px;margin-top:6px}.ad button{flex:1;min-width:0;height:32px;border-radius:8px;border:1px solid #1d3a2e;background:#173026;color:#bfeed3;font-size:11.5px;font-weight:600}
+.ty{display:flex;gap:4px;margin-top:6px}.ty input{flex:1;min-width:0;height:32px;border-radius:8px;background:#0a100d;border:1px solid #2c5a48;color:#eaf2ee;padding:0 7px;font-size:12px}.ty button{height:32px;border-radius:8px;border:none;background:#7ee0a8;color:#06231a;font-weight:700;padding:0 10px}
+.err{font-size:11px;color:#e0857f}
+.en{margin-top:6px;border-top:1px solid #17231d;padding-top:5px}
+.er{display:flex;align-items:center;gap:6px;font-size:11px;color:#cfe9df;padding:3px 0}.er span{flex:1}.er span i{font-style:normal;color:#5f7369}.er em{font-style:normal;font-size:10.5px;color:#5f7369}
+.er button{width:28px;height:28px;border-radius:7px;border:1px solid #3a2a2a;background:none;color:#e0857f;font-size:12px}
+.fl{font-size:11.5px;color:#e0a46b;flex:0 0 auto}.tm{flex:0 0 auto;font-size:11px;color:#8ba299;border-top:1px solid #17231d;padding-top:7px}.tm b{color:#eaf2ee}
+.tl.open .lst{border-color:#2a5a45;background:#0f1613}
+.lst{background:#0f1613;border:1px solid #1e2b24}
+.toast{grid-column:1/-1;text-align:center;font-size:12px;color:#8ff0b8;min-height:18px}
+</style>
+</head>
+<body>
+<p class="note"><b>A finished world never locks.</b> On a recap chip, <b>+</b> adds one step instantly. <b>Tapping the chip</b> opens it in place into the full progress row: the bar, the next-point hint, +step / +2×step, ✎ to type any amount, and <b>today's entries with ✕</b> to fix a mistake. Only one chip is open per tile, and the open one stays open after an add. Deleting the only entry reopens that check-in. Chips use two lines (name / amount), so names don't get cut off.</p>
+<div class="ph" id="ph"></div>
+<script>
+(function(){
+  var R = [
+    {l:"Steps", u:"steps", g:10000, ev:5000, ep:1, gp:2, st:[1000,2000], en:[{t:"8:02 AM", a:12110}]},
+    {l:"Lifting", u:"min", g:45, ev:15, ep:0.5, gp:1, st:[15,30], en:[{t:"7:40 AM", a:60}, {t:"6:15 PM", a:40}]},
+    {l:"Study session", u:"hrs", g:1.5, ev:0.5, ep:1, gp:2, st:[0.5,1], en:[{t:"9:10 AM", a:1}, {t:"2:30 PM", a:1, post:true}]}
+  ];
+  var open = -1, typing = -1, last = null, $ = function (id) { return document.getElementById(id); };
+  function r2(x) { return Math.round(x * 100) / 100; }
+  function val(r) { return r2(r.en.reduce(function (s, e) { return s + e.a; }, 0)); }
+  function ptsAt(r, v) { return r2(Math.floor(v / r.ev + 1e-9) * r.ep + (v >= r.g ? r.gp : 0)); }
+  function pts(r) { return ptsAt(r, val(r)); }
+  function bey(r) { var v = val(r); return r2(pts(r) - ptsAt(r, Math.min(v, r.g))); }
+  function fv(v, u) { var s = v >= 1000 ? v.toLocaleString("en-US") : String(v); return s + " " + ((v === 1 && /s$/.test(u) && u.length > 2) ? u.slice(0, -1) : u); }
+  function hint(r) { var v = val(r), nx = r2((Math.floor(v / r.ev + 1e-9) + 1) * r.ev); return '<div class="hint"' + (v < r.g ? ' style="color:#8ba299"' : "") + ">" + (v >= r.g ? "Beyond goal · " : "") + "next pt at " + fv(nx, r.u) + "</div>"; }
+  function bar(r) { var v = val(r), mx = Math.max(r.g * 2, v * 1.1), g = r.g / mx * 100, f = Math.min(v, r.g) / mx * 100, o = v > r.g ? (v - r.g) / mx * 100 : 0; return '<div class="bar" aria-hidden="true"><i class="f" style="width:' + f + '%"></i>' + (o ? '<i class="o" style="left:' + g + "%;width:" + o + '%"></i>' : "") + '<i class="gk" style="left:calc(' + g + '% - 1px)"></i></div>'; }
+  function done() { return R.filter(function (r) { return r.en.length; }).length; }
+  function tot() { return r2(R.reduce(function (s, r) { return s + (r.en.length ? pts(r) : 0); }, 0)); }
+  function btot() { return r2(R.reduce(function (s, r) { return s + (r.en.length ? bey(r) : 0); }, 0)); }
+  function panel(i) {
+    var r = R[i];
+    var adds = '<div class="ad">' + r.st.map(function (s) { return '<button type="button" data-a="add" data-i="' + i + '" data-v="' + s + '">+' + (s >= 1000 ? s.toLocaleString("en-US") : s) + "</button>"; }).join("")
+      + '<button type="button" data-a="ty" data-i="' + i + '" aria-label="Type an amount to add to ' + r.l + '"><i class="ti ti-pencil" aria-hidden="true"></i></button></div>';
+    var ty = typing === i ? '<div class="ty"><input type="number" inputmode="decimal" id="tyin" min="0" step="any" placeholder="' + r.u + '" aria-label="Amount to add"><button type="button" data-a="commit" data-i="' + i + '">Add</button></div><div class="err" id="tyerr"></div>' : "";
+    var ens = '<div class="en">' + r.en.map(function (e, k) {
+      return '<div class="er"><span><i>' + e.t + "</i> · " + fv(e.a, r.u) + "</span>" + (e.post ? "<em>posted</em>" : '<button type="button" data-a="del" data-i="' + i + '" data-k="' + k + '" aria-label="Delete ' + fv(e.a, r.u) + " logged at " + e.t + '">✕</button>') + "</div>";
+    }).join("") + "</div>";
+    return '<div class="pn">' + bar(r) + hint(r) + adds + ty + ens + "</div>";
+  }
+  function chip(i) {
+    var r = R[i];
+    // Two sibling buttons (never nested): the chip body expands, the + adds one step.
+    return '<div class="chip' + (bey(r) > 0 ? " bn" : "") + (open === i ? " op2" : "") + '"><button type="button" class="cl" data-a="chip" data-i="' + i + '" aria-expanded="' + (open === i) + '" style="background:none;border:none;color:inherit;text-align:left;padding:0"><b>' + r.l + "</b><span>" + fv(val(r), r.u) + '</span></button><span class="cp">+' + pts(r) + '</span><button type="button" class="pl" data-a="plus" data-i="' + i + '" aria-label="Add ' + fv(r.st[0], r.u) + " to " + r.l + '">+</button></div>';
+  }
+  function render() {
+    var allDone = done() === R.length, h = '<div class="tl"><div class="nm">Lifestyle baseline ›</div><div class="mt"><span class="rg">' + done() + "/" + R.length + "</span><span>" + (allDone ? "Complete today" : (R.length - done()) + " left today") + "<br><b>" + tot() + " pts</b> today" + (btot() > 0 ? " · <em>+" + btot() + " beyond</em>" : "") + "</span></div>";
+    h += allDone ? '<div class="ct">✓ All done today</div>' : '<div class="ct" style="color:#8ba299">Check-in reopened</div>';
+    h += '<div class="body">';
+    R.forEach(function (r, i) {
+      if (!r.en.length) { h += '<div class="lst" style="border-radius:10px;padding:8px;font-size:11.5px">' + r.l + ' <span style="color:#8ba299">· not logged</span><div class="ad"><button type="button" data-a="add" data-i="' + i + '" data-v="' + r.st[1] + '">' + fv(r.st[1], r.u) + "</button></div></div>"; return; }
+      h += chip(i); if (open === i) h += panel(i);
+    });
+    h += '</div><div class="fl">🔥 2-day streak</div><div class="tm">Tomorrow · <b>10,000 steps</b></div></div>';
+    h += '<div class="tl"><div class="nm">Run build ›</div><div class="mt"><span class="rg">2/2</span><span>Complete today<br><b>4.75 pts</b> today</span></div><div class="ct">✓ All done today</div><div class="body"><div class="chip bn"><span class="cl"><b>Miles run</b><span>4 mi</span></span><span class="cp">+4</span><span class="pl">+</span></div><div class="chip"><span class="cl"><b>Zone 2 time</b><span>25 min</span></span><span class="cp">+0.75</span><span class="pl">+</span></div></div><div class="fl">🔥 2-day streak</div><div class="tm">Tomorrow · <b>Miles run · 1 mi</b></div></div>';
+    h += '<div class="toast" id="toast" role="status">' + (last || "") + "</div>";
+    $("ph").innerHTML = h;
+    var ti = $("tyin"); if (ti) ti.focus();
+  }
+  function add(i, a) { var r = R[i], b = r.en.length ? pts(r) : 0; r.en.push({t:"Now", a:a}); typing = -1; var d = r2(pts(r) - b); last = r.l + " +" + fv(a, r.u) + " · " + (d > 0 ? "+" + d + " pts" : "next point soon") + " · Undo"; render(); }
+  $("ph").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-a]"); if (!b) return;
+    var a = b.dataset.a, i = +b.dataset.i;
+    if (a === "plus") { e.stopPropagation(); add(i, R[i].st[0]); return; }
+    if (a === "chip") { open = open === i ? -1 : i; typing = -1; render(); return; }
+    if (a === "add") { add(i, +b.dataset.v); return; }
+    if (a === "ty") { typing = typing === i ? -1 : i; render(); return; }
+    if (a === "commit") { var v = parseFloat($("tyin").value); if (!(v > 0)) { $("tyerr").textContent = "Enter an amount above 0"; return; } add(i, v); return; }
+    if (a === "del") {
+      var r = R[i], en = r.en.splice(+b.dataset.k, 1)[0];
+      if (!r.en.length) { open = -1; last = "Removed " + fv(en.a, r.u) + " from " + r.l + " · check-in reopened · Undo"; }
+      else last = "Removed " + fv(en.a, r.u) + " from " + r.l + " · Undo";
+      render();
+    }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && open > -1) { open = -1; typing = -1; render(); }
+    if (e.key === "Enter" && e.target.id === "tyin") { e.preventDefault(); e.target.nextElementSibling.click(); }
+  });
+  render();
+})();
+</script>
+</body>
+</html>

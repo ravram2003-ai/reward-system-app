@@ -963,18 +963,19 @@
   // and the communities its rules match. RLS gates visibility; photos reuse the entry-photos bucket.
 
   // Insert one post (author = me). activity = [{ruleLabel, emoji, amount, unit}]. Returns { error, post }.
-  async function createPost(userId, caption, photoPath, activity, isShared) {
+  async function createPost(userId, caption, photoPath, activity, isShared, kind) {
     var sb = getClient();
     if (!sb || !UUID_RE.test(String(userId))) return { error: { message: "Sign in to post." } };
     var cap = (caption == null ? "" : String(caption)).trim().slice(0, 2000);
     var photo = photoPath ? String(photoPath) : null;
     var acts = Array.isArray(activity) ? activity : [];
     if (!cap && !photo && !acts.length) return { error: { message: "Add a photo, caption, or activity." } };
+    var row = { author_user: userId, caption: cap || null, photo_path: photo, activity: acts, is_shared: isShared !== false };
+    // 'message' = a note inside a world's Activity (community-activity.sql). Sent only when asked
+    // for, so the plain Feed composer keeps working before that migration runs.
+    if (kind === "message") row.kind = "message";
     try {
-      var res = await sb.from("posts").insert({
-        author_user: userId, caption: cap || null, photo_path: photo,
-        activity: acts, is_shared: isShared !== false
-      }).select().single();
+      var res = await sb.from("posts").insert(row).select().single();
       if (res.error) return { error: res.error };
       return { error: null, post: res.data || null };
     } catch (e) {
@@ -1017,15 +1018,39 @@
   // post_targets.created_at (≈ the post's, and indexed) to avoid embedded-order quirks. Each
   // returns one row per (target) carrying the nested post + its per-target points.
   var POST_COLS = "id, author_user, caption, photo_path, activity, is_shared, created_at";
+  // Community Activity (community-activity.sql, #32): posts.kind ('post' | 'activity') + the day-anchor
+  // columns. Selected only once the migration is live — probed ONCE per session, because a missing
+  // column would otherwise break every wide posts select (the way one missing column once broke tiles).
+  var ACTIVITY_COLS = ", kind, activity_community, activity_date";
+  var activitySchema = null;   // null = not probed yet, true = migration live, false = not run
+  async function probeActivitySchema() {
+    if (activitySchema !== null) return activitySchema;
+    var sb = getClient();
+    if (!sb) return false;
+    try {
+      var res = await sb.from("posts").select("kind").limit(1);
+      if (!res.error) { activitySchema = true; return true; }
+      // Only a MISSING COLUMN means "migration not run". Any other failure (network, auth refresh)
+      // stays unknown so the next read probes again — a cached false would strip `kind` from every
+      // posts select for the session and let day anchors render as plain posts.
+      var code = String(res.error.code || "");
+      var msg = String(res.error.message || "").toLowerCase();
+      if (code === "42703" || code === "42P01" || code === "PGRST204" || /does not exist|schema cache|could not find/.test(msg)) activitySchema = false;
+      return false;
+    } catch (e) { return false; }
+  }
+  function activitySchemaState() { return activitySchema; }
+  function postCols() { return POST_COLS + (activitySchema ? ACTIVITY_COLS : ""); }
 
   // Posts in a set of communities (the community / world feed). Returns [{post, communityId, points}].
   async function fetchCommunityPosts(communityIds, limit) {
     var sb = getClient();
     var ids = Array.isArray(communityIds) ? communityIds.filter(function (x) { return x && UUID_RE.test(String(x)); }) : [];
     if (!sb || !ids.length) return [];
+    await probeActivitySchema();
     try {
       var res = await sb.from("post_targets")
-        .select("points, target_id, created_at, posts!inner(" + POST_COLS + ")")
+        .select("points, target_id, created_at, posts!inner(" + postCols() + ")")
         .eq("target_type", "community").in("target_id", ids)
         .order("created_at", { ascending: false }).limit(limit || 60);
       if (res.error) return [];
@@ -1042,9 +1067,10 @@
     var sb = getClient();
     var ids = Array.isArray(authorIds) ? authorIds.filter(function (x) { return x && UUID_RE.test(String(x)); }) : [];
     if (!sb || !ids.length) return [];
+    await probeActivitySchema();
     try {
       var res = await sb.from("post_targets")
-        .select("points, target_id, created_at, posts!inner(" + POST_COLS + ")")
+        .select("points, target_id, created_at, posts!inner(" + postCols() + ")")
         .eq("target_type", "profile").in("target_id", ids)
         .order("created_at", { ascending: false }).limit(limit || 40);
       if (res.error) return [];
@@ -1059,9 +1085,10 @@
   async function fetchProfilePostsV2(userId, limit) {
     var sb = getClient();
     if (!sb || !UUID_RE.test(String(userId))) return [];
+    await probeActivitySchema();
     try {
       var res = await sb.from("post_targets")
-        .select("points, target_id, created_at, posts!inner(" + POST_COLS + ")")
+        .select("points, target_id, created_at, posts!inner(" + postCols() + ")")
         .eq("target_type", "profile").eq("target_id", userId)
         .order("created_at", { ascending: false }).limit(limit || 30);
       if (res.error) return [];
@@ -1078,12 +1105,43 @@
   async function fetchPostById(postId) {
     var sb = getClient();
     if (!sb || !UUID_RE.test(String(postId))) return null;
+    await probeActivitySchema();
     try {
       var res = await sb.from("posts")
-        .select(POST_COLS + ", post_targets(target_type, target_id, points)")
+        .select(postCols() + ", post_targets(target_type, target_id, points)")
         .eq("id", postId).maybeSingle();
       return (res.error || !res.data) ? null : res.data;
     } catch (e) { return null; }
+  }
+
+  // ── Community Activity (community-activity.sql, #32) ──
+  // The day anchor for (world, author, day): the SECURITY DEFINER RPC returns the existing one or
+  // creates it (members only — it re-checks caller + author membership). Errors pass through with
+  // their PostgREST code so a not-yet-run migration is diagnosable, never silent.
+  async function ensureActivityPost(communityId, authorId, date) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(communityId)) || !UUID_RE.test(String(authorId)) || !date) return { error: { message: "Couldn't open that day." } };
+    try {
+      var res = await sb.rpc("ensure_activity_post", { p_community: communityId, p_author: authorId, p_date: String(date) });
+      if (res.error) return { error: res.error };
+      return { error: null, id: res.data || null };
+    } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
+  }
+
+  // Set / change MY post's caption or photo ("posts update own" RLS is the guard). Only the keys
+  // present in `patch` change; a null clears. Returns { error, post }.
+  async function updatePost(postId, userId, patch) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(postId)) || !userId || !patch) return { error: { message: "Couldn't update that." } };
+    var fields = {};
+    if (Object.prototype.hasOwnProperty.call(patch, "caption")) fields.caption = patch.caption == null || patch.caption === "" ? null : String(patch.caption).slice(0, 2000);
+    if (Object.prototype.hasOwnProperty.call(patch, "photo_path")) fields.photo_path = patch.photo_path ? String(patch.photo_path) : null;
+    if (!Object.keys(fields).length) return { error: null, post: null };
+    try {
+      var res = await sb.from("posts").update(fields).eq("id", postId).eq("author_user", userId).select(postCols()).single();
+      if (res.error) return { error: res.error };
+      return { error: null, post: res.data || null };
+    } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
   }
 
   // ── Engagement on a POST (shared thread across every feed it appears in) — mirrors the
@@ -2009,6 +2067,10 @@
     fetchFollowedPostsV2: fetchFollowedPostsV2,
     fetchProfilePostsV2: fetchProfilePostsV2,
     fetchPostById: fetchPostById,
+    ensureActivityPost: ensureActivityPost,
+    updatePost: updatePost,
+    probeActivitySchema: probeActivitySchema,
+    activitySchemaState: activitySchemaState,
     likePost: likePost,
     unlikePost: unlikePost,
     getPostsSocial: getPostsSocial,

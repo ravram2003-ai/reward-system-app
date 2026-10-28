@@ -56,11 +56,16 @@ repeat them and the app stays consistent.
   segment has its own pager. Personal tiles list every check-in (3 visible, scroll for more); community
   tiles keep their mini leaderboard with "✓ next check-in" + "+N more" → a sheet of every check-in. All
   quiet logs, no composer. Tile rings show check-ins done/total, never points.
+- **World page tabs: Standings · Activity · Compete · Members.** Activity = every member's logs merged
+  per person per day + messages / photos / notes, with likes and comments. Members only (RLS). Logging
+  never creates a post; the day "anchor" post is created on demand (ensure_activity_post). Nothing in
+  Activity appears in the main Feed. About lives behind the header's About button.
 - **Tiles are fixed height per size (widget rule): content adapts, the grid never reflows.** A finished
   world keeps its slot and shows a recap (logged today, streak, tomorrow's first check-in) after a
   one-time celebration. Recap chips expand in place (tap) into the progress row: + / ✎ to
   add, today's entries with ✕ (bare logs only; posts keep their feed delete). Deleting the
-  only entry reopens the check-in.
+  only entry reopens the check-in. A finished community tile shows the newest comment on your
+  activity today (tap → that world's Activity) + a "Photo or note" button.
 - **Counters can go past their goal:** logged counters stay on the tile as progress rows (goal tick,
   amber past goal, points, next-point hint, + buttons; quiet logs). No caps unless a rule sets
   maxDailyPoints.

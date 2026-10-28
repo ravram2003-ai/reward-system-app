@@ -196,6 +196,28 @@ you know what's live in production.
   save degrades to local state, so a community background won't follow you to another device or
   show for other members. Personal systems are local by design and unaffected either way.
 
+- [ ] **32. community-activity.sql** — the members-only world **Activity** tab. Adds `posts.kind`
+  (`'post' | 'activity' | 'message'` — `message` = a note posted inside a world with "Attach today's
+  logs" OFF; both non-`post` kinds live only in that world's Activity), `posts.activity_community`,
+  `posts.activity_date` + a unique partial index
+  (one "day anchor" per author · world · day); `ensure_activity_post(p_community, p_author, p_date)`
+  (SECURITY DEFINER, authenticated only: caller AND author must be members; another member's day only
+  if they logged that day; returns the existing anchor or creates it + its ONE community target,
+  race-safe); guards (no profile target on an activity or message post, kind/world/day immutable, and
+  `community_entries.post_id` can never point at an anchor — that FK cascades and deleting a note must
+  never delete points); `posts_has_content` re-declared so an EMPTY anchor is allowed (`kind =
+  'activity'` only — plain posts keep the original rule). Bell: `notifications.post_id` + triggers on
+  `post_likes` / `post_comments` (post likes/comments never notified before — only entry ones did) and
+  `get_notifications()` gains `post_id / post_kind / world_id / world_name` + the comment `body`.
+  Storage: the five dashboard-made `entry-photos` policies are now DECLARED here with the same names
+  — read "<world>/<uid>/…" = that world's current members, PLUS the uploader (new); `::uuid` casts
+  regex-guarded so a non-uuid path denies instead of throwing. *(after #26 post-first-feed, #14
+  notifications, #9 feed-social)*.
+  **Until this runs:** logging is untouched (quiet logs never touch `posts`); the Activity tab still
+  lists everyone's logs from `community_entries` and shows ONE notice — "Comments and photos need a
+  database update" — in place of the message box; likes/comments/photos are disabled, never silent.
+  The client probes `posts.kind` once per session and only then selects the new columns.
+
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).
   Deployed slug is **`bright-api`** (NOT `generate-rules` — the slug and the folder differ).

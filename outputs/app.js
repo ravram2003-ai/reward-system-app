@@ -161,7 +161,6 @@
     feedTab: "friends",
     communityLeaderboardPeriod: "",
     communityHubTab: "feed",
-    communityFeedSort: "new",
     communityTrendMemberId: "",
     dashboardAnalyticsOpen: false,
     inactiveCommunitiesOpen: false,
@@ -1714,6 +1713,7 @@
   // renderNotifications bumps the badge and rings the bell when the unread count rises.
   function handleNotificationChange() {
     refreshInbox();
+    refreshActivityTileComments();   // a new comment on my day → the finished tile's peek
   }
 
   function handleInboxChange(payload) {
@@ -1831,12 +1831,19 @@
     let item = feedItemById(String(entryId));
     if (!item) item = buildFeedItemForEntry((state.communityEntries || []).find((e) => e.id === entryId));
     if (!item) item = profilePostItemCache.get(String(entryId)) || null;
+    // A day anchor belongs to its world's Activity tab, not the post overlay.
+    if (item && item.entry && (item.entry.activityAnchor || item.entry.activityMessage) && item.community) { openWorldActivity(item.community.id, { postId: String(item.entry.id) }); return; }
     if (item) { openPostOverlay(item); return; }
     // Not in any loaded feed batch (e.g. a notification about an older post) → fetch it directly
     // (RLS-gated) so opening a post from a notification always resolves.
     if (signalsReady() && window.PointwellSignals && typeof window.PointwellSignals.fetchPostById === "function") {
       Promise.resolve(window.PointwellSignals.fetchPostById(entryId)).then((row) => {
         if (!row) { showToast("That post isn't available"); return; }
+        if (row.kind === "activity" && row.activity_community) { openWorldActivity(row.activity_community, { postId: String(row.id) }); return; }
+        if (row.kind === "message") {   // a note inside a world: open that world's Activity (its community target names the world)
+          const mt = (Array.isArray(row.post_targets) ? row.post_targets : []).find((t) => t.target_type === "community");
+          if (mt) { openWorldActivity(mt.target_id, { postId: String(row.id) }); return; }
+        }
         const targets = Array.isArray(row.post_targets) ? row.post_targets : [];
         const commT = targets.find((t) => t.target_type === "community");
         const built = buildFeedItemForPost(row, null, { communityId: commT ? commT.target_id : null, points: (commT && Number(commT.points)) || 0 });
@@ -2101,12 +2108,13 @@
     let subtext;
     let attrs = "";
     let tag = "div";
-    if (n.kind === "like") {
-      subtext = "liked your post";
-      tag = "button"; attrs = ` type="button" data-notif-post="${escapeHtml(String(n.entry_id || ""))}"`;
-    } else if (n.kind === "comment") {
-      subtext = n.body ? ("commented: " + escapeHtml(String(n.body))) : "commented on your post";
-      tag = "button"; attrs = ` type="button" data-notif-post="${escapeHtml(String(n.entry_id || ""))}"`;
+    if (n.kind === "like" || n.kind === "comment") {
+      // A like/comment on a post (post_id) or a legacy entry (entry_id). An activity anchor opens
+      // that world's Activity tab; anything else opens the post.
+      const inWorld = n.post_kind === "activity" && n.world_id;
+      const what = inWorld ? ("your activity in " + escapeHtml(String(n.world_name || "a world"))) : "your post";
+      subtext = n.kind === "like" ? ("liked " + what) : (n.body ? ("commented: " + escapeHtml(String(n.body))) : ("commented on " + what));
+      tag = "button"; attrs = ` type="button" data-notif-post="${escapeHtml(String(n.post_id || n.entry_id || ""))}"${inWorld ? ` data-notif-world="${escapeHtml(String(n.world_id))}"` : ""}`;
     } else if (n.kind === "kudos") {
       subtext = "sent you kudos";
       tag = "button"; attrs = ` type="button" data-notif-open="${escapeHtml(String(n.actor_user))}" data-notif-name="${escapeHtml(who)}"`;
@@ -3316,10 +3324,12 @@
       "allowAutoSyncInput",
       "ccAllowDeviceAutosync",
       "communityHubTabs",
+      "communityLockLine",
+      "communityAboutButton",
+      "worldPostsTitle",
       "quickCheckinCard",
       "communityComposer",
       "communityComposerPhoto",
-      "communityFeedSort",
       "communityCompetePanel",
       "communityMembersPanel",
       "communityCompeteHub",
@@ -3595,6 +3605,7 @@
     els.editSystemButton.addEventListener("click", editSystemFromScore);
     els.backToCommunitiesButton.addEventListener("click", returnToCommunities);
     els.communitySettingsButton.addEventListener("click", openCommunitySettings);
+    if (els.communityAboutButton) els.communityAboutButton.addEventListener("click", openCommunityAbout);
     bindWorldDetail();
     els.backFromCommunitySettingsButton.addEventListener("click", returnToCommunityDetail);
     els.backFromMemberActivityButton.addEventListener("click", returnToCommunityDetail);
@@ -3703,7 +3714,10 @@
       else if (joinAccept) respondToRequest(joinAccept.dataset.notifJoinAccept, true);
       else if (joinDecline) respondToRequest(joinDecline.dataset.notifJoinDecline, false);
       else if (markAll) markBellNotificationsRead();
-      else if (openPost) { openPostFromNotif(openPost.dataset.notifPost); }
+      else if (openPost) {
+        if (openPost.dataset.notifWorld) { closeNotifPanel(); openWorldActivity(openPost.dataset.notifWorld, { postId: openPost.dataset.notifPost }); }
+        else openPostFromNotif(openPost.dataset.notifPost);
+      }
       else if (open) {
         closeNotifPanel();
         openChatConversation(open.dataset.notifOpen, open.dataset.notifName, "");
@@ -5493,9 +5507,10 @@
   // delete the community_entries row in the DB (author-only "entries delete own" RLS is the real
   // guard), then drop it from state.communityEntries + re-render so it disappears from feed /
   // community / profile and the leaderboard recomputes. Local-only (demo) posts skip the DB call.
-  function openDeletePostConfirm(entryId) {
+  function openDeletePostConfirm(entryId, opts) {
     if (!entryId) return;
     closeDeletePostConfirm();
+    const copy = opts || {};
     const menuRoot = activeFeedRoot();
     if (menuRoot) Array.from(menuRoot.querySelectorAll(".ig-menu-pop")).forEach((p) => { p.hidden = true; });
     const back = document.createElement("div");
@@ -5504,8 +5519,8 @@
     back.innerHTML = `
       <div class="post-confirm-card" role="dialog" aria-modal="true" aria-labelledby="postdel-title">
         <div class="post-confirm-ico" aria-hidden="true">${svgIcon("trash", "icon-sm")}</div>
-        <strong id="postdel-title">Delete this post?</strong>
-        <p>This removes the post and the points it logged. This can't be undone.</p>
+        <strong id="postdel-title">${escapeHtml(copy.title || "Delete this post?")}</strong>
+        <p>${escapeHtml(copy.body || "This removes the post and the points it logged. This can't be undone.")}</p>
         <div class="post-confirm-btns">
           <button type="button" class="ghost-button" data-postdel-cancel>Cancel</button>
           <button type="button" class="post-confirm-delete" data-postdel-confirm>Delete</button>
@@ -5516,7 +5531,7 @@
     const cancel = back.querySelector("[data-postdel-cancel]");
     if (cancel) cancel.addEventListener("click", closeDeletePostConfirm);
     const confirm = back.querySelector("[data-postdel-confirm]");
-    if (confirm) confirm.addEventListener("click", (e) => confirmDeletePost(entryId, e.currentTarget));
+    if (confirm) confirm.addEventListener("click", (e) => confirmDeletePost(entryId, e.currentTarget, copy));
   }
 
   function closeDeletePostConfirm() {
@@ -5524,7 +5539,7 @@
     if (back) back.remove();
   }
 
-  function confirmDeletePost(entryId, btn) {
+  function confirmDeletePost(entryId, btn, copy) {
     const sig = feedSignalsFor(entryId);
     const item = feedItemById(String(entryId));
     const isPost = !!(item && item.entry && item.entry.kind === "post");
@@ -5538,7 +5553,7 @@
     if (cancelBtn) cancelBtn.disabled = true;
     const finishLocal = () => {
       closeDeletePostConfirm();
-      if (isPost) { removePostLocally(entryId); closePostOverlay(); showToast("Post deleted"); }
+      if (isPost) { removePostLocally(entryId); closePostOverlay(); showToast((copy && copy.toast) || "Post deleted"); }
       else if (isProfile) { removeProfilePostLocally(entryId); closePostOverlay(); showToast("Post deleted"); }
       else deleteCommunityEntry(entryId, "Post deleted");
     };
@@ -5562,6 +5577,9 @@
     const id = String(postId);
     Object.keys(communityPostsByCommunity).forEach((cid) => {
       communityPostsByCommunity[cid] = (communityPostsByCommunity[cid] || []).filter((it) => String(it.entry.id) !== id);
+    });
+    Object.keys(communityActivityByCommunity).forEach((cid) => {
+      communityActivityByCommunity[cid] = (communityActivityByCommunity[cid] || []).filter((it) => String(it.entry.id) !== id);
     });
     followedPostItems = (followedPostItems || []).filter((it) => String(it.entry.id) !== id);
     profilePostItemCache.delete(id);
@@ -6464,7 +6482,7 @@
     if (!community && world && world.system) streak = worldPersonalStreak(world.system);
     return `<div class="wt-recap${community ? " is-community" : ""}">
         <div class="wt-recap-title">${svgIcon("check", "icon-sm")}${community ? "You're done today" : "All done today"}</div>
-        ${community ? "" : `<div class="wt-chips" data-wt-list="chips:${escapeHtml(key || "")}">${worldsLoggedChips(c, key || "")}</div>`}
+        ${community ? activityTileRecapHtml(t, key || "") : `<div class="wt-chips" data-wt-list="chips:${escapeHtml(key || "")}">${worldsLoggedChips(c, key || "")}</div>`}
         ${streak > 0 ? `<div class="wt-streak">${svgIcon("flame", "icon-xs")}${streak}-day streak</div>` : ""}
         ${tomorrow ? `<div class="wt-tomorrow">Tomorrow · <b>${escapeHtml(tomorrow)}</b></div>` : ""}
       </div>`;
@@ -7866,6 +7884,12 @@
     if (wtLog) { worldsTileLog(wtLog.dataset.wtKey, wtLog.dataset.wtLog, numberOrDefault(wtLog.dataset.wtAmount, 0)); return; }
     const wtSheet = t.closest("[data-wt-sheet]");
     if (wtSheet) { openWorldsCheckinSheet(wtSheet.dataset.wtSheet); return; }
+    // Finished community tile: "Photo or note" → that world's Activity with the message box focused;
+    // the newest-comment peek → that item.
+    const wtNote = t.closest("[data-wt-note]");
+    if (wtNote) { const tl = worldTileFromKey(wtNote.dataset.wtNote); if (tl) openWorldActivity(tl.id, { compose: true }); return; }
+    const wtAct = t.closest("[data-wt-activity]");
+    if (wtAct) { const tl = worldTileFromKey(wtAct.dataset.wtActivity); if (tl) openWorldActivity(tl.id, { postId: wtAct.dataset.wtPost || "" }); return; }
     const wtMore = t.closest("[data-wt-more]");
     if (wtMore) { worldsListMore(wtMore); return; }
     // Recap chips: the body opens/closes the chip in place; ✕ on an entry deletes exactly that
@@ -11037,6 +11061,8 @@
   function renderFeedPost(item) {
     // A bundled session renders as its own card (see bundleFeedItems).
     if (item && item.bundle) return renderFeedBundleCard(item);
+    // A world Activity item (person-day / message) has its own card (see renderCommunityActivity).
+    if (item && item.activity) return renderActivityItem(item);
     const entry = item.entry;
     const entryId = String(entry.id);
     const isMe = entry.userId === "me";
@@ -11374,28 +11400,31 @@
     const oldInput = card.querySelector("[data-feed-comment-input]");
     const draftVal = oldInput ? oldInput.value : "";
     const draftFocused = oldInput && document.activeElement === oldInput;
-    const oldImg = card.querySelector(".ig-photo img");
-    const oldSrc = oldImg && oldImg.src ? oldImg.src : "";
+    // Every already-loaded photo, by path (an Activity day item can carry more than one).
+    const oldSrcByPath = {};
+    Array.from(card.querySelectorAll(".ig-photo")).forEach((ph) => {
+      const im = ph.querySelector("img");
+      if (im && im.src && ph.dataset.entryPhoto) oldSrcByPath[ph.dataset.entryPhoto] = im.src;
+    });
     const tmp = document.createElement("div");
     tmp.innerHTML = renderFeedPost(item);
     const fresh = tmp.firstElementChild;
     if (!fresh) return;
     card.replaceWith(fresh);
-    const newPhoto = fresh.querySelector(".ig-photo");
-    const newImg = fresh.querySelector(".ig-photo img");
-    if (oldSrc && newImg) {
+    let needBind = false;
+    Array.from(fresh.querySelectorAll(".ig-photo")).forEach((newPhoto) => {
+      const newImg = newPhoto.querySelector("img");
+      const oldSrc = oldSrcByPath[newPhoto.dataset.entryPhoto || ""] || "";
+      if (!oldSrc || !newImg) { needBind = true; return; }
       newImg.src = oldSrc;
-      if (newPhoto) {
-        newPhoto.dataset.photoBound = "1";
-        // Re-attach the open-in-new-tab affordance (we skipped bindEntryPhotos' re-fetch) — but
-        // not when the photo is inside a post-open tile/card, so the tap opens the full post.
-        if (!newPhoto.closest("[data-profile-post]")) {
-          newPhoto.addEventListener("click", () => { try { window.open(oldSrc, "_blank", "noopener"); } catch (e) { /* ignore */ } });
-        }
+      newPhoto.dataset.photoBound = "1";
+      // Re-attach the open-in-new-tab affordance (we skipped bindEntryPhotos' re-fetch) — but
+      // not when the photo is inside a post-open tile/card, so the tap opens the full post.
+      if (!newPhoto.closest("[data-profile-post]")) {
+        newPhoto.addEventListener("click", () => { try { window.open(oldSrc, "_blank", "noopener"); } catch (e) { /* ignore */ } });
       }
-    } else {
-      bindEntryPhotos(root);
-    }
+    });
+    if (needBind) bindEntryPhotos(root);
     const newInput = fresh.querySelector("[data-feed-comment-input]");
     if (newInput && draftVal) {
       newInput.value = draftVal;
@@ -11443,8 +11472,14 @@
     if (menuBtn) { toggleFeedMenu(menuBtn); return; }
     const msgBtn = event.target.closest("[data-feed-menu-msg]");
     if (msgBtn) { messageFromFeed(msgBtn); return; }
+    const cDel = event.target.closest("[data-act-comment-del]");
+    if (cDel) { deleteActivityComment(cDel.dataset.actItemId, cDel.dataset.actCommentDel); return; }
     const delBtn = event.target.closest("[data-feed-delete]");
-    if (delBtn) { openDeletePostConfirm(delBtn.dataset.feedDelete); return; }
+    if (delBtn) {
+      const delItem = feedItemById(String(delBtn.dataset.feedDelete));
+      openDeletePostConfirm(delBtn.dataset.feedDelete, delItem && delItem.activity ? activityDeleteCopy(delItem) : null);
+      return;
+    }
   }
 
   function onFeedInput(event) {
@@ -11465,6 +11500,8 @@
 
   function toggleFeedLike(entryId) {
     if (!signalsReady()) { showToast("Sign in to like posts"); return; }
+    const pendingDay = activityPendingItem(entryId);   // a person-day with no anchor yet → create it first
+    if (pendingDay) { activityEnsureAnchor(pendingDay).then((aid) => { if (aid) toggleFeedLike(aid); }); return; }
     if (!isDbEntryId(entryId)) return;
     const before = feedSocialFor(entryId);
     const wasLiked = before.liked_by_me;
@@ -11489,6 +11526,7 @@
     const root = activeFeedRoot();
     const card = root && root.querySelector(`[data-feed-entry="${entryId}"]`);
     if (!card) return;
+    if (card.dataset.actItem) { replaceFeedCard(entryId); return; }   // an Activity card keeps its count inside the heart
     const btn = card.querySelector("[data-feed-like]");
     if (btn) {
       btn.classList.toggle("is-liked", !!social.liked_by_me);
@@ -11552,6 +11590,8 @@
   }
 
   function expandFeedComments(entryId) {
+    const actItem = feedItemById(String(entryId));
+    if (actItem && actItem.activity) { activityExpandComments(entryId); return; }   // post + legacy entry comments, merged
     feedCommentsOpen.add(String(entryId));
     replaceFeedCard(entryId);
     const sig = feedSignalsFor(entryId);
@@ -11564,6 +11604,8 @@
 
   function postFeedComment(entryId, body) {
     if (!signalsReady()) { showToast("Sign in to comment"); return; }
+    const pendingDay = activityPendingItem(entryId);   // a person-day with no anchor yet → create it first
+    if (pendingDay) { activityEnsureAnchor(pendingDay).then((aid) => { if (aid) postFeedComment(aid, body); }); return; }
     if (!isDbEntryId(entryId)) return;
     // Clear the live input now so the card rebuild starts the comment box empty
     // (the draft-preservation in replaceFeedCard must not restore the sent text).
@@ -11585,6 +11627,8 @@
         feedCommentsCache.set(String(entryId), rows);
       }
       replaceFeedCard(entryId);
+      const commented = feedItemById(String(entryId));
+      if (commented && commented.activity) refreshActivityTileComments();   // the finished tile shows the newest comment
     }).catch(() => showToast("Couldn't post comment"));
   }
 
@@ -11607,6 +11651,421 @@
     state.activeView = "chats";
     saveState();
     render();
+  }
+
+  // ── Community Activity (feat/community-activity) ─────────────────────────────────────────
+  // Inside a world, the Activity tab holds everything: every member's logs merged per person per
+  // day, plus messages / photos / notes, with likes and comments. Members only — enforced by RLS on
+  // posts / post_targets / post_likes / post_comments (a post whose only target is a community is
+  // visible to its members and its author, never to anon) and by the entry-photos read policy.
+  // Logging never creates a post: a person's day gets its "anchor" (posts.kind = 'activity') on
+  // demand — the first note, photo, like or comment (ensure_activity_post, community-activity.sql).
+  // Nothing here reaches the main Feed: anchors live in communityActivityByCommunity, never in
+  // communityPostsByCommunity. See work/community-activity-reference.html (screens 1–2).
+  let communityActivityByCommunity = {};     // communityId -> [anchor feed items] (kind 'activity' posts)
+  let activityDraft = { text: "", photo: null, attach: true, error: "", communityId: "" }; // the message box (transient, per world)
+  let activityPosting = false;
+  let activityFocus = null;                   // one-shot after opening a world: { communityId, compose, postId }
+  let activityHighlightId = "";               // the item to outline briefly (set by consumeActivityFocus; survives re-renders)
+  const activityLegacySocial = new Map();     // "<world>|<user>|<day>" -> folded entry_likes/entry_comments (read-only)
+  const activityLegacyFetched = new Set();
+  let activityTileComment = {};               // communityId -> { name, body, postId }: newest comment on MY day today
+
+  const ACTIVITY_DB_NOTICE = "Comments and photos need a database update — run supabase/community-activity.sql in Supabase.";
+  function activitySchemaState() {
+    const S = window.PointwellSignals;
+    return (S && typeof S.activitySchemaState === "function") ? S.activitySchemaState() : null;
+  }
+  function activityDbNotice(err) {
+    if (!err) return ACTIVITY_DB_NOTICE;
+    const code = String(err.code || "").toUpperCase();
+    const msg = String(err.message || "");
+    if (isMissingTableError(err) || code === "42703" || code === "PGRST202" || /could not find the function|ensure_activity_post|column .* does not exist/i.test(msg)) return ACTIVITY_DB_NOTICE;
+    if (/permission denied|row-level security|only members|not a member/i.test(msg)) return "Only members of this world can do that";
+    return msg || "Couldn't reach the server";
+  }
+  function activityDayOf(iso) { const t = Date.parse(iso || ""); return isFinite(t) ? localDateKey(new Date(t)) : ""; }
+  function activityDayLabel(dateKey) {
+    if (dateKey === getTodayKey()) return "Today";
+    if (dateKey === offsetDate(-1)) return "Yesterday";   // offsetDate already returns a local YYYY-MM-DD key
+    const t = Date.parse(dateKey + "T12:00:00");
+    try { return isFinite(t) ? new Date(t).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : dateKey; } catch (e) { return dateKey; }
+  }
+  // A member who left keeps their days (buildFeedItemForEntry would drop them).
+  function activityMemberFor(community, userId) {
+    const m = (community.members || []).find((x) => x.id === userId || x.userId === userId);
+    if (m) return m;
+    if (userId === "me") return { id: "me", userId: state.account && state.account.userId, name: state.profile.name || "You", avatarUrl: state.profile.avatarUrl || "", color: state.profile.accent || "#355d91" };
+    return { id: userId, userId: userId, name: "Member", avatarUrl: "", color: memberColorFor(userId) };
+  }
+
+  // The stream: one item per person per day (logs as chips + points, plus the anchor's note/photo),
+  // and every plain post targeted at this world as its own "message" item. Newest first.
+  function buildCommunityActivity(world) {
+    const community = world.community;
+    const cid = world.id;
+    const rules = (community.system.rules || []).map(scoring.normalizeRule);
+    const ruleById = {};
+    rules.forEach((r) => { ruleById[r.id] = r; });
+    const days = {};
+    const dayFor = (userId, date) => {
+      const k = userId + "|" + date;
+      return days[k] || (days[k] = { userId, date, entries: [], entryIds: [], texts: [], photos: [], anchor: null, when: "" });
+    };
+    (state.communityEntries || []).filter((e) => e.communityId === cid).forEach((e) => {
+      const date = entryDateKey(e);
+      if (!date) return;
+      const d = dayFor(e.userId, date);
+      d.entries.push(e);
+      if (isDbEntryId(e.id)) d.entryIds.push(String(e.id));
+      // A legacy note/photo on the entry row itself (pre-anchor); a post-linked entry's text lives on its post.
+      if (e.message && !e.postId) d.texts.push(String(e.message));
+      if (e.photoPath && !e.postId) d.photos.push(String(e.photoPath));
+      if (String(e.timestamp || "") > d.when) d.when = String(e.timestamp || "");
+    });
+    const messages = [];
+    (communityActivityByCommunity[cid] || []).forEach((a) => {
+      if (a.entry.activityMessage) { messages.push(a); return; }   // a standalone note: its own item below
+      const date = a.entry.activityDate || activityDayOf(a.when);
+      if (!date) return;
+      const d = dayFor(a.entry.userId, date);
+      d.anchor = a;
+      if (a.entry.message) d.texts.unshift(String(a.entry.message));
+      if (a.entry.photoPath) d.photos.unshift(String(a.entry.photoPath));
+      if (String(a.when || "") > d.when) d.when = String(a.when || "");
+    });
+    const items = Object.keys(days).map((k) => {
+      const d = days[k];
+      const byRule = {};
+      d.entries.forEach((e) => { const n = numberOrDefault(e.amount, 0); if (n > 0) byRule[e.ruleId] = (byRule[e.ruleId] || 0) + n; });
+      const chips = [];
+      let points = 0;
+      Object.keys(byRule).forEach((rid) => {
+        const rule = ruleById[rid] || null;
+        const pts = rule ? scoring.calculateRule(rule, byRule[rid]).totalPoints : 0;   // the leaderboard's own math
+        points += pts;
+        chips.push({ icon: ruleIconSvg(rule || rid, "icon-xs"), text: entryMetricText({ ruleId: rid, amount: byRule[rid], label: rule ? rule.label : "Logged", unit: rule ? rule.unit : "" }, rule) });
+      });
+      const id = d.anchor ? String(d.anchor.entry.id) : "act:" + cid + ":" + d.userId + ":" + d.date;
+      return {
+        entry: { id: id, postId: d.anchor ? id : "", userId: d.userId, kind: d.anchor ? "post" : "activity-pending", message: "", photoPath: "", timestamp: d.when, activityDate: d.date },
+        activity: { kind: "day", date: d.date, chips, points, texts: d.texts, photos: d.photos, entryIds: d.entryIds, anchor: !!d.anchor, communityId: cid, legacyKey: cid + "|" + d.userId + "|" + d.date },
+        community, member: activityMemberFor(community, d.userId), rule: null,
+        when: d.when || (d.date + "T12:00:00"), points
+      };
+    });
+    // Standalone messages: notes posted inside this world (kind 'message') + plain posts that target it.
+    // (A + composer post's logged activity already shows on the author's day item as chips, so the
+    // message item carries only its words, photo and points.)
+    messages.concat(communityPostsByCommunity[cid] || []).forEach((p) => {
+      items.push(Object.assign({}, p, {
+        activity: { kind: "message", date: activityDayOf(p.when), chips: [], points: numberOrDefault(p.points, 0), texts: p.entry.message ? [String(p.entry.message)] : [], photos: p.entry.photoPath ? [String(p.entry.photoPath)] : [], entryIds: [], anchor: true, communityId: cid, legacyKey: "" }
+      }));
+    });
+    items.sort((a, b) => b.activity.date.localeCompare(a.activity.date) || String(b.when || "").localeCompare(String(a.when || "")));
+    return items;
+  }
+
+  function renderCommunityActivity(world) {
+    const items = buildCommunityActivity(world);
+    // The shared handlers (like / comment / delete / author) resolve each card by id from feedItems —
+    // but render() runs this from EVERY view, so only claim it while the world page is what's shown.
+    if (state.activeView === "community-detail") feedItems = items;
+    if (!items.length) {
+      els.worldPosts.innerHTML = emptyState("Nothing here yet — log a check-in or say something to " + (world.name || "your world") + ".");
+    } else {
+      let html = "", day = "";
+      items.forEach((it) => {
+        if (it.activity.date !== day) { day = it.activity.date; html += `<div class="act-day">${escapeHtml(activityDayLabel(day))}</div>`; }
+        html += renderActivityItem(it);
+      });
+      els.worldPosts.innerHTML = `<div class="act-list">${html}</div>`;
+    }
+    bindWorldFeedDelegation();
+    bindEntryPhotos(els.worldPosts);
+    fetchFeedSocial();                   // anchors + messages: post likes/comments, one batched read
+    fetchActivityLegacySocial(items);    // legacy entry likes/comments, folded per person-day (read-only)
+  }
+
+  // Like/comment counts for an item: the anchor's post social + the day's legacy entry social.
+  function activitySocialFor(item) {
+    const id = String(item.entry.id);
+    const base = item.activity.anchor ? feedSocialFor(id) : { like_count: 0, comment_count: 0, liked_by_me: false, last_comment_name: "", last_comment_body: "" };
+    const legacy = item.activity.legacyKey ? activityLegacySocial.get(item.activity.legacyKey) : null;
+    if (!legacy) return base;
+    return {
+      like_count: (base.like_count || 0) + (legacy.like_count || 0),
+      comment_count: (base.comment_count || 0) + (legacy.comment_count || 0),
+      liked_by_me: !!base.liked_by_me,
+      last_comment_name: base.last_comment_body ? base.last_comment_name : legacy.last_comment_name,
+      last_comment_body: base.last_comment_body || legacy.last_comment_body
+    };
+  }
+
+  function fetchActivityLegacySocial(items) {
+    const S = window.PointwellSignals;
+    if (!signalsReady() || !S || typeof S.getEntriesSocial !== "function") return;
+    const ids = [], owner = {};
+    items.forEach((it) => {
+      const a = it.activity;
+      if (!a || !a.legacyKey || !a.entryIds.length || activityLegacyFetched.has(a.legacyKey)) return;
+      activityLegacyFetched.add(a.legacyKey);
+      a.entryIds.forEach((eid) => { ids.push(eid); owner[eid] = a.legacyKey; });
+    });
+    if (!ids.length) return;
+    Promise.resolve(S.getEntriesSocial(ids)).then((rows) => {
+      let any = false;
+      (rows || []).forEach((r) => {
+        const key = owner[String(r.entry_id)];
+        if (!key) return;
+        const cur = activityLegacySocial.get(key) || { like_count: 0, comment_count: 0, last_comment_name: "", last_comment_body: "" };
+        cur.like_count += Number(r.like_count) || 0;
+        cur.comment_count += Number(r.comment_count) || 0;
+        if (r.last_comment_body && !cur.last_comment_body) { cur.last_comment_name = r.last_comment_name || ""; cur.last_comment_body = r.last_comment_body; }
+        activityLegacySocial.set(key, cur);
+        any = true;
+      });
+      if (any) refreshActiveFeedSurface();
+    }).catch(() => {});
+  }
+
+  function renderActivityItem(item) {
+    const a = item.activity;
+    const entry = item.entry;
+    const id = String(entry.id);
+    const isMe = entry.userId === "me";
+    const name = escapeHtml(item.member.name || "Member");
+    const hasNote = a.texts.length > 0 || a.photos.length > 0;
+    const kindLabel = a.kind === "message" ? "message" : (hasNote ? (a.chips.length ? "log + note" : "note") : "log");
+    const rel = (window.PointwellSignals && typeof window.PointwellSignals.formatRelativeTime === "function") ? (window.PointwellSignals.formatRelativeTime(item.when, Date.now()) || "") : "";
+    const relText = !rel || rel === "just now" ? (rel || "") : rel + " ago";
+    const social = activitySocialFor(item);
+    const canReact = signalsReady() && activitySchemaState() !== false;
+    const authorId = item.member && item.member.userId ? String(item.member.userId) : "";
+    const authorTap = !isMe && authorId && authorId !== "me";
+    const open = authorTap ? `<button class="act-author" type="button" data-feed-author="${escapeHtml(authorId)}" aria-label="View ${name}'s profile">` : `<div class="act-author">`;
+    const close = authorTap ? `</button>` : `</div>`;
+    const texts = a.texts.map((t) => `<p class="act-text">${escapeHtml(t)}</p>`).join("");
+    const photos = a.photos.map((p) => `<div class="ig-photo act-photo" data-entry-photo="${escapeHtml(p)}" role="img" aria-label="Photo"><img alt="" loading="lazy"></div>`).join("");
+    const chips = a.chips.length ? `<div class="act-chips">${a.chips.map((c) => `<span class="act-chip">${c.icon}${escapeHtml(c.text)}</span>`).join("")}</div>` : "";
+    const pts = a.points ? `<span class="act-pts">${escapeHtml(formatSigned(a.points))}</span>` : "";
+    const likeBtn = `<button type="button" class="act-btn${social.liked_by_me ? " is-liked" : ""}" data-feed-like="${escapeHtml(id)}" aria-pressed="${social.liked_by_me ? "true" : "false"}" aria-label="${social.liked_by_me ? "Unlike" : "Like"}"${canReact ? "" : " disabled"}>${FEED_HEART_SVG}<span>${social.like_count || 0}</span></button>`;
+    const commentBtn = `<button type="button" class="act-btn" data-feed-comment-focus="${escapeHtml(id)}" aria-label="Comment"${canReact ? "" : " disabled"}>${FEED_COMMENT_SVG}<span>${social.comment_count || 0}</span></button>`;
+    // Delete: my own message, or my own note/photo on my day (the anchor). Logs and points always stay.
+    const canDelete = isMe && a.anchor && isDbEntryId(id) && (a.kind === "message" || hasNote);
+    const delLabel = (entry.activityAnchor || entry.activityMessage) ? (a.kind === "message" ? "Delete message" : "Delete note") : "Delete post";
+    const delBtn = canDelete ? `<button type="button" class="act-btn act-del" data-feed-delete="${escapeHtml(id)}" aria-label="${delLabel}">${svgIcon("trash", "icon-xs")}</button>` : "";
+    return `
+      <article class="act-item${a.kind === "message" ? " is-message" : ""}${activityHighlightId === id ? " is-highlight" : ""}" data-feed-entry="${escapeHtml(id)}" data-act-item="1">
+        <div class="act-head">
+          ${open}
+            ${renderAvatar({ className: "member-avatar act-av", name: item.member.name, color: item.member.color || "#355d91", avatarUrl: item.member.avatarUrl })}
+            <div class="act-head-main"><span class="act-name">${name}</span> <span class="act-kind">· ${kindLabel}</span><div class="act-when">${escapeHtml(relText)}</div></div>
+          ${close}
+          ${pts}
+        </div>
+        ${texts}${photos}${chips}
+        <div class="act-actions">${likeBtn}${commentBtn}${delBtn}</div>
+        ${renderActivityThread(item, social, canReact)}
+      </article>`;
+  }
+
+  // The inline thread: loaded comments (✕ on mine; the item's author may delete any non-legacy one),
+  // else the newest-comment preview + "View all", and always the input.
+  function renderActivityThread(item, social, canReact) {
+    const id = String(item.entry.id);
+    const count = social.comment_count || 0;
+    const openThread = feedCommentsOpen.has(id);
+    const rows = openThread ? feedCommentsCache.get(id) : null;
+    let list = "";
+    if (openThread && !rows) {
+      list = `<div class="act-comment-muted">Loading…</div>`;
+    } else if (rows && rows.length) {
+      const me = state.account && state.account.userId;
+      const mineItem = item.entry.userId === "me";
+      list = rows.map((c) => {
+        const nm = escapeHtml(c.display_name || "Member");
+        const who = c.user_id ? `<button type="button" class="act-cname" data-feed-commenter="${escapeHtml(String(c.user_id))}">${nm}</button>` : `<b>${nm}</b>`;
+        const canDel = canReact && !c.legacy && c.id && (String(c.user_id) === String(me) || mineItem);
+        const x = canDel ? `<button type="button" class="act-comment-x" data-act-comment-del="${escapeHtml(String(c.id))}" data-act-item-id="${escapeHtml(id)}" aria-label="Delete comment">✕</button>` : "";
+        return `<div class="act-comment">${renderAvatar({ className: "member-avatar act-cav", name: c.display_name || "Member", avatarUrl: c.avatar_url || "", useNameColor: true })}<p>${who} ${escapeHtml(c.body || "")}</p>${x}</div>`;
+      }).join("");
+    } else if (openThread && rows && !rows.length) {
+      list = "";
+    } else if (count > 0) {
+      const last = social.last_comment_body ? `<div class="act-comment is-preview"><p><b>${escapeHtml(social.last_comment_name || "Member")}</b> ${escapeHtml(social.last_comment_body)}</p></div>` : "";
+      list = `${last}<button type="button" class="act-more" data-feed-expand="${escapeHtml(id)}">${count === 1 ? "View the comment" : "View all " + count + " comments"}</button>`;
+    }
+    const input = canReact
+      ? `<div class="act-input">${renderAvatar({ className: "member-avatar act-cav", name: state.profile.name, color: state.profile.accent || "#355d91", avatarUrl: state.profile.avatarUrl })}<form data-feed-comment-form="${escapeHtml(id)}"><input type="text" data-feed-comment-input="${escapeHtml(id)}" placeholder="Comment" maxlength="2000" autocomplete="off" aria-label="Comment on ${escapeHtml(item.member.name || "this")}'s activity"><button type="submit" class="ig-comment-post act-send" disabled>Send</button></form></div>`
+      : "";
+    return (list || input) ? `<div class="act-thread">${list}${input}</div>` : "";
+  }
+
+  // Load the thread: the anchor's post comments + the day's legacy entry comments (read-only), merged by time.
+  function activityExpandComments(itemId) {
+    const item = feedItemById(String(itemId));
+    if (!item || !item.activity) return;
+    feedCommentsOpen.add(String(itemId));
+    replaceFeedCard(itemId);
+    const S = window.PointwellSignals || {};
+    const calls = [];
+    if (item.activity.anchor && isDbEntryId(itemId) && typeof S.getPostComments === "function") {
+      calls.push(Promise.resolve(S.getPostComments(itemId)).then((rows) => (rows || []).map((c) => Object.assign({}, c, { legacy: false }))).catch(() => []));
+    }
+    if (typeof S.getEntryComments === "function") {
+      (item.activity.entryIds || []).forEach((eid) => {
+        calls.push(Promise.resolve(S.getEntryComments(eid)).then((rows) => (rows || []).map((c) => Object.assign({}, c, { legacy: true }))).catch(() => []));
+      });
+    }
+    Promise.all(calls).then((lists) => {
+      const rows = [].concat.apply([], lists).sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+      feedCommentsCache.set(String(itemId), rows);
+      replaceFeedCard(itemId);
+    }).catch(() => {});
+  }
+
+  // A day with no anchor yet: the first like/comment creates it (ensure_activity_post), the stream
+  // re-renders with the real post id, and the caller retries on that id.
+  function activityPendingItem(id) {
+    const it = feedItemById(String(id));
+    return (it && it.activity && !it.activity.anchor) ? it : null;
+  }
+  async function activityEnsureAnchor(item) {
+    const S = window.PointwellSignals;
+    const uid = state.account && state.account.userId;
+    if (!signalsReady() || !uid || !S || typeof S.ensureActivityPost !== "function") { showToast("Sign in to react"); return ""; }
+    const authorId = item.entry.userId === "me" ? uid : item.entry.userId;
+    const cid = item.activity.communityId;
+    const res = await S.ensureActivityPost(cid, authorId, item.activity.date);
+    if (!res || res.error || !res.id) { showToast(activityDbNotice(res && res.error)); return ""; }
+    await loadCommunityPosts();      // the anchor exists now → one batched read picks it up
+    if (!(communityActivityByCommunity[cid] || []).some((a) => String(a.entry.id) === String(res.id))) {
+      // An old day can sit past the batched window: fetch the anchor itself so the item carries it.
+      const row = typeof S.fetchPostById === "function" ? await S.fetchPostById(res.id) : null;
+      const built = row ? buildFeedItemForPost(row, null, { communityId: cid, points: 0 }) : null;
+      if (!built) { showToast("Couldn't open that day"); return ""; }
+      built.entry.activityAnchor = true;
+      built.entry.activityDate = row.activity_date || item.activity.date;
+      (communityActivityByCommunity[cid] = communityActivityByCommunity[cid] || []).push(built);
+    }
+    refreshActiveFeedSurface();      // the day item re-renders carrying the anchor id
+    return String(res.id);
+  }
+
+  function deleteActivityComment(itemId, commentId) {
+    const S = window.PointwellSignals;
+    const uid = state.account && state.account.userId;
+    if (!signalsReady() || !S || typeof S.deletePostComment !== "function" || !uid) return;
+    const key = String(itemId);
+    const rows = feedCommentsCache.get(key) || [];
+    const before = feedSocialFor(key);
+    const revert = (msg) => { feedCommentsCache.set(key, rows); feedSocialCache.set(key, before); replaceFeedCard(key); showToast(msg); };
+    feedCommentsCache.set(key, rows.filter((c) => String(c.id) !== String(commentId)));   // optimistic
+    feedSocialCache.set(key, Object.assign({}, before, { comment_count: Math.max(0, (before.comment_count || 0) - 1) }));
+    replaceFeedCard(key);
+    Promise.resolve(S.deletePostComment(commentId, uid)).then((res) => {
+      if (res && res.error) revert("Couldn't delete the comment");
+    }).catch(() => revert("Couldn't delete the comment"));
+  }
+
+  function activityDeleteCopy(item) {
+    // A plain post that targets this world (the + composer) keeps the default dialog: deleting it
+    // cascades the community_entries it logged, so "your points stay" would be false there.
+    if (!item.entry.activityAnchor && !item.entry.activityMessage) return null;
+    const msg = item.activity.kind === "message";
+    return {
+      title: msg ? "Delete this message?" : "Delete your note?",
+      body: msg ? "This removes the message and its comments. Your logs and points stay." : "This removes your note and photo for the day, and the comments on it. Your logs and points stay.",
+      toast: msg ? "Message deleted" : "Note deleted"
+    };
+  }
+
+  // ── Lock line, About, focus one-shot ──
+  function renderCommunityLockLine(world) {
+    if (!els.communityLockLine) return;
+    els.communityLockLine.textContent = "🔒 Only members of " + ((world && world.name) || "this world") + " can see this";
+  }
+  function openCommunityAbout() { state.communityHubTab = "about"; saveState(); renderCommunityDetail(); }
+
+  // Open a world on its Activity tab — from a tile ("Photo or note" → the message box focused, attach
+  // ON; the comment peek → that item) or a bell notification about an anchor.
+  function openWorldActivity(communityId, opts) {
+    if (!(state.communities || []).some((c) => c.id === communityId)) { showToast("You're no longer in that world"); return; }
+    activityFocus = Object.assign({ communityId: communityId }, opts || {});
+    if (activityFocus.compose) activityDraft.attach = true;
+    state.communityHubTab = "feed";
+    openWorldCommunity(communityId);
+  }
+  function consumeActivityFocus(world) {
+    const f = activityFocus;
+    if (!f || !world || f.communityId !== world.id) return;
+    activityFocus = null;
+    setTimeout(() => {   // after openCommunityFromScore's scrollTo(0, 0) and the renders that follow it
+      if (f.compose) {
+        const ta = els.communityComposer && els.communityComposer.querySelector("[data-act-text]");
+        if (ta) { try { ta.scrollIntoView({ block: "center", behavior: "smooth" }); ta.focus({ preventScroll: true }); } catch (e) { /* ignore */ } }
+        return;
+      }
+      if (f.postId && els.worldPosts) {
+        const card = Array.from(els.worldPosts.querySelectorAll("[data-feed-entry]")).find((c) => c.dataset.feedEntry === String(f.postId));
+        if (!card) return;
+        activityHighlightId = String(f.postId);   // re-renders (social refresh) keep the outline until it times out
+        card.classList.add("is-highlight");
+        try { card.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) { /* ignore */ }
+        setTimeout(() => {
+          activityHighlightId = "";
+          const live = els.worldPosts && Array.from(els.worldPosts.querySelectorAll(".is-highlight"));
+          (live || []).forEach((c) => c.classList.remove("is-highlight"));
+        }, 2500);
+      }
+    }, 150);
+  }
+
+  // ── Finished community tile: newest comment on my day + "Photo or note" ──
+  function activityTileRecapHtml(t, key) {
+    if (worldsEditMode) return "";
+    const c = t && activityTileComment[t.id];
+    const peek = c
+      ? `<button type="button" class="wt-peek" data-wt-activity="${escapeHtml(key)}" data-wt-post="${escapeHtml(c.postId || "")}" aria-label="Open Activity: ${escapeHtml(c.name)} commented ${escapeHtml(c.body)}">${FEED_COMMENT_SVG}<span><b>${escapeHtml(c.name)}:</b> ${escapeHtml(c.body)}</span></button>`
+      : "";
+    return `${peek}<button type="button" class="wt-note-btn" data-wt-note="${escapeHtml(key)}">${svgIcon("camera", "icon-xs")}Photo or note</button>`;
+  }
+  // One batched read: the newest comment on each of MY day anchors today (+ legacy comments on my
+  // entries today), cached for the tiles. Runs after posts load, after a bell change, after I comment.
+  let activityTileCommentsBusy = false;
+  let activityTileCommentsAgain = false;   // a refresh asked for mid-flight runs once more at the end
+  async function refreshActivityTileComments() {
+    const uid = state.account && state.account.userId;
+    const S = window.PointwellSignals;
+    if (!signalsReady() || !uid || !S) return;
+    if (activityTileCommentsBusy) { activityTileCommentsAgain = true; return; }
+    activityTileCommentsBusy = true;
+    try {
+      const today = getTodayKey();
+      const anchors = [], anchorCid = {}, entryIds = [], entryCid = {};
+      Object.keys(communityActivityByCommunity).forEach((cid) => {
+        (communityActivityByCommunity[cid] || []).forEach((a) => {
+          if (a.entry.userId === "me" && a.entry.activityDate === today) { anchors.push(String(a.entry.id)); anchorCid[String(a.entry.id)] = cid; }
+        });
+      });
+      (state.communityEntries || []).forEach((e) => {
+        if (e.userId === "me" && entryDateKey(e) === today && isDbEntryId(e.id)) { entryIds.push(String(e.id)); entryCid[String(e.id)] = e.communityId; }
+      });
+      const [ps, es] = await Promise.all([
+        anchors.length && typeof S.getPostsSocial === "function" ? Promise.resolve(S.getPostsSocial(anchors)).catch(() => []) : [],
+        entryIds.length && typeof S.getEntriesSocial === "function" ? Promise.resolve(S.getEntriesSocial(entryIds)).catch(() => []) : []
+      ]);
+      const next = {};
+      (ps || []).forEach((r) => { const cid = anchorCid[String(r.post_id)]; if (cid && r.last_comment_body) next[cid] = { name: r.last_comment_name || "Member", body: r.last_comment_body, postId: String(r.post_id) }; });
+      (es || []).forEach((r) => { const cid = entryCid[String(r.entry_id)]; if (cid && r.last_comment_body && !next[cid]) next[cid] = { name: r.last_comment_name || "Member", body: r.last_comment_body, postId: "" }; });
+      const changed = JSON.stringify(next) !== JSON.stringify(activityTileComment);
+      activityTileComment = next;
+      if (changed) renderWorldGrid();
+    } finally {
+      activityTileCommentsBusy = false;
+      if (activityTileCommentsAgain) { activityTileCommentsAgain = false; refreshActivityTileComments(); }
+    }
   }
 
   // ── World detail (style D) — one view for both world types, body branched by type ──
@@ -11667,6 +12126,7 @@
     if (els.worldActions) els.worldActions.hidden = personal;
     if (els.inviteButton) els.inviteButton.hidden = personal;
     if (els.communitySettingsButton) els.communitySettingsButton.hidden = personal;
+    if (els.communityAboutButton) els.communityAboutButton.hidden = personal;
     if (els.worldEditButton) els.worldEditButton.hidden = !personal;
     if (els.inviteOptions) els.inviteOptions.hidden = true;
     if (els.personalRulesPanel) els.personalRulesPanel.hidden = !personal;
@@ -11739,59 +12199,46 @@
     applyWorldTrendsCollapsed();
   }
 
-  // ── Community hub: Feed · Leaderboard · Members · About ──────────────────────
-  // A tabbed shell layered over the existing community detail sections. The leaderboard +
-  // feed reuse their existing render paths unchanged; we add the tab switcher, a Feed
-  // composer + sort, a Members list, and an About panel, then toggle section visibility by
-  // the persisted state.communityHubTab. Personal worlds skip all of this.
+  // ── Community hub: Standings · Activity · Compete · Members (About via the header) ──────
+  // A tabbed shell layered over the existing community detail sections. The leaderboard keeps its
+  // render path; Activity is the members-only world stream (see "Community Activity" below) with
+  // the message box above it. The persisted state.communityHubTab keeps the internal id "feed" for
+  // Activity, so nobody's saved tab breaks. Personal worlds skip all of this.
   const COMMUNITY_HUB_TABS = [
-    { id: "feed", label: "Feed" },
-    { id: "leaderboard", label: "Leaderboard" },
-    { id: "members", label: "Members" },
+    { id: "leaderboard", label: "Standings" },
+    { id: "feed", label: "Activity" },
     { id: "compete", label: "Compete" },
-    { id: "about", label: "About" }
+    { id: "members", label: "Members" }
   ];
-  const COMMUNITY_FEED_SORTS = [
-    { id: "new", label: "🆕 New" },
-    { id: "hot", label: "🔥 Hot" },
-    { id: "top", label: "Top" }
-  ];
-
-  // Transient composer state (a draft share — not persisted, cleared on post/cancel).
-  let communityComposerOpen = false;
-  let communityComposerCaption = "";
-  let communityComposerPhoto = null; // { file, previewUrl }
-  // AI auto-fill: "edit" (submit runs parse-log) → "thinking" → "suggest" (Confirm/Change) →
-  // "change" (rule/amount picker) → "ready" (a choice is locked; Post posts).
-  let communityComposerStage = "edit";
-  let communityComposerPick = null;  // { ruleId, amount } to log, or null = no-points / unmatched
   let communityLeaveArmed = false;   // two-tap confirm for the About-tab Leave button
   // User ids I follow — lazily loaded once for the Members tab follow buttons.
   let communityFollowingSet = new Set();
   let communityFollowingLoaded = false;
 
   function activeCommunityHubTab() {
-    return COMMUNITY_HUB_TABS.some((t) => t.id === state.communityHubTab) ? state.communityHubTab : "feed";
+    const id = state.communityHubTab;
+    return (COMMUNITY_HUB_TABS.some((t) => t.id === id) || id === "about") ? id : "feed";   // About: no tab, the header button
   }
 
   function renderCommunityHub(world, analytics) {
     renderCommunityHubTabs();
     renderCommunityComposer(world);
-    renderCommunityFeedSort();
+    renderCommunityLockLine(world);
     renderCompeteHub(world);
     renderCommunityMembers(world);
     renderCommunityAbout(world);
     applyCommunityHubTab(analytics);
+    consumeActivityFocus(world);
   }
 
   // Hide every community-only hub element (personal worlds keep the classic layout). Also
   // discards any in-progress composer draft — revoking its preview blob URL so it can't leak.
   function hideCommunityHubChrome() {
-    resetCommunityComposer();
+    resetActivityDraft();
     // Hide every community-only panel when a PERSONAL world is shown (this runs only from
     // renderPersonalWorldDetail) so none leak in from a previously-viewed community — including the
     // leaderboard + "Your day" panels, which the community path re-shows on its own.
-    ["communityHubTabs", "communityComposer", "communityComposerPhoto", "communityFeedSort", "communityCompetePanel", "communityAboutPanel", "communityLeaderboardPanel", "communityYourDayPanel"].forEach((k) => { if (els[k]) els[k].hidden = true; });
+    ["communityHubTabs", "communityComposer", "communityComposerPhoto", "communityLockLine", "communityCompetePanel", "communityAboutPanel", "communityLeaderboardPanel", "communityYourDayPanel"].forEach((k) => { if (els[k]) els[k].hidden = true; });
   }
 
   function renderCommunityHubTabs() {
@@ -11803,314 +12250,143 @@
       b.addEventListener("click", () => { state.communityHubTab = b.dataset.hubTab; saveState(); renderCommunityDetail(); }));
   }
 
-  // Feed sort tabs (Hot / New / Top) — client-side reorder of the already-loaded posts.
-  function renderCommunityFeedSort() {
-    if (!els.communityFeedSort) return;
-    const active = COMMUNITY_FEED_SORTS.some((s) => s.id === state.communityFeedSort) ? state.communityFeedSort : "new";
-    els.communityFeedSort.innerHTML = COMMUNITY_FEED_SORTS.map((s) =>
-      `<button class="community-sort-pill${s.id === active ? " is-active" : ""}" type="button" role="tab" aria-selected="${s.id === active ? "true" : "false"}" data-feed-sort="${escapeHtml(s.id)}">${escapeHtml(s.label)}</button>`).join("");
-    Array.from(els.communityFeedSort.querySelectorAll("[data-feed-sort]")).forEach((b) =>
-      b.addEventListener("click", () => { state.communityFeedSort = b.dataset.feedSort; saveState(); renderCommunityDetail(); }));
-  }
-
-  // Sort feed items by the active mode. New = recency; Top = most cheers/likes; Hot = a
-  // recency+engagement blend. Engagement comes from the social cache (populated async by
-  // fetchFeedSocial), so Top/Hot sharpen as that warms.
-  function sortCommunityFeed(items) {
-    const mode = COMMUNITY_FEED_SORTS.some((s) => s.id === state.communityFeedSort) ? state.communityFeedSort : "new";
-    const list = items.slice();
-    const recency = (it) => String(it.when || "");
-    const engagement = (it) => { const s = feedSocialFor(String(it.entry.id)); return (Number(s.like_count) || 0) * 2 + (Number(s.comment_count) || 0); };
-    const ageHours = (it) => { const t = Date.parse(it.when); return isFinite(t) ? Math.max(0, (Date.now() - t) / 3600000) : 9999; };
-    if (mode === "new") {
-      list.sort((a, b) => recency(b).localeCompare(recency(a)));
-    } else if (mode === "top") {
-      list.sort((a, b) => (engagement(b) - engagement(a)) || recency(b).localeCompare(recency(a)));
-    } else {
-      list.sort((a, b) => ((engagement(b) - ageHours(b) * 0.5) - (engagement(a) - ageHours(a) * 0.5)) || recency(b).localeCompare(recency(a)));
-    }
-    return list;
-  }
-
-  // Feed composer — collapsed "Share your progress…" bar that expands to a caption + optional
-  // photo. On submit it runs the EXISTING parse-log AI (+ photo vision) scoped to this
-  // community's rules to suggest a rule + points; Confirm logs via the EXISTING community-entry
-  // path (points + leaderboard) AND posts with the rule tag. No parallel AI or write path.
+  // ── Activity message box (the only composer inside a world) ────────────────────────────────
+  // "Say something to <world>": text and/or a photo. Attach ON (default) → the note rides on MY day
+  // anchor (ensure_activity_post, then set/append its caption + photo); OFF → a plain post with ONLY
+  // a community target for this world. Never a profile target, never points, never the + composer.
   function renderCommunityComposer(world) {
     if (!els.communityComposer) return;
     const community = world && world.community;
-    if (!communityComposerOpen) {
-      els.communityComposer.innerHTML =
-        `<button class="community-composer-bar" type="button" data-composer-open>
-          ${renderAvatar({ name: state.profile.name, avatarUrl: state.profile.avatarUrl, color: state.profile.accent || "#355d91", className: "community-composer-av" })}
-          <span class="community-composer-placeholder">Share your progress…</span>
-          <span class="community-composer-cam" aria-hidden="true">${svgIcon("camera", "icon-xs")}</span>
-        </button>`;
-      const open = els.communityComposer.querySelector("[data-composer-open]");
-      if (open) open.addEventListener("click", () => { communityComposerOpen = true; renderCommunityDetail(); });
+    if (!community) { els.communityComposer.innerHTML = ""; return; }
+    if (signalsReady() && activitySchemaState() === false) {
+      els.communityComposer.innerHTML = `<div class="act-notice" role="status">${escapeHtml(ACTIVITY_DB_NOTICE)}</div>`;
       return;
     }
-    const preview = communityComposerPhoto && communityComposerPhoto.previewUrl
-      ? `<div class="community-composer-photo"><img src="${escapeHtml(communityComposerPhoto.previewUrl)}" alt=""><button type="button" class="community-composer-photo-x" data-composer-photo-remove aria-label="Remove photo">×</button></div>`
+    if (activityDraft.communityId !== community.id) resetActivityDraft(community.id);   // a draft belongs to one world
+    const d = activityDraft;
+    const name = escapeHtml(community.name || "your world");
+    const prevTa = els.communityComposer.querySelector("[data-act-text]");
+    const hadFocus = !!prevTa && document.activeElement === prevTa;   // a re-render must not steal the caret
+    const caret = hadFocus ? prevTa.selectionStart : -1;
+    const preview = d.photo && d.photo.previewUrl
+      ? `<div class="act-box-photo"><img src="${escapeHtml(d.photo.previewUrl)}" alt=""><button type="button" class="act-box-photo-x" data-act-photo-remove aria-label="Remove photo">×</button></div>`
       : "";
-    const destName = escapeHtml(community ? (community.name || "your community") : "your community");
-    const stage = communityComposerStage;
-    const postLabel = stage === "edit" ? "Continue" : (stage === "thinking" ? "Thinking…" : "Post");
-    const postReady = stage === "ready";
-    const postDisabled = stage === "thinking" || stage === "suggest" || stage === "change";
-    els.communityComposer.innerHTML =
-      `<div class="community-composer-form">
-        <div class="community-composer-to">
-          ${renderAvatar({ name: state.profile.name, avatarUrl: state.profile.avatarUrl, color: state.profile.accent || "#355d91", className: "community-composer-av sm" })}
-          <span class="community-composer-to-lbl">Posting to</span>
-          <span class="community-composer-dest">👥 ${destName}</span>
-          <button type="button" class="community-composer-x" data-composer-cancel aria-label="Close composer">×</button>
+    els.communityComposer.innerHTML = `
+      <div class="act-box">
+        <div class="act-box-row">
+          ${renderAvatar({ className: "member-avatar act-av", name: state.profile.name, avatarUrl: state.profile.avatarUrl, color: state.profile.accent || "#355d91" })}
+          <textarea data-act-text maxlength="${POST_CAPTION_MAX}" rows="2" placeholder="Say something to ${name}" aria-label="Message to ${name}">${escapeHtml(d.text)}</textarea>
         </div>
-        <textarea class="community-composer-input" data-composer-caption maxlength="${ENTRY_MESSAGE_MAX}" rows="3" placeholder="What did you do? (press Enter)">${escapeHtml(communityComposerCaption)}</textarea>
         ${preview}
-        ${renderComposerAiBox(community)}
-        <div class="community-composer-footer">
-          <button type="button" class="community-composer-photo-btn" data-composer-photo aria-label="Add photo">${svgIcon("camera", "icon-xs")}</button>
-          <button type="button" class="community-composer-post${postReady ? " is-ready" : ""}" data-composer-post${postDisabled ? " disabled" : ""}>${escapeHtml(postLabel)}</button>
+        <div class="act-box-tools">
+          <button type="button" class="act-tool${d.photo ? " is-on" : ""}" data-act-photo>${svgIcon("camera", "icon-xs")}${d.photo ? "Photo added" : "Photo"}</button>
+          <button type="button" class="act-tool${d.attach ? " is-on" : ""}" data-act-attach aria-pressed="${d.attach ? "true" : "false"}">${d.attach ? "✓ Attached to today's logs" : "Attach today's logs"}</button>
+          <button type="button" class="act-post" data-act-post${activityPosting ? " disabled" : ""}>${activityPosting ? "Posting…" : "Post"}</button>
         </div>
+        ${d.error ? `<div class="act-msg is-err" role="alert">${escapeHtml(d.error)}</div>` : ""}
       </div>`;
     bindCommunityComposer(world);
-  }
-
-  // The stage-dependent AI block above the Post button (see work/composer-ai-autofill.html).
-  function renderComposerAiBox(community) {
-    const stage = communityComposerStage;
-    if (stage === "edit" || !community) return "";
-    if (stage === "thinking") {
-      return `<div class="community-composer-ai"><div class="community-composer-ai-head">${svgIcon("sparkle", "icon-xs")} Reading your log…</div></div>`;
+    if (hadFocus) {
+      const ta = els.communityComposer.querySelector("[data-act-text]");
+      if (ta) { try { ta.focus({ preventScroll: true }); if (caret >= 0) ta.setSelectionRange(caret, caret); } catch (e) { /* ignore */ } }
     }
-    if (stage === "ready") {
-      const r = communityComposerPick && resolveQuickLogRule("community", community.id, communityComposerPick.ruleId);
-      if (!r) return `<div class="community-composer-ai is-ready"><span class="community-composer-ai-chip">Just sharing — no points</span></div>`;
-      const pts = scoring.calculateRule(r.rule, communityComposerPick.amount).totalPoints;
-      return `<div class="community-composer-ai is-ready"><span class="community-composer-ai-chip">✓ ${escapeHtml(r.rule.label)} ${escapeHtml(formatSigned(pts))}</span><span class="community-composer-ai-note">logs to your day &amp; the leaderboard</span></div>`;
-    }
-    if (stage === "change") {
-      const rules = (community.system.rules || []).map(scoring.normalizeRule).filter((rl) => rl.simpleStyle !== "penalty" && rl.dataSource !== "calculated");
-      const sel = communityComposerPick ? communityComposerPick.ruleId : "";
-      const opts = rules.map((rl) => {
-        const p = scoring.calculateRule(rl, composerDefaultAmount(rl)).totalPoints;
-        return `<option value="${escapeHtml(rl.id)}"${rl.id === sel ? " selected" : ""}>${escapeHtml(rl.label)} (${escapeHtml(formatSigned(p))})</option>`;
-      }).join("");
-      const amt = communityComposerPick ? communityComposerPick.amount : 1;
-      return `<div class="community-composer-ai">
-          <div class="community-composer-ai-head">${svgIcon("sparkle", "icon-xs")} Pick what to log</div>
-          <div class="community-composer-change-row">
-            <select class="community-composer-rulesel" data-composer-rule aria-label="Rule to log">
-              ${opts}
-              <option value="__none__"${communityComposerPick ? "" : " selected"}>— No points, just post</option>
-            </select>
-            <input class="community-composer-amt" data-composer-amt type="number" min="0" step="1" value="${escapeHtml(String(amt))}" aria-label="Amount">
-            <button type="button" class="community-composer-confirm" data-composer-save>Save</button>
-          </div>
-        </div>`;
-    }
-    // suggest
-    const r = communityComposerPick && resolveQuickLogRule("community", community.id, communityComposerPick.ruleId);
-    if (!r) return "";
-    const pts = scoring.calculateRule(r.rule, communityComposerPick.amount).totalPoints;
-    return `<div class="community-composer-ai">
-        <div class="community-composer-ai-head">${svgIcon("sparkle", "icon-xs")} Log this with your post?</div>
-        <div class="community-composer-ai-row">
-          <span class="community-composer-ai-lbl"><strong>✅ ${escapeHtml(r.rule.label)}</strong> <span class="community-composer-ai-pts">${escapeHtml(formatSigned(pts))}</span></span>
-          <button type="button" class="community-composer-change" data-composer-change>Change</button>
-          <button type="button" class="community-composer-confirm" data-composer-confirm>Confirm</button>
-        </div>
-      </div>`;
-  }
-
-  function composerDefaultAmount(rule) {
-    if (rule.simpleStyle === "yesNo") return 1;
-    const g = goalAmountForRule(rule);
-    return g > 0 ? g : 1;
   }
 
   function bindCommunityComposer(world) {
     const root = els.communityComposer;
     if (!root) return;
-    const community = world && world.community;
-    const cap = root.querySelector("[data-composer-caption]");
-    if (cap) {
-      cap.addEventListener("input", () => {
-        communityComposerCaption = cap.value;
-        // Editing invalidates a shown suggestion → drop to "edit" WITHOUT a re-render (keep focus).
-        if (communityComposerStage !== "edit" && communityComposerStage !== "thinking") {
-          communityComposerStage = "edit"; communityComposerPick = null;
-          const ai = root.querySelector(".community-composer-ai"); if (ai) ai.remove();
-          const post = root.querySelector("[data-composer-post]");
-          if (post) { post.textContent = "Continue"; post.classList.remove("is-ready"); post.disabled = false; }
-        }
-      });
-      cap.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); communityComposerCaption = cap.value; submitOrAdvanceComposer(world); }
+    const ta = root.querySelector("[data-act-text]");
+    const keep = () => { if (ta) activityDraft.text = ta.value; };
+    if (ta) {
+      ta.addEventListener("input", () => {
+        activityDraft.text = ta.value;
+        if (activityDraft.error) { activityDraft.error = ""; const m = root.querySelector(".act-msg"); if (m) m.remove(); }
       });
     }
-    const photoBtn = root.querySelector("[data-composer-photo]");
-    if (photoBtn) photoBtn.addEventListener("click", () => { if (cap) communityComposerCaption = cap.value; if (els.communityComposerPhoto) els.communityComposerPhoto.click(); });
-    const removeBtn = root.querySelector("[data-composer-photo-remove]");
-    if (removeBtn) removeBtn.addEventListener("click", () => { if (cap) communityComposerCaption = cap.value; clearCommunityComposerPhoto(); renderCommunityDetail(); });
-    const cancel = root.querySelector("[data-composer-cancel]");
-    if (cancel) cancel.addEventListener("click", () => { resetCommunityComposer(); renderCommunityDetail(); });
-    const post = root.querySelector("[data-composer-post]");
-    if (post) post.addEventListener("click", () => { if (post.disabled) return; if (cap) communityComposerCaption = cap.value; submitOrAdvanceComposer(world); });
-    const confirmBtn = root.querySelector("[data-composer-confirm]");
-    if (confirmBtn) confirmBtn.addEventListener("click", () => { communityComposerStage = "ready"; renderCommunityDetail(); });
-    const changeBtn = root.querySelector("[data-composer-change]");
-    if (changeBtn) changeBtn.addEventListener("click", () => { communityComposerStage = "change"; renderCommunityDetail(); });
-    const saveBtn = root.querySelector("[data-composer-save]");
-    if (saveBtn) saveBtn.addEventListener("click", () => {
-      const selEl = root.querySelector("[data-composer-rule]");
-      const amtEl = root.querySelector("[data-composer-amt]");
-      const val = selEl ? selEl.value : "__none__";
-      if (val === "__none__" || !val) {
-        communityComposerPick = null;
-      } else {
-        const rl = community ? (community.system.rules || []).map(scoring.normalizeRule).find((x) => x.id === val) : null;
-        if (!rl) { showToast("That rule isn't available anymore"); return; } // stay in the picker, don't lose the choice
-        const amt = rl.simpleStyle === "yesNo" ? 1 : Math.max(0, numberOrDefault(amtEl ? amtEl.value : 1, 1));
-        communityComposerPick = { ruleId: rl.id, amount: amt };
-      }
-      communityComposerStage = "ready";
-      renderCommunityDetail();
-    });
+    const photoBtn = root.querySelector("[data-act-photo]");
+    if (photoBtn) photoBtn.addEventListener("click", () => { keep(); if (els.communityComposerPhoto) els.communityComposerPhoto.click(); });
+    const rm = root.querySelector("[data-act-photo-remove]");
+    if (rm) rm.addEventListener("click", () => { keep(); activityDropPhoto(); renderCommunityComposer(world); });
+    const attach = root.querySelector("[data-act-attach]");
+    if (attach) attach.addEventListener("click", () => { keep(); activityDraft.attach = !activityDraft.attach; renderCommunityComposer(world); });
+    const post = root.querySelector("[data-act-post]");
+    if (post) post.addEventListener("click", () => { keep(); postActivityMessage(world); });
     if (els.communityComposerPhoto) {
       els.communityComposerPhoto.onchange = () => {
         const file = els.communityComposerPhoto.files && els.communityComposerPhoto.files[0];
         els.communityComposerPhoto.value = "";
         if (!file) return;
-        clearCommunityComposerPhoto();
-        communityComposerPhoto = { file: file, previewUrl: URL.createObjectURL(file) };
-        renderCommunityDetail();
+        keep();
+        activityDropPhoto();
+        activityDraft.photo = { file: file, previewUrl: URL.createObjectURL(file) };
+        activityDraft.error = "";
+        renderCommunityComposer(world);
       };
     }
   }
 
-  // Submit handler shared by Enter and the Post button: run the AI from "edit"; post from "ready".
-  function submitOrAdvanceComposer(world) {
-    if (communityComposerStage === "thinking") return;
-    if (communityComposerStage === "ready") { submitCommunityComposer(world); return; }
-    runCommunityComposerAi(world);
+  function activityDropPhoto() {
+    if (activityDraft.photo && activityDraft.photo.previewUrl) { try { URL.revokeObjectURL(activityDraft.photo.previewUrl); } catch (e) { /* ignore */ } }
+    activityDraft.photo = null;
+  }
+  function resetActivityDraft(communityId) {
+    activityDropPhoto();
+    activityDraft = { text: "", photo: null, attach: true, error: "", communityId: communityId || "" };
   }
 
-  async function runCommunityComposerAi(world) {
+  async function postActivityMessage(world) {
     const community = world && world.community;
-    if (!community) return;
-    const caption = (communityComposerCaption || "").trim();
-    const hasPhoto = !!(communityComposerPhoto && communityComposerPhoto.file);
-    if (caption.length < 2 && !hasPhoto) { showToast("Add a caption or photo first"); return; }
-    communityComposerStage = "thinking";
-    communityComposerPick = null;
-    renderCommunityDetail();
-    let best = null;
-    try { best = await suggestCommunityLogEntry(community, caption, hasPhoto ? communityComposerPhoto.file : null); } catch (e) { best = null; }
-    if (communityComposerStage !== "thinking") return; // user edited/closed mid-flight
-    if (best) { communityComposerPick = { ruleId: best.ruleId, amount: best.amount }; communityComposerStage = "suggest"; }
-    else { communityComposerPick = null; communityComposerStage = "ready"; } // no confident match → just post
-    renderCommunityDetail();
-  }
-
-  // Reuse parse-log (text) + the photo vision estimate, scoped to THIS community's rules; return
-  // the single best-matching normalized entry { ruleId, amount, confidence } or null.
-  async function suggestCommunityLogEntry(community, caption, file) {
-    const catalog = buildLoggableRuleCatalog().filter((c) => c.contextType === "community" && c.contextId === community.id);
-    if (!catalog.length) return null;
-    const tasks = [];
-    if (caption && caption.length >= 2 && signalsReady() && window.PointwellSignals && typeof window.PointwellSignals.parseLog === "function") {
-      tasks.push(Promise.resolve(window.PointwellSignals.parseLog(caption, catalog)).then((r) => (r && !r.error ? (r.entries || []) : [])).catch(() => []));
-    } else { tasks.push(Promise.resolve([])); }
-    if (file && signalsReady() && window.PointwellSignals && typeof window.PointwellSignals.estimateFood === "function") {
-      tasks.push(communityPhotoEstimateRows(community, file, caption).catch(() => []));
-    } else { tasks.push(Promise.resolve([])); }
-    const [textEntries, photoRows] = await Promise.all(tasks);
-    const candidates = textEntries.map(normalizeQuickLogEntry).filter(Boolean).concat(photoRows)
-      .filter((e) => e.contextType === "community" && e.contextId === community.id && numberOrDefault(e.amount, 0) > 0);
-    candidates.sort((a, b) => (Number(b.confidence) || 0) - (Number(a.confidence) || 0));
-    return candidates[0] || null;
-  }
-
-  // Photo → the EXISTING vision estimate → draft rows, filtered to this community's rules.
-  async function communityPhotoEstimateRows(community, file, hint) {
-    try {
-      const parts = await fileToBase64Parts(file);
-      const res = await window.PointwellSignals.estimateFood(parts.data, parts.mediaType, hint || "");
-      if (!res || res.error || !res.estimate || res.estimate.kind === "other") return [];
-      return buildEstimateDraftRows(res.estimate).filter((r) => r.contextType === "community" && r.contextId === community.id);
-    } catch (e) { return []; }
-  }
-
-  function clearCommunityComposerPhoto() {
-    if (communityComposerPhoto && communityComposerPhoto.previewUrl) { try { URL.revokeObjectURL(communityComposerPhoto.previewUrl); } catch (e) { /* ignore */ } }
-    communityComposerPhoto = null;
-  }
-  function resetCommunityComposer() {
-    communityComposerOpen = false;
-    communityComposerCaption = "";
-    communityComposerStage = "edit";
-    communityComposerPick = null;
-    clearCommunityComposerPhoto();
-  }
-
-  async function submitCommunityComposer(world) {
-    const community = world && world.community;
-    if (!community) return;
-    const caption = (communityComposerCaption || "").trim().slice(0, ENTRY_MESSAGE_MAX);
-    const hasPhoto = !!(communityComposerPhoto && communityComposerPhoto.file);
-    if (!caption && !hasPhoto) { showToast("Add a caption or photo first"); return; }
-    // The locked pick (AI suggestion or the Change picker) decides what to LOG. No pick → a
-    // pure share on the first rule (0 points, no double-count). A pick with amount>0 logs that
-    // rule via the same path the Coach uses (points land + the leaderboard updates).
-    const rules = (community.system.rules || []).map(scoring.normalizeRule);
-    let rule = null, amount = 0;
-    if (communityComposerPick) {
-      const r = resolveQuickLogRule("community", community.id, communityComposerPick.ruleId);
-      if (r) { rule = r.rule; amount = numberOrDefault(communityComposerPick.amount, 0); }
-    }
-    if (!rule) { rule = rules[0]; amount = 0; }
-    if (!rule) { showToast("This community has no rules yet"); return; }
+    if (!community || activityPosting) return;
+    const text = String(activityDraft.text || "").trim().slice(0, POST_CAPTION_MAX);
+    const file = activityDraft.photo && activityDraft.photo.file;
+    if (!text && !file) { activityDraft.error = "Write something or add a photo"; renderCommunityComposer(world); return; }
     const uid = state.account && state.account.userId;
-    let photoPath = "";
-    if (hasPhoto) {
-      if (!signalsReady() || !uid || !window.PointwellSignals || typeof window.PointwellSignals.uploadEntryPhoto !== "function") {
-        showToast("Sign in to attach photos — posting without it.");
-      } else {
-        try {
-          const up = await window.PointwellSignals.uploadEntryPhoto(communityComposerPhoto.file, community.id + "/" + uid);
-          if (up && !up.error && up.path) photoPath = up.path;
-          else showToast("Couldn't upload the photo — posting without it.");
-        } catch (e) { showToast("Couldn't upload the photo — posting without it."); }
+    const S = window.PointwellSignals;
+    if (!signalsReady() || !uid || !S) { showToast("Sign in to post"); return; }
+    activityPosting = true;
+    renderCommunityComposer(world);
+    let posted = false;
+    const fail = (msg) => { throw { activityError: msg || "Couldn't post" }; };   // caught below → shown inline
+    try {
+      let photoPath = "";
+      if (file) {
+        // Same bucket + "<world>/<me>/…" folder as every community photo: the storage policy makes it
+        // readable only by this world's members (and me).
+        const up = await S.uploadEntryPhoto(file, community.id + "/" + uid);
+        if (!up || up.error || !up.path) fail((up && up.error && up.error.message) || "Couldn't upload the photo");
+        photoPath = up.path;
       }
-    }
-    // Double-count guard (mirrors the Coach log-and-share path): if this rule is already logged
-    // for me today in this community, enrich that entry/post — never add the amount twice.
-    let didLog = false, enriched = false;
-    if (amount > 0) {
-      const today = getTodayKey();
-      const mine = (state.communityEntries || []).filter((e) => e.communityId === community.id && coachIsMine(e) && e.ruleId === rule.id && (e.dateKey || e.date) === today);
-      const existing = mine[mine.length - 1];
-      if (existing) {
-        if (caption) existing.message = caption;
-        if (photoPath) existing.photoPath = photoPath;
-        enriched = true;
+      if (activityDraft.attach) {
+        const res = await S.ensureActivityPost(community.id, uid, getTodayKey());
+        if (!res || res.error || !res.id) fail(activityDbNotice(res && res.error));
+        let prevText = "", prevPhoto = "";
+        const loaded = (communityActivityByCommunity[community.id] || []).find((a) => String(a.entry.id) === String(res.id));
+        if (loaded) { prevText = String(loaded.entry.message || ""); prevPhoto = String(loaded.entry.photoPath || ""); }
+        else { const row = await S.fetchPostById(res.id); if (row) { prevText = String(row.caption || ""); prevPhoto = String(row.photo_path || ""); } }
+        const patch = {};
+        if (text) patch.caption = prevText ? prevText + "\n" + text : text;   // append — the day keeps every note
+        if (photoPath) patch.photo_path = photoPath;                            // the newest photo shows on the day
+        else if (!prevPhoto) patch.photo_path = null;
+        const up2 = await S.updatePost(res.id, uid, patch);
+        if (up2 && up2.error) fail(activityDbNotice(up2.error));
       } else {
-        addCommunityEntry(community.id, "me", rule, amount, "manual", caption, photoPath, "");
-        didLog = true;
+        const cp = await S.createPost(uid, text, photoPath || null, [], true, "message");   // Activity only, never the Feed
+        if (!cp || cp.error || !cp.post) fail(activityDbNotice(cp && cp.error));
+        const tg = await S.addPostTarget(cp.post.id, "community", community.id, 0);
+        if (tg && tg.error) fail(activityDbNotice(tg.error));
       }
-    } else {
-      addCommunityEntry(community.id, "me", rule, 0, "manual", caption, photoPath, "");
+      posted = true;
+    } catch (e) {
+      activityDraft.error = (e && e.activityError) || "Couldn't reach the server";
+    } finally {
+      activityPosting = false;
     }
-    saveCommunitySummaryForMember(community, "me");
-    resetCommunityComposer();
-    state.communityHubTab = "feed";
-    state.communityFeedSort = "new";
-    saveState();
-    Promise.resolve(pushCommunityEntryToDb(community, rule.id, caption, photoPath)).then((r) => { if (r && r.error) showToast("Posted here, but it didn't sync"); }).catch(() => {});
+    if (posted) {
+      resetActivityDraft(community.id);
+      await loadCommunityPosts();   // refresh after posting (one batched read; also re-reads tile comments)
+      showToast("Posted to " + (community.name || "your world"));
+    }
     renderCommunityDetail();
-    showToast(didLog ? ("Logged " + (rule.label || "rule") + " + shared") : (enriched ? "Updated today's log + shared" : ("Shared to " + (community.name || "your community"))));
   }
 
   // Lazily load who I follow (once) so member rows can show Follow vs Following. Privacy-gated
@@ -12252,8 +12528,8 @@
     const trendsOn = !!(analytics && analytics.modules && (analytics.modules.groupTrends || analytics.modules.individualTrends));
     const show = (key, on) => { if (els[key]) els[key].hidden = !on; };
     if (els.communityHubTabs) els.communityHubTabs.hidden = false;
+    show("communityLockLine", true);
     show("communityComposer", tab === "feed");
-    show("communityFeedSort", tab === "feed");
     show("worldPostsPanel", tab === "feed");
     show("communityLeaderboardPanel", tab === "leaderboard" && lbOn);
     show("communityYourDayPanel", tab === "leaderboard");
@@ -13152,26 +13428,10 @@
   // like/comment/cheer); personal → your own captioned/photo check-ins (lightweight cards).
   function renderWorldPosts(world) {
     if (!els.worldPosts) return;
-    if (world.type === "community") {
-      const community = world.community;
-      // Unified post cards (post-first model) first, then LEGACY bare-activity entries that have no
-      // backing post (plain logs + pre-Phase-2 rows). Entries WITH a post_id are represented by the
-      // post card, so we drop them here (that's the dedup that retires the Phase-2 bridge read).
-      const postItems = communityPostsByCommunity[world.id] || [];
-      const legacyItems = (state.communityEntries || [])
-        .filter((e) => e.communityId === world.id && !e.postId)
-        .map(buildFeedItemForEntry).filter(Boolean);
-      // Same display rules as the main Feed: no device-only syncs, one card per session,
-      // multi-world credit collapsed. (Sorting still honours the Hot/New/Top switch.)
-      const shown = sortCommunityFeed(bundleFeedItems(postItems.concat(legacyItems))).slice(0, 12);
-      if (!shown.length) { els.worldPosts.innerHTML = emptyState("No posts yet — share your progress and it'll show up here.", { label: "Log with a photo", action: "log-photo", icon: "camera" }); return; }
-      feedItems = shown; // so the shared feed handlers (like/comment/cheer) resolve each card by id
-      els.worldPosts.innerHTML = `<div class="community-feed-list">${shown.map(renderFeedPost).join("")}</div>`;
-      bindWorldFeedDelegation();
-      bindEntryPhotos(els.worldPosts);
-      fetchFeedSocial();
-      return;
-    }
+    if (els.worldPostsTitle) els.worldPostsTitle.textContent = world.type === "community" ? "Activity" : "Recent posts";
+    // Community → the members-only Activity stream (logs per person per day + messages, with
+    // likes/comments). Personal → your own captioned/photo check-ins (lightweight cards).
+    if (world.type === "community") { renderCommunityActivity(world); return; }
     const posts = (state.quickEntries || []).filter((e) => e.systemId === world.id && (e.message || e.photoPath || e.photo_path))
       .slice().sort((a, b) => String(b.timestamp || b.dateKey || b.date || "").localeCompare(String(a.timestamp || a.dateKey || a.date || ""))).slice(0, 12);
     if (!posts.length) { els.worldPosts.innerHTML = emptyState("Your check-ins with a note or photo will show up here."); return; }
@@ -14138,7 +14398,7 @@
 
     // PRIMARY: unified posts to this profile (post-first model).
     if (typeof S.fetchProfilePostsV2 === "function") {
-      const v2 = (await S.fetchProfilePostsV2(id, 30)) || [];
+      const v2 = ((await S.fetchProfilePostsV2(id, 30)) || []).filter((r) => r && r.post && r.post.kind !== "activity" && r.post.kind !== "message");
       const ids = v2.map((r) => r && r.post && r.post.id).filter(Boolean);
       const social = {};
       if (ids.length && typeof S.getPostsSocial === "function") {
@@ -25390,19 +25650,34 @@
   // N+1), grouped by community. Author identity resolves from each community's members.
   async function loadCommunityPosts() {
     communityPostsByCommunity = {};
+    communityActivityByCommunity = {};
+    activityLegacySocial.clear();
+    activityLegacyFetched.clear();
     const uid = state.account && state.account.userId;
     if (!signalsReady() || !uid || !window.PointwellSignals || typeof window.PointwellSignals.fetchCommunityPosts !== "function") return;
     const ids = (state.communities || []).map((c) => c.id).filter(Boolean);
     if (!ids.length) return;
     try {
-      const rows = (await window.PointwellSignals.fetchCommunityPosts(ids, 80)) || [];
+      // One batched read across every world (post_targets, newest first). Anchors and messages share
+      // the budget with plain posts, so very old days can fall off the end of Activity.
+      const rows = (await window.PointwellSignals.fetchCommunityPosts(ids, 200)) || [];
       rows.forEach((r) => {
         if (!r || !r.post) return;
         const item = buildFeedItemForPost(r.post, null, { communityId: r.communityId, points: r.points });
         if (!item) return;
+        // kind 'activity' = a member's day anchor, 'message' = a note posted inside the world: the
+        // world's Activity tab ONLY — never the main Feed (which reads communityPostsByCommunity).
+        if (r.post.kind === "activity" || r.post.kind === "message") {
+          item.entry.activityAnchor = r.post.kind === "activity";
+          item.entry.activityMessage = r.post.kind === "message";
+          item.entry.activityDate = r.post.activity_date || "";
+          (communityActivityByCommunity[r.communityId] = communityActivityByCommunity[r.communityId] || []).push(item);
+          return;
+        }
         (communityPostsByCommunity[r.communityId] = communityPostsByCommunity[r.communityId] || []).push(item);
       });
     } catch (e) { /* best-effort: the feed still shows legacy activity cards */ }
+    refreshActivityTileComments();
   }
 
   // Pull the profile posts of people I follow for the Friends feed. profileFollowing (a SECURITY
@@ -25429,7 +25704,7 @@
       if (typeof window.PointwellSignals.fetchFollowedPostsV2 === "function") {
         const postRows = (await window.PointwellSignals.fetchFollowedPostsV2(ids, 40)) || [];
         postRows.forEach((r) => {
-          if (!r || !r.post) return;
+          if (!r || !r.post || r.post.kind === "activity" || r.post.kind === "message") return;   // Activity-only kinds can't have a profile target; belt and braces
           const item = buildFeedItemForPost(r.post, profilePostAuthors[r.post.author_user] || null, { communityId: null, points: r.points });
           if (item) followedPostItems.push(item);
         });
@@ -25933,7 +26208,6 @@
       feedTab: saved.feedTab === "discover" ? "discover" : "friends",
       communityLeaderboardPeriod: saved.communityLeaderboardPeriod || seed.communityLeaderboardPeriod,
       communityHubTab: saved.communityHubTab || seed.communityHubTab,
-      communityFeedSort: saved.communityFeedSort || seed.communityFeedSort,
       communityTrendMemberId: saved.communityTrendMemberId || seed.communityTrendMemberId,
       dashboardAnalyticsOpen: Boolean(saved.dashboardAnalyticsOpen),
       inactiveCommunitiesOpen: Boolean(saved.inactiveCommunitiesOpen),

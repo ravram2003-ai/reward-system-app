@@ -9926,47 +9926,6 @@ body.onboarding-locked .coach-panel { display: none; }
 
 /* Feed composer */
 .community-composer { margin-bottom: 12px; }
-.community-composer-bar { display: flex; align-items: center; gap: 10px; width: 100%; background: #11181a; border: 1px solid #1e2826; border-radius: 13px; padding: 10px 12px; cursor: pointer; text-align: left; }
-.community-composer-av { width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; object-fit: cover; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; color: #fff; }
-.community-composer-placeholder { flex: 1; min-width: 0; font-size: 0.82rem; color: #7c8d87; }
-.community-composer-cam { font-size: 0.95rem; }
-.community-composer-form { background: #0e1412; border: 1px solid #2c5a48; border-radius: 15px; padding: 13px; }
-.community-composer-to { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
-.community-composer-av.sm { width: 26px; height: 26px; font-size: 0.62rem; }
-.community-composer-to-lbl { font-size: 0.72rem; color: #cfd8d4; }
-.community-composer-dest { font-size: 0.7rem; color: #9bf3cf; background: #16241f; border: 1px solid #2c5a48; border-radius: 9px; padding: 3px 9px; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.community-composer-x { margin-left: auto; width: 24px; height: 24px; flex-shrink: 0; border-radius: 50%; background: transparent; border: none; color: #7c8d87; font-size: 1.05rem; line-height: 1; cursor: pointer; }
-.community-composer-input { width: 100%; background: transparent; border: none; resize: none; color: #eaf2ee; font-size: 0.86rem; font-family: inherit; outline: none; min-height: 46px; line-height: 1.4; }
-.community-composer-photo { position: relative; margin-top: 9px; }
-.community-composer-photo img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 11px; display: block; }
-.community-composer-photo-x { position: absolute; top: 7px; right: 7px; width: 26px; height: 26px; border-radius: 50%; border: none; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 1rem; line-height: 1; cursor: pointer; }
-
-/* AI suggestion box (parse-log auto-fill) */
-.community-composer-ai { background: #11201a; border: 1px solid #2a5a45; border-radius: 12px; padding: 11px; margin: 6px 0 11px; }
-.community-composer-ai.is-ready { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.community-composer-ai-head { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; color: #9bf3cf; font-weight: 600; margin-bottom: 8px; }
-.community-composer-ai-row { display: flex; align-items: center; gap: 8px; }
-.community-composer-ai-lbl { flex: 1; min-width: 0; font-size: 0.8rem; color: #eaf2ee; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.community-composer-ai-pts { color: #7fe9c0; }
-.community-composer-ai-chip { font-size: 0.7rem; color: #9bf3cf; background: #13281f; border: 1px solid #2a5a45; border-radius: 8px; padding: 5px 10px; }
-.community-composer-ai-note { font-size: 0.7rem; color: #7fc7b0; }
-.community-composer-change { font-size: 0.66rem; padding: 5px 11px; border-radius: 9px; background: transparent; color: #cfd8d4; border: 1px solid #46594f; cursor: pointer; flex-shrink: 0; }
-.community-composer-confirm { font-size: 0.66rem; font-weight: 600; padding: 5px 13px; border-radius: 9px; background: #1c4d3b; color: #9bf3cf; border: none; cursor: pointer; flex-shrink: 0; }
-.community-composer-change-row { display: flex; gap: 6px; }
-.community-composer-rulesel { flex: 1; min-width: 0; background: #0e1714; border: 1px solid #243029; border-radius: 8px; color: #eaf2ee; font-size: 0.72rem; padding: 6px; }
-.community-composer-amt { width: 56px; flex-shrink: 0; background: #0e1714; border: 1px solid #243029; border-radius: 8px; color: #eaf2ee; font-size: 0.72rem; padding: 6px; }
-
-/* Footer: photo + post */
-.community-composer-footer { display: flex; align-items: center; gap: 9px; }
-.community-composer-photo-btn { width: 42px; height: 42px; flex-shrink: 0; font-size: 1rem; border-radius: 10px; background: #11181a; border: 1px dashed #2c3a35; color: #7fe9c0; cursor: pointer; }
-.community-composer-post { flex: 1; border: none; border-radius: 12px; font-size: 0.82rem; font-weight: 600; padding: 11px; background: #173228; color: #9bf3cf; cursor: pointer; }
-.community-composer-post[disabled] { color: #7fc7b0; cursor: default; }
-.community-composer-post.is-ready { background: #1c4d3b; color: #9bf3cf; }
-
-/* Feed sort pills (Hot / New / Top) */
-.community-feed-sort { display: flex; gap: 6px; margin-bottom: 12px; overflow-x: auto; }
-.community-sort-pill { flex-shrink: 0; font-size: 0.7rem; padding: 4px 12px; border-radius: 16px; background: transparent; border: 1px solid transparent; color: #8aa39a; cursor: pointer; white-space: nowrap; }
-.community-sort-pill.is-active { background: #16241f; color: #9bf3cf; }
 
 /* Members */
 .community-member-row { display: flex; align-items: center; gap: 11px; margin-bottom: 11px; }
@@ -11712,7 +11671,6 @@ label { font-weight: var(--w-semi); }
 .post-overlay-close,
 .coach-panel-close,
 .coach-peek-x,
-.community-composer-x,
 .quick-log-discard-x {
   width: 32px;
   height: 32px;
@@ -11728,7 +11686,7 @@ label { font-weight: var(--w-semi); }
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 .post-overlay-close:hover, .coach-panel-close:hover, .coach-peek-x:hover,
-.community-composer-x:hover, .quick-log-discard-x:hover {
+.quick-log-discard-x:hover {
   background: color-mix(in srgb, var(--ink) 12%, transparent);
   color: var(--ink);
 }
@@ -11950,13 +11908,6 @@ label { font-weight: var(--w-semi); }
   border-color: transparent;
   box-shadow: none;
 }
-.community-composer-input,
-.community-composer-input:focus-visible {
-  background-color: transparent;
-  border-color: transparent;
-  box-shadow: none;
-  border-radius: 0;
-}
 /* deliberately pill-shaped inputs keep their radius */
 input:not([type="range"]):not([type="checkbox"]).quick-log-input,
 input:not([type="range"]):not([type="checkbox"]).ai-chat-input { border-radius: var(--r-full); }
@@ -11970,7 +11921,7 @@ input:not([type="range"]):not([type="checkbox"]).world-rule-amt-input {
    arrow the bare-select appearance:none stripped, and drop the
    leaked inset shadow; the coach form select gets the R2 chevron */
 .cc-picker-select, .challenge-metric-sel, .quick-log-context, .coach-ctx,
-.community-composer-rulesel, #scoreContextSelect {
+#scoreContextSelect {
   appearance: auto;
   -webkit-appearance: auto;
   box-shadow: none;
@@ -13346,3 +13297,87 @@ button.wt-chip-body:focus-visible { outline: 2px solid #7ee0a8; outline-offset: 
 .wt-sheet-rows .wt-ent-x { width: 40px; height: 40px; border-radius: 9px; font-size: 0.8rem; }
 /* Edit mode: chips are inert — nothing expands, and the + isn't rendered. */
 .world-grid.is-editing .wt-chips { pointer-events: none; opacity: .7; }
+
+/* ── Community Activity (feat/community-activity) ────────────────────────────────────────────
+   Inside a world: the lock line under the tabs, the message box, the per-person-per-day items with
+   heart / comment / thread, and the finished community tile's comment peek + "Photo or note".
+   Matches work/community-activity-reference.html screens 1–2. Tap targets ≥ 40px. */
+.community-lock-line { font-size: 0.7rem; color: #5f7369; display: flex; align-items: center; gap: 5px; margin: -4px 2px 10px; }
+/* Four tabs (Standings · Activity · Compete · Members) share the width evenly — no sideways scroll at 390px. */
+.community-hub-tabs { overflow: hidden; }
+.community-hub-tabs .segmented-button { flex: 1 1 0; min-width: 0; padding-left: 3px; padding-right: 3px; font-size: 0.76rem; letter-spacing: -0.1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.act-notice { background: #1a1612; border: 1px solid #5a4a2a; border-radius: 12px; padding: 10px 12px; font-size: 0.78rem; line-height: 1.4; color: #e0c27f; margin-bottom: 12px; }
+.act-box { background: #0f1613; border: 1px solid #2c5a48; border-radius: 14px; padding: 10px; }
+.act-box-row { display: flex; gap: 8px; align-items: flex-start; }
+.act-av { width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; font-size: 0.68rem; font-weight: 700; color: #fff; object-fit: cover; }
+.act-box textarea { flex: 1; min-width: 0; min-height: 40px; border: none; background: none; color: #eaf2ee; font: inherit; font-size: 0.86rem; line-height: 1.4; resize: none; outline: none; padding: 6px 0; }
+.act-box textarea::placeholder { color: #5f7369; }
+.act-box-photo { position: relative; margin-top: 6px; }
+.act-box-photo img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 11px; display: block; }
+.act-box-photo-x { position: absolute; top: 7px; right: 7px; width: 40px; height: 40px; border-radius: 50%; border: none; background: rgba(0, 0, 0, 0.62); color: #fff; font: inherit; font-size: 1.1rem; line-height: 1; cursor: pointer; }
+.act-box-tools { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; align-items: center; }
+.act-tool { height: 40px; border-radius: 9px; border: 1px solid #1e2b24; background: #0c1310; color: #8ba299; font: inherit; font-size: 0.74rem; display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; cursor: pointer; max-width: 100%; }
+.act-tool .ic { width: 15px; height: 15px; }
+.act-tool.is-on { border-color: #7ee0a8; color: #7ee0a8; }
+.act-post { margin-left: auto; height: 40px; border: none; border-radius: 9px; background: #7ee0a8; color: #06231a; font: inherit; font-size: 0.78rem; font-weight: 700; padding: 0 14px; cursor: pointer; }
+.act-post[disabled] { opacity: 0.6; cursor: default; }
+.act-msg { font-size: 0.74rem; margin-top: 6px; }
+.act-msg.is-err { color: #e0857f; }
+.act-list { display: grid; gap: 10px; }
+.act-day { font-size: 0.66rem; letter-spacing: 1px; text-transform: uppercase; color: #5f7369; margin: 6px 2px 0; }
+.act-item { background: #0f1613; border: 1px solid #1e2b24; border-radius: 14px; padding: 10px; min-width: 0; transition: border-color .2s ease, box-shadow .2s ease; }
+.act-item.is-highlight { border-color: #7ee0a8; box-shadow: 0 0 0 2px rgba(126, 224, 168, 0.25); }
+.act-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.act-author { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; background: none; border: none; padding: 0; color: inherit; font: inherit; text-align: left; }
+button.act-author { cursor: pointer; min-height: 40px; }
+.act-head-main { flex: 1; min-width: 0; line-height: 1.25; }
+.act-name { font-weight: 700; font-size: 0.82rem; color: #eaf2ee; }
+.act-kind { color: #5f7369; font-size: 0.68rem; }
+.act-when { color: #5f7369; font-size: 0.68rem; }
+.act-pts { color: #7ee0a8; font-size: 0.78rem; font-weight: 700; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.act-text { margin: 8px 0 0; font-size: 0.84rem; line-height: 1.45; color: #eaf2ee; white-space: pre-wrap; overflow-wrap: anywhere; }
+.act-photo.ig-photo { margin: 8px 0 0; aspect-ratio: auto; max-height: 260px; border-radius: 10px; background: #0c1310; }
+.act-photo.ig-photo img { width: 100%; height: auto; max-height: 260px; object-fit: cover; }
+.act-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.act-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; color: #cfe9df; background: #0c1310; border: 1px solid #1e2b24; border-radius: 8px; padding: 4px 8px; max-width: 100%; }
+.act-chip .ic { width: 14px; height: 14px; color: #7ee0a8; flex: 0 0 auto; }
+.act-actions { display: flex; align-items: center; gap: 14px; margin-top: 4px; color: #8ba299; font-size: 0.76rem; }
+.act-btn { background: none; border: none; color: inherit; padding: 0 2px; min-height: 40px; min-width: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; font: inherit; font-size: 0.76rem; cursor: pointer; }
+.act-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.act-btn .ic { width: 16px; height: 16px; }
+.act-btn.is-liked { color: #e0857f; }
+.act-btn.is-liked svg { fill: currentColor; }
+.act-btn[disabled] { opacity: 0.45; cursor: default; }
+.act-del { margin-left: auto; }
+.act-del:hover { color: #e0857f; }
+.act-thread { border-top: 1px solid #17231d; margin-top: 6px; padding-top: 6px; }
+.act-comment { display: flex; gap: 7px; align-items: flex-start; font-size: 0.78rem; margin: 5px 0; min-width: 0; }
+.act-comment.is-preview { color: #cfe9df; }
+.act-cav { width: 24px; height: 24px; border-radius: 50%; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; font-size: 0.58rem; font-weight: 700; color: #fff; object-fit: cover; }
+.act-comment p { margin: 0; flex: 1; min-width: 0; line-height: 1.4; color: #eaf2ee; overflow-wrap: anywhere; padding-top: 3px; }
+.act-comment b, .act-cname { font-weight: 700; color: #eaf2ee; }
+.act-cname { background: none; border: none; padding: 0; font: inherit; font-weight: 700; cursor: pointer; }
+.act-comment-x { flex: 0 0 auto; width: 40px; height: 40px; margin: -8px -8px -8px 0; border: none; background: none; color: #5f7369; font: inherit; font-size: 0.76rem; cursor: pointer; border-radius: 9px; }
+.act-comment-x:hover { color: #e0857f; }
+.act-comment-muted { font-size: 0.74rem; color: #5f7369; padding: 4px 0; }
+.act-more { background: none; border: none; color: #8ba299; font: inherit; font-size: 0.74rem; padding: 0; min-height: 40px; cursor: pointer; }
+.act-input { display: flex; gap: 6px; align-items: center; margin-top: 2px; }
+.act-input form { display: flex; gap: 6px; flex: 1; min-width: 0; }
+.act-input input { flex: 1; min-width: 0; height: 40px; border-radius: 9px; background: #0a100d; border: 1px solid #1e2b24; color: #eaf2ee; padding: 0 9px; font: inherit; font-size: 0.8rem; }
+.act-input input::placeholder { color: #5f7369; }
+.act-send { height: 40px; border-radius: 9px; border: none; background: #173026; color: #7ee0a8; font: inherit; font-size: 0.78rem; font-weight: 700; padding: 0 12px; cursor: pointer; }
+.act-send[disabled] { opacity: 0.5; cursor: default; }
+/* Finished community tile: the comment peek + "Photo or note" live in the recap's spare band. */
+/* The community recap band is whatever the fixed row leaves under the mini leaderboard; when a
+   three-row leaderboard squeezes it, the band scrolls inside the tile instead of clipping. */
+.wt-recap.is-community { gap: 5px; overflow-y: auto; overflow-x: hidden; min-height: 0; }
+.wt-recap.is-community > * { flex: 0 0 auto; }
+.wt-recap.is-community .wt-recap-title { font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; }
+.wt-recap.is-community .wt-recap-title .ic { flex: 0 0 auto; }
+.wt-peek { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 32px; font: inherit; font-size: 0.68rem; color: #cfe9df; background: #0c1310; border: 1px solid #17231d; border-radius: 9px; padding: 5px 8px; text-align: left; cursor: pointer; min-width: 0; }
+.wt-peek svg { width: 14px; height: 14px; flex: 0 0 auto; fill: none; stroke: #7ee0a8; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.wt-peek span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-peek b { color: #eaf2ee; font-weight: 700; }
+.wt-note-btn { width: 100%; height: 32px; border-radius: 9px; border: 1px solid #2c5a48; background: #173026; color: #7ee0a8; font: inherit; font-size: 0.72rem; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer; flex: 0 0 auto; }
+.wt-note-btn .ic { width: 14px; height: 14px; }
+.wt-note-btn:hover { border-color: #7ee0a8; }

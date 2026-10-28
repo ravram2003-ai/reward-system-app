@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark">
     <meta name="theme-color" content="#0c0f0e">
     <title>Pointwell | Custom Goal Rewards</title>
-    <link rel="stylesheet" href="styles.css?v=20261025-rx1">
+    <link rel="stylesheet" href="styles.css?v=20261027-ca1">
 
   </head>
   <body>
@@ -1144,6 +1144,7 @@
             <div class="world-actions" id="worldActions">
               <button class="world-action primary" type="button" id="inviteButton">Invite</button>
               <button class="world-action" type="button" id="communitySettingsButton">Rules &amp; settings</button>
+              <button class="world-action" type="button" id="communityAboutButton">About</button>
             </div>
             <div class="invite-options world-invite-options" id="inviteOptions" hidden>
               <button class="ghost-button small" type="button" id="copyInviteLinkButton">Copy Link</button>
@@ -1158,13 +1159,13 @@
                  Above the hub tabs so it shows on every tab; hidden once the world is fully logged. -->
             <div class="quick-checkin" id="quickCheckinCard" hidden></div>
 
-            <!-- Community hub: segmented tab switcher (Feed · Leaderboard · Members · About). Community-only; hidden for personal worlds. -->
+            <!-- Community hub: segmented tab switcher (Standings · Activity · Compete · Members; About via the header). Community-only; hidden for personal worlds. -->
             <div class="segmented community-hub-tabs" id="communityHubTabs" role="tablist" aria-label="Community sections" hidden></div>
+            <div class="community-lock-line" id="communityLockLine" hidden></div>
 
-            <!-- FEED tab chrome (community-only): a "Share your progress…" composer + Hot/New/Top sort. -->
+            <!-- ACTIVITY tab chrome (community-only): the message box (text / photo, attach to today's logs). -->
             <div class="community-composer" id="communityComposer" hidden></div>
             <input type="file" accept="image/*" id="communityComposerPhoto" hidden>
-            <div class="community-feed-sort" id="communityFeedSort" role="tablist" aria-label="Sort posts" hidden></div>
 
             <section class="world-section community-leaderboard-panel" id="communityLeaderboardPanel" hidden aria-label="Leaderboard">
               <div class="world-section-head"><span class="world-section-title">Leaderboard</span></div>
@@ -1184,8 +1185,8 @@
               <div class="world-rules" id="personalRules"></div>
             </section>
 
-            <section class="world-section" id="worldPostsPanel" aria-label="Recent posts">
-              <div class="world-section-head"><span class="world-section-title">Recent posts</span></div>
+            <section class="world-section" id="worldPostsPanel" aria-label="Activity">
+              <div class="world-section-head"><span class="world-section-title" id="worldPostsTitle">Recent posts</span></div>
               <div class="world-posts" id="worldPosts"></div>
             </section>
 
@@ -1616,13 +1617,13 @@
       <div class="wearable-prompt" id="wearablePrompt" role="status" aria-live="polite" hidden></div>
     </div>
 
-    <script src="supabase-config.js?v=20261025-rx1"></script>
-    <script src="auth-helpers.js?v=20261025-rx1"></script>
-    <script src="scoring.js?v=20261025-rx1"></script>
-    <script src="insight.js?v=20261025-rx1"></script>
-    <script src="signals.js?v=20261025-rx1"></script>
-    <script src="wearables.js?v=20261025-rx1"></script>
-    <script type="module" src="auth.js?v=20261025-rx1"></script>
-    <script src="app.js?v=20261025-rx1"></script>
+    <script src="supabase-config.js?v=20261027-ca1"></script>
+    <script src="auth-helpers.js?v=20261027-ca1"></script>
+    <script src="scoring.js?v=20261027-ca1"></script>
+    <script src="insight.js?v=20261027-ca1"></script>
+    <script src="signals.js?v=20261027-ca1"></script>
+    <script src="wearables.js?v=20261027-ca1"></script>
+    <script type="module" src="auth.js?v=20261027-ca1"></script>
+    <script src="app.js?v=20261027-ca1"></script>
   </body>
 </html>

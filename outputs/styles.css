@@ -13381,3 +13381,46 @@ button.act-author { cursor: pointer; min-height: 40px; }
 .wt-note-btn { width: 100%; height: 32px; border-radius: 9px; border: 1px solid #2c5a48; background: #173026; color: #7ee0a8; font: inherit; font-size: 0.72rem; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer; flex: 0 0 auto; }
 .wt-note-btn .ic { width: 14px; height: 14px; }
 .wt-note-btn:hover { border-color: #7ee0a8; }
+
+/* ── Share to Feed (feat/share-to-feed) ───────────────────────────────────────────────────────
+   The share sheet (post-overlay shell), the stat card (sheet + Feed card), the Activity item's
+   "Share to Feed" / "On Feed ✓", and the finished tile's second button ("Note" + "Share"). Reference screens 3–4. */
+.share-sheet { max-height: 92vh; }
+.share-bar { justify-content: space-between; padding-left: 14px; }
+.share-title { font-size: 0.95rem; font-weight: 700; color: var(--ink); }
+.share-body { padding: 12px 14px 16px; display: grid; gap: 10px; }
+.share-note { margin: 0; font-size: 0.74rem; color: #8ba299; line-height: 1.45; }
+.share-note b { color: #7ee0a8; font-weight: 700; }
+.stat-card { border-radius: 12px; background: #11201a; border: 1px solid #2a5a45; padding: 12px; display: flex; align-items: center; gap: 12px; min-width: 0; }
+.stat-card-ring { width: 56px; height: 56px; border-radius: 50%; border: 5px solid #7ee0a8; display: grid; place-items: center; font-size: 0.82rem; font-weight: 800; color: #7ee0a8; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.stat-card-text { min-width: 0; }
+.stat-card-text b { display: block; font-size: 0.9rem; color: #eaf2ee; overflow-wrap: anywhere; }
+.stat-card-text span { font-size: 0.74rem; color: #8ba299; }
+.share-photo { border-radius: 10px; overflow: hidden; background: #0c1310; }
+.share-photo.ig-photo { margin: 0; aspect-ratio: auto; cursor: default; }
+.share-photo img { width: 100%; max-height: 260px; object-fit: cover; display: block; }
+.share-photo-add { min-height: 110px; width: 100%; border: 1px dashed #2c5a48; color: #8ba299; font: inherit; font-size: 0.8rem; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; }
+.share-seg { display: flex; gap: 6px; }
+.share-seg-btn { flex: 1; min-width: 0; height: 40px; border-radius: 9px; border: 1px solid #1e2b24; background: #0f1613; color: #8ba299; font: inherit; font-size: 0.78rem; display: inline-flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer; white-space: nowrap; overflow: hidden; }
+.share-seg-btn.is-on { border-color: #7ee0a8; color: #7ee0a8; }
+.share-seg-btn .ic { width: 15px; height: 15px; flex: 0 0 auto; }
+.share-chips { margin-top: 0; }
+.share-caption { width: 100%; min-height: 64px; border-radius: 10px; background: #0a100d; border: 1px solid #1e2b24; color: #eaf2ee; padding: 8px; font: inherit; font-size: 0.84rem; line-height: 1.4; resize: none; box-sizing: border-box; }
+.share-caption::placeholder { color: #5f7369; }
+.share-vis { font-size: 0.72rem; color: #5f7369; }
+.share-cta { width: 100%; height: 44px; border: none; border-radius: 12px; background: #7ee0a8; color: #06231a; font: inherit; font-weight: 700; font-size: 0.86rem; cursor: pointer; }
+.share-cta[disabled] { opacity: 0.6; cursor: default; }
+.share-hint { margin: 0; font-size: 0.7rem; color: #5f7369; text-align: center; }
+/* Activity item: share control sits right, before the trash. */
+.act-share { margin-left: auto; color: #7ee0a8; gap: 5px; }
+.act-share svg { width: 16px; height: 16px; }
+.act-share.is-on { font-weight: 600; }
+.act-share ~ .act-del { margin-left: 8px; }
+/* Finished tile: "Photo or note" + "Share" share one 32px row. */
+.wt-row2 { display: flex; gap: 5px; min-width: 0; }
+.wt-row2 .wt-note-btn { flex: 1 1 0; min-width: 0; padding: 0 4px; font-size: 0.68rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wt-share-btn svg { width: 14px; height: 14px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.wt-share-btn.is-on { background: #0c1310; border-color: #2a5a45; }
+/* Feed card: the stat card takes the media slot; the header says which world it came from. */
+.ig-statcard { margin: 0 14px; }
+.ig-world-from { color: #7ee0a8; }

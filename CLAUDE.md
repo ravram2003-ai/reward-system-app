@@ -82,18 +82,18 @@ repeat them and the app stays consistent.
 - **Own profile** opens the public self-view ("what others see") with a **Settings**
   button top-right (→ the Profile & privacy edit form). Follow/Message are hidden on your
   own profile.
-- **Feed = Friends + Discover.** Friends = people you follow/are friends with + your
-  communities. Discover = recent **public** posts from accounts you do NOT follow, ranked
-  by overlap with your tracked categories. (Onboarding suggestions fall back to popular
-  when nothing matches; the main Discover feed stays strict.)
+- **Feed = deliberate shared posts only** (a post needs a caption and/or photo; a bare log never
+  reaches the Feed). Friends = shared posts from people you follow + you; Discover = public shared
+  posts from accounts you don't follow (ranking unchanged). (Onboarding suggestions fall back to
+  popular when nothing matches; the main Discover feed stays strict.)
 - **Bell vs Chats:** the bell is for social activity ABOUT you (likes, comments, friend
   requests/accepts, kudos). **Direct messages go to Chats only — never the bell.**
 - **Add Entry:** the submit button sits at the **bottom** of the form and reads
   **"Post <rule>"**. Entries can include an optional photo + caption.
-- **What counts as a post / where text posts appear:** A post needs a photo OR a caption. Profile
-  "Recent posts" shows PHOTO posts only. The Feed and community feeds show photo + caption text
-  posts; a bare log (no photo, no caption) is activity — it updates points and shows as a compact
-  activity line, not a full post.
+- **What counts as a post:** Logs live in each world's Activity. A Feed post is a deliberate share
+  (Share to Feed from Activity / the tile, or "Also share to Feed" in the composer) with caption
+  and/or photo; Share to Feed creates a new post with its own thread (Activity comments never
+  leak). Profile "Recent posts" = photo posts.
 - **Onboarding (4 steps, shown once via `profiles.onboarding_completed`):** Welcome →
   Create profile (name, photo, public/private) → interests (popular + niche + add-your-own
   + level + how-you-stay-on-track) → AI picks (a generated personal system + public

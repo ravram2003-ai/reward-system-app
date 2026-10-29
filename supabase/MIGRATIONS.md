@@ -218,6 +218,25 @@ you know what's live in production.
   database update" — in place of the message box; likes/comments/photos are disabled, never silent.
   The client probes `posts.kind` once per session and only then selects the new columns.
 
+- [ ] **33. share-to-feed.sql** — the main Feed becomes deliberate posts only. Adds
+  `posts.shared_from` (→ posts, on delete set null) + a unique partial index (one share per source
+  per author) and `share_to_feed(p_src, p_caption, p_photo_path, p_snapshot)` (SECURITY DEFINER,
+  authenticated only: caller must be the source's author; requires a caption and/or photo — a stat
+  card alone is not a post; inserts a NEW `kind = 'post'` row with ONE profile target and
+  `activity` = the source's items + the stat-card snapshot; a repeat returns the existing post; the
+  source can't itself be on the Feed; the photo must be the author's own `personal/<uid>/…` copy) and
+  a `post_targets` guard: a profile target needs a caption and/or photo (a bare log can never reach the
+  Feed, by any client).
+  Storage: `can_read_photo_via_post()` + policy "entry photos read via post" — an entry-photos object
+  referenced by a post the caller `can_view_post` is readable (the Feed post's photo is a CLIENT-MADE
+  COPY under `personal/<uid>/…`; the members-only Activity original stays private). This also fixes
+  "+" composer photos (always under `personal/<uid>`) for followers. Discover: `discover_posts()` —
+  public SHARED posts from accounts you don't follow (same gates + ranking shape as `discover_feed`);
+  the client falls back to the entries-based `discover_feed` until this runs. *(after #32 community-activity —
+  run that first; it adds `posts.kind`)*.
+  **Until this runs:** "Share to Feed" shows "Sharing needs a database update"; the Feed's new rules
+  (shared posts only) apply regardless. The client probes `posts.shared_from` once per session.
+
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).
   Deployed slug is **`bright-api`** (NOT `generate-rules` — the slug and the folder differ).

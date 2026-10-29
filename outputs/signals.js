@@ -1040,7 +1040,25 @@
     } catch (e) { return false; }
   }
   function activitySchemaState() { return activitySchema; }
-  function postCols() { return POST_COLS + (activitySchema ? ACTIVITY_COLS : ""); }
+  // Share to Feed (share-to-feed.sql, #33): posts.shared_from — probed the same way, on its own, so
+  // either migration can be live without the other.
+  var SHARE_COLS = ", shared_from";
+  var shareSchema = null;
+  async function probeShareSchema() {
+    if (shareSchema !== null) return shareSchema;
+    var sb = getClient();
+    if (!sb) return false;
+    try {
+      var res = await sb.from("posts").select("shared_from").limit(1);
+      if (!res.error) { shareSchema = true; return true; }
+      var code = String(res.error.code || "");
+      var msg = String(res.error.message || "").toLowerCase();
+      if (code === "42703" || code === "42P01" || code === "PGRST204" || /does not exist|schema cache|could not find/.test(msg)) shareSchema = false;
+      return false;
+    } catch (e) { return false; }
+  }
+  function shareSchemaState() { return shareSchema; }
+  function postCols() { return POST_COLS + (activitySchema ? ACTIVITY_COLS : "") + (shareSchema ? SHARE_COLS : ""); }
 
   // Posts in a set of communities (the community / world feed). Returns [{post, communityId, points}].
   async function fetchCommunityPosts(communityIds, limit) {
@@ -1048,9 +1066,10 @@
     var ids = Array.isArray(communityIds) ? communityIds.filter(function (x) { return x && UUID_RE.test(String(x)); }) : [];
     if (!sb || !ids.length) return [];
     await probeActivitySchema();
+    await probeShareSchema();
     try {
       var res = await sb.from("post_targets")
-        .select("points, target_id, created_at, posts!inner(" + postCols() + ")")
+        .select("points, target_id, created_at, posts!inner(" + postCols() + ", post_targets(target_type))")
         .eq("target_type", "community").in("target_id", ids)
         .order("created_at", { ascending: false }).limit(limit || 60);
       if (res.error) return [];
@@ -1068,9 +1087,10 @@
     var ids = Array.isArray(authorIds) ? authorIds.filter(function (x) { return x && UUID_RE.test(String(x)); }) : [];
     if (!sb || !ids.length) return [];
     await probeActivitySchema();
+    await probeShareSchema();
     try {
       var res = await sb.from("post_targets")
-        .select("points, target_id, created_at, posts!inner(" + postCols() + ")")
+        .select("points, target_id, created_at, posts!inner(" + postCols() + ", post_targets(target_type))")
         .eq("target_type", "profile").in("target_id", ids)
         .order("created_at", { ascending: false }).limit(limit || 40);
       if (res.error) return [];
@@ -1086,9 +1106,10 @@
     var sb = getClient();
     if (!sb || !UUID_RE.test(String(userId))) return [];
     await probeActivitySchema();
+    await probeShareSchema();
     try {
       var res = await sb.from("post_targets")
-        .select("points, target_id, created_at, posts!inner(" + postCols() + ")")
+        .select("points, target_id, created_at, posts!inner(" + postCols() + ", post_targets(target_type))")
         .eq("target_type", "profile").eq("target_id", userId)
         .order("created_at", { ascending: false }).limit(limit || 30);
       if (res.error) return [];
@@ -1106,6 +1127,7 @@
     var sb = getClient();
     if (!sb || !UUID_RE.test(String(postId))) return null;
     await probeActivitySchema();
+    await probeShareSchema();
     try {
       var res = await sb.from("posts")
         .select(postCols() + ", post_targets(target_type, target_id, points)")
@@ -1126,6 +1148,38 @@
       if (res.error) return { error: res.error };
       return { error: null, id: res.data || null };
     } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
+  }
+
+  // ── Share to Feed (share-to-feed.sql, #33) ──
+  // A NEW Feed post made from one of MY Activity posts: author-only, needs a caption and/or photo
+  // (the RPC enforces it too), one profile target, its own thread. A repeat returns the same post.
+  async function shareToFeed(srcId, caption, photoPath, snapshot) {
+    var sb = getClient();
+    if (!sb || !UUID_RE.test(String(srcId))) return { error: { message: "Couldn't share that." } };
+    try {
+      var res = await sb.rpc("share_to_feed", {
+        p_src: srcId,
+        p_caption: caption == null ? null : String(caption),
+        p_photo_path: photoPath ? String(photoPath) : null,
+        p_snapshot: snapshot || null
+      });
+      if (res.error) return { error: res.error };   // keeps .code so a not-yet-run migration is diagnosable
+      return { error: null, id: res.data || null };
+    } catch (e) { return { error: { message: "Couldn't reach the server." } }; }
+  }
+
+  // Copy an entry photo to a new object under `toFolder` (the Feed post's own copy, so the
+  // members-only Activity original stays private). Same name shape as uploadEntryPhoto.
+  async function copyEntryPhoto(fromPath, toFolder) {
+    var sb = getClient();
+    if (!sb || !sb.storage || !fromPath || !toFolder) return { error: { message: "Couldn't copy the photo." } };
+    try {
+      var ext = String(fromPath).indexOf(".") > -1 ? String(fromPath).split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "") : "jpg";
+      var to = String(toFolder).replace(/\/+$/, "") + "/" + Date.now() + "-" + Math.random().toString(36).slice(2, 8) + "." + (ext || "jpg");
+      var res = await sb.storage.from("entry-photos").copy(String(fromPath), to);
+      if (res.error) return { error: { message: res.error.message || "Couldn't copy the photo." } };
+      return { error: null, path: to };
+    } catch (e) { return { error: { message: "Couldn't copy the photo." } }; }
   }
 
   // Set / change MY post's caption or photo ("posts update own" RLS is the guard). Only the keys
@@ -1557,6 +1611,23 @@
     } catch (e) {
       return [];
     }
+  }
+
+  // Discover = public SHARED posts (share-to-feed.sql discover_posts). Returns { error, rows }: the
+  // error keeps its PostgREST code so the client can fall back to the entries-based Discover until
+  // the migration runs.
+  async function discoverPosts(categories, since, maxRows) {
+    var sb = getClient();
+    if (!sb) return { error: { message: "offline" }, rows: [] };
+    try {
+      var res = await sb.rpc("discover_posts", {
+        categories: Array.isArray(categories) ? categories : [],
+        since: since || null,
+        max_rows: maxRows || 30
+      });
+      if (res.error) return { error: res.error, rows: [] };
+      return { error: null, rows: res.data || [] };
+    } catch (e) { return { error: { message: "Couldn't reach the server." }, rows: [] }; }
   }
 
   // Follow a PUBLIC account (one-directional, instant). Idempotent server-side
@@ -2071,6 +2142,10 @@
     updatePost: updatePost,
     probeActivitySchema: probeActivitySchema,
     activitySchemaState: activitySchemaState,
+    probeShareSchema: probeShareSchema,
+    shareSchemaState: shareSchemaState,
+    shareToFeed: shareToFeed,
+    copyEntryPhoto: copyEntryPhoto,
     likePost: likePost,
     unlikePost: unlikePost,
     getPostsSocial: getPostsSocial,
@@ -2103,6 +2178,7 @@
     markNotificationsRead: markNotificationsRead,
     subscribeNotifications: subscribeNotifications,
     discoverFeed: discoverFeed,
+    discoverPosts: discoverPosts,
     followUser: followUser,
     unfollowUser: unfollowUser,
     getProfileOverview: getProfileOverview,

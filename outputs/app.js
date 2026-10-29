@@ -3330,6 +3330,7 @@
       "quickCheckinCard",
       "communityComposer",
       "communityComposerPhoto",
+      "shareSheetPhoto",
       "communityCompetePanel",
       "communityMembersPanel",
       "communityCompeteHub",
@@ -3866,7 +3867,7 @@
       const st = window.history.state;
       // A sheet entry left behind by a navigation that closed the sheet silently is consumed by
       // the new screen, so Back never lands on a dead duplicate of Worlds.
-      const orphanSheet = !!(st && st.sheet === "wt-checkin" && !worldsSheet);
+      const orphanSheet = !!(st && ((st.sheet === "wt-checkin" && !worldsSheet) || (st.sheet === "share" && !shareSheet)));
       if (!st || !st.pw || orphanSheet) window.history.replaceState({ pw: snap }, "");
       else window.history.pushState({ pw: snap }, "");
     } catch (e) { /* a sandboxed host can refuse; the on-screen Back still works */ }
@@ -3874,6 +3875,7 @@
   window.addEventListener("popstate", (e) => {
     // Hardware Back with the check-in sheet open closes the sheet (its own history entry).
     if (worldsSheet) closeWorldsCheckinSheet({ fromPop: true });
+    if (shareSheet) closeShareSheet({ fromPop: true });
     const snap = e.state && e.state.pw;
     if (!snap || !snap.view) return;
     navHistorySuppress = true;
@@ -3891,6 +3893,7 @@
     // An open post overlay floats over the current screen; a navigation that changed the view dismisses it
     // (background re-renders that keep the same view leave it intact). Tap-out/X/swipe/Esc close it directly.
     if (postOverlayItem && state.activeView !== postOverlayOpenView) closePostOverlay();
+    if (shareSheet && state.activeView !== shareSheet.openView) closeShareSheet({ silent: true });
     if (worldsSheet && state.activeView !== worldsSheet.openView) closeWorldsCheckinSheet({ silent: true });
     renderChrome();
     syncNavHistory();
@@ -4294,7 +4297,7 @@
       caption: "",
       file: null,
       previewUrl: "",
-      isShared: false,  // DEFAULT = quiet log. Turn "Share as a post" ON to reveal photo+caption.
+      isShared: false,  // DEFAULT = off. "Also share to Feed" ON adds the profile target (a public thread).
       parsed: false,
       parsedCaption: "",
       activity: [],     // [{_id,label,emoji,amount,unit,isYesNo,srcContextType,srcContextId,srcRuleId}]
@@ -4313,6 +4316,7 @@
     var signedIn = !!(state.account && state.account.userId);
     if (!hasWorlds && !signedIn) { showToast("Create a reward system first"); return; }
     resetPostComposer();
+    recomputePostComposerTargets();   // the profile target exists from the start (a caption-only Feed post needs it)
     state.activeView = "post-composer";
     saveState();
     render();
@@ -4605,12 +4609,12 @@
   function postComposerCanPublish() {
     if (!postComposer) return false;
     var hasActivity = (postComposer.activity || []).length > 0;
-    // Log mode: you need at least one activity to log (a bare log needs no caption/photo).
-    if (postComposer.isShared !== true) return hasActivity;
-    // Post mode: a real post needs a photo, caption, or activity.
     var hasCaption = !!String(postComposer.caption || "").trim();
     var hasPhoto = !!postComposer.file;
-    return hasCaption || hasPhoto || hasActivity;
+    // "Also share to Feed" ON: a Feed post needs a caption or a photo — a bare log never reaches the Feed.
+    if (postComposer.isShared === true) return hasCaption || hasPhoto;
+    // OFF: an activity logs quietly; a photo/caption (even alone) lands in the matched worlds' Activity.
+    return hasActivity || hasCaption || hasPhoto;
   }
 
   // Non-matching communities (a feed but no rule for this activity) the user could still
@@ -4636,7 +4640,7 @@
       ? `<span class="pc-avatar" style="background-image:url('${escapeHtml(avatarUrl)}')"></span>`
       : `<span class="pc-avatar pc-avatar-fallback">${escapeHtml((authorName[0] || "Y").toUpperCase())}</span>`;
 
-    // Photo attach only exists in post mode (a quiet log has no photo).
+    // Photo attach is always available: with "Also share to Feed" off it lands in the worlds' Activity.
     var photoSlot = pc.previewUrl
       ? `<div class="pc-photo has-photo"><img src="${escapeHtml(pc.previewUrl)}" alt="Post photo preview"><button type="button" class="pc-photo-remove" data-pc-photo-remove aria-label="Remove photo">×</button></div>`
       : `<button type="button" class="pc-photo pc-photo-add" data-pc-photo aria-label="Add a photo"><span class="pc-photo-cam" aria-hidden="true">${svgIcon("camera")}</span><span class="pc-photo-text">Photo</span></button>`;
@@ -4683,17 +4687,18 @@
     var onCount = worldsOn.length + (profileOn ? 1 : 0);
     var canPublish = postComposerCanPublish();
     var ptsLabel = pts > 0 ? ` · +${formatPoints(pts)} pts` : "";
+    var hasNote = !!(String(pc.caption || "").trim() || pc.file);
     var publishLabel = sharing
       ? (onCount > 0 ? `Post to ${onCount}${ptsLabel}` : "Post")
-      : `Log${ptsLabel}`;
+      : (hasNote && worldsOn.some(function (t) { return t.type === "community"; }) ? `Log + post to worlds${ptsLabel}` : `Log${ptsLabel}`);
     if (postComposerPublishing) publishLabel = sharing ? "Posting…" : "Logging…";
 
     var shareRow = `
       <button type="button" class="pc-share-row${sharing ? " is-on" : " is-off"}" data-pc-share role="switch" aria-checked="${sharing ? "true" : "false"}">
         <span class="pc-share-icon" aria-hidden="true">${sharing ? "📣" : "📝"}</span>
         <span class="pc-share-text">
-          <span class="pc-share-title">Share as a post</span>
-          <span class="pc-share-sub">${sharing ? "On · posts to your profile + the worlds below" : "Off · just logging. Turn on to add a photo + caption"}</span>
+          <span class="pc-share-title">Also share to Feed</span>
+          <span class="pc-share-sub">${sharing ? "On · also posts to your profile (the Feed) — needs a caption or photo" : "Off · counts in your worlds; a photo or caption shows in their Activity only"}</span>
         </span>
         <span class="pc-toggle" aria-hidden="true"><span class="pc-knob"></span></span>
       </button>`;
@@ -4708,7 +4713,7 @@
       </div>
 
       <div class="pc-media-row">
-        ${sharing ? photoSlot : ""}
+        ${photoSlot}
         <label class="pc-caption-wrap">
           <textarea data-pc-caption class="pc-caption" rows="${sharing ? 3 : 2}" maxlength="${POST_CAPTION_MAX}" placeholder="${sharing ? "Write a caption…" : "What did you do? e.g. leg day with the boys, 8000 steps"}">${escapeHtml(pc.caption || "")}</textarea>
           <div class="pc-caption-bar">
@@ -4734,7 +4739,7 @@
       ${shareRow}
 
       <button type="button" class="pc-publish" data-pc-publish${canPublish && !postComposerPublishing ? "" : " disabled"}>${escapeHtml(publishLabel)}</button>
-      <p class="pc-foot-note">${sharing ? "One post, many feeds — the same like/comment thread everywhere it appears." : "Just logging — counts toward your goals, nothing posted. Turn on “Share as a post” to post it."}</p>
+      <p class="pc-foot-note">${sharing ? "One public thread from the start — it shows on the Feed and as “On Feed · public” in your worlds' Activity." : "Counts toward your goals. A photo or caption is posted to those worlds' Activity — not the Feed."}</p>
     `;
   }
 
@@ -4861,7 +4866,12 @@
     view.addEventListener("input", function (event) {
       if (!postComposer) return;
       var ta = event.target.closest("[data-pc-caption]");
-      if (ta) { postComposer.caption = ta.value; return; }
+      if (ta) {
+        postComposer.caption = ta.value;
+        var pub = els.postComposerMount && els.postComposerMount.querySelector("[data-pc-publish]");
+        if (pub && !postComposerPublishing) pub.disabled = !postComposerCanPublish();   // a caption alone can publish now
+        return;
+      }
       var amt = event.target.closest("[data-pc-amt]");
       if (amt) {
         var act = (postComposer.activity || []).find(function (a) { return a._id === amt.getAttribute("data-pc-amt"); });
@@ -4935,10 +4945,28 @@
       return { ruleLabel: a.label, emoji: a.emoji || "", amount: a.amount, unit: a.unit || "" };
     });
 
-    // Upload the photo once (failure must not lose the post — publish without it). A quiet log
-    // (Share off) never carries a photo, so skip the upload entirely.
+    // Which ON destinations are actually visible (mirrors the render filter). Computed up front:
+    // with "Also share to Feed" OFF, a photo/caption becomes a post ONLY if a world is there to hold
+    // it (its Activity) — with none, the log still counts and nothing is posted.
+    var addedW = postComposer.addedWorlds || {};
+    var onTargets = (postComposer.targets || []).filter(function (t) {
+      if (!t.on) return false;
+      if (t.type === "profile") return true;
+      return t.matched || (isShared && addedW[t.key]);
+    });
+    var worldsForPost = onTargets.some(function (t) { return t.type === "community"; });
+    var personalsOn = onTargets.some(function (t) { return t.type === "personal"; });
+    var hasNote = !!caption || !!postComposer.file;
+    var wantsPost = isShared || (hasNote && worldsForPost);
+    if (!isShared && hasNote && !worldsForPost && !personalsOn) {
+      postComposerPublishing = false; renderPostComposer();
+      showToast("Add an activity so it lands in a world, or turn on Also share to Feed."); return;
+    }
+
+    // Upload the photo once (failure must not lose the post — publish without it). A personal
+    // system keeps the photo/caption on its own entry even when no post is made.
     var photoPath = "";
-    if (isShared && postComposer.file && typeof window.PointwellSignals.uploadEntryPhoto === "function") {
+    if ((wantsPost || personalsOn) && postComposer.file && typeof window.PointwellSignals.uploadEntryPhoto === "function") {
       try {
         var up = await window.PointwellSignals.uploadEntryPhoto(postComposer.file, "personal/" + uid);
         if (up.error || !up.path) showToast("Couldn't upload the photo — posting without it.");
@@ -4946,12 +4974,15 @@
       } catch (e) { showToast("Couldn't upload the photo — posting without it."); }
     }
 
-    // A quiet log (Share OFF) is COUNTS-ONLY — it never creates a posts row, so logging keeps working
-    // even if the posts tables aren't migrated. Only a real post (Share ON) creates the post + targets.
+    // A quiet log (nothing added, Feed OFF) is COUNTS-ONLY — it never creates a posts row, so logging
+    // keeps working even if the posts tables aren't migrated. A photo/caption creates the post (+ its
+    // world targets → their Activity); "Also share to Feed" adds the profile target on top.
     // The entry writes below pass postId="" for a quiet log, so post_id is omitted (never touches the column).
     var postId = "";
-    if (isShared) {
-      var created = await Promise.resolve(window.PointwellSignals.createPost(uid, caption, photoPath, activityPayload, isShared)).catch(function (e) { return { error: (e && e.code) ? e : { message: "post failed" } }; });
+    if (wantsPost) {
+      // is_shared = true whenever a post exists at all: can_view_post needs it for anyone but the author
+      // (an OFF + photo/caption post is read by the world's members in Activity).
+      var created = await Promise.resolve(window.PointwellSignals.createPost(uid, caption, photoPath, activityPayload, true)).catch(function (e) { return { error: (e && e.code) ? e : { message: "post failed" } }; });
       if (!postComposer) { postComposerPublishing = false; return; } // closed mid-publish
       if (!created || created.error || !created.post || !created.post.id) {
         postComposerPublishing = false; renderPostComposer();
@@ -4963,15 +4994,9 @@
       postId = created.post.id;
     }
 
-    // Only ON targets that are actually VISIBLE get written — mirrors the render filter so a
-    // world that was toggled on then made non-matching by an activity edit (now hidden) can't be
-    // published behind the user's back. Profile is always eligible (its own gate is in the loop).
-    var addedW = postComposer.addedWorlds || {};
-    var onTargets = (postComposer.targets || []).filter(function (t) {
-      if (!t.on) return false;
-      if (t.type === "profile") return true;
-      return t.matched || (isShared && addedW[t.key]);
-    });
+    // Only ON targets that are actually VISIBLE get written (onTargets, above) — a world that was
+    // toggled on then made non-matching by an activity edit (now hidden) can't be published behind
+    // the user's back. Profile is always eligible (its own gate is in the loop).
     var dbWork = [];
     var anyFeed = false;
 
@@ -5001,10 +5026,9 @@
           dbWork.push(Promise.resolve(pushCommunityEntryToDb(community, rule.id, "", "", postId)).catch(function () { return { error: { message: "x" } }; }));
         });
         saveCommunitySummaryForMember(community, "me");
-        // In post mode every ON community gets a feed post_target — matched ones carry points,
-        // an explicitly-added non-matching one is a pure-social share (0 points, no entries).
-        if (isShared) {
-          anyFeed = true;
+        // Every ON community gets the post's community target (→ that world's Activity) — matched
+        // ones carry points, an explicitly-added non-matching one is a pure-social share (0 points).
+        if (postId) {
           dbWork.push(Promise.resolve(window.PointwellSignals.addPostTarget(postId, "community", t.id, t.points)).catch(function () { return { error: { message: "x" } }; }));
         }
       } else {
@@ -5012,8 +5036,8 @@
         // personal WORLD detail still renders check-ins from quickEntries (it has no post_target to
         // read), so a SHARED post keeps its caption/photo on the first entry; a private log carries
         // neither. (Distinct from the community bridge, which IS retired above.)
-        var pMsg = isShared ? caption.slice(0, ENTRY_MESSAGE_MAX) : "";
-        var pPhoto = isShared ? photoPath : "";
+        var pMsg = hasNote ? caption.slice(0, ENTRY_MESSAGE_MAX) : "";
+        var pPhoto = photoPath;
         var system = (state.systems || []).find(function (s) { return s.id === t.id; });
         if (!system) return;
         var normSys = normalizeSystem(system);
@@ -5042,6 +5066,14 @@
       if (errs.length) {
         console.error("[post-first] some writes didn't sync:", errs);
         showToast(isMissingTableError(errs[0]) ? "Saved on this device — run the post-first migration to sync." : ((isShared && anyFeed ? "Posted" : "Logged") + " — but part of it didn't sync."));
+      }
+      // The new post reaches the Feed (profile target) / the worlds' Activity (community targets)
+      // through the post streams — re-read them now so it shows without a reload.
+      if (postId) {
+        Promise.all([loadCommunityPosts(), loadMyProfilePosts()]).then(function () {
+          if (state.activeView === "feed") renderActiveFeed();
+          else if (state.activeView === "community-detail") renderCommunityDetail();
+        }).catch(function () {});
       }
     }).catch(function () {});
 
@@ -5582,6 +5614,8 @@
       communityActivityByCommunity[cid] = (communityActivityByCommunity[cid] || []).filter((it) => String(it.entry.id) !== id);
     });
     followedPostItems = (followedPostItems || []).filter((it) => String(it.entry.id) !== id);
+    myProfilePostItems = (myProfilePostItems || []).filter((it) => String(it.entry.id) !== id);
+    Object.keys(mySharedPosts).forEach((src) => { if (String(mySharedPosts[src]) === id) delete mySharedPosts[src]; });
     profilePostItemCache.delete(id);
     feedItems = (feedItems || []).filter((it) => String(it.entry.id) !== id);
     if (profileOverview && Array.isArray(profileOverview.posts)) {
@@ -7890,6 +7924,10 @@
     if (wtNote) { const tl = worldTileFromKey(wtNote.dataset.wtNote); if (tl) openWorldActivity(tl.id, { compose: true }); return; }
     const wtAct = t.closest("[data-wt-activity]");
     if (wtAct) { const tl = worldTileFromKey(wtAct.dataset.wtActivity); if (tl) openWorldActivity(tl.id, { postId: wtAct.dataset.wtPost || "" }); return; }
+    const wtShare = t.closest("[data-wt-share]");
+    if (wtShare) { openShareSheetForTile(wtShare.dataset.wtShare); return; }
+    const wtOnFeed = t.closest("[data-wt-onfeed]");
+    if (wtOnFeed) { openFeedPostOverlay(wtOnFeed.dataset.wtOnfeed); return; }
     const wtMore = t.closest("[data-wt-more]");
     if (wtMore) { worldsListMore(wtMore); return; }
     // Recap chips: the body opens/closes the chip in place; ✕ on an entry deletes exactly that
@@ -10797,15 +10835,26 @@
       return;
     }
     let rows = [];
+    let usedPosts = false;   // Discover = public SHARED posts (discover_posts, #33); entries-based until it runs
     discoverLoadFailed = false;
     try {
-      rows = await window.PointwellSignals.discoverFeed(callerDiscoverCategories(), null, 30);
+      const S = window.PointwellSignals;
+      if (typeof S.discoverPosts === "function") {
+        const r = await S.discoverPosts(callerDiscoverCategories(), null, 30);
+        if (r && !r.error) { rows = r.rows || []; usedPosts = true; }
+        else if (!(r && r.error && (isMissingTableError(r.error) || String(r.error.code || "").toUpperCase() === "PGRST202" || /could not find the function/i.test(String(r.error.message || ""))))) {
+          discoverLoadFailed = true;
+        }
+      }
+      if (!usedPosts && !discoverLoadFailed) rows = await S.discoverFeed(callerDiscoverCategories(), null, 30);
     } catch (error) {
       rows = [];
       discoverLoadFailed = true;   // stays "loaded" so we don't retry in a loop; the user can
     }
     discoverFeedRows = Array.isArray(rows) ? rows : [];
-    discoverFeedItems = discoverFeedRows.map(mapDiscoverRowToItem).filter(Boolean);
+    discoverFeedItems = usedPosts
+      ? discoverFeedRows.map(mapDiscoverPostToItem).filter(Boolean)
+      : discoverFeedRows.map(mapDiscoverRowToItem).filter(Boolean);
     discoverLoading = false;
     discoverLoaded = true;
     if (state.activeView === "feed" && currentFeedTab() === "discover") renderActiveFeed();
@@ -10845,6 +10894,27 @@
       when: row.updated_at || "",
       discover: { authorId: authorId, reason: reason, matched: matched, following: false, score: numberOrDefault(row.score, 0) }
     };
+  }
+
+  // A discover_posts row (a public profile's SHARED post) → the same item shape, through
+  // buildFeedItemForPost so the card, its stat card, likes and comments all work unchanged.
+  function mapDiscoverPostToItem(row) {
+    if (!row || !row.post_id) return null;
+    const authorId = String(row.author_user || "");
+    const post = { id: row.post_id, author_user: authorId, caption: row.caption || null, photo_path: row.photo_path || null, activity: Array.isArray(row.activity) ? row.activity : [], is_shared: true, created_at: row.created_at || "", kind: "post" };
+    const item = buildFeedItemForPost(post, { name: row.author_name || "Member", avatarUrl: row.author_avatar_url || "" }, { communityId: null, points: 0 });
+    if (!item) return null;
+    item.member.handle = row.author_handle || "";
+    const matched = row.matched_category ? String(row.matched_category).trim() : "";
+    const sets = discoverCallerCatSets();
+    let reason = "Suggested for you";
+    if (matched) {
+      if (sets.system.has(matched)) reason = `Like your ${matched} system`;
+      else if (sets.community.has(matched)) reason = `Popular in ${matched}`;
+      else reason = `Matches your ${matched}`;
+    }
+    item.discover = { authorId: authorId, reason: reason, matched: matched, following: false, score: numberOrDefault(row.score, 0) };
+    return item;
   }
 
   // + Follow on a Discover card — reuses the follow signal; flips to "Following" in place
@@ -10901,42 +10971,34 @@
 
   function renderCommunityFeed() {
     if (!els.communityFeed) return;
-    // Friends feed = unified POST cards (post-first) + legacy streams, deduped to ONE card per post.
-    // PRIORITY order matters: post-kind streams FIRST so a post that fans out to a community AND the
-    // author's profile collapses to its richest card (the community card carries the points), and the
-    // legacy bridge/profile variant is the one dropped.
-    const communityPostItems = [];
-    Object.keys(communityPostsByCommunity).forEach((cid) => {
-      (communityPostsByCommunity[cid] || []).forEach((it) => communityPostItems.push(it));
-    });
-    const followedPosts = followedPostItems || []; // unified posts to followed profiles
-    // Legacy: pre-Phase-2 community bare-activity (no backing post) + the frozen profile_posts archive.
-    const legacyCommunityItems = (state.communityEntries || []).filter((e) => !e.postId).map(buildFeedItemForEntry).filter(Boolean);
+    // Friends = deliberate SHARED posts only (CLAUDE.md): posts with a PROFILE target from people I
+    // follow + my own, plus the frozen legacy profile_posts archive. Logs live in each world's
+    // Activity — no community-target posts and no bare-log lines/bundles here any more.
+    const followedPosts = followedPostItems || [];
+    const myPosts = myProfilePostItems || [];
     const legacyProfileItems = (feedProfilePosts || []).map((p) => buildFeedItemForProfilePost(p, profilePostAuthors[p.user_id])).filter(Boolean);
     const seen = new Set();
-    const rawItems = communityPostItems
-      .concat(followedPosts, legacyCommunityItems, legacyProfileItems)
+    const rawItems = myPosts
+      .concat(followedPosts, legacyProfileItems)
+      .filter((it) => !!(it.entry && (it.entry.photoPath || (it.entry.message && String(it.entry.message).trim()))))   // words and/or a photo — never a bare log
       .filter((it) => {
         const k = (it.entry && (it.entry.postId || it.entry.id)) || "";
         if (!k) return true;
         if (seen.has(k)) return false;
         seen.add(k); return true;
-      });
-    // Display layer: drop device-only syncs, collapse multi-world credit, bundle a session
-    // into one card. Runs BEFORE the slice so a bundle counts as the single item it renders as.
-    feedItems = bundleFeedItems(rawItems).slice(0, 20);
+      })
+      .sort((a, b) => String(b.when || "").localeCompare(String(a.when || "")));
+    feedItems = rawItems.slice(0, 20);
 
-    // Never render nothing: a brand-new user's default tab used to be blank. The empty state
-    // names the two things that fill it.
-    setFeedCount(feedItems.length ? plural(feedItems.length, "update") : "");
+    setFeedCount(feedItems.length ? plural(feedItems.length, "post") : "");
     const drafts = captureFeedDrafts(els.communityFeed);
     els.communityFeed.hidden = false;
     els.communityFeed.innerHTML = feedItems.length
       ? `<div class="community-feed-list">${feedItems.map(renderFeedPost).join("")}</div>`
       : emptyState(
-          state.communities.length ? "Your friends' progress will land here." : "Your feed is quiet. Follow a few people or join a world and their check-ins show up here.",
+          "Only shared posts show here. Share your day from any world's Activity.",
           { label: "Find people", action: "find-friends", icon: "users" },
-          { label: "Join a world", action: "find-worlds" });
+          { label: "Open a world", action: "find-worlds" });
     bindEntryPhotos(els.communityFeed);
     bindFeedDelegation();
     restoreFeedDrafts(els.communityFeed, drafts);
@@ -11074,7 +11136,11 @@
     const rel = (window.PointwellSignals && typeof window.PointwellSignals.formatRelativeTime === "function") ? (window.PointwellSignals.formatRelativeTime(item.when, Date.now()) || "") : "";
     const relText = rel === "just now" || !rel ? (rel || "") : rel + " ago";
     // Profile posts have no community → sub is just the relative time; community posts show "Name · time".
-    const sub = [item.community ? `<button type="button" class="ig-world-link" data-feed-community="${escapeHtml(String(item.community.id))}">${escapeHtml(item.community.name)} ›</button>` : "", escapeHtml(relText)].filter(Boolean).join(" · ");
+    // A post SHARED from a world carries its stat-card snapshot in `activity` (kind 'statcard').
+    const feedActs = (entry.kind === "post" && Array.isArray(entry.activity)) ? entry.activity : [];
+    const statCard = feedActs.find((a) => a && a.kind === "statcard") || null;
+    const fromWorld = (statCard && !item.community) ? `<span class="ig-world-from">from ${escapeHtml(String(statCard.world || "a world"))}</span>` : "";
+    const sub = [item.community ? `<button type="button" class="ig-world-link" data-feed-community="${escapeHtml(String(item.community.id))}">${escapeHtml(item.community.name)} ›</button>` : fromWorld, escapeHtml(relText)].filter(Boolean).join(" · ");
     const goal = item.rule ? goalAmountForRule(item.rule) : 0;
     const milestone = goal > 0 && numberOrDefault(entry.amount, 0) >= goal;
     // A post upgraded from a wearable sync keeps a small "via Fitbit" badge.
@@ -11097,6 +11163,8 @@
     let mediaHtml = "";
     if (photoPath) {
       mediaHtml = `<div class="ig-photo" data-entry-photo="${escapeHtml(photoPath)}" role="img" aria-label="Post photo"><img alt="" loading="lazy">${carousel}</div>`;
+    } else if (statCard) {
+      mediaHtml = `<div class="ig-statcard">${renderShareStatCard(statCard)}</div>`;   // drawn from the snapshot, never an image
     } else if (message) {
       const tileColor = dayScheduleColor(entry.ruleId || entry.communityId || entryId);
       // Style B: caption with a thin vertical accent bar (bright → darker same hue), auto-height.
@@ -11119,7 +11187,7 @@
     // Progress tag in the header (rule glyph + label + signed points), e.g. "🏋️ Workout +2".
     // A unified POST has no single rule — bake its activity glyphs + per-target points into the
     // tag instead (e.g. "💪👟 +4"), so the logged activity rides along on every feed it appears in.
-    const postActs = (entry.kind === "post" && Array.isArray(entry.activity)) ? entry.activity : [];
+    const postActs = feedActs.filter((a) => !(a && a.kind === "statcard"));
     let tagHtml = "";
     if (item.rule) {
       tagHtml = `<span class="ig-tag">${ruleIconSvg(item.rule, "icon-xs")} ${escapeHtml(item.rule.label)} ${escapeHtml(formatSigned(points))}</span>`;
@@ -11156,7 +11224,7 @@
       : "";
     // Caption line — only for photo posts (text-only posts already show the caption as the media),
     // with a "… more" truncation for long captions.
-    const captionHtml = (photoPath && message)
+    const captionHtml = ((photoPath || statCard) && message)
       ? `<div class="ig-caption"><span class="ig-name">${name}</span>${captionWithMore(message, entryId)}</div>`
       : "";
     const commentsHtml = renderFeedComments(item, canSocial, social);
@@ -11361,7 +11429,9 @@
         photoPath: post.photo_path || post.photoPath || "",
         timestamp: when,
         kind: "post",
-        activity: Array.isArray(post.activity) ? post.activity : []
+        activity: Array.isArray(post.activity) ? post.activity : [],
+        sharedFrom: post.shared_from || "",
+        hasProfileTarget: Array.isArray(post.post_targets) && post.post_targets.some((t) => t && t.target_type === "profile")
       },
       community: community,
       member: { id: mine ? "me" : authorId, userId: authorId, name: name, avatarUrl: avatarUrl, color: avatarColor(name) },
@@ -11472,12 +11542,18 @@
     if (menuBtn) { toggleFeedMenu(menuBtn); return; }
     const msgBtn = event.target.closest("[data-feed-menu-msg]");
     if (msgBtn) { messageFromFeed(msgBtn); return; }
+    const actShareBtn = event.target.closest("[data-act-share]");
+    if (actShareBtn) { openShareSheetForItem(actShareBtn.dataset.actShare); return; }
+    const onFeed = event.target.closest("[data-act-open-feed]");
+    if (onFeed) { openFeedPostOverlay(onFeed.dataset.actOpenFeed); return; }
     const cDel = event.target.closest("[data-act-comment-del]");
     if (cDel) { deleteActivityComment(cDel.dataset.actItemId, cDel.dataset.actCommentDel); return; }
     const delBtn = event.target.closest("[data-feed-delete]");
     if (delBtn) {
       const delItem = feedItemById(String(delBtn.dataset.feedDelete));
-      openDeletePostConfirm(delBtn.dataset.feedDelete, delItem && delItem.activity ? activityDeleteCopy(delItem) : null);
+      let copy = delItem && delItem.activity ? activityDeleteCopy(delItem) : null;
+      if (!copy && delItem && delItem.entry && delItem.entry.sharedFrom) copy = { title: "Delete this Feed post?", body: "Your day in the world, its comments there, and your points all stay.", toast: "Post deleted" };
+      openDeletePostConfirm(delBtn.dataset.feedDelete, copy);
       return;
     }
   }
@@ -11653,6 +11729,312 @@
     render();
   }
 
+  // ── Share to Feed (feat/share-to-feed) ───────────────────────────────────────────────────
+  // The main Feed is deliberate posts only. From an Activity item of mine or the finished tile,
+  // "Share to Feed" opens this sheet: the day's chips, the note as the caption, my photo OR a stat
+  // card, and "Visible to" from my profile visibility. Posting calls share_to_feed (share-to-feed.sql):
+  // a NEW kind = 'post' row with ONE profile target and its OWN thread (Activity comments never
+  // leak), shared_from = the Activity post. A photo is COPIED to personal/<me>/… first so the
+  // members-only original stays private. No points change. Sharing twice returns the same post.
+  let shareSheet = null;                 // { src, mode: "card"|"photo", caption, file, previewUrl, error, posting, openView }
+  let myProfilePostItems = [];           // MY profile-target posts (the Friends feed = followed + me)
+  let mySharedPosts = {};                // Activity post id -> the Feed post id made from it (shared_from)
+  const SHARE_DB_NOTICE = "Sharing needs a database update — run supabase/share-to-feed.sql in Supabase.";
+
+  // My own profile-target posts: the Friends feed includes me, and shared_from tells each Activity
+  // item / tile whether its day is already on the Feed. One read; also refreshed after a share.
+  async function loadMyProfilePosts() {
+    myProfilePostItems = [];
+    mySharedPosts = {};
+    const uid = state.account && state.account.userId;
+    const S = window.PointwellSignals;
+    if (!signalsReady() || !uid || !S || typeof S.fetchProfilePostsV2 !== "function") return;
+    try {
+      const rows = (await S.fetchProfilePostsV2(uid, 40)) || [];
+      rows.forEach((r) => {
+        if (!r || !r.post || r.post.kind === "activity" || r.post.kind === "message") return;
+        const item = buildFeedItemForPost(r.post, null, { communityId: null, points: r.points });
+        if (!item) return;
+        myProfilePostItems.push(item);
+        if (r.post.shared_from) mySharedPosts[String(r.post.shared_from)] = String(r.post.id);
+      });
+    } catch (e) { /* best-effort */ }
+  }
+
+  function shareSchemaState() {
+    const S = window.PointwellSignals;
+    return (S && typeof S.shareSchemaState === "function") ? S.shareSchemaState() : null;
+  }
+  function shareDbNotice(err) {
+    if (!err) return SHARE_DB_NOTICE;
+    const code = String(err.code || "").toUpperCase();
+    const msg = String(err.message || "");
+    if (isMissingTableError(err) || code === "42703" || code === "PGRST202" || /could not find the function|share_to_feed|column .* does not exist/i.test(msg)) return SHARE_DB_NOTICE;
+    return msg || "Couldn't reach the server";
+  }
+
+  // "Visible to" comes from my profile visibility — no per-post audience picker.
+  function shareVisibilityText() {
+    return state.profile.privacy === "private"
+      ? "Visible to: approved followers (your profile is private)"
+      : "Visible to: everyone (your profile is public) · also in Discover";
+  }
+
+  // The stat-card data for a (world, day): today reads the live tile numbers (check-ins, streak,
+  // rank); an older day counts the rules logged that day. Chips ride along as labeled items.
+  function activityShareSnapshot(communityId, date, chips) {
+    const community = (state.communities || []).find((c) => c.id === communityId);
+    if (!community) return null;
+    const rules = (community.system.rules || []).map(scoring.normalizeRule);
+    const snap = { kind: "statcard", world: community.name || "World", worldId: communityId, date: date, done: 0, total: rules.length, pct: 0, streak: 0, rank: 0, size: (community.members || []).length,
+      items: (chips || []).map((c) => ({ ruleLabel: c.label || "Logged", label: c.label || "Logged", amount: numberOrDefault(c.amount, 0), unit: c.unit || "" })) };
+    if (date === getTodayKey()) {
+      const tile = buildWorldTiles().find((t) => t.type === "community" && t.id === communityId);
+      if (tile) {
+        try { const counts = worldCheckinCounts(tile); snap.done = numberOrDefault(counts.done, 0); snap.total = numberOrDefault(counts.total, rules.length); } catch (e) { /* fall through to the entry count */ }
+      }
+      try { snap.streak = coachContextStreak({ type: "community", id: communityId, community: community }); } catch (e) { snap.streak = 0; }
+      try { snap.rank = worldMyRank(community); } catch (e) { snap.rank = 0; }
+    }
+    if (!snap.done) {
+      const logged = new Set(getCommunityEntriesForMemberOnDate(communityId, "me", date).filter((e) => numberOrDefault(e.amount, 0) > 0).map((e) => e.ruleId));
+      snap.done = logged.size;
+    }
+    snap.pct = snap.total ? Math.round(100 * Math.min(snap.done, snap.total) / snap.total) : 0;
+    return snap;
+  }
+
+  // The stat card: drawn from the snapshot in the sheet AND on the Feed post (never an image).
+  function renderShareStatCard(sc) {
+    const done = numberOrDefault(sc.done, 0), total = numberOrDefault(sc.total, 0);
+    const ring = total ? `${done}/${total}` : "✓";
+    const day = sc.date === getTodayKey() ? "today" : activityDayLabel(sc.date || "");
+    const title = `${sc.world || "World"} · ${total && done >= total ? "done " + day : day}`;
+    const subs = [];
+    if (numberOrDefault(sc.streak, 0) > 0) subs.push(sc.streak + "-day streak");
+    if (numberOrDefault(sc.rank, 0) > 0) subs.push("Rank #" + sc.rank + (numberOrDefault(sc.size, 0) > 1 ? " of " + sc.size : ""));
+    if (!subs.length && total) subs.push(numberOrDefault(sc.pct, 0) + "% of check-ins");
+    return `<div class="stat-card"><span class="stat-card-ring" aria-hidden="true">${escapeHtml(ring)}</span><div class="stat-card-text"><b>${escapeHtml(title)}</b><span>${escapeHtml(subs.join(" · "))}</span></div></div>`;
+  }
+
+  // Open a Feed post in the overlay as its FEED card — from an Activity item ("On Feed") whose id may
+  // equal the Activity item's own id (a + composer post), so the plain post item is looked up first.
+  function openFeedPostOverlay(postId) {
+    const id = String(postId || "");
+    const plain = (myProfilePostItems || []).find((it) => String(it.entry.id) === id) || profilePostItemCache.get(id);
+    if (plain && !plain.activity) { openPostOverlay(plain); return; }
+    openEntryPost(id);
+  }
+
+  // Open the sheet for one of MY Activity items. A day with no anchor yet gets one first (the
+  // Feed post references it through shared_from). Already shared → open the Feed post instead.
+  async function openShareSheetForItem(itemId) {
+    const item = feedItemById(String(itemId));
+    if (!item || !item.activity || item.entry.userId !== "me") return;
+    let srcId = String(item.entry.id);
+    if (!item.activity.anchor) {
+      srcId = await activityEnsureAnchor(item);
+      if (!srcId) return;
+    }
+    if (mySharedPosts[srcId]) { showToast("Already on Feed"); openEntryPost(mySharedPosts[srcId]); return; }
+    openShareSheet({
+      id: srcId, communityId: item.activity.communityId, date: item.activity.date,
+      chips: item.activity.chips || [], texts: item.activity.texts || [], photoPath: (item.activity.photos || [])[0] || "",
+      worldName: (item.community && item.community.name) || ""
+    });
+  }
+  // From the finished tile: my day anchor for today in that world (created if missing).
+  async function openShareSheetForTile(key) {
+    const t = worldTileFromKey(key);
+    if (!t || t.type !== "community") return;
+    const today = getTodayKey();
+    let anchor = (communityActivityByCommunity[t.id] || []).find((a) => a.entry.userId === "me" && a.entry.activityAnchor && a.entry.activityDate === today);
+    if (!anchor) {
+      const uid = state.account && state.account.userId;
+      const S = window.PointwellSignals;
+      if (!signalsReady() || !uid || !S || typeof S.ensureActivityPost !== "function") { showToast("Sign in to share"); return; }
+      const res = await S.ensureActivityPost(t.id, uid, today);
+      if (!res || res.error || !res.id) { showToast(activityDbNotice(res && res.error)); return; }
+      await loadCommunityPosts();
+      anchor = (communityActivityByCommunity[t.id] || []).find((a) => String(a.entry.id) === String(res.id)) || { entry: { id: res.id, message: "", photoPath: "" } };
+    }
+    const srcId = String(anchor.entry.id);
+    if (mySharedPosts[srcId]) { showToast("Already on Feed"); openEntryPost(mySharedPosts[srcId]); return; }
+    const chips = activityDayChips(t.id, today);
+    openShareSheet({ id: srcId, communityId: t.id, date: today, chips, texts: anchor.entry.message ? [String(anchor.entry.message)] : [], photoPath: anchor.entry.photoPath || "", worldName: t.name || "" });
+  }
+  // My logged rules for (world, day) as labeled chips — the same shape buildCommunityActivity makes.
+  function activityDayChips(communityId, date) {
+    const community = (state.communities || []).find((c) => c.id === communityId);
+    if (!community) return [];
+    const ruleById = {};
+    (community.system.rules || []).map(scoring.normalizeRule).forEach((r) => { ruleById[r.id] = r; });
+    const byRule = {};
+    getCommunityEntriesForMemberOnDate(communityId, "me", date).forEach((e) => { const n = numberOrDefault(e.amount, 0); if (n > 0) byRule[e.ruleId] = (byRule[e.ruleId] || 0) + n; });
+    return Object.keys(byRule).map((rid) => {
+      const rule = ruleById[rid] || null;
+      return { icon: ruleIconSvg(rule || rid, "icon-xs"), text: entryMetricText({ ruleId: rid, amount: byRule[rid], label: rule ? rule.label : "Logged", unit: rule ? rule.unit : "" }, rule), label: rule ? rule.label : "Logged", amount: byRule[rid], unit: rule ? rule.unit : "" };
+    });
+  }
+
+  function openShareSheet(src) {
+    closeShareSheet({ silent: true });
+    shareSheet = {
+      src: src, mode: src.photoPath ? "photo" : "card", caption: (src.texts || []).join("\n"), file: null, previewUrl: "",
+      error: "", posting: false, openView: state.activeView, snapshot: activityShareSnapshot(src.communityId, src.date, src.chips)
+    };
+    if (els.shareSheetPhoto) {
+      els.shareSheetPhoto.onchange = () => {
+        const f = els.shareSheetPhoto.files && els.shareSheetPhoto.files[0];
+        els.shareSheetPhoto.value = "";
+        if (f) shareSheetChoosePhoto(f);
+      };
+    }
+    renderShareSheet();
+    try {
+      if (window.history && typeof window.history.pushState === "function") window.history.pushState({ pw: navSnapshot(), sheet: "share" }, "");
+    } catch (e) { /* sandboxed host */ }
+    document.addEventListener("keydown", onShareSheetKey);
+    setTimeout(() => { const ta = document.querySelector("[data-share-sheet] [data-share-caption]"); if (ta) { try { ta.focus({ preventScroll: true }); } catch (e) { /* ignore */ } } }, 60);
+  }
+  function closeShareSheet(opts) {
+    opts = opts || {};
+    if (!shareSheet) return;
+    if (shareSheet.previewUrl) { try { URL.revokeObjectURL(shareSheet.previewUrl); } catch (e) { /* ignore */ } }
+    shareSheet = null;
+    const back = document.querySelector("[data-share-sheet]");
+    if (back && back.parentNode) back.parentNode.removeChild(back);
+    document.removeEventListener("keydown", onShareSheetKey);
+    if (!opts.fromPop && !opts.silent) {
+      try { if (window.history && window.history.state && window.history.state.sheet === "share") window.history.back(); } catch (e) { /* ignore */ }
+    }
+  }
+  function onShareSheetKey(e) { if (e.key === "Escape" && !(shareSheet && shareSheet.posting)) closeShareSheet(); }
+
+  function renderShareSheet() {
+    const s = shareSheet;
+    if (!s) return;
+    let back = document.querySelector("[data-share-sheet]");
+    if (!back) {
+      back = document.createElement("div");
+      back.className = "post-overlay-backdrop";
+      back.setAttribute("data-share-sheet", "");
+      document.body.appendChild(back);
+      back.addEventListener("click", onShareSheetClick);
+      back.addEventListener("input", (e) => {
+        const ta = e.target.closest("[data-share-caption]");
+        if (ta && shareSheet) { shareSheet.caption = ta.value; if (shareSheet.error) { shareSheet.error = ""; const m = back.querySelector(".share-msg"); if (m) m.remove(); } }
+      });
+    }
+    const world = escapeHtml(s.src.worldName || (s.snapshot && s.snapshot.world) || "this world");
+    const hasSrcPhoto = !!s.src.photoPath;
+    const hasPhoto = !!(s.file || hasSrcPhoto);
+    const card = s.snapshot ? renderShareStatCard(s.snapshot) : "";
+    let media = "";
+    if (s.mode === "photo") {
+      if (s.previewUrl) media = `<div class="share-photo"><img src="${escapeHtml(s.previewUrl)}" alt="Your photo"></div>`;
+      else if (hasSrcPhoto) media = `<div class="ig-photo share-photo" data-entry-photo="${escapeHtml(s.src.photoPath)}" role="img" aria-label="Your photo"><img alt="" loading="lazy"></div>`;
+      else media = `<button type="button" class="share-photo share-photo-add" data-share-pick>${svgIcon("camera", "icon-sm")} Add a photo</button>`;
+    } else {
+      media = card || `<div class="share-photo share-photo-add">No stats for this day</div>`;
+    }
+    const chips = (s.src.chips || []).length ? `<div class="act-chips share-chips">${s.src.chips.map((c) => `<span class="act-chip">${c.icon || ""}${escapeHtml(c.text || c.label || "")}</span>`).join("")}</div>` : "";
+    const photoLabel = s.file ? "Your photo" : (hasSrcPhoto ? "Use your photo" : "Add photo");
+    const busy = s.posting;
+    back.innerHTML = `
+      <div class="post-overlay-sheet share-sheet" role="dialog" aria-modal="true" aria-labelledby="shareSheetTitle">
+        <div class="post-overlay-bar share-bar">
+          <span class="post-overlay-grab" aria-hidden="true"></span>
+          <b class="share-title" id="shareSheetTitle">Share to Feed</b>
+          <button type="button" class="post-overlay-close" data-share-close aria-label="Close"${busy ? " disabled" : ""}>✕</button>
+        </div>
+        <div class="post-overlay-scroll share-body">
+          <p class="share-note">A new post made from ${escapeHtml(s.src.date === getTodayKey() ? "today" : activityDayLabel(s.src.date || ""))} in <b>${world}</b>. No points change, and comments in ${world} stay in ${world}.</p>
+          ${media}
+          <div class="share-seg" role="group" aria-label="Post media">
+            <button type="button" class="share-seg-btn${s.mode === "card" ? " is-on" : ""}" data-share-mode="card" aria-pressed="${s.mode === "card" ? "true" : "false"}">Stat card</button>
+            <button type="button" class="share-seg-btn${s.mode === "photo" ? " is-on" : ""}" data-share-mode="photo" aria-pressed="${s.mode === "photo" ? "true" : "false"}">${svgIcon("camera", "icon-xs")} ${escapeHtml(photoLabel)}</button>
+          </div>
+          ${chips}
+          <textarea class="share-caption" data-share-caption rows="3" maxlength="${POST_CAPTION_MAX}" placeholder="Say something about ${escapeHtml(s.src.date === getTodayKey() ? "today" : "that day")}" aria-label="Caption">${escapeHtml(s.caption || "")}</textarea>
+          <div class="share-vis">${escapeHtml(shareVisibilityText())}</div>
+          ${s.error ? `<div class="share-msg act-msg is-err" role="alert">${escapeHtml(s.error)}</div>` : ""}
+          <button type="button" class="share-cta" data-share-post${busy ? " disabled" : ""}>${busy ? "Posting…" : "Post to Feed"}</button>
+          ${hasPhoto ? "" : `<p class="share-hint">A stat card alone isn't a post — add a caption or a photo.</p>`}
+        </div>
+      </div>`;
+    bindEntryPhotos(back);   // ✕ / backdrop / Escape / hardware Back close the sheet
+  }
+
+  function onShareSheetClick(event) {
+    const back = document.querySelector("[data-share-sheet]");
+    if (!shareSheet || !back) return;
+    if (event.target === back) { if (!shareSheet.posting) closeShareSheet(); return; }
+    const t = event.target;
+    if (t.closest("[data-share-close]")) { closeShareSheet(); return; }
+    const mode = t.closest("[data-share-mode]");
+    if (mode) {
+      const ta = back.querySelector("[data-share-caption]"); if (ta) shareSheet.caption = ta.value;
+      const want = mode.dataset.shareMode;
+      if (want === "photo" && !shareSheet.file && !shareSheet.src.photoPath) { if (els.shareSheetPhoto) els.shareSheetPhoto.click(); return; }
+      shareSheet.mode = want; renderShareSheet(); return;
+    }
+    if (t.closest("[data-share-pick]")) { if (els.shareSheetPhoto) els.shareSheetPhoto.click(); return; }
+    if (t.closest("[data-share-post]")) { const ta = back.querySelector("[data-share-caption]"); if (ta) shareSheet.caption = ta.value; submitShareSheet(); return; }
+  }
+  function shareSheetChoosePhoto(file) {
+    if (!shareSheet || !file) return;
+    if (!/^image\//i.test(file.type || "")) { showToast("That's not an image — choose a photo"); return; }
+    if (shareSheet.previewUrl) { try { URL.revokeObjectURL(shareSheet.previewUrl); } catch (e) { /* ignore */ } }
+    shareSheet.file = file;
+    shareSheet.previewUrl = URL.createObjectURL(file);
+    shareSheet.mode = "photo";
+    shareSheet.error = "";
+    renderShareSheet();
+  }
+
+  async function submitShareSheet() {
+    const s = shareSheet;
+    if (!s || s.posting) return;
+    const caption = String(s.caption || "").trim().slice(0, POST_CAPTION_MAX);
+    const usePhoto = s.mode === "photo" && (s.file || s.src.photoPath);
+    if (!caption && !usePhoto) { s.error = "Add a caption or a photo. A stat card alone isn't a post."; renderShareSheet(); return; }
+    const uid = state.account && state.account.userId;
+    const S = window.PointwellSignals;
+    if (!signalsReady() || !uid || !S || typeof S.shareToFeed !== "function") { showToast("Sign in to share"); return; }
+    s.posting = true; renderShareSheet();
+    const fail = (msg) => { throw { shareError: msg || "Couldn't share" }; };
+    let feedId = "";
+    try {
+      let photoPath = "";
+      if (usePhoto) {
+        if (s.file) {
+          const up = await S.uploadEntryPhoto(s.file, "personal/" + uid);
+          if (!up || up.error || !up.path) fail((up && up.error && up.error.message) || "Couldn't upload the photo");
+          photoPath = up.path;
+        } else {
+          // The Activity original is members-only: the Feed post gets its own copy under personal/<me>.
+          const cp = await S.copyEntryPhoto(s.src.photoPath, "personal/" + uid);
+          if (!cp || cp.error || !cp.path) fail((cp && cp.error && cp.error.message) || "Couldn't copy the photo");
+          photoPath = cp.path;
+        }
+      }
+      const res = await S.shareToFeed(s.src.id, caption, photoPath || null, s.snapshot);
+      if (!res || res.error || !res.id) fail(shareDbNotice(res && res.error));
+      feedId = String(res.id);
+    } catch (e) {
+      s.error = (e && e.shareError) || "Couldn't reach the server";
+    }
+    s.posting = false;
+    if (!feedId) { renderShareSheet(); return; }
+    mySharedPosts[s.src.id] = feedId;
+    closeShareSheet();
+    await loadMyProfilePosts();           // the Friends feed + "On Feed ✓" read from here
+    refreshActiveFeedSurface();
+    renderWorldGrid();
+    showToast("Posted to Feed", { label: "View", onClick: () => openEntryPost(feedId) });
+  }
+
   // ── Community Activity (feat/community-activity) ─────────────────────────────────────────
   // Inside a world, the Activity tab holds everything: every member's logs merged per person per
   // day, plus messages / photos / notes, with likes and comments. Members only — enforced by RLS on
@@ -11744,7 +12126,7 @@
         const rule = ruleById[rid] || null;
         const pts = rule ? scoring.calculateRule(rule, byRule[rid]).totalPoints : 0;   // the leaderboard's own math
         points += pts;
-        chips.push({ icon: ruleIconSvg(rule || rid, "icon-xs"), text: entryMetricText({ ruleId: rid, amount: byRule[rid], label: rule ? rule.label : "Logged", unit: rule ? rule.unit : "" }, rule) });
+        chips.push({ icon: ruleIconSvg(rule || rid, "icon-xs"), text: entryMetricText({ ruleId: rid, amount: byRule[rid], label: rule ? rule.label : "Logged", unit: rule ? rule.unit : "" }, rule), label: rule ? rule.label : "Logged", amount: byRule[rid], unit: rule ? rule.unit : "" });
       });
       const id = d.anchor ? String(d.anchor.entry.id) : "act:" + cid + ":" + d.userId + ":" + d.date;
       return {
@@ -11855,6 +12237,15 @@
     const canDelete = isMe && a.anchor && isDbEntryId(id) && (a.kind === "message" || hasNote);
     const delLabel = (entry.activityAnchor || entry.activityMessage) ? (a.kind === "message" ? "Delete message" : "Delete note") : "Delete post";
     const delBtn = canDelete ? `<button type="button" class="act-btn act-del" data-feed-delete="${escapeHtml(id)}" aria-label="${delLabel}">${svgIcon("trash", "icon-xs")}</button>` : "";
+    // Share to Feed (mine only): already shared → "On Feed ✓" opens the Feed post; a + composer post
+    // that also went to my profile is one public thread already → "On Feed · public".
+    let shareBtn = "";
+    if (isMe && canReact) {
+      const feedId = mySharedPosts[id] || "";
+      if (feedId) shareBtn = `<button type="button" class="act-btn act-share is-on" data-act-open-feed="${escapeHtml(feedId)}" aria-label="Open the Feed post">On Feed ✓</button>`;
+      else if (entry.hasProfileTarget) shareBtn = `<button type="button" class="act-btn act-share is-on" data-act-open-feed="${escapeHtml(id)}" aria-label="Open the Feed post">On Feed · public</button>`;
+      else shareBtn = `<button type="button" class="act-btn act-share" data-act-share="${escapeHtml(id)}">${FEED_SHARE_SVG}Share to Feed</button>`;
+    }
     return `
       <article class="act-item${a.kind === "message" ? " is-message" : ""}${activityHighlightId === id ? " is-highlight" : ""}" data-feed-entry="${escapeHtml(id)}" data-act-item="1">
         <div class="act-head">
@@ -11865,7 +12256,7 @@
           ${pts}
         </div>
         ${texts}${photos}${chips}
-        <div class="act-actions">${likeBtn}${commentBtn}${delBtn}</div>
+        <div class="act-actions">${likeBtn}${commentBtn}${shareBtn}${delBtn}</div>
         ${renderActivityThread(item, social, canReact)}
       </article>`;
   }
@@ -12029,7 +12420,14 @@
     const peek = c
       ? `<button type="button" class="wt-peek" data-wt-activity="${escapeHtml(key)}" data-wt-post="${escapeHtml(c.postId || "")}" aria-label="Open Activity: ${escapeHtml(c.name)} commented ${escapeHtml(c.body)}">${FEED_COMMENT_SVG}<span><b>${escapeHtml(c.name)}:</b> ${escapeHtml(c.body)}</span></button>`
       : "";
-    return `${peek}<button type="button" class="wt-note-btn" data-wt-note="${escapeHtml(key)}">${svgIcon("camera", "icon-xs")}Photo or note</button>`;
+    const today = getTodayKey();
+    const anchor = t && (communityActivityByCommunity[t.id] || []).find((a) => a.entry.userId === "me" && a.entry.activityAnchor && a.entry.activityDate === today);
+    const feedId = anchor ? (mySharedPosts[String(anchor.entry.id)] || "") : "";
+    const share = feedId
+      ? `<button type="button" class="wt-note-btn wt-share-btn is-on" data-wt-onfeed="${escapeHtml(feedId)}" aria-label="Open the Feed post">On Feed ✓</button>`
+      : `<button type="button" class="wt-note-btn wt-share-btn" data-wt-share="${escapeHtml(key)}" aria-label="Share today to the Feed">${FEED_SHARE_SVG}Share</button>`;
+    // "Photo or note" is the button's name; the medium tile fits only its short form beside Share.
+    return `${peek}<div class="wt-row2"><button type="button" class="wt-note-btn" data-wt-note="${escapeHtml(key)}" aria-label="Photo or note" title="Photo or note">${svgIcon("camera", "icon-xs")}Note</button>${share}</div>`;
   }
   // One batched read: the newest comment on each of MY day anchors today (+ legacy comments on my
   // entries today), cached for the tiles. Runs after posts load, after a bell change, after I comment.
@@ -25642,6 +26040,7 @@
     await loadContestsFromDb();   // team battles (+ future tournaments) for the Compete hub
     await loadCommunityPosts();        // unified posts in my communities (post-first model) → world feeds
     await loadFollowedProfilePosts(); // posts/profile-posts from people I follow → the Friends feed
+    await loadMyProfilePosts();       // my own shared posts → the Friends feed + "On Feed ✓" on Activity
     saveState();
     render();
   }

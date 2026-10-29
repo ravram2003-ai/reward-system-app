@@ -19,11 +19,12 @@ Do it once at desktop width and once at ~390px (phone).
 - [ ] Today: context switcher lists Communities then Personal; switching works.
 - [ ] "+" FAB opens log-an-entry (not a create-system sheet).
 - [ ] Add Entry: fields render; submit button is at the BOTTOM and reads "Post <rule>".
-- [ ] Logging an entry updates the score/standings and creates a feed post.
+- [ ] Logging an entry updates the score/standings and shows in that world's Activity — never the Feed.
 
 ## Feed
-- [ ] Friends tab shows friends'/community posts; like + comment work inline.
-- [ ] Discover tab loads (may be empty if no eligible public posts — that's expected).
+- [ ] Friends tab shows SHARED posts only (yours + people you follow); like + comment work inline. No bare logs.
+- [ ] A world's Activity → "Share to Feed" opens the share sheet; a stat card alone can't post; after sharing the item shows "On Feed ✓".
+- [ ] Discover tab loads with public shared posts (may be empty if none — that's expected).
 - [ ] Tapping a post author opens their profile.
 
 ## Profile
@@ -35,8 +36,8 @@ Do it once at desktop width and once at ~390px (phone).
 
 ## Communities
 - [ ] List shows active first, inactive collapsed behind a dropdown.
-- [ ] Open a community → leaderboard/feed; Settings has a working Leave (member) / disabled
-      (owner) option.
+- [ ] Open a community → Standings · Activity · Compete · Members; Activity shows logs per person per
+      day + the message box; Settings has a working Leave (member) / disabled (owner) option.
 
 ## Notifications
 - [ ] Bell shows likes/comments on your posts + friend requests — NOT direct messages.

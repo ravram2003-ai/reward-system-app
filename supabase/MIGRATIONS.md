@@ -217,6 +217,12 @@ you know what's live in production.
   lists everyone's logs from `community_entries` and shows ONE notice — "Comments and photos need a
   database update" — in place of the message box; likes/comments/photos are disabled, never silent.
   The client probes `posts.kind` once per session and only then selects the new columns.
+  Applied to the live project (ref `ejoccpqbozgzixrejlhd`) on 2026-10-29 via MCP. Verified live: 3 columns,
+  `ensure_activity_post` + the 3 guards + 2 bell triggers present, `posts_has_content` relaxed for
+  anchors, the 5 entry-photos policies re-declared; a non-member and anon read nothing of an anchor
+  (posts / targets / likes / comments / social RPCs / storage), `ensure_activity_post` rejects a
+  non-member caller and a non-member author, a profile target on an anchor / a kind flip / an
+  entry→anchor link all raise 23514, world photos read only by current members (+ uploader).
 
 - [ ] **33. share-to-feed.sql** — the main Feed becomes deliberate posts only. Adds
   `posts.shared_from` (→ posts, on delete set null) + a unique partial index (one share per source
@@ -236,6 +242,14 @@ you know what's live in production.
   run that first; it adds `posts.kind`)*.
   **Until this runs:** "Share to Feed" shows "Sharing needs a database update"; the Feed's new rules
   (shared posts only) apply regardless. The client probes `posts.shared_from` once per session.
+  Applied to the live project (ref `ejoccpqbozgzixrejlhd`) on 2026-10-29 via MCP. Verified live:
+  `share_to_feed` rejects a stat card alone, a whitespace caption, a world-original photo path, a
+  non-author, and a share of a Feed post; a valid share returns one profile-target post and a repeat
+  returns the same id; Activity comments stay off the Feed post; a real photo share copied the
+  original to `personal/<me>/…` — a non-member of the world reads the copy (public profile) but not
+  the original, anon reads neither object. Not run live: the private-profile case (my profile
+  visibility change was blocked by the tool's permission layer; the gate is `can_view_post` →
+  `can_view_profile`, unchanged) and the bell for a post comment (needs a second account).
 
 ## Edge functions (deploy separately, not via SQL editor)
 - `supabase functions deploy generate-rules` — AI rule generation (onboarding + Build).
